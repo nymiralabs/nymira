@@ -26,11 +26,14 @@ test-intents-account = []
 near-sdk = { workspace = true }
 zkapi-core = { workspace = true }
 nymira-near-codec = { workspace = true }
+nymira-verifier = { path = "../../crates/nymira-verifier" }
 
 [dev-dependencies]
 nymira-testkit = { path = "../../crates/nymira-testkit" }
 serde_json = "1"
 hex = "0.4"
+zkapi-types = { workspace = true }
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof", features = ["dev-setup", "dev-fixtures"] }
 near-sdk = { workspace = true, features = ["unit-testing"] }
 near-workspaces = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

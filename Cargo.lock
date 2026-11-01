@@ -2974,9 +2974,12 @@ dependencies = [
  "near-workspaces",
  "nymira-near-codec",
  "nymira-testkit",
+ "nymira-verifier",
  "serde_json",
  "tokio",
  "zkapi-core",
+ "zkapi-proof",
+ "zkapi-types",
 ]
 
 [[package]]

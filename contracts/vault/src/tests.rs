@@ -71,6 +71,8 @@ fn account(name: &str) -> AccountId {
 }
 
 fn try_new(p: Params) -> Vault {
+    // A fresh chain: the mock storage outlives `testing_env!`.
+    near_sdk::mock::with_mocked_blockchain(|b| drop(b.take_storage()));
     at(T0);
     Vault::new(
         p.operator_pk,
@@ -956,5 +958,789 @@ fn hex_words_round_trip_and_refuse_bad_text() {
         &"0".repeat(66),
     ] {
         assert_eq!(word::decode32(bad), None, "{bad}");
+    }
+}
+
+// Mutual close
+
+// The promises these calls return are scheduled when they drop, which is what the tests read.
+#[allow(unused_must_use)]
+mod close {
+    use std::sync::OnceLock;
+
+    use near_sdk::test_utils::get_created_receipts;
+    use near_sdk::{Gas, PromiseResult};
+    use nymira_near_codec::Network;
+    use nymira_testkit::proofs::{withdrawal_index as w, Bundle, ProofGen, WithdrawalKindId};
+    use zkapi_proof::dev::{DevNote, DevRequest, DevState};
+
+    use super::*;
+
+    const ALICE: &str = "alice.test";
+    const OPERATOR: &str = "operator.test";
+    const CLOSE_AT: u64 = T0 + 60;
+    const VALID_UNTIL: u64 = T0 + 3_600;
+    const CHARGE: u128 = 20_000;
+
+    fn gen() -> &'static ProofGen {
+        static GEN: OnceLock<ProofGen> = OnceLock::new();
+        GEN.get_or_init(|| ProofGen::new(Network::Testnet, VAULT).unwrap())
+    }
+
+    /// Note 0 as the vault assigns it when alice deposits 1 USDC at `T0`.
+    fn note_with(secret: u64, note_id: u32) -> DevNote {
+        DevNote {
+            secret: Felt252::from_u64(secret),
+            note_id,
+            deposit_amount: ONE,
+            expiry: end_of_utc_day(T0 + 30 * DAY).unwrap(),
+        }
+    }
+
+    fn note() -> DevNote {
+        note_with(42, 0)
+    }
+
+    /// The state after one request that charged `CHARGE`.
+    fn state(note: &DevNote) -> DevState {
+        state_with(gen(), note)
+    }
+
+    fn state_with(gen: &ProofGen, note: &DevNote) -> DevState {
+        let s0 = note.genesis(Felt252::from_u64(7));
+        gen.next_state(
+            &s0,
+            &DevRequest {
+                request_time: T0 + 10,
+                solvency_bound: 100_000,
+                request_context: Felt252::from_u64(99),
+                rerandomization: Felt252::from_u64(9),
+            },
+            CHARGE,
+            &Felt252::from_u64(17),
+        )
+        .unwrap()
+    }
+
+    /// A kind-1 proof of note 0's state, paying `ALICE`, valid until `VALID_UNTIL`.
+    fn bundle() -> &'static Bundle {
+        static BUNDLE: OnceLock<Bundle> = OnceLock::new();
+        BUNDLE.get_or_init(|| {
+            gen()
+                .withdrawal(
+                    &state(&note()),
+                    WithdrawalKindId::MutualClose,
+                    ALICE,
+                    0,
+                    VALID_UNTIL,
+                )
+                .unwrap()
+        })
+    }
+
+    /// A vault holding note 0, deposited by alice at `T0`.
+    fn funded() -> Vault {
+        let mut v = vault();
+        at(T0);
+        let msg = format!(
+            r#"{{"commitment":"{}"}}"#,
+            word::encode32(&note().registration().0)
+        );
+        assert_eq!(deposit(&mut v, ALICE, ONE + NOTE_FEE, &msg), 0);
+        v
+    }
+
+    fn call(v: &mut Vault, caller: &str, secs: u64, bundle: &Bundle) -> PromiseOrValue<()> {
+        testing_env!(context(caller, secs).build());
+        v.mutual_close(
+            Base64VecU8(bundle.proof_wire.clone()),
+            bundle
+                .inputs_wire
+                .iter()
+                .map(|word| Base64VecU8(word.to_vec()))
+                .collect(),
+        )
+    }
+
+    fn close(v: &mut Vault, caller: &str, bundle: &Bundle) -> PromiseOrValue<()> {
+        call(v, caller, CLOSE_AT, bundle)
+    }
+
+    /// One line per created receipt action: receiver, method, args, deposit, gas, gas weight.
+    fn receipts() -> String {
+        use near_sdk::mock::MockAction;
+        let mut out = String::new();
+        for receipt in get_created_receipts() {
+            for action in &receipt.actions {
+                if let MockAction::FunctionCallWeight {
+                    method_name,
+                    args,
+                    attached_deposit,
+                    prepaid_gas,
+                    gas_weight,
+                    ..
+                } = action
+                {
+                    out.push_str(&format!(
+                        "{} {} {} deposit={} gas={} weight={}\n",
+                        receipt.receiver_id,
+                        String::from_utf8_lossy(method_name),
+                        String::from_utf8_lossy(args),
+                        attached_deposit.as_yoctonear(),
+                        prepaid_gas.as_gas(),
+                        gas_weight.0
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_user_close_pays_the_whole_balance_and_books_the_spent_part() {
+        let mut v = funded();
+        let result = close(&mut v, ALICE, bundle());
+        assert!(matches!(result, PromiseOrValue::Promise(_)));
+        // The promise is scheduled when dropped.
+        drop(result);
+        let logs = get_logs();
+        assert!(logs[0].contains(r#""event":"mutual_close""#));
+        assert!(logs[0].contains(&format!(r#""amount_paid":"{}""#, ONE - CHARGE)));
+        assert!(logs[0].contains(r#""close_fee":"0""#));
+        let all = receipts();
+        let lines: Vec<&str> = all.lines().collect();
+        assert_eq!(lines.len(), 3, "{all}");
+        // Registration first (0.00125 NEAR, registration only), then the transfer, then the
+        // callback; every leg has fixed gas and no leftover-gas weight.
+        assert!(lines[0].starts_with("usdc.test storage_deposit"));
+        assert!(lines[0].contains(r#""registration_only":true"#));
+        assert!(lines[0].contains(r#""account_id":"alice.test""#));
+        assert!(lines[0].contains(&format!(
+            "deposit={REGISTRATION_DEPOSIT} gas={}",
+            10_000_000_000_000u64
+        )));
+        assert!(lines[1].starts_with("usdc.test ft_transfer"));
+        assert!(lines[1].contains(&format!(r#""amount":"{}""#, ONE - CHARGE)));
+        assert!(lines[1].contains("deposit=1 gas=20000000000000"));
+        assert!(lines[2].starts_with("vault.test on_close_payout"));
+        assert!(lines[2].contains("gas=10000000000000 weight=0"));
+        assert_eq!(v.note_status(commitment_of_note()), Some(Status::Closed));
+        assert_eq!(v.open_notes(), 0);
+        assert_eq!(v.config().current_tvl.0, 0);
+        // The note fee at deposit plus the spent part.
+        assert_eq!(v.treasury_balance().0, NOTE_FEE + CHARGE);
+        assert!(v.is_nullifier_used(word::encode32(
+            &bundle().inputs_wire[w::WITHDRAWAL_NULLIFIER]
+        )));
+        assert_counters(&v);
+    }
+
+    fn commitment_of_note() -> String {
+        word::encode32(&note().registration().0)
+    }
+
+    #[test]
+    fn the_operator_close_takes_the_close_fee_from_the_payout() {
+        let mut v = funded();
+        let _ = close(&mut v, OPERATOR, bundle());
+        let logs = get_logs();
+        assert!(logs[0].contains(&format!(r#""amount_paid":"{}""#, ONE - CHARGE - 30_000)));
+        assert!(logs[0].contains(r#""close_fee":"30000""#));
+        // Payout plus close fee plus treasury share is the deposit.
+        assert_eq!(
+            (ONE - CHARGE - 30_000) + 30_000 + (v.treasury_balance().0 - NOTE_FEE - 30_000),
+            ONE
+        );
+        assert_eq!(v.treasury_balance().0, NOTE_FEE + CHARGE + 30_000);
+    }
+
+    #[test]
+    fn a_fully_spent_note_closes_without_a_transfer() {
+        let n = note();
+        let s0 = n.genesis(Felt252::from_u64(7));
+        let spent = gen()
+            .next_state(
+                &s0,
+                &DevRequest {
+                    request_time: T0 + 10,
+                    solvency_bound: ONE,
+                    request_context: Felt252::from_u64(99),
+                    rerandomization: Felt252::from_u64(9),
+                },
+                ONE,
+                &Felt252::from_u64(17),
+            )
+            .unwrap();
+        let b = gen()
+            .withdrawal(&spent, WithdrawalKindId::MutualClose, ALICE, 0, VALID_UNTIL)
+            .unwrap();
+        let mut v = funded();
+        let result = close(&mut v, OPERATOR, &b);
+        assert!(matches!(result, PromiseOrValue::Value(())));
+        assert!(!receipts().contains("ft_transfer"));
+        assert!(get_logs()[0].contains(r#""amount_paid":"0""#));
+        assert!(get_logs()[0].contains(r#""close_fee":"0""#));
+        assert_eq!(v.treasury_balance().0, NOTE_FEE + ONE);
+    }
+
+    #[test]
+    fn the_close_fee_never_exceeds_the_balance() {
+        let n = note();
+        let s0 = n.genesis(Felt252::from_u64(7));
+        let left = 10_000u128;
+        let spent = gen()
+            .next_state(
+                &s0,
+                &DevRequest {
+                    request_time: T0 + 10,
+                    solvency_bound: ONE,
+                    request_context: Felt252::from_u64(99),
+                    rerandomization: Felt252::from_u64(9),
+                },
+                ONE - left,
+                &Felt252::from_u64(17),
+            )
+            .unwrap();
+        let b = gen()
+            .withdrawal(&spent, WithdrawalKindId::MutualClose, ALICE, 0, VALID_UNTIL)
+            .unwrap();
+        let mut v = funded();
+        let result = close(&mut v, OPERATOR, &b);
+        assert!(matches!(result, PromiseOrValue::Value(())));
+        assert!(get_logs()[0].contains(r#""close_fee":"10000""#));
+        assert_eq!(v.treasury_balance().0, NOTE_FEE + ONE);
+    }
+
+    fn assert_close_refused(message: &str, edit: impl FnOnce(&mut Vault) -> Bundle) {
+        let mut v = funded();
+        let b = edit(&mut v);
+        let status = v.note_status(commitment_of_note());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = close(&mut v, ALICE, &b);
+        }));
+        let error = result.expect_err("the close must panic");
+        let text = error
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| error.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(text.contains(message), "expected {message:?}, got {text:?}");
+        // A refused close changes nothing.
+        assert_eq!(v.note_status(commitment_of_note()), status);
+        assert_eq!(v.treasury_balance().0, NOTE_FEE);
+        if status == Some(Status::Active) {
+            assert_counters(&v);
+        }
+    }
+
+    fn forged(index: usize, word: [u8; 32]) -> Bundle {
+        bundle().with_input(index, word)
+    }
+
+    fn felt(value: u128) -> [u8; 32] {
+        Felt252::from_u128(value).0
+    }
+
+    #[test]
+    fn a_kind_other_than_one_is_refused() {
+        assert_close_refused("not a mutual close", |_| {
+            gen()
+                .withdrawal(
+                    &state(&note()),
+                    WithdrawalKindId::Escape,
+                    ALICE,
+                    0,
+                    VALID_UNTIL,
+                )
+                .unwrap()
+        });
+        assert_close_refused("not a mutual close", |_| forged(w::KIND, felt(2)));
+    }
+
+    #[test]
+    fn a_wrong_protocol_version_is_refused() {
+        assert_close_refused("wrong protocol version", |_| {
+            forged(w::PROTOCOL_VERSION, felt(3))
+        });
+    }
+
+    #[test]
+    fn a_wrong_chain_id_is_refused() {
+        assert_close_refused("wrong chain id", |_| {
+            forged(w::CHAIN_ID, felt(u128::from(chain_id(Network::Mainnet))))
+        });
+    }
+
+    #[test]
+    fn a_proof_made_for_another_vault_is_refused() {
+        assert_close_refused("wrong contract address", |_| {
+            let other = ProofGen::new(Network::Testnet, "other.test").unwrap();
+            other
+                .withdrawal(
+                    &state_with(&other, &note()),
+                    WithdrawalKindId::MutualClose,
+                    ALICE,
+                    0,
+                    VALID_UNTIL,
+                )
+                .unwrap()
+        });
+    }
+
+    #[test]
+    fn a_wrong_state_key_is_refused() {
+        let other = signing_key(9);
+        assert_close_refused("wrong state key", |_| forged(w::STATE_KEY_X, other.x.0));
+        assert_close_refused("wrong state key", |_| forged(w::STATE_KEY_Y, other.y.0));
+    }
+
+    #[test]
+    fn a_wrong_clearance_key_x_is_refused() {
+        assert_close_refused("wrong clearance key", |_| {
+            forged(w::CLEARANCE_KEY_X, signing_key(9).x.0)
+        });
+    }
+
+    #[test]
+    fn a_wrong_clearance_key_y_is_refused() {
+        assert_close_refused("wrong clearance key", |_| {
+            forged(w::CLEARANCE_KEY_Y, signing_key(9).y.0)
+        });
+    }
+
+    #[test]
+    fn a_proof_signed_with_a_different_clearance_key_is_refused() {
+        assert_close_refused("wrong clearance key", |_| {
+            gen()
+                .withdrawal_with_clearance_seed(&state(&note()), ALICE, 0, VALID_UNTIL, 9)
+                .unwrap()
+        });
+    }
+
+    #[test]
+    fn a_closed_note_cannot_close_again() {
+        assert_close_refused("note is not active", |v| {
+            v.notes.get_mut(0).unwrap().status = Status::Closed;
+            bundle().clone()
+        });
+    }
+
+    #[test]
+    fn a_swept_note_cannot_close() {
+        // A note swept by `claim_expired` is `Closed` like any other.
+        assert_close_refused("note is not active", |v| {
+            let note = v.notes.get_mut(0).unwrap();
+            note.status = Status::Closed;
+            note.leaf_retired = true;
+            bundle().clone()
+        });
+    }
+
+    #[test]
+    fn a_pending_exit_note_cannot_close() {
+        assert_close_refused("note is not active", |v| {
+            v.notes.get_mut(0).unwrap().status = Status::PendingExit;
+            bundle().clone()
+        });
+    }
+
+    #[test]
+    fn a_proof_for_an_unknown_note_is_refused() {
+        assert_close_refused("unknown note", |_| {
+            let mut fields = zkapi_core::v2::note_fields(5, ONE, note().expiry);
+            fields.0[31] ^= 0;
+            forged(w::NOTE_FIELDS, fields.0)
+        });
+    }
+
+    #[test]
+    fn forged_note_fields_are_refused() {
+        // At or above 2^224.
+        assert_close_refused("invalid noteFields", |_| {
+            let mut word = bundle().inputs_wire[w::NOTE_FIELDS];
+            word[3] = 1;
+            forged(w::NOTE_FIELDS, word)
+        });
+        // Same id, another expiry.
+        assert_close_refused("note fields do not match", |_| {
+            forged(
+                w::NOTE_FIELDS,
+                zkapi_core::v2::note_fields(0, ONE, note().expiry + 1).0,
+            )
+        });
+    }
+
+    #[test]
+    fn the_right_leaf_with_a_wrong_deposit_is_refused() {
+        assert_close_refused("note fields do not match", |_| {
+            forged(
+                w::NOTE_FIELDS,
+                zkapi_core::v2::note_fields(0, ONE + 1, note().expiry).0,
+            )
+        });
+    }
+
+    #[test]
+    fn the_right_note_id_with_a_wrong_leaf_is_refused() {
+        // A valid proof of another note (another secret) that has the same id.
+        assert_close_refused("wrong note leaf", |_| {
+            let other = note_with(43, 0);
+            gen()
+                .withdrawal(
+                    &state(&other),
+                    WithdrawalKindId::MutualClose,
+                    ALICE,
+                    0,
+                    VALID_UNTIL,
+                )
+                .unwrap()
+        });
+    }
+
+    #[test]
+    fn a_final_balance_above_the_deposit_is_refused() {
+        assert_close_refused("final balance above the deposit", |_| {
+            forged(w::FINAL_BALANCE, felt(ONE + 1))
+        });
+    }
+
+    #[test]
+    fn a_final_balance_that_is_not_a_u128_is_refused() {
+        assert_close_refused("final balance out of range", |_| {
+            let mut word = [0u8; 32];
+            word[0] = 1;
+            forged(w::FINAL_BALANCE, word)
+        });
+    }
+
+    #[test]
+    fn a_destination_other_than_the_payout_account_is_refused() {
+        assert_close_refused("destination is not the payout account", |_| {
+            gen()
+                .withdrawal(
+                    &state(&note()),
+                    WithdrawalKindId::MutualClose,
+                    "mallory.test",
+                    0,
+                    VALID_UNTIL,
+                )
+                .unwrap()
+        });
+    }
+
+    #[test]
+    fn valid_until_is_inclusive() {
+        let mut v = funded();
+        let _ = call(&mut v, ALICE, VALID_UNTIL, bundle());
+        assert_eq!(v.note_status(commitment_of_note()), Some(Status::Closed));
+    }
+
+    #[test]
+    fn one_second_after_valid_until_is_refused() {
+        let mut v = funded();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = call(&mut v, ALICE, VALID_UNTIL + 1, bundle());
+        }));
+        assert!(result.is_err());
+        assert_eq!(v.note_status(commitment_of_note()), Some(Status::Active));
+    }
+
+    #[test]
+    fn a_public_input_at_the_field_modulus_is_refused() {
+        assert_close_refused("not a canonical field element", |_| {
+            forged(w::VALID_UNTIL, SCALAR_MODULUS_BE)
+        });
+    }
+
+    #[test]
+    fn the_wrong_number_of_inputs_is_refused() {
+        let mut v = funded();
+        testing_env!(context(ALICE, CLOSE_AT).build());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            v.mutual_close(
+                Base64VecU8(bundle().proof_wire.clone()),
+                bundle()
+                    .inputs_wire
+                    .iter()
+                    .take(15)
+                    .map(|w| Base64VecU8(w.to_vec()))
+                    .collect(),
+            )
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn a_proof_that_does_not_match_the_inputs_is_refused() {
+        // A lower final balance with the proof of the higher one.
+        assert_close_refused("invalid proof", |_| {
+            forged(w::FINAL_BALANCE, felt(ONE - CHARGE - 1))
+        });
+    }
+
+    #[test]
+    fn a_spent_nullifier_is_refused_even_with_a_fresh_proof() {
+        let mut v = funded();
+        let _ = close(&mut v, ALICE, bundle());
+        // Reopen the note so only the nullifier stands in the way, then present another proof
+        // of the same state (a different random proof).
+        v.notes.get_mut(0).unwrap().status = Status::Active;
+        let again = gen()
+            .withdrawal(
+                &state(&note()),
+                WithdrawalKindId::MutualClose,
+                ALICE,
+                0,
+                VALID_UNTIL,
+            )
+            .unwrap();
+        assert_ne!(again.proof_wire, bundle().proof_wire);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = close(&mut v, ALICE, &again);
+        }));
+        assert!(result.is_err());
+        assert!(v.is_nullifier_used(word::encode32(&again.inputs_wire[w::WITHDRAWAL_NULLIFIER])));
+    }
+
+    #[test]
+    #[should_panic(expected = "not enough gas")]
+    fn too_little_prepaid_gas_panics_before_any_write() {
+        let mut v = funded();
+        let mut c = context(ALICE, CLOSE_AT);
+        c.prepaid_gas(Gas::from_tgas(109));
+        testing_env!(c.build());
+        v.mutual_close(
+            Base64VecU8(bundle().proof_wire.clone()),
+            bundle()
+                .inputs_wire
+                .iter()
+                .map(|w| Base64VecU8(w.to_vec()))
+                .collect(),
+        );
+    }
+
+    #[test]
+    fn the_nullifier_view_refuses_garbage() {
+        let v = funded();
+        assert!(!v.is_nullifier_used("garbage".to_owned()));
+        assert!(!v.is_nullifier_used(commitment(77)));
+    }
+
+    #[test]
+    fn the_protocol_version_constant_is_zkapis() {
+        assert_eq!(PROTOCOL_VERSION, zkapi_types::PROTOCOL_VERSION);
+    }
+
+    // Payout callbacks and claims
+
+    fn callback_env(predecessor: &str, result: PromiseResult) {
+        testing_env!(
+            context(predecessor, CLOSE_AT).build(),
+            near_sdk::test_vm_config(),
+            near_sdk::RuntimeFeesConfig::test(),
+            Default::default(),
+            vec![result]
+        );
+    }
+
+    fn account_id(name: &str) -> AccountId {
+        name.parse().unwrap()
+    }
+
+    #[test]
+    fn a_successful_transfer_with_junk_bytes_creates_no_pending_payout() {
+        let mut v = funded();
+        callback_env(
+            VAULT,
+            PromiseResult::Successful(b"\xde\xad\xbe\xefjunk".to_vec()),
+        );
+        v.on_close_payout(account_id(ALICE), U128(900_000), 0, commitment_of_note());
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 0);
+        assert!(get_logs().is_empty());
+    }
+
+    #[test]
+    fn a_failed_transfer_creates_exactly_one_pending_payout() {
+        let mut v = funded();
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(account_id(ALICE), U128(900_000), 0, commitment_of_note());
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 900_000);
+        let logs = get_logs();
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].contains(r#""event":"payout_pending""#));
+        assert!(logs[0].contains(r#""reason":"transfer_failed""#));
+        assert!(logs[0].contains(r#""note_id":0"#));
+    }
+
+    #[test]
+    fn a_later_failed_amount_adds_to_the_record_with_no_floor() {
+        let mut v = funded();
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(account_id(ALICE), U128(900_000), 0, commitment_of_note());
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(account_id(ALICE), U128(7), 0, commitment_of_note());
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 900_007);
+    }
+
+    #[test]
+    fn a_failed_amount_below_the_note_fee_for_a_new_account_is_dust() {
+        let mut v = funded();
+        let before = v.treasury_balance().0;
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(
+            account_id(ALICE),
+            U128(NOTE_FEE - 1),
+            0,
+            commitment_of_note(),
+        );
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 0);
+        assert_eq!(v.treasury_balance().0, before + NOTE_FEE - 1);
+        let logs = get_logs();
+        assert!(logs[0].contains(r#""event":"dust""#));
+        assert!(logs[0].contains(r#""reason":"below_note_fee""#));
+    }
+
+    #[test]
+    fn a_failed_amount_of_exactly_the_note_fee_is_a_record() {
+        let mut v = funded();
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(account_id(ALICE), U128(NOTE_FEE), 0, commitment_of_note());
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, NOTE_FEE);
+    }
+
+    #[test]
+    fn many_pending_accounts_do_not_block_a_new_one() {
+        let mut v = funded();
+        for n in 0..200 {
+            callback_env(VAULT, PromiseResult::Failed);
+            v.on_close_payout(
+                account_id(&format!("user{n}.test")),
+                U128(NOTE_FEE),
+                0,
+                commitment_of_note(),
+            );
+        }
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(account_id(ALICE), U128(900_000), 0, commitment_of_note());
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 900_000);
+        assert_eq!(v.pending_payout(account_id("user7.test")).0, NOTE_FEE);
+    }
+
+    fn with_pending(amount: u128) -> Vault {
+        let mut v = funded();
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(account_id(ALICE), U128(amount), 0, commitment_of_note());
+        v
+    }
+
+    #[test]
+    fn anyone_can_claim_a_payout_and_it_goes_to_that_account_only() {
+        let mut v = with_pending(900_000);
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_payout(account_id(ALICE));
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 0);
+        let all = receipts();
+        assert!(all.contains("ft_transfer") && all.contains("storage_deposit"));
+        assert!(all.contains("alice.test"));
+        assert!(!all.contains("stranger.test"));
+        assert!(all.contains("on_claim_payout"));
+    }
+
+    #[test]
+    #[should_panic(expected = "nothing pending")]
+    fn claiming_with_nothing_pending_panics() {
+        let mut v = funded();
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_payout(account_id(ALICE));
+    }
+
+    #[test]
+    #[should_panic(expected = "not enough gas")]
+    fn claim_payout_with_too_little_gas_panics_before_any_write() {
+        let mut v = with_pending(900_000);
+        let mut c = context("stranger.test", CLOSE_AT);
+        c.prepaid_gas(Gas::from_tgas(49));
+        testing_env!(c.build());
+        v.claim_payout(account_id(ALICE));
+    }
+
+    #[test]
+    fn a_successful_claim_emits_payout_claimed() {
+        let mut v = with_pending(900_000);
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_payout(account_id(ALICE));
+        callback_env(VAULT, PromiseResult::Successful(vec![]));
+        v.on_claim_payout(account_id(ALICE), U128(900_000));
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 0);
+        assert!(get_logs()[0].contains(r#""event":"payout_claimed""#));
+    }
+
+    #[test]
+    fn a_failed_claim_restores_the_amount_even_after_a_new_record_appeared() {
+        let mut v = with_pending(900_000);
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_payout(account_id(ALICE));
+        // While the claim is in flight, a new failed payout re-creates a record.
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_close_payout(account_id(ALICE), U128(NOTE_FEE), 0, commitment_of_note());
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_claim_payout(account_id(ALICE), U128(900_000));
+        assert_eq!(v.pending_payout(account_id(ALICE)).0, 900_000 + NOTE_FEE);
+    }
+
+    #[test]
+    fn claim_treasury_pays_the_treasury_account_only_and_zeroes_the_balance() {
+        let mut v = funded();
+        assert_eq!(v.treasury_balance().0, NOTE_FEE);
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_treasury();
+        assert_eq!(v.treasury_balance().0, 0);
+        let all = receipts();
+        assert!(all.contains("treasury.test"));
+        assert!(!all.contains("stranger.test"));
+        assert!(all.contains("on_claim_treasury"));
+    }
+
+    #[test]
+    #[should_panic(expected = "the treasury balance is empty")]
+    fn claim_treasury_on_an_empty_balance_panics() {
+        let mut v = vault();
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_treasury();
+    }
+
+    #[test]
+    #[should_panic(expected = "not enough gas")]
+    fn claim_treasury_with_too_little_gas_panics_before_any_write() {
+        let mut v = funded();
+        let mut c = context("stranger.test", CLOSE_AT);
+        c.prepaid_gas(Gas::from_tgas(49));
+        testing_env!(c.build());
+        v.claim_treasury();
+    }
+
+    #[test]
+    fn a_failed_treasury_transfer_restores_the_balance_with_fees_that_accrued() {
+        let mut v = funded();
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_treasury();
+        // A fee accrues while the transfer is in flight.
+        at(T0 + 5);
+        let msg = format!(r#"{{"commitment":"{}"}}"#, commitment(900));
+        assert_eq!(deposit(&mut v, ALICE, ONE + NOTE_FEE, &msg), 0);
+        callback_env(VAULT, PromiseResult::Failed);
+        v.on_claim_treasury(U128(NOTE_FEE));
+        assert_eq!(v.treasury_balance().0, 2 * NOTE_FEE);
+    }
+
+    #[test]
+    fn a_successful_treasury_claim_emits_treasury_claimed() {
+        let mut v = funded();
+        testing_env!(context("stranger.test", CLOSE_AT).build());
+        v.claim_treasury();
+        callback_env(VAULT, PromiseResult::Successful(vec![]));
+        v.on_claim_treasury(U128(NOTE_FEE));
+        assert!(get_logs()[0].contains(r#""event":"treasury_claimed""#));
+        assert_eq!(v.treasury_balance().0, 0);
     }
 }
