@@ -538,6 +538,7 @@ impl Vault {
         let deposit = note.deposit_amount;
         self.nullifiers.insert(nullifier);
         self.notes.get_mut(note_id).expect("note exists").status = Status::Closed;
+        // `note_fee` is fixed at `new()`, so this is what the deposit added to `tvl`.
         self.tvl -= deposit + self.note_fee;
         self.open_notes -= 1;
         let close_fee = if env::predecessor_account_id() == self.operator_account {
@@ -558,14 +559,14 @@ impl Vault {
         if payout == 0 {
             return PromiseOrValue::Value(());
         }
-        PromiseOrValue::Promise(
-            self.payout(&account, payout).then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(GAS_CALLBACK)
-                    .with_unused_gas_weight(0)
-                    .on_close_payout(account, U128(payout), note_id, word_hex(&commitment)),
+        PromiseOrValue::Promise(self.payout(&account, payout).then(
+            Self::callback().on_close_payout(
+                account,
+                U128(payout),
+                note_id,
+                word::encode32(&commitment),
             ),
-        )
+        ))
     }
 
     /// Pays the pending payout of `account_id`, to that account only. Anyone may call it.
@@ -578,12 +579,8 @@ impl Vault {
             .pending_payouts
             .remove(&account_id)
             .unwrap_or_else(|| env::panic_str("nothing pending for this account"));
-        self.payout(&account_id, amount).then(
-            Self::ext(env::current_account_id())
-                .with_static_gas(GAS_CALLBACK)
-                .with_unused_gas_weight(0)
-                .on_claim_payout(account_id, U128(amount)),
-        )
+        self.payout(&account_id, amount)
+            .then(Self::callback().on_claim_payout(account_id, U128(amount)))
     }
 
     /// Pays the whole treasury balance to the treasury account, to that account only. Anyone may
@@ -596,12 +593,8 @@ impl Vault {
         let amount = std::mem::take(&mut self.treasury_balance);
         require!(amount > 0, "the treasury balance is empty");
         let treasury = self.treasury.clone();
-        self.payout(&treasury, amount).then(
-            Self::ext(env::current_account_id())
-                .with_static_gas(GAS_CALLBACK)
-                .with_unused_gas_weight(0)
-                .on_claim_treasury(U128(amount)),
-        )
+        self.payout(&treasury, amount)
+            .then(Self::callback().on_claim_treasury(U128(amount)))
     }
 
     /// A close payout finished. Only the promise status counts: the returned bytes are never read.
@@ -751,6 +744,13 @@ impl Vault {
 }
 
 impl Vault {
+    /// The vault's own callback, with its fixed gas and no share of leftover gas.
+    fn callback() -> VaultExt {
+        Self::ext(env::current_account_id())
+            .with_static_gas(GAS_CALLBACK)
+            .with_unused_gas_weight(0)
+    }
+
     /// Registers `to` with USDC (registration only, the NEAR comes back when it is already
     /// registered), then transfers `amount` in a second receipt. Each leg has fixed gas.
     fn payout(&self, to: &AccountId, amount: u128) -> Promise {
@@ -890,10 +890,6 @@ fn parse_inputs(inputs: &[Base64VecU8]) -> (Vec<[u8; 32]>, Vec<[u8; 32]>) {
 /// (a token may return anything), so this asks for none.
 fn payout_failed() -> bool {
     matches!(env::promise_result_checked(0, 0), Err(PromiseError::Failed))
-}
-
-fn word_hex(word: &[u8; 32]) -> String {
-    word::encode32(word)
 }
 
 /// The last second of the UTC day that contains `unix_seconds`.

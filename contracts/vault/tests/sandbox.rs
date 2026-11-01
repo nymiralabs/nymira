@@ -650,6 +650,31 @@ mod close {
     }
 
     #[tokio::test]
+    async fn the_registration_deposit_comes_back_when_the_account_is_already_registered(
+    ) -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        assert!(env.usdc.is_registered(env.alice.id()).await);
+        settled(&env).await;
+        let before = env.vault.view_account().await?;
+        mutual_close(&env, &env.alice, &bundle, tgas(300), json!({}))
+            .await?
+            .into_result()?;
+        settled(&env).await;
+        let after = env.vault.view_account().await?;
+        // The vault may even gain (it earns a share of the gas it burns), but the 0.00125 NEAR
+        // sent with `storage_deposit` must not be lost.
+        assert!(
+            after.balance.as_yoctonear() + 10u128.pow(20) >= before.balance.as_yoctonear(),
+            "{} -> {}",
+            before.balance.as_yoctonear(),
+            after.balance.as_yoctonear()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn junk_bytes_from_a_successful_transfer_pay_once_and_create_no_pending_payout(
     ) -> Result<()> {
         let env = setup(100 * ONE).await?;
