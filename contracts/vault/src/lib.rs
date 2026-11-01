@@ -68,8 +68,10 @@ const REGISTRATION_DEPOSIT: u128 = 1_250_000_000_000_000_000_000;
 const GAS_STORAGE_DEPOSIT: Gas = Gas::from_tgas(6);
 const GAS_FT_TRANSFER: Gas = Gas::from_tgas(7);
 const GAS_CALLBACK: Gas = Gas::from_tgas(6);
-/// A payout method needs its two legs and callback, plus its own work.
-const MIN_GAS_CLAIM: Gas = Gas::from_tgas(50);
+/// A payout method needs its two legs and callback, plus its own work: the first receipt of
+/// `finalize_exit` and the claims burns about 4 Tgas (measured against the real USDC wasm), and
+/// the legs attach 19 Tgas, so 23 Tgas is the least that can pass; 30 Tgas is 1.3 times that.
+const MIN_GAS_CLAIM: Gas = Gas::from_tgas(30);
 /// `mutual_close` also verifies a Groth16 proof: its first receipt burns 40 Tgas, and the legs
 /// attach 19 Tgas, so 59 Tgas is the least that can pass; 80 Tgas is 1.35 times that.
 const MIN_GAS_MUTUAL_CLOSE: Gas = Gas::from_tgas(80);

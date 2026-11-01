@@ -1905,7 +1905,7 @@ mod close {
     fn claim_payout_with_too_little_gas_panics_before_any_write() {
         let mut v = with_pending(900_000);
         let mut c = context("stranger.test", CLOSE_AT);
-        c.prepaid_gas(Gas::from_tgas(49));
+        c.prepaid_gas(Gas::from_tgas(29));
         testing_env!(c.build());
         v.claim_payout(account_id(ALICE));
     }
@@ -1960,7 +1960,7 @@ mod close {
     fn claim_treasury_with_too_little_gas_panics_before_any_write() {
         let mut v = funded();
         let mut c = context("stranger.test", CLOSE_AT);
-        c.prepaid_gas(Gas::from_tgas(49));
+        c.prepaid_gas(Gas::from_tgas(29));
         testing_env!(c.build());
         v.claim_treasury();
     }

@@ -902,7 +902,7 @@ mod close {
         let short = env
             .alice
             .call(env.vault.id(), "claim_treasury")
-            .gas(tgas(49))
+            .gas(tgas(29))
             .transact()
             .await?;
         assert!(short.is_failure());
@@ -911,10 +911,10 @@ mod close {
         let exact = env
             .alice
             .call(env.vault.id(), "claim_treasury")
-            .gas(tgas(50))
+            .gas(tgas(30))
             .transact()
             .await?;
-        report("claim_treasury, least gas (50 Tgas)", &exact);
+        report("claim_treasury, least gas (30 Tgas)", &exact);
         exact.into_result()?;
         settled(&env).await;
         assert_eq!(env.usdc.balance_of(env.treasury.id()).await, NOTE_FEE);
@@ -1462,10 +1462,10 @@ async fn finalize_gas_after_a_one_day_exit_window() -> Result<()> {
         .alice
         .call(env.vault.id(), "finalize_exit")
         .args_json(json!({ "note_id": 0 }))
-        .gas(near_workspaces::types::Gas::from_tgas(50))
+        .gas(near_workspaces::types::Gas::from_tgas(30))
         .transact()
         .await?;
-    report("finalize_exit, 50 Tgas", &least);
+    report("finalize_exit, 30 Tgas", &least);
     println!(
         "measure finalize_exit least gas succeeded: {}",
         least.is_success()
