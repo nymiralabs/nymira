@@ -910,4 +910,68 @@ mod close {
         assert_eq!(pending(&env, env.alice.id()).await, "0");
         Ok(())
     }
+
+    /// `extra` more notes join note 0 in the tree, note 0 closes, then anyone retires note 0 with the
+    /// siblings a client reads off its rebuild. Returns the env and the retirement's outcome.
+    async fn retire_note_zero(extra: u64) -> Result<(Env, ExecutionFinalResult)> {
+        let env = setup(1_000 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        for n in 0..extra {
+            transfer_call(
+                &env.usdc.contract,
+                &env.alice,
+                env.vault.id(),
+                ONE + NOTE_FEE,
+                &deposit_msg(1_000 + n),
+            )
+            .await?
+            .into_result()?;
+        }
+        sync_root(&env, 80).await?.into_result()?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        mutual_close(&env, &env.alice, &bundle, tgas(300), json!({}))
+            .await?
+            .into_result()?;
+        let leaves = all_leaves(&env.vault).await;
+        let level = (31 - (leaves.len() as u32).leading_zeros()) as usize;
+        let siblings: Vec<String> = MerkleTree::from_leaves(&leaves).get_siblings(0)[..level]
+            .iter()
+            .map(|s| format!("0x{}", hex::encode(s.0)))
+            .collect();
+        let outcome = env
+            .alice
+            .call(env.vault.id(), "retire_closed_leaf")
+            .args_json(json!({ "note_id": 0, "siblings": siblings }))
+            .max_gas()
+            .transact()
+            .await?;
+        Ok((env, outcome))
+    }
+
+    #[tokio::test]
+    async fn retiring_a_closed_leaf_matches_the_client_rebuild_within_gas() -> Result<()> {
+        // 41 leaves: note 0 sits under frontier slot 5, so 10 path hashes plus the root's up to 32.
+        let (env, outcome) = retire_note_zero(40).await?;
+        report("retire_closed_leaf, 41 leaves", &outcome);
+        let burnt = outcome.total_gas_burnt.as_gas();
+        let logs = outcome.logs().join("\n");
+        outcome.into_result()?;
+        assert!(logs.contains(r#""event":"retire_closed_leaf""#));
+        // 94 hashes is the most any tree can need (2 * 31 path hashes and 32 for the root); at
+        // 1.8 Tgas each and the 1.2 margin that is 203 Tgas, so the call never needs splitting.
+        assert!(burnt * 12 / 10 < 300 * TGAS, "burnt {burnt}");
+        let leaves = all_leaves(&env.vault).await;
+        assert_eq!(leaves[0], Felt252::ZERO);
+        let root: String = view(&env.vault, "current_root", json!({})).await;
+        assert_eq!(
+            format!(
+                "0x{}",
+                hex::encode(MerkleTree::from_leaves(&leaves).root().0)
+            ),
+            root
+        );
+        let epoch: String = view(&env.vault, "retirement_epoch", json!({})).await;
+        assert_eq!(epoch, "1");
+        Ok(())
+    }
 }

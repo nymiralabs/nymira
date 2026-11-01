@@ -47,3 +47,27 @@ pub fn root(filled: &[[u8; 32]; MERKLE_DEPTH], next: u32, last: &[u8; 32]) -> [u
     }
     current
 }
+
+/// The frontier level a retirement of `index` rewrites while `next` is the next free slot: the
+/// highest bit where they differ. Below it the leaf sits in the complete left subtree
+/// `filled[level]`; at 0 the leaf is the last inserted one and no frontier slot holds it.
+pub fn retire_level(index: u32, next: u32) -> usize {
+    (31 - (index ^ next).leading_zeros()) as usize
+}
+
+/// The height-`siblings.len()` node on the path of `index` with `leaf` and with a zero leaf, given
+/// the siblings bottom up: `(before, after)`.
+pub fn path_nodes(index: u32, leaf: &[u8; 32], siblings: &[[u8; 32]]) -> ([u8; 32], [u8; 32]) {
+    let mut before = *leaf;
+    let mut after = [0u8; 32];
+    for (height, sibling) in siblings.iter().enumerate() {
+        if (index >> height) & 1 == 0 {
+            before = node(&before, sibling);
+            after = node(&after, sibling);
+        } else {
+            before = node(sibling, &before);
+            after = node(sibling, &after);
+        }
+    }
+    (before, after)
+}
