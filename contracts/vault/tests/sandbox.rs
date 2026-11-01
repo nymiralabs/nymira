@@ -11,7 +11,13 @@ fn build_wasm() -> Vec<u8> {
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let status = Command::new("cargo")
-        .args(["near", "build", "non-reproducible-wasm", "--no-abi", "--locked"])
+        .args([
+            "near",
+            "build",
+            "non-reproducible-wasm",
+            "--no-abi",
+            "--locked",
+        ])
         .current_dir(root)
         .status()
         .expect("cargo-near 0.22.0 is installed");

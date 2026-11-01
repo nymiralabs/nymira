@@ -12,7 +12,13 @@ fn root() -> PathBuf {
 
 fn build_wasm() -> Vec<u8> {
     let status = Command::new("cargo")
-        .args(["near", "build", "non-reproducible-wasm", "--no-abi", "--locked"])
+        .args([
+            "near",
+            "build",
+            "non-reproducible-wasm",
+            "--no-abi",
+            "--locked",
+        ])
         .current_dir(root())
         .status()
         .unwrap();
@@ -30,7 +36,9 @@ fn hex_bytes(value: &serde_json::Value) -> Vec<u8> {
 
 fn canonical_vk(file: &str) -> Vec<u8> {
     let bytes = std::fs::read(
-        root().join("../../vendor/zkapi/protocol/setup/v2-concession-dev").join(file),
+        root()
+            .join("../../vendor/zkapi/protocol/setup/v2-concession-dev")
+            .join(file),
     )
     .unwrap();
     // Header is `<circuit>/<setup>/<kind>\0`; the canonical key follows it.
@@ -39,11 +47,15 @@ fn canonical_vk(file: &str) -> Vec<u8> {
 }
 
 fn gas_line(logs: &[&str]) -> String {
-    logs.iter().find(|l| l.starts_with("gas ")).map(|l| l.to_string()).unwrap_or_default()
+    logs.iter()
+        .find(|l| l.starts_with("gas "))
+        .map(|l| l.to_string())
+        .unwrap_or_default()
 }
 
 #[tokio::test]
-async fn fixtures_verify_on_the_sandbox_and_gas_is_measured() -> Result<(), Box<dyn std::error::Error>> {
+async fn fixtures_verify_on_the_sandbox_and_gas_is_measured(
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(
         root().join("../../crates/nymira-verifier/tests/fixtures/zkapi-dev-fixture.json"),
     )?)?;
@@ -93,7 +105,9 @@ async fn the_host_enforces_the_g2_subgroup_check() -> Result<(), Box<dyn std::er
     use ark_ff::{BigInteger, PrimeField};
 
     let bad = (1u64..200)
-        .filter_map(|i| G2Affine::get_point_from_x_unchecked(Fq2::new(Fq::from(i), Fq::from(1u64)), false))
+        .filter_map(|i| {
+            G2Affine::get_point_from_x_unchecked(Fq2::new(Fq::from(i), Fq::from(1u64)), false)
+        })
         .find(|p| p.is_on_curve() && !p.is_in_correct_subgroup_assuming_on_curve())
         .expect("a twist point outside the subgroup");
     let be = |f: &Fq| {
@@ -107,8 +121,12 @@ async fn the_host_enforces_the_g2_subgroup_check() -> Result<(), Box<dyn std::er
         root().join("../../crates/nymira-verifier/tests/fixtures/zkapi-dev-fixture.json"),
     )?)?;
     let mut proof = hex_bytes(&fixture["request"]["proof_hex"]);
-    proof[64..192].copy_from_slice(&[be(&bad.x.c0), be(&bad.x.c1), be(&bad.y.c0), be(&bad.y.c1)].concat());
-    let words: Vec<String> = hex_bytes(&fixture["request"]["inputs_abi"]).chunks(32).map(b64).collect();
+    proof[64..192]
+        .copy_from_slice(&[be(&bad.x.c0), be(&bad.x.c1), be(&bad.y.c0), be(&bad.y.c1)].concat());
+    let words: Vec<String> = hex_bytes(&fixture["request"]["inputs_abi"])
+        .chunks(32)
+        .map(b64)
+        .collect();
     let worker = near_workspaces::sandbox().await?;
     let contract = worker.dev_deploy(&build_wasm()).await?;
     let outcome = contract
@@ -122,7 +140,14 @@ async fn the_host_enforces_the_g2_subgroup_check() -> Result<(), Box<dyn std::er
         .transact()
         .await?;
     let failure = format!("{:?}", outcome.failures());
-    println!("SANDBOX g2 subgroup: success={} {}", outcome.is_success(), &failure[..failure.len().min(300)]);
-    assert!(outcome.is_failure(), "host accepted a G2 point outside the subgroup");
+    println!(
+        "SANDBOX g2 subgroup: success={} {}",
+        outcome.is_success(),
+        &failure[..failure.len().min(300)]
+    );
+    assert!(
+        outcome.is_failure(),
+        "host accepted a G2 point outside the subgroup"
+    );
     Ok(())
 }

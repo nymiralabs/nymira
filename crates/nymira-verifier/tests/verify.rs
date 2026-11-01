@@ -71,7 +71,10 @@ fn canonical_vk(kind: KeyKind) -> Vec<u8> {
 }
 
 fn near_inputs(words: &[[u8; 32]]) -> Vec<[u8; 32]> {
-    words.iter().map(|w| public_input_from_wire(w).unwrap()).collect()
+    words
+        .iter()
+        .map(|w| public_input_from_wire(w).unwrap())
+        .collect()
 }
 
 fn run(vk: &VerifyingKey, inputs: &[[u8; 32]], proof: &Proof) -> Result<bool, VerifyError> {
@@ -81,7 +84,10 @@ fn run(vk: &VerifyingKey, inputs: &[[u8; 32]], proof: &Proof) -> Result<bool, Ve
 
 /// Same verification through the host, with an abort counted as a rejection.
 fn host_accepts(vk: &VerifyingKey, inputs: &[[u8; 32]], proof: &Proof) -> bool {
-    catch_unwind(AssertUnwindSafe(|| matches!(run(vk, inputs, proof), Ok(true)))).unwrap_or(false)
+    catch_unwind(AssertUnwindSafe(|| {
+        matches!(run(vk, inputs, proof), Ok(true))
+    }))
+    .unwrap_or(false)
 }
 
 fn fq(word_be: &[u8]) -> Fq {
@@ -100,7 +106,9 @@ fn native_accepts(kind: KeyKind, inputs: &[[u8; 32]], wire: &[u8]) -> bool {
     let c = G1Affine::new_unchecked(fq(w[6]), fq(w[7]));
     let on_curve = |ok: bool| ok;
     if !(on_curve(a.is_on_curve() && !a.is_zero())
-        && on_curve(b.is_on_curve() && b.is_in_correct_subgroup_assuming_on_curve() && !b.is_zero())
+        && on_curve(
+            b.is_on_curve() && b.is_in_correct_subgroup_assuming_on_curve() && !b.is_zero(),
+        )
         && on_curve(c.is_on_curve() && !c.is_zero()))
     {
         return false;
@@ -128,14 +136,22 @@ fn fixture_proofs_verify() {
         let proof = Proof::from_zkapi_wire(&case.proof).unwrap();
         let ok = run(&near_vk(case.kind), &near_inputs(&case.inputs), &proof);
         assert_eq!(ok, Ok(true), "{}", case.name);
-        assert!(native_accepts(case.kind, &case.inputs, &case.proof), "{}", case.name);
+        assert!(
+            native_accepts(case.kind, &case.inputs, &case.proof),
+            "{}",
+            case.name
+        );
     }
 }
 
 #[test]
 fn input_counts_match_the_statements() {
     for case in cases() {
-        let expected = if case.kind == KeyKind::Request { 12 } else { 16 };
+        let expected = if case.kind == KeyKind::Request {
+            12
+        } else {
+            16
+        };
         assert_eq!(case.inputs.len(), expected, "{}", case.name);
         assert_eq!(near_vk(case.kind).ic.len(), expected + 1);
     }
@@ -154,7 +170,12 @@ fn tampered_inputs_are_rejected() {
                 continue;
             }
             let inputs = near_inputs(&words);
-            assert_eq!(run(&vk, &inputs, &proof), Ok(false), "{} input {index}", case.name);
+            assert_eq!(
+                run(&vk, &inputs, &proof),
+                Ok(false),
+                "{} input {index}",
+                case.name
+            );
             assert!(!native_accepts(case.kind, &words, &case.proof));
         }
     }
@@ -168,17 +189,18 @@ fn a_proof_under_the_other_statements_key_is_rejected() {
     // Request inputs and proof under the withdrawal key: wrong input count.
     let proof = Proof::from_zkapi_wire(&request.proof).unwrap();
     assert_eq!(
-        run(&near_vk(KeyKind::Withdrawal), &near_inputs(&request.inputs), &proof),
+        run(
+            &near_vk(KeyKind::Withdrawal),
+            &near_inputs(&request.inputs),
+            &proof
+        ),
         Err(VerifyError::InputCount)
     );
     // Right count, wrong key: the pairing fails.
     let proof = Proof::from_zkapi_wire(&withdrawal.proof).unwrap();
     let mut padded = near_inputs(&withdrawal.inputs);
     padded.truncate(12);
-    assert_eq!(
-        run(&near_vk(KeyKind::Request), &padded, &proof),
-        Ok(false)
-    );
+    assert_eq!(run(&near_vk(KeyKind::Request), &padded, &proof), Ok(false));
 }
 
 #[test]
@@ -191,7 +213,11 @@ fn another_proofs_points_are_rejected() {
     wire[..64].copy_from_slice(&second.proof[..64]);
     let proof = Proof::from_zkapi_wire(&wire).unwrap();
     assert_eq!(
-        run(&near_vk(KeyKind::Request), &near_inputs(&first.inputs), &proof),
+        run(
+            &near_vk(KeyKind::Request),
+            &near_inputs(&first.inputs),
+            &proof
+        ),
         Ok(false)
     );
     assert!(!native_accepts(KeyKind::Request, &first.inputs, &wire));
@@ -207,9 +233,15 @@ fn public_inputs_at_or_above_the_modulus_are_refused_before_the_pairing() {
     le_r.reverse();
     let mut inputs = near_inputs(&case.inputs);
     inputs[0] = le_r;
-    assert_eq!(run(&vk, &inputs, &proof), Err(VerifyError::NonCanonicalInput));
+    assert_eq!(
+        run(&vk, &inputs, &proof),
+        Err(VerifyError::NonCanonicalInput)
+    );
     inputs[0] = [0xff; 32];
-    assert_eq!(run(&vk, &inputs, &proof), Err(VerifyError::NonCanonicalInput));
+    assert_eq!(
+        run(&vk, &inputs, &proof),
+        Err(VerifyError::NonCanonicalInput)
+    );
     // The wire parser refuses it too.
     assert_eq!(
         public_input_from_wire(&SCALAR_MODULUS_BE),
@@ -223,7 +255,10 @@ fn wrong_public_input_counts_are_refused() {
     let vk = near_vk(case.kind);
     let proof = Proof::from_zkapi_wire(&case.proof).unwrap();
     let inputs = near_inputs(&case.inputs);
-    assert_eq!(run(&vk, &inputs[..11], &proof), Err(VerifyError::InputCount));
+    assert_eq!(
+        run(&vk, &inputs[..11], &proof),
+        Err(VerifyError::InputCount)
+    );
     let mut extra = inputs.clone();
     extra.push([0; 32]);
     assert_eq!(run(&vk, &extra, &proof), Err(VerifyError::InputCount));
@@ -237,9 +272,18 @@ fn the_point_at_infinity_is_refused() {
     let inputs = near_inputs(&case.inputs);
     let good = Proof::from_zkapi_wire(&case.proof).unwrap();
     for broken in [
-        Proof { a: [0; 64], ..good.clone() },
-        Proof { b: [0; 128], ..good.clone() },
-        Proof { c: [0; 64], ..good.clone() },
+        Proof {
+            a: [0; 64],
+            ..good.clone()
+        },
+        Proof {
+            b: [0; 128],
+            ..good.clone()
+        },
+        Proof {
+            c: [0; 64],
+            ..good.clone()
+        },
     ] {
         assert_eq!(run(&vk, &inputs, &broken), Err(VerifyError::Infinity));
     }
@@ -314,7 +358,10 @@ fn a_g2_point_outside_the_subgroup_never_verifies() {
         .concat()
         .try_into()
         .unwrap();
-    let proof = Proof { b, ..Proof::from_zkapi_wire(&case.proof).unwrap() };
+    let proof = Proof {
+        b,
+        ..Proof::from_zkapi_wire(&case.proof).unwrap()
+    };
     assert!(!host_accepts(&vk, &inputs, &proof));
 }
 
@@ -332,17 +379,33 @@ fn differential_against_native_arkworks() {
                 Ok(proof) => host_accepts(&vk, &near_inputs(&case.inputs), &proof),
                 Err(_) => false,
             };
-            assert_eq!(ours, native_accepts(case.kind, &case.inputs, &wire), "{} byte {byte}", case.name);
+            assert_eq!(
+                ours,
+                native_accepts(case.kind, &case.inputs, &wire),
+                "{} byte {byte}",
+                case.name
+            );
             checked += 1;
         }
         for index in 0..case.inputs.len() {
             let mut words = case.inputs.clone();
             words[index][31] ^= 1;
-            let ours = match words.iter().map(|w| public_input_from_wire(w)).collect::<Result<Vec<_>, _>>() {
-                Ok(inputs) => host_accepts(&vk, &inputs, &Proof::from_zkapi_wire(&case.proof).unwrap()),
+            let ours = match words
+                .iter()
+                .map(|w| public_input_from_wire(w))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(inputs) => {
+                    host_accepts(&vk, &inputs, &Proof::from_zkapi_wire(&case.proof).unwrap())
+                }
                 Err(_) => false,
             };
-            assert_eq!(ours, native_accepts(case.kind, &words, &case.proof), "{} input {index}", case.name);
+            assert_eq!(
+                ours,
+                native_accepts(case.kind, &words, &case.proof),
+                "{} input {index}",
+                case.name
+            );
             checked += 1;
         }
         assert!(checked > 30);
@@ -376,7 +439,10 @@ fn near_mapped_fixture_verifies() {
         let inputs = &case["public_inputs"];
         assert_eq!(inputs["chain_id"].as_u64(), Some(chain), "{name}");
         assert_eq!(
-            inputs["contract_address"].as_str().unwrap().trim_start_matches("0x"),
+            inputs["contract_address"]
+                .as_str()
+                .unwrap()
+                .trim_start_matches("0x"),
             hex::encode(address),
             "{name}"
         );
@@ -397,7 +463,11 @@ fn near_mapped_fixture_verifies() {
         assert_eq!(&words[1][24..], &chain.to_be_bytes(), "{name}");
         assert_eq!(words[2], address, "{name}");
         let proof = Proof::from_zkapi_wire(&hex_bytes(&case["proof_hex"])).unwrap();
-        assert_eq!(run(&near_vk(kind), &near_inputs(&words), &proof), Ok(true), "{name}");
+        assert_eq!(
+            run(&near_vk(kind), &near_inputs(&words), &proof),
+            Ok(true),
+            "{name}"
+        );
         count += 1;
     }
     assert_eq!(count, 5);

@@ -224,7 +224,6 @@ pub fn public_input_from_wire(word: &[u8]) -> Result<[u8; 32], CodecError> {
 mod tests {
     use super::*;
     use ark_ec::AffineRepr;
-    use ark_ff::Zero;
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -326,7 +325,11 @@ mod tests {
         use ark_ec::AffineRepr;
         let g1 = ark_bn254::G1Affine::generator();
         let g2 = ark_bn254::G2Affine::generator();
-        let proof = ark_groth16::Proof::<ark_bn254::Bn254> { a: g1, b: g2, c: g1 };
+        let proof = ark_groth16::Proof::<ark_bn254::Bn254> {
+            a: g1,
+            b: g2,
+            c: g1,
+        };
         let converted = Proof::from_arkworks(&proof).unwrap();
         assert_eq!(converted.a, g1_generator_le());
         assert_eq!(converted.b, g2_generator_le());
@@ -349,7 +352,11 @@ mod tests {
         for len in [0, 255, 257, 512] {
             let mut bytes = wire.clone();
             bytes.resize(len, 0);
-            assert_eq!(Proof::from_zkapi_wire(&bytes), Err(CodecError::Length), "{len}");
+            assert_eq!(
+                Proof::from_zkapi_wire(&bytes),
+                Err(CodecError::Length),
+                "{len}"
+            );
         }
     }
 
@@ -390,7 +397,10 @@ mod tests {
             public_input_from_wire(&SCALAR_MODULUS_BE),
             Err(CodecError::NonCanonical)
         );
-        assert_eq!(public_input_from_wire(&[0xff; 32]), Err(CodecError::NonCanonical));
+        assert_eq!(
+            public_input_from_wire(&[0xff; 32]),
+            Err(CodecError::NonCanonical)
+        );
         assert_eq!(public_input_from_wire(&[0u8; 31]), Err(CodecError::Length));
     }
 
@@ -433,7 +443,11 @@ mod tests {
             delta_g2: g2,
             gamma_abc_g1: vec![ic0, g1],
         };
-        for vk in [make(zero1, g2, g1), make(g1, zero2, g1), make(g1, g2, zero1)] {
+        for vk in [
+            make(zero1, g2, g1),
+            make(g1, zero2, g1),
+            make(g1, g2, zero1),
+        ] {
             let mut bytes = Vec::new();
             vk.serialize_compressed(&mut bytes).unwrap();
             assert_eq!(
