@@ -2,7 +2,7 @@
 
 A fake NEAR AI Cloud for tests and `make demo`. It needs no network and no keys. It is a library (start it in-process on port 0) and a binary.
 
-Used by: operator tickets 11, 12, 13 and 75 (the provider adapter), `nymirad` tickets 18, 19 and 23 (chat, signature and attestation checks, golden path), web tickets 24 and 25 (badge, golden path).
+Used by: operator issues #23, #24, #25 and #87 (the provider adapter), `nymirad` issues #30, #31 and #35 (chat, signature and attestation checks, golden path), web issues #36 and #37 (badge, golden path).
 
 ```rust
 let fake = nymira_fake_near_ai::start("127.0.0.1:0".parse()?).await?;

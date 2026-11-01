@@ -1,6 +1,6 @@
 # web-testkit
 
-Test doubles for the web tests: a NEAR wallet that signs without a browser extension, and the browser build of the NEAR codec. Both belong to the shared test harness (ticket 74).
+Test doubles for the web tests: a NEAR wallet that signs without a browser extension, and the browser build of the NEAR codec. Both belong to the shared test harness (issue #86).
 
 ## Parts
 
@@ -39,4 +39,4 @@ The Rust side runs with `cargo test -p nymira-near-codec-wasm`.
 
 ## Used by
 
-Web tickets 24 (funding), 25 (chat), 26 (close and exit) and 27 (hosting and integrity), and the web golden path in the browser, through the Playwright mock-mode stack: the wallet signs the deposit, `mutual_close`, `request_exit` and `finalize_exit`, and the codec builds withdrawal and request proofs and converts proof bytes.
+Web issues #36 (funding), #37 (chat), #38 (close and exit) and #39 (hosting and integrity), and the web golden path in the browser, through the Playwright mock-mode stack: the wallet signs the deposit, `mutual_close`, `request_exit` and `finalize_exit`, and the codec builds withdrawal and request proofs and converts proof bytes.

@@ -113,8 +113,8 @@ A failing instance still logs the request (see `requests()`), but it does not re
 
 | Tickets | Use |
 |---|---|
-| Operator watcher: 15, 16, 76, 87, 88 | `exit_requests`, `note_records`, `pending_payout` views on two or three providers, second-provider confirmation, disagreement alarms, final-block reads, gas-key balance and key list, sent exit answers and `wait_until: FINAL` receipts. |
-| `nymirad`: 18 to 22 | `get_leaves` and parameter views read at one final block, endpoint fallback and Tor-path assertions through `requests()`, receipt events for deposit acceptance. |
-| Web app: 24 to 27 | Public RPC fallback, deposit event from the receipt, `view_access_key`, `config()`, final block timestamps for expiry. |
+| Operator watcher: #27, #28, #87, #88 | `exit_requests`, `note_records`, `pending_payout` views on two or three providers, second-provider confirmation, disagreement alarms, final-block reads, gas-key balance and key list, sent exit answers and `wait_until: FINAL` receipts. |
+| `nymirad`: #30 to #34 | `get_leaves` and parameter views read at one final block, endpoint fallback and Tor-path assertions through `requests()`, receipt events for deposit acceptance. |
+| Web app: #36 to #39 | Public RPC fallback, deposit event from the receipt, `view_access_key`, `config()`, final block timestamps for expiry. |
 
 Tests in `tests/self_test.rs` exercise every method and switch through a real HTTP client, including a test that tells a lagging, a forked and a failing provider apart. Run with `cargo test -p nymira-fake-near-rpc`.
