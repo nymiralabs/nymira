@@ -6,8 +6,7 @@ use nymira_testkit::mainnet_usdc;
 use nymira_testkit::mock_usdc::{MockUsdc, MIN_STORAGE_DEPOSIT};
 
 #[test]
-fn fixture_hashes_are_the_recorded_ones() {
-    mainnet_usdc::wasm();
+fn the_two_recorded_hashes_differ() {
     assert_ne!(
         mainnet_usdc::MAINNET_CODE_HASH,
         mainnet_usdc::TESTNET_CODE_HASH

@@ -18,7 +18,7 @@ Every double has a self-test, and CI runs them.
 
 ## Needs
 
-cargo-near 0.22.0 on `PATH` (the doubles that are contracts are built with it) and network access the first time near-sandbox downloads its binary. Run the Rust self-tests with `cargo test -p nymira-testkit`.
+cargo-near 0.22.0 on `PATH` (the doubles that are contracts are built with it), network access the first time near-sandbox downloads its binary, and mainnet RPC access for the mainnet USDC parity fixture (it copies the real contract into the sandbox at the same account id and checks its code hash; the third-party wasm is not stored in the repository). Run the Rust self-tests with `cargo test -p nymira-testkit`.
 
 ## Mock USDC
 
