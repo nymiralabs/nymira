@@ -1,0 +1,24 @@
+[package]
+name = "nymira-vault-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+nymira-vault = { path = ".." }
+# Lifts near-sdk's refusal to build a contract natively, as the vault's own tests do.
+near-sdk = { version = "=5.29.1", default-features = false, features = ["unit-testing"] }
+
+[[bin]]
+name = "intents_msg"
+path = "fuzz_targets/intents_msg.rs"
+test = false
+doc = false
+bench = false
+
+# Its own workspace: cargo-fuzz needs nightly and must not change the project's lockfile.
+[workspace]

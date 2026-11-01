@@ -18,9 +18,10 @@ const ONE: u128 = 1_000_000;
 const NOTE_FEE: u128 = 50_000;
 const TGAS: u64 = 1_000_000_000_000;
 
-/// `NYMIRA_VAULT_WASM` points a test at a prebuilt wasm (the reproducible build).
+/// `NYMIRA_VAULT_WASM` points a test at a prebuilt wasm (the reproducible build) for the plain
+/// `dev-setup` build; a build with other features is always compiled.
 fn vault_wasm(features: &[&str]) -> Vec<u8> {
-    if let Ok(path) = std::env::var("NYMIRA_VAULT_WASM") {
+    if let (Ok(path), ["dev-setup"]) = (std::env::var("NYMIRA_VAULT_WASM"), features) {
         return std::fs::read(path).expect("NYMIRA_VAULT_WASM is readable");
     }
     contract_wasm_with_features("contracts/vault", features)
@@ -99,6 +100,10 @@ struct Env {
 }
 
 async fn setup(tvl_cap: u128) -> Result<Env> {
+    setup_with(tvl_cap, &["dev-setup"]).await
+}
+
+async fn setup_with(tvl_cap: u128, features: &[&str]) -> Result<Env> {
     let worker = near_workspaces::sandbox().await?;
     let usdc = MockUsdc::deploy(&worker).await?;
     let operator = worker.dev_create_account().await?;
@@ -111,7 +116,7 @@ async fn setup(tvl_cap: u128) -> Result<Env> {
         .transact()
         .await?
         .into_result()?
-        .deploy(&vault_wasm(&["dev-setup"]))
+        .deploy(&vault_wasm(features))
         .await?
         .into_result()?;
     let init = vault
@@ -1092,4 +1097,120 @@ mod close {
         assert!(again.is_failure());
         Ok(())
     }
+}
+
+// The Intents branch against the open-source Verifier v0.4.2
+
+/// Gas budget of the vault's part of the Intents path.
+const INTENTS_GAS_BUDGET: u64 = 20 * TGAS;
+
+#[tokio::test]
+async fn the_intents_branch_runs_against_the_open_source_verifier() -> Result<()> {
+    use nymira_testkit::intents::deploy_verifier;
+
+    // The test-only Intents account names the fixture's account, `intents.test.near`; the
+    // prebuilt-wasm override does not apply, it has no such feature.
+    let env = setup_with(1_000 * ONE, &["dev-setup", "test-intents-account"]).await?;
+    let verifier = deploy_verifier(&env.worker, "intents", "wrap.test.near").await?;
+    assert_eq!(verifier.id().as_str(), "intents.test.near");
+    env.usdc.register_id(verifier.id()).await;
+    let bob = env.worker.dev_create_account().await?;
+    env.usdc.register(&bob).await;
+
+    // Deposit into the Verifier, credited to alice.
+    transfer_call(
+        &env.usdc.contract,
+        &env.alice,
+        verifier.id(),
+        20 * ONE,
+        &json!({ "receiver_id": env.alice.id() }).to_string(),
+    )
+    .await?
+    .into_result()?;
+
+    let withdraw = |amount: u128, msg: String| {
+        let alice = env.alice.clone();
+        let verifier = verifier.id().clone();
+        let usdc = env.usdc.contract.id().clone();
+        let vault = env.vault.id().clone();
+        async move {
+            alice
+                .call(&verifier, "ft_withdraw")
+                .args_json(json!({
+                    "token": usdc,
+                    "receiver_id": vault,
+                    "amount": amount.to_string(),
+                    "msg": msg,
+                }))
+                .deposit(NearToken::from_yoctonear(1))
+                .max_gas()
+                .transact()
+                .await
+        }
+    };
+
+    // A valid message with an excess: a note for bob and a pending payout for the rest.
+    let msg = json!({ "commitment": commitment(1), "withdraw_to": bob.id() }).to_string();
+    let outcome = withdraw(ONE + NOTE_FEE + 70_000, msg).await?;
+    report("intents deposit, note and excess", &outcome);
+    let on_vault = gas_on(&outcome, env.vault.id());
+    println!(
+        "gas on the vault: {:.2} Tgas",
+        on_vault as f64 / TGAS as f64
+    );
+    assert!(on_vault < INTENTS_GAS_BUDGET, "{on_vault}");
+    let logs = outcome.logs().join("\n");
+    outcome.into_result()?;
+    assert!(logs.contains(r#""event":"deposit""#), "{logs}");
+    assert!(logs.contains(r#""reason":"intents_excess""#), "{logs}");
+    let notes: Vec<Value> = view(&env.vault, "note_records", json!({"from": 0, "limit": 10})).await;
+    assert_eq!(notes.len(), 1);
+    let owed: String = view(
+        &env.vault,
+        "pending_payout",
+        json!({"account_id": bob.id()}),
+    )
+    .await;
+    assert_eq!(owed, "70000");
+    // The Verifier saw nothing come back: the whole amount was used.
+    assert_eq!(
+        env.usdc.balance_of(verifier.id()).await,
+        20 * ONE - (ONE + NOTE_FEE + 70_000)
+    );
+
+    // A bad message: no refund to the Verifier, the amount is unclaimed treasury.
+    let outcome = withdraw(2 * ONE, "not json".to_owned()).await?;
+    report("intents deposit, bad message", &outcome);
+    let on_vault = gas_on(&outcome, env.vault.id());
+    assert!(on_vault < INTENTS_GAS_BUDGET, "{on_vault}");
+    let logs = outcome.logs().join("\n");
+    outcome.into_result()?;
+    assert!(logs.contains(r#""event":"unclaimed""#), "{logs}");
+    assert!(!logs.contains("not json"));
+    let treasury: String = view(&env.vault, "treasury_balance", json!({})).await;
+    assert_eq!(treasury, (NOTE_FEE + 2 * ONE).to_string());
+    assert_eq!(
+        env.usdc.balance_of(verifier.id()).await,
+        20 * ONE - (ONE + NOTE_FEE + 70_000) - 2 * ONE
+    );
+
+    // Bob collects what is owed.
+    let claimed = bob
+        .call(env.vault.id(), "claim_payout")
+        .args_json(json!({ "account_id": bob.id() }))
+        .max_gas()
+        .transact()
+        .await?;
+    report("claim_payout of an Intents excess", &claimed);
+    claimed.into_result()?;
+    env.worker.fast_forward(5).await?;
+    assert_eq!(env.usdc.balance_of(bob.id()).await, 70_000);
+    let owed: String = view(
+        &env.vault,
+        "pending_payout",
+        json!({"account_id": bob.id()}),
+    )
+    .await;
+    assert_eq!(owed, "0");
+    Ok(())
 }

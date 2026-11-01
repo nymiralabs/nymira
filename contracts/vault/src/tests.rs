@@ -584,7 +584,8 @@ fn a_payout_account_equal_to_intents_is_returned() {
 #[test]
 fn a_sender_that_cannot_be_paid_is_returned_when_no_payout_is_named() {
     let mut v = vault();
-    for sender in [VAULT, TOKEN, "intents.near"] {
+    // `intents.near` is not refused: its deposits take the Intents branch (see `tests::intents`).
+    for sender in [VAULT, TOKEN] {
         assert_refused(&mut v, TOKEN, sender, ONE + NOTE_FEE, &msg(1));
     }
 }
@@ -1200,6 +1201,7 @@ fn hex_words_round_trip_and_refuse_bad_text() {
 
 mod exit;
 mod expiry;
+mod intents;
 
 // The promises these calls return are scheduled when they drop, which is what the tests read.
 #[allow(unused_must_use)]
