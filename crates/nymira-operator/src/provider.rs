@@ -3,11 +3,13 @@
 //! Everything is keyed by lease ID. The key itself stays inside the adapter, and so does its
 //! lifetime ([`KEY_LIFETIME_SECS`]); the operator only ever sees a key id.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use rand::RngCore;
 
 use crate::clock::Clock;
@@ -28,6 +30,9 @@ pub enum ProviderError {
     Rejected(String),
     #[error("provider has no such key: {0}")]
     NotFound(String),
+    /// The provider's own 429 (`rate_limit_exceeded`, `service_overloaded`).
+    #[error("provider rate limit")]
+    RateLimited { retry_after_secs: u64 },
     #[error("provider unavailable: {0}")]
     Unavailable(String),
 }
@@ -46,8 +51,61 @@ pub struct KeyUsage {
     pub cost_nano_usd: u128,
 }
 
+/// What the signature and attestation fetches carry: a fresh nonce and the `signing_algo` the
+/// chat used, the same in both calls. Both are checked by `proxy::valid_nonce` and
+/// `proxy::valid_signing_algo` before they are built into a query. The adapter sends
+/// `Accept-Encoding: identity` so the signed bytes match.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvidenceQuery {
+    pub nonce: String,
+    pub signing_algo: String,
+}
+
+/// A chat request as the proxy forwards it: the validated body and the headers that may pass.
+#[derive(Clone, Debug)]
+pub struct ChatRequest {
+    pub body: Bytes,
+    pub headers: Vec<(String, String)>,
+}
+
+/// The upstream response body, chunk by chunk. Dropping it closes the upstream connection.
+#[async_trait]
+pub trait ChatBody: Send {
+    async fn next_chunk(&mut self) -> Option<Result<Bytes, ProviderError>>;
+}
+
+pub struct ChatResponse {
+    pub content_type: String,
+    pub body: Box<dyn ChatBody>,
+}
+
+/// A model as the provider lists it live, with its prices in nano-USD per token.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveModel {
+    pub id: String,
+    pub provider_type: String,
+    pub attestation_supported: bool,
+    pub input_nano_per_token: u64,
+    pub output_nano_per_token: u64,
+}
+
 #[async_trait]
 pub trait ProviderAdapter: Send + Sync {
+    /// Sends a validated chat request under the lease's key. Returns once the response has begun;
+    /// the provider's own 429 is `RateLimited`.
+    async fn chat(
+        &self,
+        _lease_id: &str,
+        _request: ChatRequest,
+    ) -> Result<ChatResponse, ProviderError> {
+        Err(ProviderError::Unavailable(
+            "this adapter does not proxy chat".into(),
+        ))
+    }
+    /// The provider's live model list with prices, or `None` when the adapter cannot list it.
+    async fn models(&self) -> Result<Option<Vec<LiveModel>>, ProviderError> {
+        Ok(None)
+    }
     /// Mints a key for `lease_id`, capped at [`key_cap_nano_usd`]`(bound)`.
     async fn mint(&self, lease_id: &str, bound: u128) -> Result<MintedKey, ProviderError>;
     async fn usage(&self, lease_id: &str) -> Result<KeyUsage, ProviderError>;
@@ -59,7 +117,11 @@ pub trait ProviderAdapter: Send + Sync {
     /// The provider's response signature and attestation report for the lease, fetched with the
     /// lease key before it is deactivated and passed to the client unchanged. An adapter that
     /// cannot fetch it returns none.
-    async fn evidence(&self, _lease_id: &str) -> Result<Option<serde_json::Value>, ProviderError> {
+    async fn evidence(
+        &self,
+        _lease_id: &str,
+        _query: &EvidenceQuery,
+    ) -> Result<Option<serde_json::Value>, ProviderError> {
         Ok(None)
     }
 }
@@ -73,8 +135,78 @@ pub struct FakeKey {
     pub revoked: bool,
 }
 
+/// How the fake answers a chat request.
+#[derive(Clone, Debug)]
+pub struct ChatScript {
+    pub error: Option<ProviderError>,
+    pub first_byte_delay: Duration,
+    pub chunk_delay: Duration,
+    /// The answer, chunk by chunk; `None` builds one from the request (SSE for a stream, JSON
+    /// otherwise) with `usage` as (prompt, completion) tokens.
+    pub chunks: Option<Vec<String>>,
+    /// After this many chunks the upstream goes silent for good.
+    pub stall_after: Option<usize>,
+    pub usage: (u64, u64),
+    pub stream_events: usize,
+}
+
+impl Default for ChatScript {
+    fn default() -> Self {
+        Self {
+            error: None,
+            first_byte_delay: Duration::ZERO,
+            chunk_delay: Duration::ZERO,
+            chunks: None,
+            stall_after: None,
+            usage: (10, 20),
+            stream_events: 3,
+        }
+    }
+}
+
+/// A chat request as the fake received it.
+#[derive(Clone, Debug)]
+pub struct RecordedChat {
+    pub lease_id: String,
+    pub body: Vec<u8>,
+    pub headers: Vec<(String, String)>,
+}
+
+struct FakeBody {
+    chunks: VecDeque<Bytes>,
+    delay: Duration,
+    stall_after: Option<usize>,
+    sent: usize,
+    open: Arc<AtomicUsize>,
+}
+
+impl Drop for FakeBody {
+    fn drop(&mut self) {
+        self.open.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl ChatBody for FakeBody {
+    async fn next_chunk(&mut self) -> Option<Result<Bytes, ProviderError>> {
+        if self.stall_after == Some(self.sent) {
+            std::future::pending::<()>().await;
+        }
+        if !self.delay.is_zero() {
+            tokio::time::sleep(self.delay).await;
+        }
+        self.sent += 1;
+        self.chunks.pop_front().map(Ok)
+    }
+}
+
 #[derive(Default)]
 struct FakeState {
+    chat_script: ChatScript,
+    chat_calls: Vec<RecordedChat>,
+    evidence: Option<serde_json::Value>,
+    evidence_queries: Vec<EvidenceQuery>,
+    models: Option<Vec<LiveModel>>,
     keys: HashMap<String, FakeKey>,
     usage: HashMap<String, u128>,
     balance_micro_usd: u128,
@@ -90,6 +222,7 @@ struct FakeState {
 pub struct FakeProvider {
     clock: Arc<dyn Clock>,
     state: Mutex<FakeState>,
+    open_streams: Arc<AtomicUsize>,
 }
 
 impl FakeProvider {
@@ -100,11 +233,38 @@ impl FakeProvider {
                 balance_micro_usd,
                 ..FakeState::default()
             }),
+            open_streams: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, FakeState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn set_chat_script(&self, script: ChatScript) {
+        self.state().chat_script = script;
+    }
+
+    pub fn chat_calls(&self) -> Vec<RecordedChat> {
+        self.state().chat_calls.clone()
+    }
+
+    /// Chat answers whose upstream connection is still open.
+    pub fn open_streams(&self) -> usize {
+        self.open_streams.load(Ordering::SeqCst)
+    }
+
+    /// The queries the evidence fetches carried, in order.
+    pub fn evidence_queries(&self) -> Vec<EvidenceQuery> {
+        self.state().evidence_queries.clone()
+    }
+
+    pub fn set_evidence(&self, evidence: Option<serde_json::Value>) {
+        self.state().evidence = evidence;
+    }
+
+    pub fn set_models(&self, models: Option<Vec<LiveModel>>) {
+        self.state().models = models;
     }
 
     pub fn set_balance(&self, micro_usd: u128) {
@@ -195,6 +355,78 @@ impl ProviderAdapter for FakeProvider {
         };
         self.state().keys.insert(lease_id.into(), key);
         Ok(minted)
+    }
+
+    async fn chat(
+        &self,
+        lease_id: &str,
+        request: ChatRequest,
+    ) -> Result<ChatResponse, ProviderError> {
+        let script = {
+            let mut state = self.state();
+            state.chat_calls.push(RecordedChat {
+                lease_id: lease_id.into(),
+                body: request.body.to_vec(),
+                headers: request.headers.clone(),
+            });
+            state.chat_script.clone()
+        };
+        if let Some(error) = script.error {
+            return Err(error);
+        }
+        if !script.first_byte_delay.is_zero() {
+            tokio::time::sleep(script.first_byte_delay).await;
+        }
+        let stream = serde_json::from_slice::<serde_json::Value>(&request.body)
+            .is_ok_and(|v| v["stream"] == true);
+        let usage = serde_json::json!({"prompt_tokens": script.usage.0, "completion_tokens": script.usage.1});
+        let chunks: Vec<Bytes> = match script.chunks {
+            Some(chunks) => chunks.into_iter().map(Bytes::from).collect(),
+            None if stream => {
+                let mut out: Vec<Bytes> = (0..script.stream_events)
+                    .map(|i| Bytes::from(format!("data: {}\n\n", serde_json::json!({"choices": [{"delta": {"content": format!("{i:02x}")}}]}))))
+                    .collect();
+                out.push(Bytes::from(format!(
+                    "data: {}\n\n",
+                    serde_json::json!({"choices": [], "usage": usage})
+                )));
+                out.push(Bytes::from("data: [DONE]\n\n"));
+                out
+            }
+            None => vec![Bytes::from(
+                serde_json::json!({"id": "chatcmpl-1", "usage": usage}).to_string(),
+            )],
+        };
+        self.open_streams.fetch_add(1, Ordering::SeqCst);
+        Ok(ChatResponse {
+            content_type: if stream {
+                "text/event-stream"
+            } else {
+                "application/json"
+            }
+            .into(),
+            body: Box::new(FakeBody {
+                chunks: chunks.into(),
+                delay: script.chunk_delay,
+                stall_after: script.stall_after,
+                sent: 0,
+                open: self.open_streams.clone(),
+            }),
+        })
+    }
+
+    async fn evidence(
+        &self,
+        _lease_id: &str,
+        query: &EvidenceQuery,
+    ) -> Result<Option<serde_json::Value>, ProviderError> {
+        let mut state = self.state();
+        state.evidence_queries.push(query.clone());
+        Ok(state.evidence.clone())
+    }
+
+    async fn models(&self) -> Result<Option<Vec<LiveModel>>, ProviderError> {
+        Ok(self.state().models.clone())
     }
 
     async fn usage(&self, lease_id: &str) -> Result<KeyUsage, ProviderError> {

@@ -60,6 +60,7 @@ pub struct LeaseRow {
     pub charge: Option<u128>,
     pub charge_basis: Option<String>,
     pub settled_at: Option<u64>,
+    pub evidence_json: Option<String>,
 }
 
 /// Outcome of a compare-and-set on a nullifier.
@@ -98,7 +99,8 @@ CREATE TABLE IF NOT EXISTS leases(
   usage_json TEXT,
   charge TEXT,
   charge_basis TEXT,
-  settled_at INTEGER
+  settled_at INTEGER,
+  evidence_json TEXT
 );
 CREATE TABLE IF NOT EXISTS signed_states(
   lease_id TEXT PRIMARY KEY,
@@ -287,12 +289,13 @@ fn lease_from(r: &rusqlite::Row<'_>) -> rusqlite::Result<LeaseRow> {
         charge: r.get::<_, Option<String>>(15)?.and_then(|c| c.parse().ok()),
         charge_basis: r.get(16)?,
         settled_at: r.get(17)?,
+        evidence_json: r.get(18)?,
     })
 }
 
 const LEASE_COLUMNS: &str = "lease_id, nullifier, token_hash, key_id, bound, status, issued_at, \
      expires_at, replicated, client_request_id, delivered, last_activity, retiring_at, revoked_at, \
-     usage_json, charge, charge_basis, settled_at";
+     usage_json, charge, charge_basis, settled_at, evidence_json";
 
 impl LeaseRow {
     /// Seconds the key was live: issue to deactivation.
@@ -497,4 +500,13 @@ pub fn settled_since(conn: &Connection, since: u64) -> rusqlite::Result<u128> {
             .map_err(|_| rusqlite::Error::InvalidQuery)?;
     }
     Ok(total)
+}
+
+/// The provider's signature and attestation report for a lease, kept for its holder.
+pub fn store_evidence(conn: &Connection, lease_id: &str, json: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE leases SET evidence_json = ?2 WHERE lease_id = ?1",
+        params![lease_id, json],
+    )?;
+    Ok(())
 }

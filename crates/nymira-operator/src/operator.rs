@@ -60,6 +60,7 @@ pub struct Config {
     /// The one browser origin CORS admits.
     pub web_origin: String,
     pub budget: BudgetConfig,
+    pub proxy: crate::proxy::ProxyConfig,
     /// Team note ids, also published as a file in the repository.
     pub team_note_ids: Vec<u32>,
     pub max_verifications: usize,
@@ -89,6 +90,7 @@ impl Config {
             host: "localhost".into(),
             web_origin: web_origin.into(),
             budget: BudgetConfig::default(),
+            proxy: crate::proxy::ProxyConfig::default(),
             team_note_ids: Vec::new(),
             max_verifications: 4,
             attempts_cap: 65_536,
@@ -181,7 +183,14 @@ pub struct Operator {
     pub(crate) closing: Mutex<HashSet<String>>,
     /// Serialises lifecycle steps (retire, expire, tick).
     pub(crate) lifecycle: tokio::sync::Mutex<()>,
-    pub(crate) evidence: Mutex<HashMap<String, Value>>,
+    pub(crate) spend: Mutex<crate::proxy::SpendBook>,
+    /// One cancel signal per running proxied request, by lease: fired when retirement runs out of patience.
+    /// The `signing_algo` each lease's chats used, for the evidence fetch.
+    pub(crate) algos: Mutex<HashMap<String, String>>,
+    pub(crate) cancels: Mutex<HashMap<String, Vec<Arc<tokio::sync::Notify>>>>,
+    pub(crate) limiter: crate::proxy::Limiter,
+    pub(crate) blocked_models: Mutex<HashSet<String>>,
+    pub(crate) models_checked_ms: Mutex<u64>,
 }
 
 pub struct Parts {
@@ -252,7 +261,12 @@ impl Operator {
             inflight: Arc::new(Mutex::new(HashMap::new())),
             closing: Mutex::new(HashSet::new()),
             lifecycle: tokio::sync::Mutex::new(()),
-            evidence: Mutex::new(HashMap::new()),
+            spend: Mutex::new(crate::proxy::SpendBook::default()),
+            cancels: Mutex::new(HashMap::new()),
+            algos: Mutex::new(HashMap::new()),
+            limiter: crate::proxy::Limiter::new(),
+            blocked_models: Mutex::new(HashSet::new()),
+            models_checked_ms: Mutex::new(0),
         });
         operator
             .refresh_chain(true)
@@ -270,6 +284,7 @@ impl Operator {
             }
         }
         operator.recover().await?;
+        operator.check_models().await;
         Ok(operator)
     }
 
