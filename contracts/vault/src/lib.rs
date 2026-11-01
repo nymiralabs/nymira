@@ -13,8 +13,8 @@ use near_sdk::json_types::{Base64VecU8, U128, U64};
 use near_sdk::serde_json::json;
 use near_sdk::store::{Lazy, LookupMap, LookupSet, Vector};
 use near_sdk::{
-    env, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise,
-    PromiseError, PromiseOrValue,
+    assert_one_yocto, env, near, require, AccountId, BorshStorageKey, Gas, NearToken,
+    PanicOnDefault, Promise, PromiseError, PromiseOrValue,
 };
 use nymira_near_codec::{
     chain_id, check_signing_key, contract_address, destination, public_input_from_wire, Network,
@@ -74,6 +74,12 @@ const MAX_PAGE: u32 = 100;
 /// At most this many notes per `claim_expired_batch` call.
 const MAX_CLAIM_BATCH: u32 = 50;
 const NS_PER_SEC: u64 = 1_000_000_000;
+/// A proposed TVL cap or parameter change applies no earlier than this after the proposal...
+const PROPOSAL_DELAY_NS: u64 = 48 * 3_600 * NS_PER_SEC;
+/// ...and lapses when it is still not applied this long after it became applicable.
+const PROPOSAL_LAPSE_NS: u64 = 7 * ONE_DAY_SECS * NS_PER_SEC;
+/// `slot_rate` is parts per million of the lease bound per minute.
+const MAX_SLOT_RATE: u32 = 1_000_000;
 
 /// Collection prefixes: the enum index is the prefix byte. Append only, never reorder.
 #[derive(BorshStorageKey)]
@@ -136,6 +142,49 @@ struct ExitRecord {
     conceded: u128,
     /// Block time (nanoseconds).
     deadline: u64,
+}
+
+/// The lease parameters the vault owner may change (with a 48-hour delay). The exit delay, the
+/// note lifetime and the note fee are not among them: TVL accounting relies on a fixed note fee.
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct LeaseParams {
+    pub bound_classes: Vec<U128>,
+    pub charge_step: U128,
+    pub min_charge: U128,
+    pub slot_rate: u32,
+}
+
+impl LeaseParams {
+    fn check(&self) {
+        require!(!self.bound_classes.is_empty(), "no bound classes");
+        for (i, class) in self.bound_classes.iter().enumerate() {
+            require!(class.0 > 0, "a bound class is zero");
+            require!(
+                !self.bound_classes[..i].contains(class),
+                "repeated bound class"
+            );
+        }
+        require!(self.charge_step.0 > 0, "charge step is zero");
+        require!(self.min_charge.0 > 0, "minimum charge is zero");
+        require!(self.slot_rate <= MAX_SLOT_RATE, "slot rate above 100%");
+    }
+}
+
+/// A proposed TVL cap, waiting for its 48 hours.
+#[near(serializers = [borsh])]
+struct PendingCap {
+    value: u128,
+    /// Block time (nanoseconds).
+    proposed_at: u64,
+}
+
+/// Proposed lease parameters, waiting for their 48 hours.
+#[near(serializers = [borsh])]
+struct PendingParams {
+    value: LeaseParams,
+    /// Block time (nanoseconds).
+    proposed_at: u64,
 }
 
 /// A verifying key in the `alt_bn128` host byte format.
@@ -262,6 +311,9 @@ pub struct Vault {
     exit_ids: Vec<u32>,
     /// Nullifiers of escaped states whose exit was defeated: never usable again.
     flagged: LookupSet<[u8; 32]>,
+    /// At most one pending proposal of each kind; a new one replaces it and restarts the 48 hours.
+    pending_tvl_cap: Option<PendingCap>,
+    pending_params: Option<PendingParams>,
 }
 
 /// Positions of the withdrawal statement's 16 public inputs.
@@ -442,6 +494,13 @@ impl Vault {
         }
         require!(note_fee.0 > 0, "note fee is zero");
         require!(exit_delay_secs >= ONE_DAY_SECS, "exit delay under one day");
+        let lease = LeaseParams {
+            bound_classes,
+            charge_step,
+            min_charge,
+            slot_rate,
+        };
+        lease.check();
         let operator_pk = Point::parse(&operator_pk);
         let clearance_pk = Point::parse(&clearance_pk);
         require!(
@@ -479,10 +538,10 @@ impl Vault {
             tvl_cap: tvl_cap.0,
             exit_delay_secs,
             note_ttl,
-            bound_classes: bound_classes.into_iter().map(|b| b.0).collect(),
-            charge_step: charge_step.0,
-            min_charge: min_charge.0,
-            slot_rate,
+            bound_classes: lease.bound_classes.into_iter().map(|b| b.0).collect(),
+            charge_step: lease.charge_step.0,
+            min_charge: lease.min_charge.0,
+            slot_rate: lease.slot_rate,
             request_vk: Lazy::new(StorageKey::RequestVk, request_key.into()),
             withdrawal_vk: Lazy::new(StorageKey::WithdrawalVk, withdrawal_key.into()),
             notes: Vector::new(StorageKey::Notes),
@@ -501,6 +560,8 @@ impl Vault {
             exits: LookupMap::new(StorageKey::Exits),
             exit_ids: Vec::new(),
             flagged: LookupSet::new(StorageKey::Flagged),
+            pending_tvl_cap: None,
+            pending_params: None,
         }
     }
 
@@ -1012,6 +1073,120 @@ impl Vault {
         }
     }
 
+    /// Proposes a new TVL cap; it applies 48 hours later. Vault owner only, with one yoctoNEAR.
+    /// A second proposal replaces the first and restarts the 48 hours.
+    #[payable]
+    pub fn propose_tvl_cap(&mut self, tvl_cap: U128) {
+        self.owner_call();
+        require!(tvl_cap.0 > 0, "tvl cap is zero");
+        let now = env::block_timestamp();
+        self.pending_tvl_cap = Some(PendingCap {
+            value: tvl_cap.0,
+            proposed_at: now,
+        });
+        events::emit(
+            "tvl_cap_proposed",
+            json!({
+                "tvl_cap": tvl_cap.0.to_string(),
+                "effective_at": (now + PROPOSAL_DELAY_NS).to_string(),
+            }),
+        );
+    }
+
+    /// Applies the pending TVL cap once 48 hours have passed and before it lapses (7 days after
+    /// it became applicable). Vault owner only, with one yoctoNEAR.
+    #[payable]
+    pub fn apply_tvl_cap(&mut self) {
+        self.owner_call();
+        let pending = self
+            .pending_tvl_cap
+            .as_ref()
+            .unwrap_or_else(|| env::panic_str("no pending proposal"));
+        let effective_at = pending.proposed_at + PROPOSAL_DELAY_NS;
+        check_applicable(effective_at);
+        let cap = pending.value;
+        self.pending_tvl_cap = None;
+        self.tvl_cap = cap;
+        events::emit(
+            "tvl_cap_applied",
+            json!({ "tvl_cap": cap.to_string(), "effective_at": effective_at.to_string() }),
+        );
+    }
+
+    /// Proposes new lease parameters (bound classes, charge step, minimum charge, slot rate); they
+    /// apply 48 hours later. Vault owner only, with one yoctoNEAR.
+    #[payable]
+    pub fn propose_params(&mut self, params: LeaseParams) {
+        self.owner_call();
+        params.check();
+        let now = env::block_timestamp();
+        events::emit(
+            "params_proposed",
+            json!({
+                "params": params,
+                "effective_at": (now + PROPOSAL_DELAY_NS).to_string(),
+            }),
+        );
+        self.pending_params = Some(PendingParams {
+            value: params,
+            proposed_at: now,
+        });
+    }
+
+    /// Applies the pending lease parameters, under the same window as `apply_tvl_cap`.
+    #[payable]
+    pub fn apply_params(&mut self) {
+        self.owner_call();
+        let pending = self
+            .pending_params
+            .as_ref()
+            .unwrap_or_else(|| env::panic_str("no pending proposal"));
+        let effective_at = pending.proposed_at + PROPOSAL_DELAY_NS;
+        check_applicable(effective_at);
+        let params = self.pending_params.take().expect("checked above").value;
+        self.bound_classes = params.bound_classes.iter().map(|b| b.0).collect();
+        self.charge_step = params.charge_step.0;
+        self.min_charge = params.min_charge.0;
+        self.slot_rate = params.slot_rate;
+        events::emit(
+            "params_applied",
+            json!({ "params": params, "effective_at": effective_at.to_string() }),
+        );
+    }
+
+    /// Proof of life: emits the block time, only for the operator account.
+    pub fn heartbeat(&mut self) {
+        require!(
+            env::predecessor_account_id() == self.operator_account,
+            "only the operator account"
+        );
+        events::emit(
+            "heartbeat",
+            json!({ "ts": env::block_timestamp().to_string() }),
+        );
+    }
+
+    /// The account that takes the close fee and sends heartbeats; fixed at `new()`.
+    pub fn operator_account(&self) -> AccountId {
+        self.operator_account.clone()
+    }
+
+    pub fn bound_classes(&self) -> Vec<U128> {
+        self.bound_classes.iter().copied().map(U128).collect()
+    }
+
+    pub fn charge_step(&self) -> U128 {
+        U128(self.charge_step)
+    }
+
+    pub fn min_charge(&self) -> U128 {
+        U128(self.min_charge)
+    }
+
+    pub fn slot_rate(&self) -> u32 {
+        self.slot_rate
+    }
+
     pub fn config(&self) -> Config {
         Config {
             operator_pk: self.operator_pk.json(),
@@ -1037,6 +1212,16 @@ impl Vault {
 }
 
 impl Vault {
+    /// The checks every vault owner method starts with: one yoctoNEAR (so only a full-access key
+    /// can call) and the owner as caller.
+    fn owner_call(&self) {
+        assert_one_yocto();
+        require!(
+            env::predecessor_account_id() == self.owner,
+            "only the vault owner"
+        );
+    }
+
     /// The vault's own callback, with its fixed gas and no share of leftover gas.
     fn callback() -> VaultExt {
         Self::ext(env::current_account_id())
@@ -1417,6 +1602,16 @@ fn parse_inputs(inputs: &[Base64VecU8], count: usize) -> (Vec<[u8; 32]>, Vec<[u8
         scalars.push(scalar);
     }
     (words, scalars)
+}
+
+/// A proposal is applicable from `effective_at` and lapses 7 days later.
+fn check_applicable(effective_at: u64) {
+    let now = env::block_timestamp();
+    require!(now >= effective_at, "the 48-hour wait is not over");
+    require!(
+        now <= effective_at.saturating_add(PROPOSAL_LAPSE_NS),
+        "the proposal lapsed"
+    );
 }
 
 /// Panics unless the wire proof verifies against `key` for the scalars.

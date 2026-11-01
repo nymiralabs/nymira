@@ -108,6 +108,8 @@ async fn setup_with(tvl_cap: u128, features: &[&str]) -> Result<Env> {
     let usdc = MockUsdc::deploy(&worker).await?;
     let operator = worker.dev_create_account().await?;
     let treasury = worker.dev_create_account().await?;
+    // Alice is the vault owner too, so tests can call the owner methods.
+    let alice = worker.dev_create_account().await?;
     // A fixed account id, so proofs made for it can be cached across tests.
     let vault = worker
         .root_account()?
@@ -119,14 +121,16 @@ async fn setup_with(tvl_cap: u128, features: &[&str]) -> Result<Env> {
         .deploy(&vault_wasm(features))
         .await?
         .into_result()?;
+    let mut args = new_args(
+        usdc.contract.id(),
+        tvl_cap,
+        operator.id().as_str(),
+        treasury.id().as_str(),
+    );
+    args["owner"] = json!(alice.id());
     let init = vault
         .call("new")
-        .args_json(new_args(
-            usdc.contract.id(),
-            tvl_cap,
-            operator.id().as_str(),
-            treasury.id().as_str(),
-        ))
+        .args_json(args)
         .max_gas()
         .transact()
         .await?;
@@ -134,7 +138,6 @@ async fn setup_with(tvl_cap: u128, features: &[&str]) -> Result<Env> {
     init.into_result()?;
     usdc.register_id(vault.id()).await;
     usdc.register(&treasury).await;
-    let alice = worker.dev_create_account().await?;
     usdc.register(&alice).await;
     usdc.mint(alice.id(), 1_000_000 * ONE).await;
     Ok(Env {
@@ -1212,5 +1215,97 @@ async fn the_intents_branch_runs_against_the_open_source_verifier() -> Result<()
     )
     .await;
     assert_eq!(owed, "0");
+    Ok(())
+}
+
+// Parameters, the TVL cap and the heartbeat on the sandbox
+
+#[tokio::test]
+async fn owner_methods_need_one_yocto_and_the_heartbeat_the_operator() -> Result<()> {
+    let env = setup(100 * ONE).await?;
+    let one = NearToken::from_yoctonear(1);
+
+    // Without the yoctoNEAR, even the owner (a function-call key would be in this position) fails.
+    let bare = env
+        .alice
+        .call(env.vault.id(), "propose_tvl_cap")
+        .args_json(json!({ "tvl_cap": "7000000" }))
+        .max_gas()
+        .transact()
+        .await?;
+    assert!(bare.is_failure());
+    // Another account with the yoctoNEAR fails too.
+    let stranger = env
+        .operator
+        .call(env.vault.id(), "propose_tvl_cap")
+        .args_json(json!({ "tvl_cap": "7000000" }))
+        .deposit(one)
+        .max_gas()
+        .transact()
+        .await?;
+    assert!(stranger.is_failure());
+    // The owner with one yoctoNEAR proposes; applying at once is too early.
+    let proposed = env
+        .alice
+        .call(env.vault.id(), "propose_tvl_cap")
+        .args_json(json!({ "tvl_cap": "7000000" }))
+        .deposit(one)
+        .max_gas()
+        .transact()
+        .await?;
+    report("propose_tvl_cap", &proposed);
+    assert!(proposed
+        .logs()
+        .join("\n")
+        .contains(r#""event":"tvl_cap_proposed""#));
+    proposed.into_result()?;
+    let early = env
+        .alice
+        .call(env.vault.id(), "apply_tvl_cap")
+        .deposit(one)
+        .max_gas()
+        .transact()
+        .await?;
+    assert!(early.is_failure());
+    let params = env
+        .alice
+        .call(env.vault.id(), "propose_params")
+        .args_json(json!({ "params": {
+            "bound_classes": ["200000", "1000000"],
+            "charge_step": "2000",
+            "min_charge": "4000",
+            "slot_rate": 2000,
+        }}))
+        .deposit(one)
+        .max_gas()
+        .transact()
+        .await?;
+    report("propose_params", &params);
+    params.into_result()?;
+    // The pending values do not show in the views before they apply.
+    let classes: Vec<String> = view(&env.vault, "bound_classes", json!({})).await;
+    assert_eq!(classes, ["100000", "500000"]);
+    let cap: Value = view(&env.vault, "config", json!({})).await;
+    assert_eq!(cap["tvl_cap"], (100 * ONE).to_string());
+
+    // Heartbeat: the operator only.
+    let alive = env
+        .operator
+        .call(env.vault.id(), "heartbeat")
+        .max_gas()
+        .transact()
+        .await?;
+    report("heartbeat", &alive);
+    assert!(alive.logs().join("\n").contains(r#""event":"heartbeat""#));
+    alive.into_result()?;
+    let faked = env
+        .alice
+        .call(env.vault.id(), "heartbeat")
+        .max_gas()
+        .transact()
+        .await?;
+    assert!(faked.is_failure());
+    let operator: String = view(&env.vault, "operator_account", json!({})).await;
+    assert_eq!(operator, env.operator.id().to_string());
     Ok(())
 }
