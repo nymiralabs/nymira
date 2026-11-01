@@ -18,6 +18,8 @@ ark-ed-on-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 async-trait = "0.1"
 base64 = "0.22"
+ed25519-dalek = "2"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 hex = "0.4"
 lru = "0.16"
 rand = "0.8"
@@ -28,13 +30,14 @@ serde_json = "1"
 sha2 = "0.10"
 subtle = "2"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
 tower-http = { version = "0.6", features = ["cors"] }
 zkapi-core = { workspace = true }
 zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof" }
 zkapi-types = { workspace = true }
 
 [dev-dependencies]
+async-trait = "0.1"
 nymira-near-codec = { workspace = true }
 nymira-fake-near-rpc = { path = "../nymira-fake-near-rpc" }
 nymira-testkit = { path = "../nymira-testkit" }

@@ -21,9 +21,11 @@ use crate::json::{only_keys, parse_strict};
 use crate::provider::ProviderAdapter;
 use crate::puzzle;
 use crate::replica::{Replica, ReplicaEntry};
+use crate::signer::SignerApi;
 use crate::status::{StatusSigner, SLOT_SECS};
 use crate::store::{self, Cas, NewLease, Store};
 use crate::token;
+use crate::usage::Minter;
 use crate::verify::{point_checks, ProofVerifier};
 
 /// A request proof is valid for 300 seconds, with 30 seconds of clock skew either way.
@@ -39,8 +41,17 @@ pub const LEASE_BODY_LIMIT: usize = 64 * 1024;
 pub const MAX_CLIENT_REQUEST_ID: usize = 36;
 pub const MAX_PAYLOAD: usize = 2 * 1024;
 
+/// Where the operator runs. Only the sandbox may start without a replica.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Profile {
+    Sandbox,
+    Testnet,
+    Mainnet,
+}
+
 #[derive(Clone)]
 pub struct Config {
+    pub profile: Profile,
     pub vault_account: String,
     pub chain_id: u64,
     pub contract_address: Felt252,
@@ -71,6 +82,7 @@ impl Config {
         web_origin: &str,
     ) -> Self {
         Self {
+            profile: Profile::Sandbox,
             vault_account: vault_account.into(),
             chain_id,
             contract_address,
@@ -106,6 +118,8 @@ pub enum StartError {
     KeyMismatch,
     #[error("the vault's chain id differs from the configured one")]
     ChainMismatch,
+    #[error("a testnet or mainnet vault needs replication before the first signature, which is not built")]
+    NoReplication,
     #[error("store: {0}")]
     Store(String),
     #[error("provider: {0}")]
@@ -113,8 +127,8 @@ pub enum StartError {
 }
 
 #[derive(Default)]
-struct Cache {
-    config: Option<VaultConfig>,
+pub(crate) struct Cache {
+    pub(crate) config: Option<VaultConfig>,
     config_at_ms: u64,
     /// Set by `params_applied`; cleared by the next successful read of `config()`.
     dirty: bool,
@@ -141,16 +155,16 @@ struct Load {
 
 pub struct Operator {
     cfg: Config,
-    clock: Arc<dyn Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
     vault: Arc<dyn VaultView>,
-    provider: Arc<dyn ProviderAdapter>,
+    pub(crate) provider: Arc<dyn ProviderAdapter>,
     replica: Arc<dyn Replica>,
     verifier: Arc<dyn ProofVerifier>,
-    store: Store,
-    ledger: Ledger,
+    pub(crate) store: Store,
+    pub(crate) ledger: Ledger,
     status: StatusSigner,
     state_pk: zkapi_types::wire::CurvePointWire,
-    cache: tokio::sync::Mutex<Cache>,
+    pub(crate) cache: tokio::sync::Mutex<Cache>,
     balance_at_ms: Mutex<u64>,
     /// Held across the compare-and-set, the replica acknowledgement and the key mint.
     admission: tokio::sync::Mutex<()>,
@@ -159,7 +173,15 @@ pub struct Operator {
     load: Mutex<Load>,
     /// Issued 201 bodies by nullifier, so a duplicate POST returns the same lease. Memory only:
     /// the token is stored hashed and cannot be rebuilt.
-    issued: Mutex<HashMap<String, (Value, Value)>>,
+    pub(crate) issued: Mutex<HashMap<String, (Value, Value)>>,
+    pub(crate) signer: Arc<dyn SignerApi>,
+    pub(crate) minter: Minter,
+    /// Requests in flight per lease, and the leases that take no new ones.
+    pub(crate) inflight: Arc<Mutex<HashMap<String, u32>>>,
+    pub(crate) closing: Mutex<HashSet<String>>,
+    /// Serialises lifecycle steps (retire, expire, tick).
+    pub(crate) lifecycle: tokio::sync::Mutex<()>,
+    pub(crate) evidence: Mutex<HashMap<String, Value>>,
 }
 
 pub struct Parts {
@@ -171,6 +193,8 @@ pub struct Parts {
     pub verifier: Arc<dyn ProofVerifier>,
     pub store: Store,
     pub state_signer: CompactSigner,
+    pub signer: Arc<dyn SignerApi>,
+    pub minter: Minter,
 }
 
 /// `0x` and 64 lowercase hex digits, the vault's spelling of a word (`Felt252::to_hex` trims).
@@ -191,7 +215,12 @@ impl Operator {
             verifier,
             store,
             state_signer,
+            signer,
+            minter,
         } = parts;
+        if cfg.profile != Profile::Sandbox {
+            return Err(StartError::NoReplication);
+        }
         let state_pk = state_signer.public_key();
         let credit = provider
             .balance()
@@ -218,6 +247,12 @@ impl Operator {
             admission: tokio::sync::Mutex::new(()),
             load: Mutex::new(Load::default()),
             issued: Mutex::new(HashMap::new()),
+            signer,
+            minter,
+            inflight: Arc::new(Mutex::new(HashMap::new())),
+            closing: Mutex::new(HashSet::new()),
+            lifecycle: tokio::sync::Mutex::new(()),
+            evidence: Mutex::new(HashMap::new()),
         });
         operator
             .refresh_chain(true)
@@ -248,15 +283,27 @@ impl Operator {
             .map_err(|e| StartError::Store(e.to_string()))?;
         let known: HashSet<String> = leases.iter().map(|l| l.lease_id.clone()).collect();
         for lease in &leases {
+            if lease.status == "settled" {
+                continue;
+            }
+            // A lease past `active` owes a charge: it is resent if the replica missed it and kept
+            // whatever the answer, never rolled back.
+            let owes = !matches!(lease.status.as_str(), "provisioning" | "active");
             let keep = if lease.status == "provisioning" {
                 false
             } else if lease.replicated {
                 true
             } else {
-                self.replicate(&lease.lease_id).await.is_ok()
+                self.replicate(&lease.lease_id).await.is_ok() || owes
             };
             if keep {
                 self.ledger.restore(&lease.lease_id, lease.bound);
+                if lease.status != "active" {
+                    self.closing
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(lease.lease_id.clone());
+                }
                 continue;
             }
             let _ = self.provider.revoke(&lease.lease_id).await;
@@ -266,6 +313,14 @@ impl Operator {
                 .await
                 .map_err(|e| StartError::Store(e.to_string()))?;
         }
+        let day_start =
+            self.clock.now_secs() / crate::budget::SECS_PER_DAY * crate::budget::SECS_PER_DAY;
+        let settled = self
+            .store
+            .run(move |c| store::settled_since(c, day_start))
+            .await
+            .map_err(|e| StartError::Store(e.to_string()))?;
+        self.ledger.restore_settled(settled, self.clock.now_secs());
         let listed = self
             .provider
             .list()
@@ -435,6 +490,14 @@ impl Operator {
 
     async fn claim(&self, nullifier: &str, to: &'static str) -> Result<(), String> {
         let _guard = self.admission.lock().await;
+        if to == store::state::EXIT {
+            // Whatever the row says, the signer must know this nullifier is in an exit.
+            let n = nullifier.to_string();
+            self.store
+                .run(move |c| store::record_exit_seen(c, &n))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
         let (n, now) = (nullifier.to_string(), self.clock.now_secs());
         match self
             .store

@@ -824,6 +824,8 @@ async fn the_operator_refuses_to_start_against_another_operators_key() {
         verifier: Arc::new(Counting::default()),
         store: nymira_operator::store::Store::open_in_memory().unwrap(),
         state_signer: zkapi_proof::compact::CompactSigner::from_seed(&Felt252::from_u64(1)),
+        signer: Arc::new(NoSigner),
+        minter: nymira_operator::usage::Minter::generate(),
     })
     .await;
     assert!(matches!(
@@ -906,4 +908,18 @@ async fn a_root_and_epoch_change_in_one_poll_gives_the_old_root_no_grace() {
             .0,
         201
     );
+}
+
+struct NoSigner;
+
+#[async_trait::async_trait]
+impl nymira_operator::signer::SignerApi for NoSigner {
+    async fn sign_next(
+        &self,
+        _: nymira_operator::signer::SignRequest,
+    ) -> Result<zkapi_types::wire::RequestResponseV2, nymira_operator::signer::SignerError> {
+        Err(nymira_operator::signer::SignerError::Refused(
+            "no signer in this test".into(),
+        ))
+    }
 }

@@ -26,6 +26,8 @@ pub fn key_cap_nano_usd(bound_micro_usd: u128) -> u128 {
 pub enum ProviderError {
     #[error("provider rejected the call: {0}")]
     Rejected(String),
+    #[error("provider has no such key: {0}")]
+    NotFound(String),
     #[error("provider unavailable: {0}")]
     Unavailable(String),
 }
@@ -54,6 +56,12 @@ pub trait ProviderAdapter: Send + Sync {
     async fn list(&self) -> Result<Vec<String>, ProviderError>;
     /// The organisation's credit in micro-USD.
     async fn balance(&self) -> Result<u128, ProviderError>;
+    /// The provider's response signature and attestation report for the lease, fetched with the
+    /// lease key before it is deactivated and passed to the client unchanged. An adapter that
+    /// cannot fetch it returns none.
+    async fn evidence(&self, _lease_id: &str) -> Result<Option<serde_json::Value>, ProviderError> {
+        Ok(None)
+    }
 }
 
 /// A key as the fake recorded it.
@@ -73,6 +81,8 @@ struct FakeState {
     mint_delay: Duration,
     mint_error: Option<ProviderError>,
     balance_error: Option<ProviderError>,
+    usage_error: Option<ProviderError>,
+    revoke_error: Option<ProviderError>,
     mint_calls: u32,
 }
 
@@ -111,6 +121,14 @@ impl FakeProvider {
 
     pub fn set_mint_error(&self, error: Option<ProviderError>) {
         self.state().mint_error = error;
+    }
+
+    pub fn set_revoke_error(&self, error: Option<ProviderError>) {
+        self.state().revoke_error = error;
+    }
+
+    pub fn set_usage_error(&self, error: Option<ProviderError>) {
+        self.state().usage_error = error;
     }
 
     pub fn set_balance_error(&self, error: Option<ProviderError>) {
@@ -181,8 +199,11 @@ impl ProviderAdapter for FakeProvider {
 
     async fn usage(&self, lease_id: &str) -> Result<KeyUsage, ProviderError> {
         let state = self.state();
+        if let Some(error) = &state.usage_error {
+            return Err(error.clone());
+        }
         if !state.keys.contains_key(lease_id) {
-            return Err(ProviderError::Rejected("unknown lease".into()));
+            return Err(ProviderError::NotFound("unknown lease".into()));
         }
         Ok(KeyUsage {
             cost_nano_usd: state.usage.get(lease_id).copied().unwrap_or(0),
@@ -190,9 +211,12 @@ impl ProviderAdapter for FakeProvider {
     }
 
     async fn revoke(&self, lease_id: &str) -> Result<(), ProviderError> {
+        if let Some(error) = self.state().revoke_error.clone() {
+            return Err(error);
+        }
         match self.state().keys.get_mut(lease_id) {
             Some(key) => key.revoked = true,
-            None => return Err(ProviderError::Rejected("unknown lease".into())),
+            None => return Err(ProviderError::NotFound("unknown lease".into())),
         }
         Ok(())
     }

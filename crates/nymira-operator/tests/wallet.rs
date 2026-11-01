@@ -65,5 +65,34 @@ async fn an_unchanged_wallet_proof_opens_a_lease_and_the_wallet_ignores_the_toke
     assert_eq!(parsed.client_request_id, request.client_request_id);
     assert!(body["lease_token"].is_string());
     assert!(body.get("api_key").is_none());
+
+    // The lease ends, the operator settles, and the unchanged wallet verifies the signed state
+    // (identity, payload hash, signature under the pinned state key, bound, successor anchor,
+    // commitment opening) and installs it.
+    let (lease_id, token) = (
+        body["lease_id"].as_str().unwrap(),
+        body["lease_token"].as_str().unwrap(),
+    );
+    rig.provider.set_usage(lease_id, 40_000_000);
+    let retired = rig
+        .http
+        .post(format!("{}/v2/openrouter/leases/{lease_id}", rig.url))
+        .header("X-Nymira-Lease-Token", token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(retired.status(), 200);
+    rig.op.tick().await;
+    rig.clock.advance_secs(11);
+    rig.op.tick().await;
+    rig.op.tick().await;
+    let response = wallet
+        .recover_pending()
+        .await
+        .unwrap()
+        .expect("a finalized response");
+    assert_eq!(response.charge_applied, 42_000);
+    assert!(!wallet.has_pending_request());
+    assert_eq!(wallet.state().unwrap().current_balance, 2_000_000 - 42_000);
     let _ = ManualClock::new(0);
 }

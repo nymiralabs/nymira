@@ -162,6 +162,13 @@ impl Ledger {
         inner.credit = inner.credit.saturating_sub(charge);
     }
 
+    /// Charges settled earlier today, read back from the store after a restart.
+    pub fn restore_settled(&self, amount: u128, now_secs: u64) {
+        let mut inner = self.inner();
+        Self::roll_day(&mut inner, now_secs);
+        inner.day_settled += amount;
+    }
+
     pub fn live_credit(&self) -> u128 {
         self.inner().credit
     }
