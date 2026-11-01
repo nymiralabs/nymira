@@ -41,27 +41,34 @@ pub const DOMAIN_ANCHOR: &[u8] = b"zkapi.v2c.anchor";
 /// is unprovable in both circuits.
 pub const GENESIS_ANCHOR: Felt252 = Felt252::ONE;
 
+/// Poseidon parameters of every hash in this crate (BN254, state width 3), exported so other
+/// crates can check or reuse them instead of restating them.
+pub const POSEIDON_FULL_ROUNDS: u64 = 8;
+pub const POSEIDON_PARTIAL_ROUNDS: u64 = 57;
+pub const POSEIDON_RATE: usize = 2;
+pub const POSEIDON_CAPACITY: usize = 1;
+pub const POSEIDON_ALPHA: u64 = 5;
+/// `skip_matrices` argument of `find_poseidon_ark_and_mds`.
+pub const POSEIDON_SKIP_MATRICES: u64 = 0;
+
 fn config() -> &'static PoseidonConfig<Fr> {
     static CONFIG: OnceLock<PoseidonConfig<Fr>> = OnceLock::new();
     CONFIG.get_or_init(|| {
-        let full_rounds = 8;
-        let partial_rounds = 57;
-        let rate = 2;
         let (ark, mds) = find_poseidon_ark_and_mds::<Fr>(
             Fr::MODULUS_BIT_SIZE as u64,
-            rate,
-            full_rounds,
-            partial_rounds,
-            0,
+            POSEIDON_RATE,
+            POSEIDON_FULL_ROUNDS,
+            POSEIDON_PARTIAL_ROUNDS,
+            POSEIDON_SKIP_MATRICES,
         );
         PoseidonConfig::new(
-            full_rounds as usize,
-            partial_rounds as usize,
-            5,
+            POSEIDON_FULL_ROUNDS as usize,
+            POSEIDON_PARTIAL_ROUNDS as usize,
+            POSEIDON_ALPHA,
             mds,
             ark,
-            rate,
-            1,
+            POSEIDON_RATE,
+            POSEIDON_CAPACITY,
         )
     })
 }
@@ -431,6 +438,17 @@ mod tests {
             next_anchor(&n),
             hash_felts(&[domain_value(DOMAIN_ANCHOR), n, Felt252::ZERO, Felt252::ZERO])
         );
+    }
+
+    #[test]
+    fn exported_poseidon_constants_match_the_config() {
+        let config = config();
+        assert_eq!(config.full_rounds as u64, POSEIDON_FULL_ROUNDS);
+        assert_eq!(config.partial_rounds as u64, POSEIDON_PARTIAL_ROUNDS);
+        assert_eq!(config.alpha, POSEIDON_ALPHA);
+        assert_eq!(config.rate, POSEIDON_RATE);
+        assert_eq!(config.capacity, POSEIDON_CAPACITY);
+        assert_eq!(config.mds.len(), POSEIDON_RATE + POSEIDON_CAPACITY);
     }
 
     #[test]
