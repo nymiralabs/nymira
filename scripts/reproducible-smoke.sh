@@ -3,6 +3,6 @@
 # and deploys the result on the sandbox. Needs Docker and a clean git tree.
 set -euo pipefail
 cd "$(dirname "$0")/../contracts/vault"
-cargo near build reproducible-wasm --locked --no-abi
+cargo near build reproducible-wasm --no-abi
 wasm=$(ls ../../target/near/nymira_vault/nymira_vault.wasm)
 NYMIRA_VAULT_WASM="$(cd "$(dirname "$wasm")" && pwd)/$(basename "$wasm")" cargo test --locked --test sandbox
