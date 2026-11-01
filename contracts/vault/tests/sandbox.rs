@@ -4,7 +4,11 @@
 use std::path::Path;
 use std::process::Command;
 
+/// `NYMIRA_VAULT_WASM` points the test at a prebuilt wasm (the reproducible build).
 fn build_wasm() -> Vec<u8> {
+    if let Ok(path) = std::env::var("NYMIRA_VAULT_WASM") {
+        return std::fs::read(path).expect("NYMIRA_VAULT_WASM is readable");
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let status = Command::new("cargo")
         .args(["near", "build", "non-reproducible-wasm", "--no-abi", "--locked"])
