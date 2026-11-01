@@ -304,21 +304,35 @@ impl ProofGen {
 
     /// The verifying key of a statement in the host byte format, from the canonical key bytes.
     pub fn verifying_key(&self, kind: Kind) -> nymira_near_codec::VerifyingKey {
-        let (file, key_kind) = match kind {
-            Kind::Request => (
-                zkapi_proof::compact::REQUEST_VERIFYING_KEY_FILE,
-                zkapi_proof::compact::KeyKind::Request,
-            ),
-            Kind::Withdrawal => (
-                zkapi_proof::compact::WITHDRAWAL_VERIFYING_KEY_FILE,
-                zkapi_proof::compact::KeyKind::Withdrawal,
-            ),
-        };
-        let bytes = std::fs::read(setup_dir().join(file)).expect("setup key file");
-        let (_, canonical) =
-            zkapi_proof::compact::strip_key_header(&bytes, key_kind).expect("key header");
-        nymira_near_codec::VerifyingKey::from_canonical(canonical).expect("canonical key")
+        nymira_near_codec::VerifyingKey::from_canonical(&canonical_verifying_key(kind))
+            .expect("canonical key")
     }
+}
+
+/// The development setup's verifying key of a statement as canonical bytes (arkworks compressed
+/// serialization, the string zkapi's pin check hashes and the vault's `new()` takes). Needs no
+/// proving keys.
+pub fn canonical_verifying_key(kind: Kind) -> Vec<u8> {
+    let (file, key_kind) = match kind {
+        Kind::Request => (
+            zkapi_proof::compact::REQUEST_VERIFYING_KEY_FILE,
+            zkapi_proof::compact::KeyKind::Request,
+        ),
+        Kind::Withdrawal => (
+            zkapi_proof::compact::WITHDRAWAL_VERIFYING_KEY_FILE,
+            zkapi_proof::compact::KeyKind::Withdrawal,
+        ),
+    };
+    let bytes = std::fs::read(setup_dir().join(file)).expect("setup key file");
+    let (_, canonical) =
+        zkapi_proof::compact::strip_key_header(&bytes, key_kind).expect("key header");
+    canonical.to_vec()
+}
+
+/// The public key of the development signer derived from `seed`: what a vault under test takes
+/// as `operator_pk` or `clearance_pk`. Needs no proving keys.
+pub fn signing_key(seed: u64) -> CurvePointWire {
+    seeded(seed).public_key()
 }
 
 /// Note with a vault-assigned id and expiry (a thin helper to keep call sites short).

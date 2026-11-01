@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 ark-bn254 = { workspace = true }
 ark-ec = { workspace = true }
+ark-ed-on-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serialize = { workspace = true }

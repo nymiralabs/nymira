@@ -11,23 +11,39 @@ pub fn workspace_root() -> PathBuf {
 
 /// Builds the contract crate at `dir` (relative to the workspace root, for
 /// example `contracts/mock-usdc`) and returns its wasm. cargo-near 0.22.0 must
-/// be installed. Concurrent callers serialize on cargo's own build lock.
+/// be installed.
 pub fn contract_wasm(dir: &str) -> Vec<u8> {
+    contract_wasm_with_features(dir, &[])
+}
+
+/// [`contract_wasm`] with cargo features (for example the vault's `dev-setup`).
+/// The same crate built with other features lands at the same path, so builds
+/// of one process serialize here.
+pub fn contract_wasm_with_features(dir: &str, features: &[&str]) -> Vec<u8> {
+    static BUILD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = BUILD.lock().unwrap_or_else(|e| e.into_inner());
     let root = workspace_root();
     let manifest = root.join(dir);
-    let name = manifest
-        .file_name()
-        .expect("contract directory has a name")
-        .to_string_lossy()
+    // The package name is the first `name = "..."` of the manifest.
+    let name = std::fs::read_to_string(manifest.join("Cargo.toml"))
+        .expect("contract manifest is readable")
+        .lines()
+        .find_map(|line| line.strip_prefix("name = \""))
+        .and_then(|rest| rest.split('"').next().map(str::to_owned))
+        .expect("manifest names the package")
         .replace('-', "_");
-    let status = Command::new("cargo")
-        .args([
-            "near",
-            "build",
-            "non-reproducible-wasm",
-            "--no-abi",
-            "--locked",
-        ])
+    let mut command = Command::new("cargo");
+    command.args([
+        "near",
+        "build",
+        "non-reproducible-wasm",
+        "--no-abi",
+        "--locked",
+    ]);
+    if !features.is_empty() {
+        command.args(["--features", &features.join(",")]);
+    }
+    let status = command
         .current_dir(&manifest)
         .status()
         .expect("cargo-near 0.22.0 is installed");

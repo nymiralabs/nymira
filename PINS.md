@@ -18,7 +18,7 @@ What this repository is built from, with the checks behind each choice. Re-check
 - Rust 1.99.1 exists (2026-10-15). It fixes a `wcslen` link error, an x86_64 FFI `bool` miscompile and a macOS `rust-lld` rpath problem, none of them on wasm. The workspace stays on 1.99.0 because zkapi's toolchain file and browser build script pin 1.99.0. On 2026-11-01 zkapi `main` still pins 1.99.0.
 - `near-sdk = "=5.29.1"` with default features off (the default `wee_alloc` is unmaintained). arkworks stays on 0.5.x, which zkapi uses. `near-workspaces = "=0.23.0"`. cargo-near 0.22.0.
 - Dependency builds use `opt-level = 3` in the dev profile.
-- A vault stub built with rustc 1.99.0 through cargo-near deploys and runs in the near-workspaces sandbox (`contracts/vault/tests/sandbox.rs`). The reproducible build also works: `scripts/reproducible-smoke.sh` builds the stub in `sourcescan/cargo-near:0.22.0-rust-1.99.0` (digest pinned in `contracts/vault/Cargo.toml`) and deploys the result on the sandbox. The 1.96 fallback is not needed, so the vault and the rest of the workspace use one compiler.
+- The vault built with rustc 1.99.0 through cargo-near deploys and runs in the near-workspaces sandbox (`contracts/vault/tests/sandbox.rs`). The reproducible build also works: `scripts/reproducible-smoke.sh` builds the vault in `sourcescan/cargo-near:0.22.0-rust-1.99.0` (digest pinned in `contracts/vault/Cargo.toml`) and deploys the result on the sandbox. The 1.96 fallback is not needed, so the vault and the rest of the workspace use one compiler.
 
 ## NEAR AI SDK
 
