@@ -8,7 +8,10 @@ use nymira_testkit::mock_usdc::{MockUsdc, MIN_STORAGE_DEPOSIT};
 #[test]
 fn fixture_hashes_are_the_recorded_ones() {
     mainnet_usdc::wasm();
-    assert_ne!(mainnet_usdc::MAINNET_CODE_HASH, mainnet_usdc::TESTNET_CODE_HASH);
+    assert_ne!(
+        mainnet_usdc::MAINNET_CODE_HASH,
+        mainnet_usdc::TESTNET_CODE_HASH
+    );
 }
 
 #[tokio::test]
@@ -17,7 +20,12 @@ async fn real_usdc_runs_and_has_six_decimals_and_the_published_storage_minimum()
     let real = mainnet_usdc::deploy(&worker).await.unwrap();
     let metadata: serde_json::Value = real.view("ft_metadata").await.unwrap().json().unwrap();
     assert_eq!(metadata["decimals"], 6);
-    let bounds: serde_json::Value = real.view("storage_balance_bounds").await.unwrap().json().unwrap();
+    let bounds: serde_json::Value = real
+        .view("storage_balance_bounds")
+        .await
+        .unwrap()
+        .json()
+        .unwrap();
     assert_eq!(bounds["min"], MIN_STORAGE_DEPOSIT.to_string());
 }
 

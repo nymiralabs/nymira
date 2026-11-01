@@ -253,7 +253,7 @@ impl MockUsdc {
     pub fn storage_balance_of(&self, account_id: AccountId) -> Option<StorageBalance> {
         self.registered
             .contains(&account_id)
-            .then(|| StorageBalance {
+            .then_some(StorageBalance {
                 total: U128(MIN_STORAGE_DEPOSIT),
                 available: U128(0),
             })

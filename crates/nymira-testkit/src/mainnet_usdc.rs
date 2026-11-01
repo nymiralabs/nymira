@@ -10,7 +10,8 @@ use sha2::{Digest, Sha256};
 
 use crate::build::workspace_root;
 
-pub const MAINNET_ACCOUNT: &str = "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
+pub const MAINNET_ACCOUNT: &str =
+    "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 /// Code hash of [`MAINNET_ACCOUNT`] (base58), read from mainnet RPC.
 pub const MAINNET_CODE_HASH: &str = "DVJx7F3dHEHJYwpYPwXHu8K9Uo7h4kXFcALucY5oNX8q";
 /// Code hash of Circle's testnet USDC (`3e2210e1...b8af`), for contrast.
@@ -22,9 +23,13 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// The fixture wasm, checked against [`WASM_SHA256`].
 pub fn wasm() -> Vec<u8> {
-    let wasm = std::fs::read(workspace_root().join("crates/nymira-testkit/fixtures/mainnet-usdc.wasm"))
-        .expect("mainnet USDC fixture is readable");
-    let digest: String = Sha256::digest(&wasm).iter().map(|b| format!("{b:02x}")).collect();
+    let wasm =
+        std::fs::read(workspace_root().join("crates/nymira-testkit/fixtures/mainnet-usdc.wasm"))
+            .expect("mainnet USDC fixture is readable");
+    let digest: String = Sha256::digest(&wasm)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     assert_eq!(digest, WASM_SHA256, "the mainnet USDC fixture changed");
     wasm
 }
