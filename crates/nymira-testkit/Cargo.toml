@@ -11,6 +11,7 @@ publish = false
 # unit-testing: the exact-time helper builds a testing_env.
 near-sdk = { workspace = true, features = ["unit-testing"] }
 anyhow = "1"
+sha2 = "0.10"
 base64 = "0.22"
 nymira-near-codec = { workspace = true }
 zkapi-core = { workspace = true }

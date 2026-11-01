@@ -51,14 +51,18 @@ pub async fn advance_to(worker: &Worker<Sandbox>, target: u64) -> Result<()> {
         }
         let remaining = (target - now) as f64;
         // Jump most of the way, then step one block at a time near the target.
-        let blocks = ((remaining / CHAIN_SECONDS_PER_BLOCK) as u64).saturating_sub(5).max(1);
+        let blocks = ((remaining / CHAIN_SECONDS_PER_BLOCK) as u64)
+            .saturating_sub(5)
+            .max(1);
         worker.fast_forward(blocks.min(50_000)).await?;
     }
 }
 
 /// A `testing_env!` whose `block_timestamp` is `unix_seconds`, exactly.
 pub fn testing_env_at(unix_seconds: u64) {
-    testing_env!(VMContextBuilder::new().block_timestamp(unix_seconds * 1_000_000_000).build());
+    testing_env!(VMContextBuilder::new()
+        .block_timestamp(unix_seconds * 1_000_000_000)
+        .build());
 }
 
 /// The last second of the UTC day that contains `unix_seconds`: how the vault

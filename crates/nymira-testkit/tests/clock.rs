@@ -37,7 +37,11 @@ async fn sandbox_lands_one_second_before_and_at_a_limit() {
     let start = now_seconds(&worker).await;
     let limit = start + THIRTY_SECONDS;
     advance_to(&worker, limit - 1).await.unwrap();
-    assert_eq!(now_seconds(&worker).await, limit - 1, "one second before the limit");
+    assert_eq!(
+        now_seconds(&worker).await,
+        limit - 1,
+        "one second before the limit"
+    );
     advance_to(&worker, limit).await.unwrap();
     assert_eq!(now_seconds(&worker).await, limit, "at the limit");
 }

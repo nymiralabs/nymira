@@ -25,7 +25,7 @@ zkapi (https://github.com/ethereum/zkapi)
 
 Open-source Verifier v0.4.2 (https://github.com/near/intents, tag defuse/v0.4.2)
   Release wasm kept as a sandbox test fixture:
-  contracts/vault/tests/fixtures/verifier-v0.4.2.wasm.
+  crates/nymira-testkit/fixtures/verifier-v0.4.2.wasm.
   Licensed under MIT.
 
 Fixture generator

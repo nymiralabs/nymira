@@ -3,5 +3,6 @@
 
 pub mod build;
 pub mod clock;
+pub mod intents;
 pub mod mock_usdc;
 pub mod proofs;

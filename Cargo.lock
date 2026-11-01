@@ -2957,6 +2957,7 @@ dependencies = [
  "nymira-near-codec",
  "nymira-verifier",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "zkapi-core",
  "zkapi-proof",

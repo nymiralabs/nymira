@@ -100,7 +100,10 @@ impl Bundle {
 
     /// Public inputs as little-endian scalars for `nymira_verifier::verify`.
     pub fn inputs_near(&self) -> std::result::Result<Vec<[u8; 32]>, CodecError> {
-        self.inputs_wire.iter().map(|word| public_input_from_wire(word)).collect()
+        self.inputs_wire
+            .iter()
+            .map(|word| public_input_from_wire(word))
+            .collect()
     }
 
     pub fn proof_base64(&self) -> String {
@@ -144,10 +147,8 @@ impl ProofGen {
     /// clearance keys are the development keys (two separate seeds).
     pub fn new(network: Network, vault_account: &str) -> Result<Self> {
         let dir = setup_dir();
-        let deployment = DevDeployment::new(
-            chain_id(network),
-            Felt252(contract_address(vault_account)),
-        );
+        let deployment =
+            DevDeployment::new(chain_id(network), Felt252(contract_address(vault_account)));
         Ok(Self {
             deployment,
             requests: RequestProver::load(&dir).context("load request keys")?,
@@ -159,32 +160,42 @@ impl ProofGen {
 
     /// Replaces the state and clearance keys with ones derived from two seeds.
     pub fn with_keys(mut self, state_seed: u64, clearance_seed: u64) -> Result<Self> {
-        ensure!(state_seed != clearance_seed, "the two keys must come from different seeds");
+        ensure!(
+            state_seed != clearance_seed,
+            "the two keys must come from different seeds"
+        );
         self.deployment.state_signer = seeded(state_seed);
         self.deployment.clearance_signer = seeded(clearance_seed);
         Ok(self)
     }
 
     pub fn keys(&self) -> Keys {
-        Keys { state: self.deployment.state_key(), clearance: self.deployment.clearance_key() }
+        Keys {
+            state: self.deployment.state_key(),
+            clearance: self.deployment.clearance_key(),
+        }
     }
 
     /// The default development seeds (state, clearance).
     pub const DEFAULT_SEEDS: [u64; 2] = DEVELOPMENT_SIGNING_SEEDS;
 
-    fn bundle(
-        &self,
-        inputs: &[Felt252],
-        proof: Groth16ProofWire,
-    ) -> Result<Bundle> {
+    fn bundle(&self, inputs: &[Felt252], proof: Groth16ProofWire) -> Result<Bundle> {
         let proof_wire = base64::engine::general_purpose::STANDARD
             .decode(&proof.proof)
             .context("decode proof")?;
-        Ok(Bundle { inputs_wire: inputs.iter().map(|felt| felt.0).collect(), proof_wire })
+        Ok(Bundle {
+            inputs_wire: inputs.iter().map(|felt| felt.0).collect(),
+            proof_wire,
+        })
     }
 
     /// A request proof from `state` against `tree`'s root.
-    pub fn request(&self, state: &DevState, tree: &MerkleTree, request: &DevRequest) -> Result<Bundle> {
+    pub fn request(
+        &self,
+        state: &DevState,
+        tree: &MerkleTree,
+        request: &DevRequest,
+    ) -> Result<Bundle> {
         let (public, witness) = state.request(&self.deployment, tree, request)?;
         let proof = self.requests.prove(&public, witness)?;
         self.bundle(&public.to_field_elements(), proof)
@@ -211,7 +222,14 @@ impl ProofGen {
         conceded: u128,
         valid_until: u64,
     ) -> Result<Bundle> {
-        self.withdrawal_with(&self.deployment, state, kind, payout_account, conceded, valid_until)
+        self.withdrawal_with(
+            &self.deployment,
+            state,
+            kind,
+            payout_account,
+            conceded,
+            valid_until,
+        )
     }
 
     /// A mutual close whose clearance key comes from `clearance_seed`: a valid proof whose
@@ -254,7 +272,12 @@ impl ProofGen {
         };
         let (public, witness) = state.withdrawal(
             deployment,
-            &DevWithdrawal { kind: wire_kind, destination, conceded, valid_until },
+            &DevWithdrawal {
+                kind: wire_kind,
+                destination,
+                conceded,
+                valid_until,
+            },
         )?;
         let proof = self.withdrawals.prove(&public, witness)?;
         self.bundle(&public.to_field_elements(), proof)
@@ -262,14 +285,20 @@ impl ProofGen {
 
     /// zkapi's own verifier on the wire bundle.
     pub fn native_verifies(&self, bundle: &Bundle, kind: Kind) -> Result<bool> {
-        let inputs: Vec<Felt252> = bundle.inputs_wire.iter().map(|word| Felt252(*word)).collect();
+        let inputs: Vec<Felt252> = bundle
+            .inputs_wire
+            .iter()
+            .map(|word| Felt252(*word))
+            .collect();
         let proof = Groth16ProofWire {
             backend: ProofBackendWire::Groth16Bn254,
             proof: base64::engine::general_purpose::STANDARD.encode(&bundle.proof_wire),
         };
         match kind {
             Kind::Request => self.request_verifier.verify_field_elements(&inputs, &proof),
-            Kind::Withdrawal => self.withdrawal_verifier.verify_field_elements(&inputs, &proof),
+            Kind::Withdrawal => self
+                .withdrawal_verifier
+                .verify_field_elements(&inputs, &proof),
         }
     }
 
@@ -294,5 +323,10 @@ impl ProofGen {
 
 /// Note with a vault-assigned id and expiry (a thin helper to keep call sites short).
 pub fn note(secret: u64, note_id: u32, deposit_amount: u128, expiry: u64) -> DevNote {
-    DevNote { secret: Felt252::from_u64(secret), note_id, deposit_amount, expiry }
+    DevNote {
+        secret: Felt252::from_u64(secret),
+        note_id,
+        deposit_amount,
+        expiry,
+    }
 }
