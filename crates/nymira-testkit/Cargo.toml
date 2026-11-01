@@ -8,8 +8,16 @@ publish = false
 # Shared test doubles for sandbox tests (issue 86): the mock USDC token, sandbox
 # time control and the proof generator.
 [dependencies]
+anyhow = "1"
+base64 = "0.22"
+nymira-near-codec = { workspace = true }
+zkapi-core = { workspace = true }
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof", features = ["dev-setup", "dev-fixtures"] }
+zkapi-types = { workspace = true }
 near-workspaces = { workspace = true }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 
 [dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+nymira-verifier = { path = "../nymira-verifier" }

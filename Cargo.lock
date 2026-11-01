@@ -2950,9 +2950,17 @@ dependencies = [
 name = "nymira-testkit"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "near-sdk",
  "near-workspaces",
+ "nymira-near-codec",
+ "nymira-verifier",
  "serde_json",
  "tokio",
+ "zkapi-core",
+ "zkapi-proof",
+ "zkapi-types",
 ]
 
 [[package]]

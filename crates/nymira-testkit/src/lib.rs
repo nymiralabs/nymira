@@ -3,3 +3,4 @@
 
 pub mod build;
 pub mod mock_usdc;
+pub mod proofs;
