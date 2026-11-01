@@ -739,7 +739,7 @@ fn finalize_with_nothing_left_to_pay_makes_no_transfer_and_still_closes() {
 #[test]
 fn finalize_needs_the_gas_for_its_payout() {
     let mut v = pending();
-    testing_env!(ctx(ALICE, DEADLINE).prepaid_gas(Gas::from_tgas(49)).build());
+    testing_env!(ctx(ALICE, DEADLINE).prepaid_gas(Gas::from_tgas(29)).build());
     assert_refused(
         refusal(|| {
             v.finalize_exit(0);

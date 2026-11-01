@@ -21,7 +21,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 /// checks its code hash, and initializes it with the sandbox root in every role, 6 decimals
 /// and symbol USDC.
 pub async fn deploy(worker: &Worker<Sandbox>) -> Result<Contract> {
-    let mainnet = near_workspaces::mainnet().await?;
+    let mainnet = mainnet_worker().await?;
     let id: AccountId = MAINNET_ACCOUNT.parse()?;
     let contract = worker.import_contract(&id, &mainnet).transact().await?;
     let hash = match contract.view_account().await?.contract_state {
@@ -57,4 +57,140 @@ pub async fn deploy(worker: &Worker<Sandbox>) -> Result<Contract> {
         .await?
         .into_result()?;
     Ok(contract)
+}
+
+/// Like [`deploy`], but also sets up a minter so tests can credit balances. The contract's
+/// roles need two approvals, so two accounts share every role; two controllers approve the
+/// minter's allowance. Returns the contract and the minter account.
+pub async fn deploy_minting(
+    worker: &Worker<Sandbox>,
+) -> Result<(Contract, near_workspaces::Account)> {
+    use serde_json::json;
+
+    let contract = import_with_retry(worker).await?;
+    let root = worker.root_account()?;
+    let second = worker.dev_create_account().await?;
+    let controllers = [
+        worker.dev_create_account().await?,
+        worker.dev_create_account().await?,
+    ];
+    let both = vec![root.id().to_string(), second.id().to_string()];
+    contract
+        .call("init")
+        .args_json(json!({
+            "admin_ids": both,
+            "master_minter_ids": both,
+            "owner_ids": both,
+            "pauser_ids": both,
+            "blocklister_id": root.id(),
+            "metadata": {
+                "spec": "ft-1.0.0",
+                "name": "USDC",
+                "symbol": "USDC",
+                "decimals": 6,
+                "icon": null,
+                "reference": null,
+                "reference_hash": null,
+            },
+        }))
+        .max_gas()
+        .transact()
+        .await?
+        .into_result()?;
+    async fn step(
+        who: &near_workspaces::Account,
+        contract: &Contract,
+        method: &str,
+        args: serde_json::Value,
+    ) -> Result<()> {
+        who.call(contract.id(), method)
+            .args_json(args)
+            .max_gas()
+            .transact()
+            .await?
+            .into_result()?;
+        Ok(())
+    }
+    // Each controller is configured for the root minter by the two owners; the minter's
+    // allowance is then set by the two controllers.
+    for (request_id, controller) in controllers.iter().enumerate() {
+        step(
+            &root,
+            &contract,
+            "create_multisig_request",
+            json!({"action": {"ConfigureController": {
+            "controller_id": controller.id(), "minter_id": root.id()}}}),
+        )
+        .await?;
+        step(
+            &root,
+            &contract,
+            "approve_multisig_request",
+            json!({"request_id": request_id}),
+        )
+        .await?;
+        step(
+            &second,
+            &contract,
+            "approve_multisig_request",
+            json!({"request_id": request_id}),
+        )
+        .await?;
+        step(
+            &root,
+            &contract,
+            "execute_multisig_request",
+            json!({"request_id": request_id}),
+        )
+        .await?;
+    }
+    let request_id = controllers.len();
+    step(
+        &controllers[0],
+        &contract,
+        "create_multisig_request",
+        json!({"action": {"ConfigureMinterAllowance": {
+        "controller_id": controllers[0].id(), "minter_allowance": "1000000000000000"}}}),
+    )
+    .await?;
+    for controller in &controllers {
+        step(
+            controller,
+            &contract,
+            "approve_multisig_request",
+            json!({"request_id": request_id}),
+        )
+        .await?;
+    }
+    step(
+        &controllers[0],
+        &contract,
+        "execute_multisig_request",
+        json!({"request_id": request_id}),
+    )
+    .await?;
+    Ok((contract, root.clone()))
+}
+
+/// The public mainnet RPC rate-limits parallel test runs, so the import backs off and retries.
+async fn import_with_retry(worker: &Worker<Sandbox>) -> Result<Contract> {
+    let id: AccountId = MAINNET_ACCOUNT.parse()?;
+    let mut last = None;
+    for attempt in 1..=8u64 {
+        let mainnet = mainnet_worker().await?;
+        match worker.import_contract(&id, &mainnet).transact().await {
+            Ok(contract) => return Ok(contract),
+            Err(error) => last = Some(error),
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3 * attempt)).await;
+    }
+    Err(last.expect("at least one attempt").into())
+}
+
+/// A read-only mainnet worker. `rpc.mainnet.near.org` rate-limits almost at once, so the default
+/// is FastNEAR's public node; `NYMIRA_MAINNET_RPC` overrides it.
+async fn mainnet_worker() -> Result<Worker<near_workspaces::network::Mainnet>> {
+    let url = std::env::var("NYMIRA_MAINNET_RPC")
+        .unwrap_or_else(|_| "https://rpc.mainnet.fastnear.com".to_owned());
+    Ok(near_workspaces::mainnet().rpc_addr(&url).await?)
 }
