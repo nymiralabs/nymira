@@ -2,6 +2,7 @@
 //! ticket uses which double.
 
 pub mod build;
+pub mod chain;
 pub mod clock;
 pub mod intents;
 pub mod mainnet_usdc;
