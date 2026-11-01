@@ -3,21 +3,29 @@ name: ci
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "NOTICE"]
   pull_request:
+    paths-ignore: ["**.md", "NOTICE"]
 
 permissions:
   contents: read
+
+# A new push cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-test:
+  test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain from rust-toolchain.toml
         run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install cargo-near 0.22.0 (release binary, checksum pinned)
         run: |
           curl --proto '=https' --tlsv1.2 -fsSL -o cargo-near.tar.gz \
@@ -29,6 +37,17 @@ jobs:
       - name: Contracts compile for wasm
         run: cargo check --workspace --target wasm32-unknown-unknown --locked
       - run: cargo test --workspace --locked
+
+  # The vendored zkapi workspace has its own lockfile and target directory,
+  # so it builds in parallel with the job above.
+  zkapi-vendor:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: vendor/zkapi/protocol/rust
       - name: Vendored zkapi tests
         working-directory: vendor/zkapi/protocol/rust
         run: cargo test --locked -p zkapi-types -p zkapi-core -p zkapi-proof --lib
@@ -38,6 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Vault dependencies
         run: scripts/check-vault-deps.sh
       - name: Unsafe profiles are refused
