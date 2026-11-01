@@ -6,4 +6,6 @@ dist/
 *.wasm
 .DS_Store
 
-!contracts/vault/tests/fixtures/*.wasm
+!crates/nymira-testkit/fixtures/*.wasm
+web-testkit/codec-pkg/
+web-testkit/test-results/

@@ -35,7 +35,7 @@ jobs:
           install -m 0755 cargo-near-x86_64-unknown-linux-gnu/cargo-near "$HOME/.cargo/bin/cargo-near"
           cargo near --version
       - name: Contracts compile for wasm
-        run: cargo check --workspace --target wasm32-unknown-unknown --locked
+        run: cargo check --target wasm32-unknown-unknown --locked -p nymira-vault -p nymira-near-codec -p nymira-verifier -p verifier-probe -p mock-usdc -p mock-ft-receiver -p nymira-near-codec-wasm
       - run: cargo test --workspace --locked
 
   # The vendored zkapi workspace has its own lockfile and target directory,
@@ -51,6 +51,30 @@ jobs:
       - name: Vendored zkapi tests
         working-directory: vendor/zkapi/protocol/rust
         run: cargo test --locked -p zkapi-types -p zkapi-core -p zkapi-proof --lib
+
+  # The test wallet and the browser build of the NEAR codec (issue 86).
+  web-testkit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: wasm-bindgen@0.2.117
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Build the codec for the browser
+        run: web-testkit/build-codec.sh
+      - name: Install dependencies and the browser
+        working-directory: web-testkit
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Self-tests
+        working-directory: web-testkit
+        run: npm test
 
   policy:
     runs-on: ubuntu-24.04

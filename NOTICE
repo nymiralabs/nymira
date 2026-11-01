@@ -20,12 +20,15 @@ zkapi (https://github.com/ethereum/zkapi)
      check (zkapi-proof/src/compact.rs); zkapi-browser accepts both ids
      (bundle_setup_ids); one test for the nymira pin check; the legacy setup/v2
      manifest test skips when that directory is absent.
+  4. Manifest only: the vendored workspace's path dependencies (zkapi-types,
+     zkapi-core, zkapi-proof, zkapi-client) get version = "0.2.0", so cargo deny
+     does not read them as wildcards.
   Not applied: zkapi PR #29 (sdk/ only; the JS SDK is not vendored).
   No circuit change.
 
 Open-source Verifier v0.4.2 (https://github.com/near/intents, tag defuse/v0.4.2)
   Release wasm kept as a sandbox test fixture:
-  contracts/vault/tests/fixtures/verifier-v0.4.2.wasm.
+  crates/nymira-testkit/fixtures/verifier-v0.4.2.wasm.
   Licensed under MIT.
 
 Fixture generator

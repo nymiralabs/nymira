@@ -15,10 +15,10 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Internal crates
-zkapi-types  = { path = "crates/zkapi-types" }
-zkapi-core   = { path = "crates/zkapi-core" }
-zkapi-proof  = { path = "crates/zkapi-proof" }
-zkapi-client = { path = "crates/zkapi-client" }
+zkapi-types  = { path = "crates/zkapi-types", version = "0.2.0" }
+zkapi-core   = { path = "crates/zkapi-core", version = "0.2.0" }
+zkapi-proof  = { path = "crates/zkapi-proof", version = "0.2.0" }
+zkapi-client = { path = "crates/zkapi-client", version = "0.2.0" }
 
 # Serialization
 serde      = { version = "1.0", features = ["derive"] }

@@ -1,0 +1,23 @@
+{
+  "name": "nymira-web-testkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Test doubles for the web tests: a NEAR test wallet without a browser extension and the browser NEAR codec.",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "build:codec": "./build-codec.sh",
+    "test:codec": "node --test test/codec.test.js",
+    "test:wallet": "node --test test/wallet.test.js",
+    "test:browser": "playwright test",
+    "test": "node --test test/codec.test.js test/wallet.test.js && playwright test"
+  },
+  "dependencies": {
+    "near-api-js": "7.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

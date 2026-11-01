@@ -27,7 +27,11 @@ What this repository is built from, with the checks behind each choice. Re-check
 ## NEAR Intents
 
 - `intents.near` on mainnet has code hash `BtA1BEFNS619KkvXFsgcpQ21Tb5yMm32aaUkn7xNothk` (view call at block 222557547; the wasm is 1,297,551 bytes, SHA-256 `a1afab98916d9f213746544dcf8e4e6bdb22c0be6bc5dfbd8ea8814c9922b547`). It matches the value last seen, so nothing changed since.
-- The sandbox fixture is the open-source Verifier v0.4.2 (`near/intents`, tag `defuse/v0.4.2`, MIT): `contracts/vault/tests/fixtures/verifier-v0.4.2.wasm`, SHA-256 `f67f9559b3b512c52dfa11723a28b9119bcf773ac01780370d6409e5f1fb20e5`, equal to the release's published digest. It differs from the deployed `intents.near` code. Text says "open-source Verifier v0.4.2", never "the mainnet contract".
+- The sandbox fixture is the open-source Verifier v0.4.2 (`near/intents`, tag `defuse/v0.4.2`, MIT): `crates/nymira-testkit/fixtures/verifier-v0.4.2.wasm`, SHA-256 `f67f9559b3b512c52dfa11723a28b9119bcf773ac01780370d6409e5f1fb20e5`, equal to the release's published digest. It differs from the deployed `intents.near` code. Text says "open-source Verifier v0.4.2", never "the mainnet contract".
+
+## USDC
+
+The sandbox parity fixture copies the mainnet USDC contract (`17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`, code hash `DVJx7F3dHEHJYwpYPwXHu8K9Uo7h4kXFcALucY5oNX8q`) from mainnet RPC on use and checks that hash. Circle's testnet USDC (`3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af`) has code hash `EoAUFWELjD9gYzsjKDXYRmHDHf1RJ95jaKNSYE6v9b2z`, so a pass on testnet alone does not show mainnet behaviour. Sandboxes run nearcore 2.13.4 (mainnet) or 2.14.0-rc.5 (testnet); see `crates/nymira-testkit/src/chain.rs`.
 
 ## Checks in this repository
 
