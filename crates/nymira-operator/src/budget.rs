@@ -50,6 +50,19 @@ impl Default for BudgetConfig {
     }
 }
 
+impl BudgetConfig {
+    /// The hackathon deployment: 1 USD of provider credit in total, so a 0.20 USD reserve and
+    /// 0.05 USD a day (about 0.70 USD over the 14 days). The 0.50 class stays closed until live
+    /// credit reaches 2.50 USD, whatever the config.
+    pub fn hackathon() -> Self {
+        Self {
+            daily_limit: 50_000,
+            reserve: 200_000,
+            ..Self::default()
+        }
+    }
+}
+
 struct Inner {
     /// Provider balance at the last reading, less charges settled since.
     credit: u128,
@@ -251,6 +264,26 @@ mod tests {
         l.settle("a", 2_000, DAY);
         assert_eq!(l.live_credit(), 4_998_000);
         assert_eq!(l.open_bounds(), 0);
+    }
+
+    #[test]
+    fn the_hackathon_profile_admits_leases_on_one_dollar_of_credit() {
+        let l = Ledger::new(BudgetConfig::hackathon(), 1_000_000, at(0));
+        // 1.00 - 0.20 reserve leaves 0.80: eight 0.10 bounds, not a ninth.
+        for n in 0..8 {
+            assert_eq!(
+                l.admit(&format!("l{n}"), 100_000, at(0)),
+                Ok(()),
+                "lease {n}"
+            );
+        }
+        assert_eq!(l.admit("l8", 100_000, at(0)), Err(Refusal::Credit));
+        // The 0.50 class needs 2.50 USD of live credit.
+        let big = Ledger::new(BudgetConfig::hackathon(), 1_000_000, at(0));
+        assert_eq!(big.admit("b", 500_000, at(0)), Err(Refusal::Credit));
+        // The default profile admits nothing on 1 USD: the reserve eats it all.
+        let default = ledger(1_000_000);
+        assert_eq!(default.admit("a", 100_000, at(0)), Err(Refusal::Credit));
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub mod json;
 pub mod lifecycle;
 pub mod operator;
 pub mod provider;
+pub mod proxy;
 pub mod puzzle;
 pub mod replica;
 pub mod signer;

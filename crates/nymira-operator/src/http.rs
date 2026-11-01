@@ -30,6 +30,7 @@ pub fn router(operator: Arc<Operator>) -> Router {
             header::CONTENT_TYPE,
             header::AUTHORIZATION,
             HeaderName::from_static("x-nymira-lease-token"),
+            HeaderName::from_static("x-nymira-lease-id"),
             HeaderName::from_static(PUZZLE_HEADER),
             HeaderName::from_static("x-signing-algo"),
             HeaderName::from_static("x-client-pub-key"),
@@ -46,6 +47,7 @@ pub fn router(operator: Arc<Operator>) -> Router {
         .route("/v2/openrouter/leases/{id}", get(lease_status).post(retire))
         .route("/v2/openrouter/leases/{id}/expire", post(expire))
         .route("/v2/requests/{id}", get(request_status))
+        .route("/v1/chat/completions", post(chat))
         .route("/v2/billing/quote", get(quote))
         .route("/v1/attestation", get(attestation))
         .layer(cors)
@@ -142,4 +144,32 @@ async fn expire(
 
 async fn request_status(State(op): State<Arc<Operator>>, Path(id): Path<String>) -> Response {
     answer(op.request_status(&id).await.map(|v| (StatusCode::OK, v)))
+}
+
+async fn chat(
+    State(op): State<Arc<Operator>>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    let Ok(body) = to_bytes(request.into_body(), crate::proxy::CHAT_BODY_LIMIT).await else {
+        return ApiError::new(Code::BodyTooLarge, "request body over 4 MiB").into_response();
+    };
+    let lease = headers
+        .get("x-nymira-lease-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    match op.chat(lease, lease_token(&headers), &headers, &body).await {
+        Err(e) => e.into_response(),
+        Ok(reply) => {
+            use tokio_stream::StreamExt;
+            let first = tokio_stream::once(Ok::<_, std::io::Error>(reply.first));
+            let rest = tokio_stream::wrappers::ReceiverStream::new(reply.rest)
+                .map(|item| item.map_err(|e| std::io::Error::other(format!("{e:?}"))));
+            let mut response = Response::new(Body::from_stream(first.chain(rest)));
+            if let Ok(value) = HeaderValue::from_str(&reply.content_type) {
+                response.headers_mut().insert(header::CONTENT_TYPE, value);
+            }
+            response
+        }
+    }
 }

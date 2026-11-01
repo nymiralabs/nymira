@@ -108,7 +108,11 @@ impl Operator {
             .map_err(db)
     }
 
-    async fn authorized(&self, lease_id: &str, token: Option<&str>) -> ApiResult<LeaseRow> {
+    pub(crate) async fn authorized(
+        &self,
+        lease_id: &str,
+        token: Option<&str>,
+    ) -> ApiResult<LeaseRow> {
         let id = lease_id.to_string();
         let row = self
             .store
@@ -135,6 +139,13 @@ impl Operator {
             "settle_after": issued + SETTLE_AFTER_SECS,
             "spending_limit_usd": row.bound as f64 / 1_000_000.0,
         });
+        if let Some(evidence) = row
+            .evidence_json
+            .as_deref()
+            .and_then(|j| serde_json::from_str::<Value>(j).ok())
+        {
+            v["provider_evidence"] = evidence;
+        }
         if let Some(usage) = row
             .usage_json
             .as_deref()
@@ -254,6 +265,10 @@ impl Operator {
             .await
             .map_err(db)?;
         self.ledger.release(lease_id);
+        self.spend
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .forget(lease_id);
         self.closing
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -313,6 +328,13 @@ impl Operator {
     pub async fn tick(&self) {
         let _step = self.lifecycle.lock().await;
         let now = self.clock.now_secs();
+        let checked = *self
+            .models_checked_ms
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if self.clock.now_ms().saturating_sub(checked) >= crate::proxy::MODEL_CHECK_EVERY_MS {
+            self.check_models().await;
+        }
         let Ok(leases) = self.store.run(|c| store::all_leases(c)).await else {
             return;
         };
@@ -347,11 +369,20 @@ impl Operator {
         if running > 0 && now < lease.retiring_at.unwrap_or(now) + DRAIN_SECS {
             return;
         }
-        if let Ok(Some(evidence)) = timed(self.provider.evidence(&lease.lease_id)).await {
-            self.evidence
+        if running > 0 {
+            // Out of patience: abort what is still running; the lease moves on next tick.
+            self.cancel_requests(&lease.lease_id);
+            self.inflight
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .insert(lease.lease_id.clone(), evidence);
+                .remove(&lease.lease_id);
+        }
+        if let Ok(Some(evidence)) = timed(self.provider.evidence(&lease.lease_id)).await {
+            let (id, json) = (lease.lease_id.clone(), evidence.to_string());
+            let _ = self
+                .store
+                .run(move |c| store::store_evidence(c, &id, &json))
+                .await;
         }
         match timed(self.provider.revoke(&lease.lease_id)).await {
             // Only a key the provider does not know is as good as deactivated.
@@ -455,6 +486,10 @@ impl Operator {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&lease.lease_id);
+            self.spend
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .forget(&lease.lease_id);
             self.issued
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
