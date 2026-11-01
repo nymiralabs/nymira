@@ -1198,6 +1198,8 @@ fn hex_words_round_trip_and_refuse_bad_text() {
 
 // Mutual close
 
+mod exit;
+
 // The promises these calls return are scheduled when they drop, which is what the tests read.
 #[allow(unused_must_use)]
 mod close {
@@ -1211,19 +1213,19 @@ mod close {
 
     use super::*;
 
-    const ALICE: &str = "alice.test";
-    const OPERATOR: &str = "operator.test";
-    const CLOSE_AT: u64 = T0 + 60;
-    const VALID_UNTIL: u64 = T0 + 3_600;
-    const CHARGE: u128 = 20_000;
+    pub(super) const ALICE: &str = "alice.test";
+    pub(super) const OPERATOR: &str = "operator.test";
+    pub(super) const CLOSE_AT: u64 = T0 + 60;
+    pub(super) const VALID_UNTIL: u64 = T0 + 3_600;
+    pub(super) const CHARGE: u128 = 20_000;
 
-    fn gen() -> &'static ProofGen {
+    pub(super) fn gen() -> &'static ProofGen {
         static GEN: OnceLock<ProofGen> = OnceLock::new();
         GEN.get_or_init(|| ProofGen::new(Network::Testnet, VAULT).unwrap())
     }
 
     /// Note 0 as the vault assigns it when alice deposits 1 USDC at `T0`.
-    fn note_with(secret: u64, note_id: u32) -> DevNote {
+    pub(super) fn note_with(secret: u64, note_id: u32) -> DevNote {
         DevNote {
             secret: Felt252::from_u64(secret),
             note_id,
@@ -1232,16 +1234,16 @@ mod close {
         }
     }
 
-    fn note() -> DevNote {
+    pub(super) fn note() -> DevNote {
         note_with(42, 0)
     }
 
     /// The state after one request that charged `CHARGE`.
-    fn state(note: &DevNote) -> DevState {
+    pub(super) fn state(note: &DevNote) -> DevState {
         state_with(gen(), note)
     }
 
-    fn state_with(gen: &ProofGen, note: &DevNote) -> DevState {
+    pub(super) fn state_with(gen: &ProofGen, note: &DevNote) -> DevState {
         let s0 = note.genesis(Felt252::from_u64(7));
         gen.next_state(
             &s0,
@@ -1258,7 +1260,7 @@ mod close {
     }
 
     /// A kind-1 proof of note 0's state, paying `ALICE`, valid until `VALID_UNTIL`.
-    fn bundle() -> &'static Bundle {
+    pub(super) fn bundle() -> &'static Bundle {
         static BUNDLE: OnceLock<Bundle> = OnceLock::new();
         BUNDLE.get_or_init(|| {
             gen()
@@ -1274,7 +1276,7 @@ mod close {
     }
 
     /// A vault holding note 0, deposited by alice at `T0`.
-    fn funded() -> Vault {
+    pub(super) fn funded() -> Vault {
         let mut v = vault();
         at(T0);
         let msg = format!(
@@ -1285,7 +1287,12 @@ mod close {
         v
     }
 
-    fn call(v: &mut Vault, caller: &str, secs: u64, bundle: &Bundle) -> PromiseOrValue<()> {
+    pub(super) fn call(
+        v: &mut Vault,
+        caller: &str,
+        secs: u64,
+        bundle: &Bundle,
+    ) -> PromiseOrValue<()> {
         testing_env!(context(caller, secs).build());
         v.mutual_close(
             Base64VecU8(bundle.proof_wire.clone()),
@@ -1297,12 +1304,12 @@ mod close {
         )
     }
 
-    fn close(v: &mut Vault, caller: &str, bundle: &Bundle) -> PromiseOrValue<()> {
+    pub(super) fn close(v: &mut Vault, caller: &str, bundle: &Bundle) -> PromiseOrValue<()> {
         call(v, caller, CLOSE_AT, bundle)
     }
 
     /// One line per created receipt action: receiver, method, args, deposit, gas, gas weight.
-    fn receipts() -> String {
+    pub(super) fn receipts() -> String {
         use near_sdk::mock::MockAction;
         let mut out = String::new();
         for receipt in get_created_receipts() {
@@ -1370,7 +1377,7 @@ mod close {
         assert_counters(&v);
     }
 
-    fn commitment_of_note() -> String {
+    pub(super) fn commitment_of_note() -> String {
         word::encode32(&note().registration().0)
     }
 
@@ -1768,7 +1775,7 @@ mod close {
 
     // Payout callbacks and claims
 
-    fn callback_env(predecessor: &str, result: PromiseResult) {
+    pub(super) fn callback_env(predecessor: &str, result: PromiseResult) {
         testing_env!(
             context(predecessor, CLOSE_AT).build(),
             near_sdk::test_vm_config(),
@@ -1778,7 +1785,7 @@ mod close {
         );
     }
 
-    fn account_id(name: &str) -> AccountId {
+    pub(super) fn account_id(name: &str) -> AccountId {
         name.parse().unwrap()
     }
 
