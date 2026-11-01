@@ -2927,6 +2927,7 @@ version = "0.0.0"
 dependencies = [
  "ark-bn254",
  "ark-ec",
+ "ark-ed-on-bn254",
  "ark-ff",
  "ark-groth16",
  "ark-serialize",
@@ -2968,9 +2969,14 @@ dependencies = [
 name = "nymira-vault"
 version = "0.0.0"
 dependencies = [
+ "hex",
  "near-sdk",
  "near-workspaces",
+ "nymira-near-codec",
+ "nymira-testkit",
+ "serde_json",
  "tokio",
+ "zkapi-core",
 ]
 
 [[package]]

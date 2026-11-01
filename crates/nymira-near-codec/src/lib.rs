@@ -204,6 +204,27 @@ impl VerifyingKey {
     }
 }
 
+/// Checks an operator signing key (a Baby Jubjub point, `x` and `y` as
+/// big-endian field words): both coordinates below the field modulus, the point
+/// on the curve and in the prime-order subgroup, and not the identity.
+pub fn check_signing_key(x: &[u8; 32], y: &[u8; 32]) -> Result<(), CodecError> {
+    use ark_ed_on_bn254::{EdwardsAffine, Fq};
+    if *x >= SCALAR_MODULUS_BE || *y >= SCALAR_MODULUS_BE {
+        return Err(CodecError::NonCanonical);
+    }
+    let point = EdwardsAffine::new_unchecked(
+        Fq::from_be_bytes_mod_order(x),
+        Fq::from_be_bytes_mod_order(y),
+    );
+    if point.is_zero() {
+        return Err(CodecError::Infinity);
+    }
+    if !point.is_on_curve() || !point.is_in_correct_subgroup_assuming_on_curve() {
+        return Err(CodecError::Malformed);
+    }
+    Ok(())
+}
+
 /// A public input from its big-endian wire word to the little-endian scalar
 /// the host's multiexp takes. Must be below the scalar modulus.
 pub fn public_input_from_wire(word: &[u8]) -> Result<[u8; 32], CodecError> {
@@ -455,5 +476,39 @@ mod tests {
                 Err(CodecError::Infinity)
             );
         }
+    }
+
+    #[test]
+    fn signing_key_accepts_a_curve_point_and_refuses_the_rest() {
+        use ark_ec::{AffineRepr, CurveGroup};
+        use ark_ed_on_bn254::EdwardsAffine;
+        let word = |value: &ark_ed_on_bn254::Fq| {
+            let mut out = [0u8; 32];
+            let raw = value.into_bigint().to_bytes_be();
+            out[32 - raw.len()..].copy_from_slice(&raw);
+            out
+        };
+        let key = (EdwardsAffine::generator() * ark_ed_on_bn254::Fr::from(42u64)).into_affine();
+        let (x, y) = (word(&key.x), word(&key.y));
+        assert_eq!(check_signing_key(&x, &y), Ok(()));
+        // Off the curve.
+        let mut bent = y;
+        bent[31] ^= 1;
+        assert_eq!(check_signing_key(&x, &bent), Err(CodecError::Malformed));
+        // The identity (0, 1).
+        let mut one = [0u8; 32];
+        one[31] = 1;
+        assert_eq!(check_signing_key(&[0u8; 32], &one), Err(CodecError::Infinity));
+        // The order-2 point (0, -1) is on the curve but outside the prime-order subgroup.
+        let minus_one = word(&-ark_ed_on_bn254::Fq::from(1u64));
+        assert_eq!(
+            check_signing_key(&[0u8; 32], &minus_one),
+            Err(CodecError::Malformed)
+        );
+        // A coordinate at the modulus.
+        assert_eq!(
+            check_signing_key(&SCALAR_MODULUS_BE, &y),
+            Err(CodecError::NonCanonical)
+        );
     }
 }

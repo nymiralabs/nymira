@@ -23,6 +23,10 @@ zkapi (https://github.com/ethereum/zkapi)
   4. Manifest only: the vendored workspace's path dependencies (zkapi-types,
      zkapi-core, zkapi-proof, zkapi-client) get version = "0.2.0", so cargo deny
      does not read them as wildcards.
+  5. zkapi-core embeds the Poseidon round constants and MDS matrix
+     (src/poseidon_params.rs, from examples/gen_poseidon_params.rs; a test
+     regenerates them) instead of deriving them on every call, and re-exports
+     Felt252 and MERKLE_DEPTH. Same hashes, no circuit change.
   Not applied: zkapi PR #29 (sdk/ only; the JS SDK is not vendored).
   No circuit change.
 
