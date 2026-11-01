@@ -66,6 +66,9 @@ const MIN_GAS_CLAIM: Gas = Gas::from_tgas(50);
 const MIN_GAS_MUTUAL_CLOSE: Gas = Gas::from_tgas(110);
 /// Page size cap of `get_leaves`, `note_records` and the other paged views.
 const MAX_PAGE: u32 = 100;
+/// At most this many notes per `claim_expired_batch` call.
+const MAX_CLAIM_BATCH: u32 = 50;
+const NS_PER_SEC: u64 = 1_000_000_000;
 
 /// Collection prefixes: the enum index is the prefix byte. Append only, never reorder.
 #[derive(BorshStorageKey)]
@@ -717,6 +720,37 @@ impl Vault {
             .collect()
     }
 
+    /// Sweeps an `Active` note to the treasury once `max(expiry, last exit activity)` plus the
+    /// exit delay has passed. Anyone may call it. Books the denomination to the treasury balance
+    /// and closes the note; no USDC call.
+    pub fn claim_expired(&mut self, note_id: u32) {
+        let note = self
+            .notes
+            .get(note_id)
+            .unwrap_or_else(|| env::panic_str("unknown note"));
+        require!(note.status == Status::Active, "note is not active");
+        require!(self.claimable(note), "the note cannot be claimed yet");
+        self.sweep(&[note_id]);
+    }
+
+    /// `claim_expired` for notes `from..from + limit` (limit capped at 50): notes that are not
+    /// claimable yet are skipped. Returns the swept note IDs; a call that sweeps none emits nothing.
+    pub fn claim_expired_batch(&mut self, from: u32, limit: u32) -> Vec<u32> {
+        let end = from
+            .saturating_add(limit.min(MAX_CLAIM_BATCH))
+            .min(self.notes.len());
+        let ids: Vec<u32> = (from..end)
+            .filter(|id| {
+                let note = self.notes.get(*id).expect("note exists");
+                note.status == Status::Active && self.claimable(note)
+            })
+            .collect();
+        if !ids.is_empty() {
+            self.sweep(&ids);
+        }
+        ids
+    }
+
     /// Zeroes the leaf of a closed note that `sync_root` has already inserted, so no root can open
     /// a lease for it. Anyone may call it. `siblings` are the leaf's path siblings bottom up as
     /// `0x` words, only as many as the frontier slot holding the leaf is high (the highest bit
@@ -1010,6 +1044,31 @@ impl Vault {
             "proof expired"
         );
         (note_id, final_balance, note.deposit_amount)
+    }
+
+    /// Whether the exit window after the note's expiry and after its last exit activity is over.
+    fn claimable(&self, note: &Note) -> bool {
+        let ready = note
+            .expiry
+            .saturating_mul(NS_PER_SEC)
+            .max(note.last_exit_ns)
+            .saturating_add(self.exit_delay_secs.saturating_mul(NS_PER_SEC));
+        env::block_timestamp() >= ready
+    }
+
+    /// Closes `Active` notes and books their denominations to the treasury, with one event.
+    fn sweep(&mut self, ids: &[u32]) {
+        let note_fee = self.note_fee;
+        for id in ids {
+            let note = self.notes.get_mut(*id).expect("note exists");
+            note.status = Status::Closed;
+            let deposit = note.deposit_amount;
+            // `note_fee` is fixed at `new()`, so this is what the deposit added to `tvl`.
+            self.tvl -= deposit + note_fee;
+            self.open_notes -= 1;
+            self.treasury_balance += deposit;
+        }
+        events::emit("claim_expired", json!({ "note_ids": ids }));
     }
 
     fn add_exit(&mut self, note_id: u32, record: ExitRecord) {

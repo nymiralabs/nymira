@@ -17,20 +17,20 @@ use super::close::{
 };
 use super::*;
 
-const EXIT_AT: u64 = T0 + 60;
-const NS: u64 = 1_000_000_000;
-const DEADLINE: u64 = EXIT_AT * NS + 7 * DAY * NS;
+pub(super) const EXIT_AT: u64 = T0 + 60;
+pub(super) const NS: u64 = 1_000_000_000;
+pub(super) const DEADLINE: u64 = EXIT_AT * NS + 7 * DAY * NS;
 /// The state after three charges: s1 (the escaped state) and its successors.
-const BALANCE_1: u128 = ONE - CHARGE;
+pub(super) const BALANCE_1: u128 = ONE - CHARGE;
 
-struct Fixture {
-    states: Vec<DevState>,
+pub(super) struct Fixture {
+    pub(super) states: Vec<DevState>,
     /// Kind-0 proofs of s0, s1 and s2, paying `ALICE`, no concession.
-    escape: [Bundle; 3],
+    pub(super) escape: [Bundle; 3],
     /// Request proofs at the successor nullifier of s1 and of s2: they defeat the exit of s1, s2.
-    defeat: [Bundle; 2],
+    pub(super) defeat: [Bundle; 2],
     /// Request proofs at s1's nullifier with solvency bounds 100_000, 50_000 and 30_000.
-    raise: [Bundle; 3],
+    pub(super) raise: [Bundle; 3],
 }
 
 fn request(bound: u128) -> DevRequest {
@@ -42,7 +42,7 @@ fn request(bound: u128) -> DevRequest {
     }
 }
 
-fn fixture() -> &'static Fixture {
+pub(super) fn fixture() -> &'static Fixture {
     static FIXTURE: OnceLock<Fixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
         let g = gen();
@@ -74,7 +74,7 @@ fn fixture() -> &'static Fixture {
     })
 }
 
-fn args(b: &Bundle) -> (Base64VecU8, Vec<Base64VecU8>) {
+pub(super) fn args(b: &Bundle) -> (Base64VecU8, Vec<Base64VecU8>) {
     (
         Base64VecU8(b.proof_wire.clone()),
         b.inputs_wire
@@ -84,37 +84,37 @@ fn args(b: &Bundle) -> (Base64VecU8, Vec<Base64VecU8>) {
     )
 }
 
-fn ctx(predecessor: &str, ns: u64) -> VMContextBuilder {
+pub(super) fn ctx(predecessor: &str, ns: u64) -> VMContextBuilder {
     let mut builder = context(predecessor, 0);
     builder.block_timestamp(ns);
     builder
 }
 
-fn request_exit(v: &mut Vault, ns: u64, b: &Bundle) {
+pub(super) fn request_exit(v: &mut Vault, ns: u64, b: &Bundle) {
     testing_env!(ctx("anyone.test", ns).build());
     let (proof, inputs) = args(b);
     v.request_exit(proof, inputs);
 }
 
-fn defeat(v: &mut Vault, caller: &str, ns: u64, id: u32, b: &Bundle) {
+pub(super) fn defeat(v: &mut Vault, caller: &str, ns: u64, id: u32, b: &Bundle) {
     testing_env!(ctx(caller, ns).build());
     let (proof, inputs) = args(b);
     v.defeat_exit(id, proof, inputs);
 }
 
-fn raise(v: &mut Vault, ns: u64, id: u32, b: &Bundle, amount: u128) {
+pub(super) fn raise(v: &mut Vault, ns: u64, id: u32, b: &Bundle, amount: u128) {
     testing_env!(ctx("anyone.test", ns).build());
     let (proof, inputs) = args(b);
     v.raise_concession(id, proof, inputs, U128(amount));
 }
 
-fn finalize(v: &mut Vault, ns: u64, id: u32) -> PromiseOrValue<()> {
+pub(super) fn finalize(v: &mut Vault, ns: u64, id: u32) -> PromiseOrValue<()> {
     testing_env!(ctx("anyone.test", ns).build());
     v.finalize_exit(id)
 }
 
 /// The text of the panic `f` raises.
-fn refusal(f: impl FnOnce()) -> String {
+pub(super) fn refusal(f: impl FnOnce()) -> String {
     let error =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).expect_err("the call must panic");
     error
@@ -124,18 +124,18 @@ fn refusal(f: impl FnOnce()) -> String {
         .unwrap_or_default()
 }
 
-fn assert_refused(text: String, message: &str) {
+pub(super) fn assert_refused(text: String, message: &str) {
     assert!(text.contains(message), "expected {message:?}, got {text:?}");
 }
 
 /// A vault with note 0 in `PendingExit` through the real `request_exit` of s1.
-fn pending() -> Vault {
+pub(super) fn pending() -> Vault {
     let mut v = funded();
     request_exit(&mut v, EXIT_AT * NS, &fixture().escape[1]);
     v
 }
 
-fn only_exit(v: &Vault) -> ExitRequest {
+pub(super) fn only_exit(v: &Vault) -> ExitRequest {
     let mut all = v.exit_requests(0, 100);
     assert_eq!(all.len(), 1);
     all.remove(0)
@@ -146,7 +146,7 @@ fn word_of(felt: Felt252) -> String {
 }
 
 /// A pending exit written straight into the state (no proof), for accounting and paging tests.
-fn inject(v: &mut Vault, id: u32, final_balance: u128, conceded: u128, deadline: u64) {
+pub(super) fn inject(v: &mut Vault, id: u32, final_balance: u128, conceded: u128, deadline: u64) {
     let note = v.notes.get_mut(id).unwrap();
     assert_eq!(note.status, Status::Active);
     note.status = Status::PendingExit;
@@ -364,11 +364,13 @@ fn request_exit_refuses_a_closed_note_with_an_older_state() {
         exit_refusal(&mut v, DEADLINE, &f.escape[2]),
         "note is not active",
     );
-    // Closed by `claim_expired` (written directly until that method exists).
+    // Closed by `claim_expired`.
     let mut v = funded();
-    v.notes.get_mut(0).unwrap().status = Status::Closed;
+    let swept = (v.notes.get(0).unwrap().expiry + 7 * DAY) * NS;
+    testing_env!(ctx("anyone.test", swept).build());
+    v.claim_expired(0);
     assert_refused(
-        exit_refusal(&mut v, EXIT_AT * NS, &f.escape[0]),
+        exit_refusal(&mut v, swept, &f.escape[0]),
         "note is not active",
     );
 }
@@ -822,8 +824,8 @@ fn a_withholding_operator_leaves_the_user_at_least_the_balance_minus_the_bound()
 /// One step of the random walk: what it did, if it was accepted.
 fn step(v: &mut Vault, choice: u64, amount: u128, now: u64) -> Option<&'static str> {
     let f = fixture();
-    let pick = |n: u64| (choice / 7 % n) as usize;
-    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match choice % 7 {
+    let pick = |n: u64| (choice / 8 % n) as usize;
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match choice % 8 {
         0 => {
             request_exit(v, now, &f.escape[pick(3)]);
             "request_exit"
@@ -853,6 +855,11 @@ fn step(v: &mut Vault, choice: u64, amount: u128, now: u64) -> Option<&'static s
             v.sync_root(10);
             "sync_root"
         }
+        6 => {
+            testing_env!(ctx("anyone.test", now).build());
+            v.claim_expired(0);
+            "claim_expired"
+        }
         _ => {
             let siblings = siblings_of(v, 0);
             testing_env!(ctx("anyone.test", now).build());
@@ -879,10 +886,11 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
         // What the vault holds in USDC under this model: deposits in, payouts out.
         let mut usdc = ONE + NOTE_FEE;
         for _ in 0..14 {
-            now += if random(10) < 7 {
-                random(300) * NS
-            } else {
-                random(9) * DAY * NS
+            now += match random(10) {
+                0..=6 => random(300) * NS,
+                7 | 8 => random(9) * DAY * NS,
+                // Past the note's expiry plus the exit delay.
+                _ => 40 * DAY * NS,
             };
             let before = v.exit_requests(0, 1).first().map(|e| e.final_balance.0);
             let status = v.notes.get(0).unwrap().status;
@@ -918,6 +926,7 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
                     assert_eq!(paid + delta, ONE, "payout plus close fee plus share");
                     usdc -= paid;
                 }
+                "claim_expired" => assert_eq!(delta, ONE, "the whole denomination is swept"),
                 _ => assert_eq!(delta, 0, "{done} moves no money"),
             }
             // Solvency: what the vault owes never exceeds what it holds.
@@ -942,6 +951,7 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
         "raise_concession",
         "finalize_exit",
         "mutual_close",
+        "claim_expired",
     ] {
         assert!(
             accepted.get(call).copied().unwrap_or(0) > 0,
