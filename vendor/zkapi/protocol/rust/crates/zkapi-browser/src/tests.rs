@@ -2,7 +2,8 @@ use super::*;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use zkapi_proof::compact::{
-    key_header, strip_key_header, KeyKind, RequestVerifier, WithdrawalVerifier, REHEARSAL_SETUP_ID,
+    key_header, strip_key_header, KeyKind, RequestVerifier, WithdrawalVerifier, NYMIRA_SETUP_ID,
+    REHEARSAL_SETUP_ID,
 };
 use zkapi_proof::dev::DevDeployment;
 
@@ -870,6 +871,11 @@ fn the_bundle_loads_only_keys_of_its_own_setup() {
         load_request_verifier(&relabel(&request_vk, CEREMONY_SETUP_ID, KeyKind::Request)),
         codes::SETUP_MISMATCH,
     );
+    assert_refused(
+        load_request_verifier(&relabel(&request_vk, NYMIRA_SETUP_ID, KeyKind::Request)),
+        codes::SETUP_MISMATCH,
+    );
+    assert_eq!(bundle_setup_ids(), &["dev"]);
     let withdrawal_vk = std::fs::read(setup_dir().join("withdrawal.vk")).unwrap();
     assert!(load_request_verifier(&withdrawal_vk).is_err());
     assert!(verify_request(

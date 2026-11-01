@@ -77,10 +77,20 @@ pub const DEV_SETUP_ID: &str = "dev";
 pub const REHEARSAL_SETUP_ID: &str = "rehearsal";
 /// The multi-party ceremony setup (G-SETUP), imported with `examples/import_zkey.rs`.
 pub const CEREMONY_SETUP_ID: &str = "mpc-1";
+/// Nymira's single-party fallback setup, used only if the multi-party ceremony
+/// does not finish. Like [`CEREMONY_SETUP_ID`] it is trusted by key hash, never
+/// by label: see [`NYMIRA_VK_KECCAK256`].
+pub const NYMIRA_SETUP_ID: &str = "nymira";
 /// The only setups a release build (no `dev-setup` feature) accepts. The
-/// label alone is not enough: see [`CEREMONY_VK_KECCAK256`].
-pub const RELEASE_SETUP_IDS: &[&str] = &[CEREMONY_SETUP_ID];
-const DEV_BUILD_SETUP_IDS: &[&str] = &[CEREMONY_SETUP_ID, DEV_SETUP_ID, REHEARSAL_SETUP_ID];
+/// label alone is not enough: see [`CEREMONY_VK_KECCAK256`] and
+/// [`NYMIRA_VK_KECCAK256`].
+pub const RELEASE_SETUP_IDS: &[&str] = &[CEREMONY_SETUP_ID, NYMIRA_SETUP_ID];
+const DEV_BUILD_SETUP_IDS: &[&str] = &[
+    CEREMONY_SETUP_ID,
+    NYMIRA_SETUP_ID,
+    DEV_SETUP_ID,
+    REHEARSAL_SETUP_ID,
+];
 
 /// keccak256 of the request and withdrawal verifying keys of one setup (the
 /// adapter's `REQUEST_VK_HASH` and `WITHDRAWAL_VK_HASH`).
@@ -99,12 +109,34 @@ impl VkPins {
     }
 }
 
-/// The verifying keys of the `mpc-1` ceremony, pinned when G-SETUP publishes
-/// them (step 7). A release build loads an `mpc-1` key only when its verifying
-/// key hashes to the pin of its kind, so a key that merely carries the
-/// `mpc-1` label (a rehearsal or any other single-party setup) is refused.
-/// `None` until the ceremony completes: release builds then load no key.
-pub const CEREMONY_VK_KECCAK256: Option<VkPins> = None;
+/// Stand-in for a pin that is not published yet. No verifying key hashes to
+/// zero, so a release build loads no key of a setup pinned to it.
+const UNSET_PINS: VkPins = VkPins {
+    request: [0; 32],
+    withdrawal: [0; 32],
+};
+
+/// The verifying keys of Nymira's `mpc-1` ceremony. A release build loads an
+/// `mpc-1` key only when its verifying key hashes to the pin of its kind, so a
+/// key that merely carries the `mpc-1` label (a rehearsal or any other
+/// single-party setup) is refused.
+/// Placeholder until the ceremony publishes its key hashes (`nymira-ceremony`):
+/// release builds load no key until then.
+pub const CEREMONY_VK_KECCAK256: Option<VkPins> = Some(UNSET_PINS);
+
+/// The verifying keys of the single-party fallback setup, pinned the same way
+/// as [`CEREMONY_VK_KECCAK256`] and checked on its own: the `nymira` label
+/// alone is never trusted. Placeholder until the fallback keys exist.
+pub const NYMIRA_VK_KECCAK256: Option<VkPins> = Some(UNSET_PINS);
+
+/// The pins of a pinned setup id (`mpc-1` or `nymira`); `None` for any other id.
+pub fn pins_for_setup(setup_id: &str) -> Option<&'static VkPins> {
+    match setup_id {
+        CEREMONY_SETUP_ID => CEREMONY_VK_KECCAK256.as_ref(),
+        NYMIRA_SETUP_ID => NYMIRA_VK_KECCAK256.as_ref(),
+        _ => None,
+    }
+}
 
 /// The R1CS-to-QAP reduction shared with snarkjs ("circom").
 pub const REDUCTION: &str = "circom";
@@ -201,21 +233,23 @@ pub const fn accepted_setup_ids_for(dev_setup: bool) -> &'static [&'static str] 
 
 /// The setup policy of this build for a key of `setup_id` and `kind` whose
 /// verifying key hashes to `vk_keccak256`:
-/// * without `dev-setup` (release): only `mpc-1`, and only the pinned keys of
-///   [`CEREMONY_VK_KECCAK256`];
-/// * with `dev-setup`: also `dev`, `rehearsal` and unpinned `mpc-1` keys (the
-///   G-SETUP proving gate runs on the imported keys before they are pinned).
+/// * without `dev-setup` (release): only `mpc-1` and `nymira`, and only the
+///   pinned keys of [`CEREMONY_VK_KECCAK256`] and [`NYMIRA_VK_KECCAK256`];
+/// * with `dev-setup`: also `dev`, `rehearsal` and unpinned `mpc-1` and
+///   `nymira` keys (the G-SETUP proving gate runs on the imported keys before
+///   they are pinned).
 pub fn check_setup_accepted(setup_id: &str, kind: KeyKind, vk_keccak256: &[u8; 32]) -> Result<()> {
     check_setup_accepted_for(
         setup_id,
         kind,
         vk_keccak256,
         dev_setup_build(),
-        CEREMONY_VK_KECCAK256.as_ref(),
+        pins_for_setup(setup_id),
     )
 }
 
-/// [`check_setup_accepted`] for an explicit build (`dev_setup`) and pin set.
+/// [`check_setup_accepted`] for an explicit build (`dev_setup`) and the pin set
+/// of `setup_id` (see [`pins_for_setup`]).
 pub fn check_setup_accepted_for(
     setup_id: &str,
     kind: KeyKind,
@@ -229,16 +263,17 @@ pub fn check_setup_accepted_for(
         "setup {setup_id:?} is not accepted by this build (accepted: {accepted:?}); \
          development and rehearsal keys load only with the dev-setup feature"
     );
-    if setup_id == CEREMONY_SETUP_ID && !dev_setup {
+    if pins_for_setup(setup_id).is_some() && !dev_setup {
         let pins = ceremony_pins.ok_or_else(|| {
             anyhow!(
-                "no {CEREMONY_SETUP_ID} verifying keys are pinned in this build \
-                 (CEREMONY_VK_KECCAK256): a key labelled {CEREMONY_SETUP_ID} is not trusted by its label"
+                "no {setup_id} verifying keys are pinned in this build \
+                 (CEREMONY_VK_KECCAK256 and NYMIRA_VK_KECCAK256): a key labelled {setup_id} \
+                 is not trusted by its label"
             )
         })?;
         ensure!(
             pins.get(kind) == vk_keccak256,
-            "the {kind} key is labelled {CEREMONY_SETUP_ID} but its verifying key {} is not \
+            "the {kind} key is labelled {setup_id} but its verifying key {} is not \
              the pinned ceremony key {}",
             hex32(vk_keccak256),
             hex32(pins.get(kind))
@@ -314,16 +349,13 @@ impl SetupKey for VerifyingKey<Bn254> {
 /// Decode a key file under this build's setup policy
 /// ([`check_setup_accepted`]). Returns the key and its setup id.
 pub fn decode_compressed<T: SetupKey>(bytes: &[u8], kind: KeyKind) -> Result<(T, String)> {
-    decode_compressed_for(
-        bytes,
-        kind,
-        dev_setup_build(),
-        CEREMONY_VK_KECCAK256.as_ref(),
-    )
+    let (setup_id, _) = strip_key_header(bytes, kind)?;
+    decode_compressed_for(bytes, kind, dev_setup_build(), pins_for_setup(&setup_id))
 }
 
 /// Decode a key file under the policy of a build with (`dev_setup = true`)
-/// or without the `dev-setup` feature and the given ceremony pins. Tests use
+/// or without the `dev-setup` feature and the given pins of the key's setup
+/// (see [`pins_for_setup`]). Tests use
 /// it to exercise the release policy from a development build.
 pub fn decode_compressed_for<T: SetupKey>(
     bytes: &[u8],
@@ -2555,15 +2587,19 @@ mod tests {
 
     #[test]
     fn release_builds_accept_only_pinned_ceremony_keys() {
-        assert_eq!(accepted_setup_ids_for(false), &["mpc-1"]);
-        assert_eq!(RELEASE_SETUP_IDS, &["mpc-1"]);
-        assert_eq!(accepted_setup_ids_for(true), &["mpc-1", "dev", "rehearsal"]);
+        assert_eq!(accepted_setup_ids_for(false), &["mpc-1", "nymira"]);
+        assert_eq!(RELEASE_SETUP_IDS, &["mpc-1", "nymira"]);
+        assert_eq!(
+            accepted_setup_ids_for(true),
+            &["mpc-1", "nymira", "dev", "rehearsal"]
+        );
         assert_eq!(
             accepted_setup_ids(),
             accepted_setup_ids_for(dev_setup_build())
         );
-        // No ceremony keys are pinned before G-SETUP completes.
-        assert_eq!(CEREMONY_VK_KECCAK256, None);
+        // Both pins are placeholders until the ceremony publishes its hashes.
+        assert_eq!(CEREMONY_VK_KECCAK256, Some(UNSET_PINS));
+        assert_eq!(NYMIRA_VK_KECCAK256, Some(UNSET_PINS));
         let vk = test_vk();
         let hash = vk_hash(&vk);
         let release = |setup_id: &str, pins: Option<&VkPins>| {
@@ -2607,8 +2643,13 @@ mod tests {
             Some(&pinned)
         )
         .is_err());
-        // Development builds accept dev, rehearsal and unpinned mpc-1 keys.
-        for setup_id in [DEV_SETUP_ID, REHEARSAL_SETUP_ID, CEREMONY_SETUP_ID] {
+        // Development builds accept dev, rehearsal and unpinned mpc-1 and nymira keys.
+        for setup_id in [
+            DEV_SETUP_ID,
+            REHEARSAL_SETUP_ID,
+            CEREMONY_SETUP_ID,
+            NYMIRA_SETUP_ID,
+        ] {
             let file = encode_compressed(&vk, setup_id, KeyKind::Request).unwrap();
             let (_, id) =
                 decode_compressed_for::<VerifyingKey<Bn254>>(&file, KeyKind::Request, true, None)
@@ -2626,6 +2667,62 @@ mod tests {
             )
             .is_err());
         }
+    }
+
+    /// The `nymira` fallback id has its own pin check: the label alone is never
+    /// trusted, and the shipped placeholder pins load no key.
+    #[test]
+    fn nymira_fallback_keys_are_checked_against_their_own_pins() {
+        let vk = test_vk();
+        let hash = vk_hash(&vk);
+        assert_eq!(
+            pins_for_setup(NYMIRA_SETUP_ID),
+            NYMIRA_VK_KECCAK256.as_ref()
+        );
+        assert_eq!(
+            pins_for_setup(CEREMONY_SETUP_ID),
+            CEREMONY_VK_KECCAK256.as_ref()
+        );
+        assert_eq!(pins_for_setup(DEV_SETUP_ID), None);
+        let file = encode_compressed(&vk, NYMIRA_SETUP_ID, KeyKind::Request).unwrap();
+        let release = |pins: Option<&VkPins>| {
+            decode_compressed_for::<VerifyingKey<Bn254>>(&file, KeyKind::Request, false, pins)
+                .map(|(_, id)| id)
+                .map_err(|error| error.to_string())
+        };
+        // Unpinned, or pinned to another key (the placeholder included): refused.
+        let error = release(None).unwrap_err();
+        assert!(
+            error.contains("no nymira verifying keys are pinned"),
+            "{error}"
+        );
+        let error = release(pins_for_setup(NYMIRA_SETUP_ID)).unwrap_err();
+        assert!(error.contains("not the pinned ceremony key"), "{error}");
+        // The mpc-1 pin does not vouch for a nymira key: a release build looks
+        // the pin up by the key's own setup id.
+        let pinned = VkPins {
+            request: hash,
+            withdrawal: [7; 32],
+        };
+        assert_eq!(release(Some(&pinned)).unwrap(), "nymira");
+        // A dev build accepts it unpinned, like an unpinned mpc-1 key.
+        decode_compressed_for::<VerifyingKey<Bn254>>(&file, KeyKind::Request, true, None).unwrap();
+        // The label is checked through the real entry point too.
+        let (_, id) = decode_compressed::<VerifyingKey<Bn254>>(&file, KeyKind::Request).unwrap();
+        assert_eq!(
+            id, NYMIRA_SETUP_ID,
+            "the dev-setup test build accepts unpinned keys"
+        );
+        let error = check_setup_accepted_for(
+            NYMIRA_SETUP_ID,
+            KeyKind::Request,
+            &hash,
+            false,
+            pins_for_setup(NYMIRA_SETUP_ID),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("not the pinned ceremony key"), "{error}");
     }
 
     #[test]
@@ -2711,7 +2808,9 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../../setup/v2/manifest.json"
         );
-        let manifest: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        // The legacy setup directory is not vendored in Nymira.
+        let Ok(bytes) = fs::read(path) else { return };
+        let manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         let poseidon: PoseidonManifest =
             serde_json::from_value(manifest["poseidon"].clone()).unwrap();
         assert_eq!(poseidon.test_leaf, "");

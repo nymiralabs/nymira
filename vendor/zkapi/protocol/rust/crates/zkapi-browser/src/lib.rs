@@ -45,7 +45,7 @@ use zkapi_proof::compact::{
     add_blindings, balance_commitment, dev_setup_build, random_field, random_scalar, rerandomize,
     server_update, verify_signature, withdrawal_public_inputs, RequestProver, RequestVerifier,
     RequestWitnessData, WithdrawalProver, WithdrawalStatementParams, WithdrawalWitnessData,
-    CEREMONY_SETUP_ID, CIRCUIT_ID, DEV_SETUP_ID,
+    CEREMONY_SETUP_ID, CIRCUIT_ID, DEV_SETUP_ID, NYMIRA_SETUP_ID,
 };
 use zkapi_types::wire::{
     ApiRequestV2, ClearanceResponseV2, CurvePointWire, Groth16ProofWire, ProofBackendWire,
@@ -102,20 +102,26 @@ fn refusal(code: &str, detail: impl std::fmt::Display) -> anyhow::Error {
     anyhow!("{code}: {detail}")
 }
 
-/// The setup this bundle proves with: `dev` when built with the `dev-setup`
-/// feature, otherwise the ceremony setup `mpc-1`. Keys of any other setup are
-/// refused, even ones the underlying proof library would accept.
-pub fn bundle_setup_id() -> &'static str {
+/// The setups this bundle proves with: `dev` when built with the `dev-setup`
+/// feature, otherwise the ceremony setup `mpc-1` or Nymira's single-party
+/// fallback `nymira`. Keys of any other setup are refused, even ones the
+/// underlying proof library would accept.
+pub fn bundle_setup_ids() -> &'static [&'static str] {
     if dev_setup_build() {
-        DEV_SETUP_ID
+        &[DEV_SETUP_ID]
     } else {
-        CEREMONY_SETUP_ID
+        &[CEREMONY_SETUP_ID, NYMIRA_SETUP_ID]
     }
 }
 
+/// The primary setup of this bundle: the first of [`bundle_setup_ids`].
+pub fn bundle_setup_id() -> &'static str {
+    bundle_setup_ids()[0]
+}
+
 fn require_bundle_setup(setup_id: &str, what: &str) -> Result<()> {
-    let expected = bundle_setup_id();
-    if setup_id != expected {
+    let expected = bundle_setup_ids();
+    if !expected.contains(&setup_id) {
         return Err(refusal(
             codes::SETUP_MISMATCH,
             format!("the {what} belongs to setup {setup_id:?}; this {CIRCUIT_ID} bundle is built for setup {expected:?}"),
