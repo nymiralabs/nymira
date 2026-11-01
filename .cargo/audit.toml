@@ -1,0 +1,18 @@
+# Every advisory below is in host-side test tooling pulled in by near-workspaces
+# or near-sdk's unit-testing VM, none of it compiled into a contract wasm.
+# Newer versions are blocked by the exact near-sdk/near-workspaces pins (a
+# rustls bump conflicts on aws-lc-rs; zstd 0.14 and crypto-bigint 0.7 are major
+# bumps). Revisit when those pins move.
+[advisories]
+ignore = [
+  "RUSTSEC-2026-0387", # crypto-bigint 0.5.5, via near-sdk unit-testing VM
+  "RUSTSEC-2026-0346", # rustls 0.23.43, via near-workspaces
+  "RUSTSEC-2026-0285", # rustls 0.23.43
+  "RUSTSEC-2026-0348", # rustls 0.23.43
+  "RUSTSEC-2026-0349", # rustls 0.23.43
+  "RUSTSEC-2026-0382", # rustls-webpki 0.103.13
+  "RUSTSEC-2026-0391", # zstd 0.13.3, via near-primitives
+  "RUSTSEC-2026-0403", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0398", # zstd-safe 7.3.0
+  "RUSTSEC-2024-0449", # unsafe-libyaml unmaintained, via near-parameters
+]

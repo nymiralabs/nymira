@@ -1,0 +1,30 @@
+[package]
+name = "nymira-vault"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Accept zkapi development and rehearsal keys. Never in a mainnet or judge build.
+dev-setup = []
+# Mainnet profile.
+mainnet = []
+# The public judge vault and the public testnet bundle.
+judge = []
+# Lets a test account stand in for the Intents contract. Never on mainnet.
+test-intents-account = []
+
+# The vault may depend only on near-sdk, zkapi-core, nymira-near-codec and
+# nymira-verifier (scripts/check-vault-deps.sh enforces it).
+[dependencies]
+near-sdk = { workspace = true }
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+near-workspaces = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

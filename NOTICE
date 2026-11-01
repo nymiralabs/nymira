@@ -1,0 +1,29 @@
+Nymira
+Copyright (c) Nymira Labs
+
+This product includes software from the following projects.
+
+zkapi (https://github.com/ethereum/zkapi)
+  Vendored in vendor/zkapi/ at commit 4ac25c811318d96a873b8b232c7be2252e16c0bd:
+  protocol/rust and protocol/setup/v2-concession-dev.
+  Licensed under MIT OR Apache-2.0 (workspace Cargo.toml). The upstream
+  repository root has no license file; a request is open at ethereum/zkapi#28.
+
+  Patches applied after the upstream snapshot, one commit each:
+  1. zkapi PR #22 (head 8a96d2aa0bd983eba1f226e5dff827aab38d88d0):
+     zkapi-types/src/felt.rs rejects non-hex characters in Felt252::from_hex.
+  2. Poseidon parameters exported as constants from zkapi-core
+     (v2.rs: POSEIDON_FULL_ROUNDS, POSEIDON_PARTIAL_ROUNDS, POSEIDON_RATE,
+     POSEIDON_CAPACITY, POSEIDON_ALPHA, POSEIDON_SKIP_MATRICES).
+  3. Setup patch: CEREMONY_VK_KECCAK256 set to a placeholder for our ceremony
+     hashes; new setup id "nymira" with NYMIRA_VK_KECCAK256 and its own pin
+     check (zkapi-proof/src/compact.rs); zkapi-browser accepts both ids
+     (bundle_setup_ids); one test for the nymira pin check; the legacy setup/v2
+     manifest test skips when that directory is absent.
+  Not applied: zkapi PR #29 (sdk/ only; the JS SDK is not vendored).
+  No circuit change.
+
+Open-source Verifier v0.4.2 (https://github.com/near/intents, tag defuse/v0.4.2)
+  Release wasm kept as a sandbox test fixture:
+  contracts/vault/tests/fixtures/verifier-v0.4.2.wasm.
+  Licensed under MIT.

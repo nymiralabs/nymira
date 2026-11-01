@@ -5,3 +5,5 @@ dist/
 .env.*
 *.wasm
 .DS_Store
+
+!contracts/vault/tests/fixtures/*.wasm
