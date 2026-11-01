@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["contracts/vault"]
+# The zkapi workspace keeps its own root (its crates inherit `workspace = true`
+# values from it); ours reach it by path.
+exclude = ["vendor/zkapi/protocol/rust"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.99"
+
+[workspace.dependencies]
+near-sdk = { version = "=5.29.1", default-features = false }
+near-workspaces = "=0.23.0"
+zkapi-core = { path = "vendor/zkapi/protocol/rust/crates/zkapi-core" }
+
+# Proving tests are minutes slower with unoptimized arkworks.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+overflow-checks = true

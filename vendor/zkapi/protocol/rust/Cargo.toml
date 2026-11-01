@@ -1,0 +1,66 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/zkapi-types",
+    "crates/zkapi-core",
+    "crates/zkapi-proof",
+    "crates/zkapi-client",
+    "crates/zkapi-browser",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.2.0"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Internal crates
+zkapi-types  = { path = "crates/zkapi-types" }
+zkapi-core   = { path = "crates/zkapi-core" }
+zkapi-proof  = { path = "crates/zkapi-proof" }
+zkapi-client = { path = "crates/zkapi-client" }
+
+# Serialization
+serde      = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Encoding
+hex = "0.4"
+base64 = "0.22"
+
+# Arkworks BN254 Groth16 and Baby-JubJub primitives
+ark-ff  = "0.5"
+ark-ec  = "0.5"
+ark-std = "0.5"
+ark-bn254 = "0.5"
+ark-crypto-primitives = { version = "0.5", features = ["sponge", "r1cs", "snark"] }
+ark-ed-on-bn254 = { version = "0.5", features = ["r1cs", "std"] }
+ark-groth16 = "0.5"
+ark-poly = "0.5"
+ark-r1cs-std = "0.5"
+ark-relations = "0.5"
+ark-serialize = "0.5"
+ark-snark = "0.5"
+
+# Hashing
+blake2 = "0.10"
+sha2 = "0.10"
+sha3 = "0.10"
+
+# Randomness
+rand = "0.8"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow    = "1.0"
+
+# Identifiers
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Optimize dependencies (arkworks) in dev and test builds: debug-mode MSMs and
+# FFTs make every proving test minutes slower. Workspace crates stay debug.
+[profile.dev.package."*"]
+opt-level = 3

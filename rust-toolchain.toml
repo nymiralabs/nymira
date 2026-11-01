@@ -1,0 +1,7 @@
+# Same toolchain as vendor/zkapi (its browser build refuses any other). Rust
+# 1.99.1 exists but is not used: see docs/build.md.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

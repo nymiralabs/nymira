@@ -1,0 +1,38 @@
+[package]
+name = "nymira-vault"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository = "https://github.com/nymiralabs/nymira"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Accept zkapi development and rehearsal keys. Never in a mainnet or judge build.
+dev-setup = []
+# Mainnet profile.
+mainnet = []
+# The public judge vault and the public testnet bundle.
+judge = []
+# Lets a test account stand in for the Intents contract. Never on mainnet.
+test-intents-account = []
+
+# The vault may depend only on near-sdk, zkapi-core, nymira-near-codec and
+# nymira-verifier (scripts/check-vault-deps.sh enforces it).
+[dependencies]
+near-sdk = { workspace = true }
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+near-workspaces = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# cargo-near 0.22.0 image for rustc 1.99.0 (amd64), pinned by digest.
+[package.metadata.near.reproducible_build]
+image = "sourcescan/cargo-near:0.22.0-rust-1.99.0"
+image_digest = "sha256:51ab40efd798eae26c0dc71180909303f10bb4988b15ce3a18522c5be06e277e"
+passed_env = []
+container_build_command = ["cargo", "near", "build", "non-reproducible-wasm", "--locked"]
