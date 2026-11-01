@@ -1,0 +1,11 @@
+[package]
+name = "zkapi-types"
+description = "Shared types and serialization for zkAPI"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde      = { workspace = true }
+serde_json = { workspace = true }
+sha3       = { workspace = true }
