@@ -50,7 +50,7 @@ fn b64(bytes: &[u8]) -> String {
     out
 }
 
-fn new_args(token: &AccountId, tvl_cap: u128) -> Value {
+fn new_args(token: &AccountId, tvl_cap: u128, operator: &str, treasury: &str) -> Value {
     json!({
         "operator_pk": point(1),
         "clearance_pk": point(2),
@@ -59,7 +59,7 @@ fn new_args(token: &AccountId, tvl_cap: u128) -> Value {
         "tvl_cap": tvl_cap.to_string(),
         "request_vk": b64(&canonical_verifying_key(Kind::Request)),
         "withdrawal_vk": b64(&canonical_verifying_key(Kind::Withdrawal)),
-        "treasury": "treasury.test",
+        "treasury": treasury,
         "note_fee": NOTE_FEE.to_string(),
         "exit_delay_secs": 7 * 86_400,
         "note_ttl": 30 * 86_400,
@@ -68,7 +68,7 @@ fn new_args(token: &AccountId, tvl_cap: u128) -> Value {
         "min_charge": "2000",
         "slot_rate": 1000,
         "owner": "owner.test",
-        "operator_account": "operator.test",
+        "operator_account": operator,
     })
 }
 
@@ -94,21 +94,41 @@ struct Env {
     usdc: MockUsdc,
     vault: Contract,
     alice: Account,
+    operator: Account,
+    treasury: Account,
 }
 
 async fn setup(tvl_cap: u128) -> Result<Env> {
     let worker = near_workspaces::sandbox().await?;
     let usdc = MockUsdc::deploy(&worker).await?;
-    let vault = worker.dev_deploy(&vault_wasm(&["dev-setup"])).await?;
+    let operator = worker.dev_create_account().await?;
+    let treasury = worker.dev_create_account().await?;
+    // A fixed account id, so proofs made for it can be cached across tests.
+    let vault = worker
+        .root_account()?
+        .create_subaccount("vault")
+        .initial_balance(NearToken::from_near(50))
+        .transact()
+        .await?
+        .into_result()?
+        .deploy(&vault_wasm(&["dev-setup"]))
+        .await?
+        .into_result()?;
     let init = vault
         .call("new")
-        .args_json(new_args(usdc.contract.id(), tvl_cap))
+        .args_json(new_args(
+            usdc.contract.id(),
+            tvl_cap,
+            operator.id().as_str(),
+            treasury.id().as_str(),
+        ))
         .max_gas()
         .transact()
         .await?;
     report("new", &init);
     init.into_result()?;
     usdc.register_id(vault.id()).await;
+    usdc.register(&treasury).await;
     let alice = worker.dev_create_account().await?;
     usdc.register(&alice).await;
     usdc.mint(alice.id(), 1_000_000 * ONE).await;
@@ -117,6 +137,8 @@ async fn setup(tvl_cap: u128) -> Result<Env> {
         usdc,
         vault,
         alice,
+        operator,
+        treasury,
     })
 }
 
@@ -378,7 +400,12 @@ async fn a_build_without_dev_setup_refuses_the_development_keys() -> Result<()> 
     let vault = worker.dev_deploy(&vault_wasm(&[])).await?;
     let init = vault
         .call("new")
-        .args_json(new_args(usdc.contract.id(), 100 * ONE))
+        .args_json(new_args(
+            usdc.contract.id(),
+            100 * ONE,
+            "operator.test",
+            "treasury.test",
+        ))
         .max_gas()
         .transact()
         .await?;
@@ -394,4 +421,493 @@ async fn a_build_without_dev_setup_refuses_the_development_keys() -> Result<()> 
         "{failure}"
     );
     Ok(())
+}
+
+// Mutual close, payouts, claims
+
+mod close {
+    use std::sync::OnceLock;
+
+    use near_workspaces::types::Gas;
+    use nymira_near_codec::Network;
+    use nymira_testkit::proofs::{Bundle, ProofGen, WithdrawalKindId};
+    use zkapi_proof::dev::{DevNote, DevRequest, DevState};
+
+    use super::*;
+
+    const CHARGE: u128 = 20_000;
+    const CLOSE_FEE: u128 = 30_000;
+
+    fn gen(vault: &AccountId) -> &'static ProofGen {
+        static GEN: OnceLock<ProofGen> = OnceLock::new();
+        GEN.get_or_init(|| ProofGen::new(Network::Testnet, vault.as_str()).unwrap())
+    }
+
+    /// Alice deposits 1 USDC for a note whose registration is `secret`'s; returns the note the
+    /// vault stored (its id and expiry).
+    async fn deposit_note(env: &Env, secret: u64) -> Result<DevNote> {
+        let before: Vec<Value> =
+            view(&env.vault, "note_records", json!({"from": 0, "limit": 100})).await;
+        let note = DevNote {
+            secret: Felt252::from_u64(secret),
+            note_id: before.len() as u32,
+            deposit_amount: ONE,
+            expiry: 0,
+        };
+        let msg = json!({ "commitment": format!("0x{}", hex::encode(note.registration().0)) });
+        transfer_call(
+            &env.usdc.contract,
+            &env.alice,
+            env.vault.id(),
+            ONE + NOTE_FEE,
+            &msg.to_string(),
+        )
+        .await?
+        .into_result()?;
+        let after: Vec<Value> =
+            view(&env.vault, "note_records", json!({"from": 0, "limit": 100})).await;
+        let expiry = after[note.note_id as usize]["expiry"].as_u64().unwrap();
+        Ok(DevNote { expiry, ..note })
+    }
+
+    fn state_after_spending(env: &Env, note: &DevNote) -> DevState {
+        let s0 = note.genesis(Felt252::from_u64(7));
+        gen(env.vault.id())
+            .next_state(
+                &s0,
+                &DevRequest {
+                    request_time: 2_000_000_000,
+                    solvency_bound: 100_000,
+                    request_context: Felt252::from_u64(99),
+                    rerandomization: Felt252::from_u64(9),
+                },
+                CHARGE,
+                &Felt252::from_u64(17),
+            )
+            .unwrap()
+    }
+
+    async fn close_bundle(env: &Env, note: &DevNote, payout: &str) -> Result<Bundle> {
+        let valid_until = now_seconds(&env.worker).await + 3_600;
+        Ok(gen(env.vault.id()).withdrawal(
+            &state_after_spending(env, note),
+            WithdrawalKindId::MutualClose,
+            payout,
+            0,
+            valid_until,
+        )?)
+    }
+
+    async fn mutual_close(
+        env: &Env,
+        caller: &Account,
+        bundle: &Bundle,
+        gas: Gas,
+        extra: Value,
+    ) -> Result<ExecutionFinalResult> {
+        let mut args = json!({
+            "proof": bundle.proof_base64(),
+            "inputs": bundle.inputs_base64(),
+        });
+        if let (Some(args), Some(extra)) = (args.as_object_mut(), extra.as_object()) {
+            args.extend(extra.clone());
+        }
+        Ok(caller
+            .call(env.vault.id(), "mutual_close")
+            .args_json(args)
+            .gas(gas)
+            .transact()
+            .await?)
+    }
+
+    fn tgas(n: u64) -> Gas {
+        Gas::from_tgas(n)
+    }
+
+    async fn pending(env: &Env, account: &AccountId) -> String {
+        view(
+            &env.vault,
+            "pending_payout",
+            json!({ "account_id": account }),
+        )
+        .await
+    }
+
+    async fn settled(env: &Env) {
+        env.worker.fast_forward(5).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_user_close_pays_the_payout_account_and_ignores_a_payout_argument() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let mallory = env.worker.dev_create_account().await?;
+        env.usdc.register(&mallory).await;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        let before = env.usdc.balance_of(env.alice.id()).await;
+        // A payout account passed as an argument changes nothing.
+        let outcome = mutual_close(
+            &env,
+            &env.alice,
+            &bundle,
+            tgas(300),
+            json!({ "withdraw_to": mallory.id(), "payout_account": mallory.id() }),
+        )
+        .await?;
+        report("mutual_close, user, 300 Tgas", &outcome);
+        println!(
+            "gas mutual_close on the vault: {:.2} Tgas",
+            gas_on(&outcome, env.vault.id()) as f64 / TGAS as f64
+        );
+        let logs = outcome.logs().join("\n");
+        outcome.into_result()?;
+        settled(&env).await;
+        assert!(logs.contains(r#""event":"mutual_close""#));
+        assert_eq!(
+            env.usdc.balance_of(env.alice.id()).await,
+            before + ONE - CHARGE
+        );
+        assert_eq!(env.usdc.balance_of(mallory.id()).await, 0);
+        assert_eq!(pending(&env, env.alice.id()).await, "0");
+        let treasury: String = view(&env.vault, "treasury_balance", json!({})).await;
+        assert_eq!(treasury, (NOTE_FEE + CHARGE).to_string());
+        let status: Value = view(&env.vault, "note_records", json!({"from": 0, "limit": 1})).await;
+        assert_eq!(status[0]["status"], "Closed");
+        let used: bool = view(
+            &env.vault,
+            "is_nullifier_used",
+            json!({ "nullifier": format!("0x{}", hex::encode(bundle.inputs_wire[11])) }),
+        )
+        .await;
+        assert!(used);
+        // The vault holds what the vault owes: the treasury balance.
+        assert_eq!(env.usdc.balance_of(env.vault.id()).await, NOTE_FEE + CHARGE);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_operator_close_takes_the_close_fee() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        let before = env.usdc.balance_of(env.alice.id()).await;
+        let outcome = mutual_close(&env, &env.operator, &bundle, tgas(300), json!({})).await?;
+        report("mutual_close, operator", &outcome);
+        outcome.into_result()?;
+        settled(&env).await;
+        assert_eq!(
+            env.usdc.balance_of(env.alice.id()).await,
+            before + ONE - CHARGE - CLOSE_FEE
+        );
+        let treasury: String = view(&env.vault, "treasury_balance", json!({})).await;
+        assert_eq!(treasury, (NOTE_FEE + CHARGE + CLOSE_FEE).to_string());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_payout_to_an_unregistered_account_registers_it_first() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let fresh = env.worker.dev_create_account().await?;
+        assert!(!env.usdc.is_registered(fresh.id()).await);
+        // The payout account is the one the deposit names.
+        let note = {
+            let before: Vec<Value> =
+                view(&env.vault, "note_records", json!({"from": 0, "limit": 100})).await;
+            let n = DevNote {
+                secret: Felt252::from_u64(77),
+                note_id: before.len() as u32,
+                deposit_amount: ONE,
+                expiry: 0,
+            };
+            let msg = json!({
+                "commitment": format!("0x{}", hex::encode(n.registration().0)),
+                "withdraw_to": fresh.id(),
+            });
+            transfer_call(
+                &env.usdc.contract,
+                &env.alice,
+                env.vault.id(),
+                ONE + NOTE_FEE,
+                &msg.to_string(),
+            )
+            .await?
+            .into_result()?;
+            let after: Vec<Value> =
+                view(&env.vault, "note_records", json!({"from": 0, "limit": 100})).await;
+            DevNote {
+                expiry: after[n.note_id as usize]["expiry"].as_u64().unwrap(),
+                ..n
+            }
+        };
+        let bundle = close_bundle(&env, &note, fresh.id().as_str()).await?;
+        let outcome = mutual_close(&env, &env.alice, &bundle, tgas(300), json!({})).await?;
+        report("mutual_close to an unregistered account", &outcome);
+        outcome.into_result()?;
+        settled(&env).await;
+        assert!(env.usdc.is_registered(fresh.id()).await);
+        assert_eq!(env.usdc.balance_of(fresh.id()).await, ONE - CHARGE);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_registration_deposit_comes_back_when_the_account_is_already_registered(
+    ) -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        assert!(env.usdc.is_registered(env.alice.id()).await);
+        settled(&env).await;
+        let before = env.vault.view_account().await?;
+        mutual_close(&env, &env.alice, &bundle, tgas(300), json!({}))
+            .await?
+            .into_result()?;
+        settled(&env).await;
+        let after = env.vault.view_account().await?;
+        // The vault may even gain (it earns a share of the gas it burns), but the 0.00125 NEAR
+        // sent with `storage_deposit` must not be lost.
+        assert!(
+            after.balance.as_yoctonear() + 10u128.pow(20) >= before.balance.as_yoctonear(),
+            "{} -> {}",
+            before.balance.as_yoctonear(),
+            after.balance.as_yoctonear()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn junk_bytes_from_a_successful_transfer_pay_once_and_create_no_pending_payout(
+    ) -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        env.usdc.set_junk_return(true).await;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        let before = env.usdc.balance_of(env.alice.id()).await;
+        let outcome = mutual_close(&env, &env.alice, &bundle, tgas(300), json!({})).await?;
+        report("mutual_close, token returns junk", &outcome);
+        outcome.into_result()?;
+        settled(&env).await;
+        assert_eq!(
+            env.usdc.balance_of(env.alice.id()).await,
+            before + ONE - CHARGE
+        );
+        assert_eq!(pending(&env, env.alice.id()).await, "0");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_failed_transfer_creates_one_pending_payout_and_anyone_can_claim_it() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        env.usdc.set_panic_in_transfer(true).await;
+        let before = env.usdc.balance_of(env.alice.id()).await;
+        let outcome = mutual_close(&env, &env.alice, &bundle, tgas(300), json!({})).await?;
+        report("mutual_close, transfer fails", &outcome);
+        let logs = outcome.logs().join("\n");
+        outcome.into_result()?;
+        settled(&env).await;
+        assert!(logs.contains(r#""event":"payout_pending""#), "{logs}");
+        assert_eq!(env.usdc.balance_of(env.alice.id()).await, before);
+        assert_eq!(
+            pending(&env, env.alice.id()).await,
+            (ONE - CHARGE).to_string()
+        );
+
+        // The token recovers; a stranger triggers the claim; only alice is paid.
+        env.usdc.set_panic_in_transfer(false).await;
+        let stranger = env.worker.dev_create_account().await?;
+        let claim = stranger
+            .call(env.vault.id(), "claim_payout")
+            .args_json(json!({ "account_id": env.alice.id() }))
+            .gas(tgas(300))
+            .transact()
+            .await?;
+        report("claim_payout", &claim);
+        let logs = claim.logs().join("\n");
+        claim.into_result()?;
+        settled(&env).await;
+        assert!(logs.contains(r#""event":"payout_claimed""#), "{logs}");
+        assert_eq!(
+            env.usdc.balance_of(env.alice.id()).await,
+            before + ONE - CHARGE
+        );
+        assert_eq!(env.usdc.balance_of(stranger.id()).await, 0);
+        assert_eq!(pending(&env, env.alice.id()).await, "0");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_paused_token_leaves_a_pending_payout_and_a_failed_claim_restores_it() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        env.usdc.set_paused(true).await;
+        mutual_close(&env, &env.alice, &bundle, tgas(300), json!({}))
+            .await?
+            .into_result()?;
+        settled(&env).await;
+        assert_eq!(
+            pending(&env, env.alice.id()).await,
+            (ONE - CHARGE).to_string()
+        );
+        // Still paused: the claim fails and puts the amount back.
+        let claim = env
+            .alice
+            .call(env.vault.id(), "claim_payout")
+            .args_json(json!({ "account_id": env.alice.id() }))
+            .gas(tgas(300))
+            .transact()
+            .await?;
+        report("claim_payout, token paused", &claim);
+        claim.into_result()?;
+        settled(&env).await;
+        assert_eq!(
+            pending(&env, env.alice.id()).await,
+            (ONE - CHARGE).to_string()
+        );
+        env.usdc.set_paused(false).await;
+        env.alice
+            .call(env.vault.id(), "claim_payout")
+            .args_json(json!({ "account_id": env.alice.id() }))
+            .gas(tgas(300))
+            .transact()
+            .await?
+            .into_result()?;
+        settled(&env).await;
+        assert_eq!(pending(&env, env.alice.id()).await, "0");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn claim_treasury_pays_the_treasury_account_only_and_restores_on_failure() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        deposit_note(&env, 42).await?;
+        let stranger = env.worker.dev_create_account().await?;
+        env.usdc.set_panic_in_transfer(true).await;
+        let failed = stranger
+            .call(env.vault.id(), "claim_treasury")
+            .gas(tgas(300))
+            .transact()
+            .await?;
+        report("claim_treasury, transfer fails", &failed);
+        failed.into_result()?;
+        settled(&env).await;
+        let balance: String = view(&env.vault, "treasury_balance", json!({})).await;
+        assert_eq!(balance, NOTE_FEE.to_string());
+
+        env.usdc.set_panic_in_transfer(false).await;
+        let paid = stranger
+            .call(env.vault.id(), "claim_treasury")
+            .gas(tgas(300))
+            .transact()
+            .await?;
+        report("claim_treasury", &paid);
+        let logs = paid.logs().join("\n");
+        paid.into_result()?;
+        settled(&env).await;
+        assert!(logs.contains(r#""event":"treasury_claimed""#), "{logs}");
+        assert_eq!(env.usdc.balance_of(env.treasury.id()).await, NOTE_FEE);
+        assert_eq!(env.usdc.balance_of(stranger.id()).await, 0);
+        let balance: String = view(&env.vault, "treasury_balance", json!({})).await;
+        assert_eq!(balance, "0");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_least_gas_that_passes_pays_in_full_and_less_reverts_whole() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        // One Tgas short of the minimum: the method panics before any write.
+        let short = mutual_close(&env, &env.alice, &bundle, tgas(109), json!({})).await?;
+        assert!(short.is_failure(), "109 Tgas must be refused");
+        let status: Value = view(&env.vault, "note_records", json!({"from": 0, "limit": 1})).await;
+        assert_eq!(status[0]["status"], "Active");
+        // At the minimum the payout is the same as with 300 Tgas.
+        let before = env.usdc.balance_of(env.alice.id()).await;
+        let exact = mutual_close(&env, &env.alice, &bundle, tgas(110), json!({})).await?;
+        report("mutual_close, least gas (110 Tgas)", &exact);
+        exact.into_result()?;
+        settled(&env).await;
+        assert_eq!(
+            env.usdc.balance_of(env.alice.id()).await,
+            before + ONE - CHARGE
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn claims_with_the_least_gas_pay_in_full_and_less_reverts_whole() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        deposit_note(&env, 42).await?;
+        let short = env
+            .alice
+            .call(env.vault.id(), "claim_treasury")
+            .gas(tgas(49))
+            .transact()
+            .await?;
+        assert!(short.is_failure());
+        let balance: String = view(&env.vault, "treasury_balance", json!({})).await;
+        assert_eq!(balance, NOTE_FEE.to_string());
+        let exact = env
+            .alice
+            .call(env.vault.id(), "claim_treasury")
+            .gas(tgas(50))
+            .transact()
+            .await?;
+        report("claim_treasury, least gas (50 Tgas)", &exact);
+        exact.into_result()?;
+        settled(&env).await;
+        assert_eq!(env.usdc.balance_of(env.treasury.id()).await, NOTE_FEE);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn callbacks_cannot_be_called_from_outside_or_starved() -> Result<()> {
+        let env = setup(100 * ONE).await?;
+        let args = json!({
+            "account": env.alice.id(),
+            "amount": "900000",
+            "note_id": 0,
+            "commitment": commitment(1),
+        });
+        for caller in [&env.alice, &env.operator] {
+            let outcome = caller
+                .call(env.vault.id(), "on_close_payout")
+                .args_json(args.clone())
+                .max_gas()
+                .transact()
+                .await?;
+            assert!(outcome.is_failure());
+            assert!(format!("{:?}", outcome.failures()).contains("private"));
+        }
+        for (method, args) in [
+            (
+                "on_claim_payout",
+                json!({"account": env.alice.id(), "amount": "1"}),
+            ),
+            ("on_claim_treasury", json!({"amount": "1"})),
+        ] {
+            let outcome = env
+                .alice
+                .call(env.vault.id(), method)
+                .args_json(args)
+                .max_gas()
+                .transact()
+                .await?;
+            assert!(outcome.is_failure(), "{method}");
+        }
+        // The vault itself, with too little gas for the callback: nothing is written.
+        let starved = env
+            .vault
+            .as_account()
+            .call(env.vault.id(), "on_close_payout")
+            .args_json(args)
+            .gas(tgas(2))
+            .transact()
+            .await?;
+        assert!(starved.is_failure());
+        assert_eq!(pending(&env, env.alice.id()).await, "0");
+        Ok(())
+    }
 }

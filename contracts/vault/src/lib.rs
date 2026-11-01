@@ -9,9 +9,16 @@ mod word;
 mod zero_hashes;
 
 use near_sdk::json_types::{Base64VecU8, U128, U64};
+use near_sdk::serde_json::json;
 use near_sdk::store::{Lazy, LookupMap, LookupSet, Vector};
-use near_sdk::{env, near, require, AccountId, BorshStorageKey, PanicOnDefault};
-use nymira_near_codec::{chain_id, check_signing_key, Network, VerifyingKey, SCALAR_MODULUS_BE};
+use near_sdk::{
+    env, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise,
+    PromiseError, PromiseOrValue,
+};
+use nymira_near_codec::{
+    chain_id, check_signing_key, contract_address, destination, public_input_from_wire, Network,
+    Proof, VerifyingKey, SCALAR_MODULUS_BE,
+};
 use zkapi_core::Felt252;
 
 #[cfg(all(feature = "mainnet", feature = "dev-setup"))]
@@ -43,6 +50,19 @@ const SYNC_BATCH: u32 = 16;
 /// hash costs about 1.8 Tgas, so 120 leaves burnt 287 Tgas, and the worst alignment of a batch is
 /// about `n + 47` hashes. 80 leaves stay under 250 Tgas, which is 300 Tgas with the 1.2 margin.
 const MAX_SYNC_LEAVES: u32 = 80;
+/// zkapi's protocol version (`zkapi_types::PROTOCOL_VERSION`, checked by a test).
+const PROTOCOL_VERSION: u16 = 2;
+/// 0.00125 NEAR: what USDC keeps to register an account (`storage_balance_bounds` minimum).
+const REGISTRATION_DEPOSIT: u128 = 1_250_000_000_000_000_000_000;
+/// Fixed gas of each payout leg and of its callback, never the caller's remaining gas. Placeholders
+/// with margin over the mock token; ticket #22 measures them on the real USDC.
+const GAS_STORAGE_DEPOSIT: Gas = Gas::from_tgas(10);
+const GAS_FT_TRANSFER: Gas = Gas::from_tgas(20);
+const GAS_CALLBACK: Gas = Gas::from_tgas(10);
+/// A payout method needs its two legs and callback, plus its own work.
+const MIN_GAS_CLAIM: Gas = Gas::from_tgas(50);
+/// `mutual_close` also verifies a Groth16 proof (about 40 Tgas with parsing).
+const MIN_GAS_MUTUAL_CLOSE: Gas = Gas::from_tgas(110);
 /// Page size cap of `get_leaves`, `note_records` and the other paged views.
 const MAX_PAGE: u32 = 100;
 
@@ -55,6 +75,8 @@ enum StorageKey {
     KnownRoots,
     RequestVk,
     WithdrawalVk,
+    Nullifiers,
+    PendingPayouts,
 }
 
 #[near(serializers = [borsh, json])]
@@ -108,6 +130,18 @@ impl From<VerifyingKey> for StoredKey {
             gamma_g2: key.gamma_g2,
             delta_g2: key.delta_g2,
             ic: key.ic,
+        }
+    }
+}
+
+impl From<&StoredKey> for VerifyingKey {
+    fn from(key: &StoredKey) -> Self {
+        Self {
+            alpha_g1: key.alpha_g1,
+            beta_g2: key.beta_g2,
+            gamma_g2: key.gamma_g2,
+            delta_g2: key.delta_g2,
+            ic: key.ic.clone(),
         }
     }
 }
@@ -188,6 +222,38 @@ pub struct Vault {
     known_roots: LookupSet<[u8; 32]>,
     /// Block time of the last insert (nanoseconds).
     last_sync_ns: u64,
+    /// Spent nullifiers as canonical big-endian words.
+    nullifiers: LookupSet<[u8; 32]>,
+    /// Failed payouts by payout account: one record per account.
+    pending_payouts: LookupMap<AccountId, u128>,
+}
+
+/// Positions of the withdrawal statement's 16 public inputs.
+mod input {
+    pub const PROTOCOL_VERSION: usize = 0;
+    pub const CHAIN_ID: usize = 1;
+    pub const CONTRACT_ADDRESS: usize = 2;
+    pub const NOTE_LEAF: usize = 3;
+    pub const STATE_KEY_X: usize = 4;
+    pub const STATE_KEY_Y: usize = 5;
+    pub const CLEARANCE_KEY_X: usize = 6;
+    pub const CLEARANCE_KEY_Y: usize = 7;
+    pub const NOTE_FIELDS: usize = 8;
+    pub const FINAL_BALANCE: usize = 9;
+    pub const DESTINATION: usize = 10;
+    pub const WITHDRAWAL_NULLIFIER: usize = 11;
+    pub const KIND: usize = 12;
+    pub const VALID_UNTIL: usize = 15;
+    pub const COUNT: usize = 16;
+}
+
+/// The value of a big-endian word that must fit in `bytes` bytes.
+fn small(word: &[u8; 32], bytes: usize) -> Option<u128> {
+    let (high, low) = word.split_at(32 - bytes);
+    if high.iter().any(|b| *b != 0) {
+        return None;
+    }
+    Some(low.iter().fold(0u128, |n, b| n << 8 | u128::from(*b)))
 }
 
 /// The deposit message.
@@ -324,6 +390,8 @@ impl Vault {
             current_root: empty_root,
             known_roots,
             last_sync_ns: env::block_timestamp(),
+            nullifiers: LookupSet::new(StorageKey::Nullifiers),
+            pending_payouts: LookupMap::new(StorageKey::PendingPayouts),
         }
     }
 
@@ -382,6 +450,201 @@ impl Vault {
             }),
         );
         count
+    }
+
+    /// Closes a note with the operator's clearance: `proof` is the 256-byte wire proof of a kind-1
+    /// withdrawal and `inputs` its 16 public input words (32 bytes each, big-endian). Pays the
+    /// stored payout account `final_balance` (less the close fee when the operator submits it).
+    pub fn mutual_close(
+        &mut self,
+        proof: Base64VecU8,
+        inputs: Vec<Base64VecU8>,
+    ) -> PromiseOrValue<()> {
+        require!(
+            env::prepaid_gas() >= MIN_GAS_MUTUAL_CLOSE,
+            "not enough gas for the close and its payout"
+        );
+        let (words, scalars) = parse_inputs(&inputs);
+        let word = |index: usize| &words[index];
+        require!(small(word(input::KIND), 1) == Some(1), "not a mutual close");
+        require!(
+            small(word(input::PROTOCOL_VERSION), 2) == Some(u128::from(PROTOCOL_VERSION)),
+            "wrong protocol version"
+        );
+        require!(
+            small(word(input::CHAIN_ID), 8) == Some(u128::from(chain_id(NETWORK))),
+            "wrong chain id"
+        );
+        require!(
+            *word(input::CONTRACT_ADDRESS) == contract_address(env::current_account_id().as_str()),
+            "wrong contract address"
+        );
+        require!(
+            *word(input::STATE_KEY_X) == self.operator_pk.x
+                && *word(input::STATE_KEY_Y) == self.operator_pk.y,
+            "wrong state key"
+        );
+        require!(
+            *word(input::CLEARANCE_KEY_X) == self.clearance_pk.x
+                && *word(input::CLEARANCE_KEY_Y) == self.clearance_pk.y,
+            "wrong clearance key"
+        );
+        let (note_id, deposit_amount, expiry) =
+            zkapi_core::v2::unpack_note_fields(&Felt252(*word(input::NOTE_FIELDS)))
+                .unwrap_or_else(|| env::panic_str("invalid noteFields"));
+        let note = self
+            .notes
+            .get(note_id)
+            .unwrap_or_else(|| env::panic_str("unknown note"));
+        require!(note.status == Status::Active, "note is not active");
+        require!(*word(input::NOTE_LEAF) == note.leaf, "wrong note leaf");
+        require!(
+            deposit_amount == note.deposit_amount && expiry == note.expiry,
+            "note fields do not match the stored note"
+        );
+        let final_balance = small(word(input::FINAL_BALANCE), 16)
+            .unwrap_or_else(|| env::panic_str("final balance out of range"));
+        require!(
+            final_balance <= note.deposit_amount,
+            "final balance above the deposit"
+        );
+        require!(
+            word(input::DESTINATION)[..12].iter().all(|b| *b == 0)
+                && word(input::DESTINATION)[12..] == destination(note.withdraw_to.as_str()),
+            "destination is not the payout account"
+        );
+        let valid_until = small(word(input::VALID_UNTIL), 8)
+            .unwrap_or_else(|| env::panic_str("valid_until out of range"));
+        require!(
+            u128::from(env::block_timestamp() / 1_000_000_000) <= valid_until,
+            "proof expired"
+        );
+        let nullifier = *word(input::WITHDRAWAL_NULLIFIER);
+        require!(
+            !self.nullifiers.contains(&nullifier),
+            "nullifier already used"
+        );
+        let key = VerifyingKey::from(&*self.withdrawal_vk);
+        let proof =
+            Proof::from_zkapi_wire(&proof.0).unwrap_or_else(|_| env::panic_str("malformed proof"));
+        require!(
+            nymira_verifier::verify(&key, &scalars, &proof) == Ok(true),
+            "invalid proof"
+        );
+
+        // Effects before the promise.
+        let account = note.withdraw_to.clone();
+        let commitment = note.commitment;
+        let deposit = note.deposit_amount;
+        self.nullifiers.insert(nullifier);
+        self.notes.get_mut(note_id).expect("note exists").status = Status::Closed;
+        // `note_fee` is fixed at `new()`, so this is what the deposit added to `tvl`.
+        self.tvl -= deposit + self.note_fee;
+        self.open_notes -= 1;
+        let close_fee = if env::predecessor_account_id() == self.operator_account {
+            CLOSE_FEE.min(final_balance)
+        } else {
+            0
+        };
+        let payout = final_balance - close_fee;
+        self.treasury_balance += deposit - final_balance + close_fee;
+        events::emit(
+            "mutual_close",
+            json!({
+                "note_id": note_id,
+                "amount_paid": payout.to_string(),
+                "close_fee": close_fee.to_string(),
+            }),
+        );
+        if payout == 0 {
+            return PromiseOrValue::Value(());
+        }
+        PromiseOrValue::Promise(self.payout(&account, payout).then(
+            Self::callback().on_close_payout(
+                account,
+                U128(payout),
+                note_id,
+                word::encode32(&commitment),
+            ),
+        ))
+    }
+
+    /// Pays the pending payout of `account_id`, to that account only. Anyone may call it.
+    pub fn claim_payout(&mut self, account_id: AccountId) -> Promise {
+        require!(
+            env::prepaid_gas() >= MIN_GAS_CLAIM,
+            "not enough gas for the payout"
+        );
+        let amount = self
+            .pending_payouts
+            .remove(&account_id)
+            .unwrap_or_else(|| env::panic_str("nothing pending for this account"));
+        self.payout(&account_id, amount)
+            .then(Self::callback().on_claim_payout(account_id, U128(amount)))
+    }
+
+    /// Pays the whole treasury balance to the treasury account, to that account only. Anyone may
+    /// call it.
+    pub fn claim_treasury(&mut self) -> Promise {
+        require!(
+            env::prepaid_gas() >= MIN_GAS_CLAIM,
+            "not enough gas for the payout"
+        );
+        let amount = std::mem::take(&mut self.treasury_balance);
+        require!(amount > 0, "the treasury balance is empty");
+        let treasury = self.treasury.clone();
+        self.payout(&treasury, amount)
+            .then(Self::callback().on_claim_treasury(U128(amount)))
+    }
+
+    /// A close payout finished. Only the promise status counts: the returned bytes are never read.
+    #[private]
+    pub fn on_close_payout(
+        &mut self,
+        account: AccountId,
+        amount: U128,
+        note_id: u32,
+        commitment: String,
+    ) {
+        if payout_failed() {
+            self.credit_pending(account, amount.0, Some((note_id, commitment)));
+        }
+    }
+
+    #[private]
+    pub fn on_claim_payout(&mut self, account: AccountId, amount: U128) {
+        if payout_failed() {
+            // Restored whatever its size: the record may have been re-created meanwhile.
+            let current = self.pending_payouts.get(&account).copied().unwrap_or(0);
+            self.pending_payouts.insert(account, current + amount.0);
+        } else {
+            events::emit(
+                "payout_claimed",
+                json!({ "account": account, "amount": amount.0.to_string() }),
+            );
+        }
+    }
+
+    #[private]
+    pub fn on_claim_treasury(&mut self, amount: U128) {
+        if payout_failed() {
+            self.treasury_balance += amount.0;
+        } else {
+            events::emit(
+                "treasury_claimed",
+                json!({ "amount": amount.0.to_string() }),
+            );
+        }
+    }
+
+    /// What `account_id` can collect with `claim_payout`.
+    pub fn pending_payout(&self, account_id: AccountId) -> U128 {
+        U128(self.pending_payouts.get(&account_id).copied().unwrap_or(0))
+    }
+
+    /// Whether the nullifier (`0x` and 64 hex digits) has been spent.
+    pub fn is_nullifier_used(&self, nullifier: String) -> bool {
+        word::decode32(&nullifier).is_some_and(|n| self.nullifiers.contains(&n))
     }
 
     pub fn current_root(&self) -> String {
@@ -481,6 +744,68 @@ impl Vault {
 }
 
 impl Vault {
+    /// The vault's own callback, with its fixed gas and no share of leftover gas.
+    fn callback() -> VaultExt {
+        Self::ext(env::current_account_id())
+            .with_static_gas(GAS_CALLBACK)
+            .with_unused_gas_weight(0)
+    }
+
+    /// Registers `to` with USDC (registration only, the NEAR comes back when it is already
+    /// registered), then transfers `amount` in a second receipt. Each leg has fixed gas.
+    fn payout(&self, to: &AccountId, amount: u128) -> Promise {
+        let register = Promise::new(self.token.clone()).function_call(
+            "storage_deposit".to_owned(),
+            json!({ "account_id": to, "registration_only": true })
+                .to_string()
+                .into_bytes(),
+            NearToken::from_yoctonear(REGISTRATION_DEPOSIT),
+            GAS_STORAGE_DEPOSIT,
+        );
+        let transfer = Promise::new(self.token.clone()).function_call(
+            "ft_transfer".to_owned(),
+            json!({ "receiver_id": to, "amount": amount.to_string() })
+                .to_string()
+                .into_bytes(),
+            NearToken::from_yoctonear(1),
+            GAS_FT_TRANSFER,
+        );
+        register.then(transfer)
+    }
+
+    /// A failed close payout: added to the account's record, or a new record when it is at least
+    /// the note fee, otherwise dust for the treasury.
+    fn credit_pending(&mut self, account: AccountId, amount: u128, note: Option<(u32, String)>) {
+        let (note_id, commitment) = note.unzip();
+        let note_fee = self.note_fee;
+        let existing = self.pending_payouts.get(&account).copied();
+        if existing.is_none() && amount < note_fee {
+            self.treasury_balance += amount;
+            events::emit(
+                "dust",
+                json!({
+                    "amount": amount.to_string(),
+                    "reason": "below_note_fee",
+                    "note_id": note_id,
+                    "commitment": commitment,
+                }),
+            );
+            return;
+        }
+        self.pending_payouts
+            .insert(account.clone(), existing.unwrap_or(0) + amount);
+        events::emit(
+            "payout_pending",
+            json!({
+                "account": account,
+                "amount": amount.to_string(),
+                "reason": "transfer_failed",
+                "note_id": note_id,
+                "commitment": commitment,
+            }),
+        );
+    }
+
     /// A valid deposit stores a note and emits `deposit`; any refusal returns `None` and changes
     /// nothing.
     fn deposit(&mut self, sender_id: AccountId, amount: u128, msg: &str) -> Option<()> {
@@ -541,6 +866,30 @@ impl Vault {
         );
         Some(())
     }
+}
+
+/// Parses the 16 public input words: the big-endian words, and the little-endian scalars the
+/// verifier takes. Refuses a wrong count or length and any word at or above the field modulus.
+fn parse_inputs(inputs: &[Base64VecU8]) -> (Vec<[u8; 32]>, Vec<[u8; 32]>) {
+    require!(
+        inputs.len() == input::COUNT,
+        "wrong number of public inputs"
+    );
+    let mut words = Vec::with_capacity(input::COUNT);
+    let mut scalars = Vec::with_capacity(input::COUNT);
+    for item in inputs {
+        let scalar = public_input_from_wire(&item.0)
+            .unwrap_or_else(|_| env::panic_str("public input is not a canonical field element"));
+        words.push(<[u8; 32]>::try_from(item.0.as_slice()).expect("32 bytes"));
+        scalars.push(scalar);
+    }
+    (words, scalars)
+}
+
+/// A payout failed only when the promise it follows failed. The returned bytes are never read
+/// (a token may return anything), so this asks for none.
+fn payout_failed() -> bool {
+    matches!(env::promise_result_checked(0, 0), Err(PromiseError::Failed))
 }
 
 /// The last second of the UTC day that contains `unix_seconds`.
