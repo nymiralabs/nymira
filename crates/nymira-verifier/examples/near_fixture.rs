@@ -7,8 +7,6 @@
 //!   vendor/zkapi/protocol/setup/v2-concession-dev > crates/nymira-verifier/tests/fixtures/near-fixture.json
 //! ```
 //!
-//! Derived from zkapi's `solidity_fixture` example (same statements and
-//! witnesses); only the deployment values and destinations change.
 use anyhow::{Context, Result};
 use base64::Engine;
 use serde::Serialize;
