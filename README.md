@@ -9,6 +9,6 @@ Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum
 The toolchain is pinned in `rust-toolchain.toml` (rustc 1.99.0, `wasm32-unknown-unknown`). Install cargo-near 0.22.0, then:
 
 ```bash
-cargo build --workspace --locked
+cargo check --workspace --target wasm32-unknown-unknown --locked
 cargo test --workspace --locked
 ```
