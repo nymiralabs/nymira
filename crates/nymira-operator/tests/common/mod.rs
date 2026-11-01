@@ -13,7 +13,9 @@ use nymira_operator::clock::ManualClock;
 use nymira_operator::operator::{felt_hex, Config, Operator, Parts};
 use nymira_operator::provider::FakeProvider;
 use nymira_operator::replica::FakeReplica;
+use nymira_operator::signer::{FakeHeartbeat, LocalSigner, Signer};
 use nymira_operator::store::Store;
+use nymira_operator::usage::Minter;
 use nymira_operator::verify::{GrothVerifier, ProofVerifier};
 use nymira_testkit::proofs::{signing_key, Bundle, ProofGen};
 use serde_json::{json, Value};
@@ -218,6 +220,9 @@ pub struct Rig {
     pub vault: Arc<FakeVault>,
     pub provider: Arc<FakeProvider>,
     pub replica: Arc<FakeReplica>,
+    pub signer: Arc<Signer>,
+    pub heartbeat: Arc<FakeHeartbeat>,
+    pub minter: Minter,
     pub url: String,
     pub http: reqwest::Client,
     pub dir: tempfile::TempDir,
@@ -248,14 +253,22 @@ impl Default for Setup {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn launch(
     dir: &std::path::Path,
     clock: &Arc<ManualClock>,
     vault: &Arc<FakeVault>,
     provider: &Arc<FakeProvider>,
     replica: &Arc<FakeReplica>,
+    minter: &Minter,
+    heartbeat: &Arc<FakeHeartbeat>,
     setup: Setup,
-) -> (Arc<Operator>, String, tokio::task::JoinHandle<()>) {
+) -> (
+    Arc<Operator>,
+    Arc<Signer>,
+    String,
+    tokio::task::JoinHandle<()>,
+) {
     let mut cfg = config();
     (setup.tune)(&mut cfg);
     let verifier: Arc<dyn ProofVerifier> = match setup.verifier {
@@ -263,6 +276,21 @@ async fn launch(
         Verifier::Stub(v) => v,
     };
     let store = Store::open(&dir.join("operator.db")).unwrap();
+    // The signer has its own handle on the database, as a separate process would.
+    let signer = Arc::new(
+        Signer::new(
+            CompactSigner::from_seed(&Felt252::from_u64(1)),
+            CompactSigner::from_seed(&Felt252::from_u64(2)),
+            Store::open(&dir.join("operator.db")).unwrap(),
+            vault.clone(),
+            minter.public_key(),
+            chain_id(network()),
+            contract(),
+            clock.clone(),
+            heartbeat.clone(),
+        )
+        .unwrap(),
+    );
     let op = Operator::start(Parts {
         cfg,
         clock: clock.clone(),
@@ -272,6 +300,8 @@ async fn launch(
         verifier,
         store,
         state_signer: CompactSigner::from_seed(&Felt252::from_u64(1)),
+        signer: Arc::new(LocalSigner(signer.clone())),
+        minter: minter.clone(),
     })
     .await
     .expect("operator starts");
@@ -281,7 +311,7 @@ async fn launch(
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (op, url, server)
+    (op, signer, url, server)
 }
 
 pub fn config() -> Config {
@@ -297,14 +327,28 @@ impl Rig {
         let vault = Arc::new(FakeVault::new(vault_config(), &root_hex()));
         let provider = Arc::new(FakeProvider::new(clock.clone(), setup.credit));
         let replica = Arc::new(FakeReplica::default());
-        let (op, url, server) =
-            launch(dir.path(), &clock, &vault, &provider, &replica, setup).await;
+        let minter = Minter::generate();
+        let heartbeat = Arc::new(FakeHeartbeat::default());
+        let (op, signer, url, server) = launch(
+            dir.path(),
+            &clock,
+            &vault,
+            &provider,
+            &replica,
+            &minter,
+            &heartbeat,
+            setup,
+        )
+        .await;
         Self {
             op,
             clock,
             vault,
             provider,
             replica,
+            signer,
+            heartbeat,
+            minter,
             url,
             http: reqwest::Client::new(),
             dir,
@@ -315,15 +359,18 @@ impl Rig {
     /// A new operator process over the same database, vault, provider and replica.
     pub async fn restart(&mut self, setup: Setup) {
         self.server.abort();
-        let (op, url, server) = launch(
+        let (op, signer, url, server) = launch(
             self.dir.path(),
             &self.clock,
             &self.vault,
             &self.provider,
             &self.replica,
+            &self.minter,
+            &self.heartbeat,
             setup,
         )
         .await;
+        self.signer = signer;
         self.op = op;
         self.url = url;
         self.server = server;

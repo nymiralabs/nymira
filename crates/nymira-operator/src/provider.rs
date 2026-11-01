@@ -54,6 +54,12 @@ pub trait ProviderAdapter: Send + Sync {
     async fn list(&self) -> Result<Vec<String>, ProviderError>;
     /// The organisation's credit in micro-USD.
     async fn balance(&self) -> Result<u128, ProviderError>;
+    /// The provider's response signature and attestation report for the lease, fetched with the
+    /// lease key before it is deactivated and passed to the client unchanged. The proxy ticket
+    /// fills this; until then there is none.
+    async fn evidence(&self, _lease_id: &str) -> Result<Option<serde_json::Value>, ProviderError> {
+        Ok(None)
+    }
 }
 
 /// A key as the fake recorded it.
@@ -73,6 +79,7 @@ struct FakeState {
     mint_delay: Duration,
     mint_error: Option<ProviderError>,
     balance_error: Option<ProviderError>,
+    usage_error: Option<ProviderError>,
     mint_calls: u32,
 }
 
@@ -111,6 +118,10 @@ impl FakeProvider {
 
     pub fn set_mint_error(&self, error: Option<ProviderError>) {
         self.state().mint_error = error;
+    }
+
+    pub fn set_usage_error(&self, error: Option<ProviderError>) {
+        self.state().usage_error = error;
     }
 
     pub fn set_balance_error(&self, error: Option<ProviderError>) {
@@ -181,6 +192,9 @@ impl ProviderAdapter for FakeProvider {
 
     async fn usage(&self, lease_id: &str) -> Result<KeyUsage, ProviderError> {
         let state = self.state();
+        if let Some(error) = &state.usage_error {
+            return Err(error.clone());
+        }
         if !state.keys.contains_key(lease_id) {
             return Err(ProviderError::Rejected("unknown lease".into()));
         }

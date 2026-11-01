@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
-use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request};
+use axum::extract::{Path, State};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -43,6 +43,9 @@ pub fn router(operator: Arc<Operator>) -> Router {
     Router::new()
         .route("/v1/status", get(status))
         .route("/v2/openrouter/leases", post(open_lease))
+        .route("/v2/openrouter/leases/{id}", get(lease_status).post(retire))
+        .route("/v2/openrouter/leases/{id}/expire", post(expire))
+        .route("/v2/requests/{id}", get(request_status))
         .route("/v2/billing/quote", get(quote))
         .route("/v1/attestation", get(attestation))
         .layer(cors)
@@ -90,4 +93,53 @@ async fn quote() -> Json<serde_json::Value> {
 /// zkapi's attestation route; the operator runs outside a TEE in this phase.
 async fn attestation() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok", "attestation": null, "mode": "none", "version": 1 }))
+}
+
+fn lease_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("x-nymira-lease-token")
+        .and_then(|v| v.to_str().ok())
+}
+
+fn answer(result: Result<(StatusCode, serde_json::Value), ApiError>) -> Response {
+    match result {
+        Ok((status, body)) => (status, Json(body)).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn lease_status(
+    State(op): State<Arc<Operator>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    answer(
+        op.lease_status(&id, lease_token(&headers))
+            .await
+            .map(|v| (StatusCode::OK, v)),
+    )
+}
+
+async fn retire(
+    State(op): State<Arc<Operator>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    answer(op.retire(&id, lease_token(&headers)).await)
+}
+
+async fn expire(
+    State(op): State<Arc<Operator>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    answer(
+        op.expire(&id, lease_token(&headers))
+            .await
+            .map(|v| (StatusCode::OK, v)),
+    )
+}
+
+async fn request_status(State(op): State<Arc<Operator>>, Path(id): Path<String>) -> Response {
+    answer(op.request_status(&id).await.map(|v| (StatusCode::OK, v)))
 }
