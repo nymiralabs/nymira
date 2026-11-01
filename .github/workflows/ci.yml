@@ -35,7 +35,7 @@ jobs:
           install -m 0755 cargo-near-x86_64-unknown-linux-gnu/cargo-near "$HOME/.cargo/bin/cargo-near"
           cargo near --version
       - name: Contracts compile for wasm
-        run: cargo check --workspace --target wasm32-unknown-unknown --locked
+        run: cargo check --target wasm32-unknown-unknown --locked -p nymira-vault -p nymira-near-codec -p nymira-verifier -p verifier-probe -p mock-usdc -p mock-ft-receiver -p nymira-near-codec-wasm
       - run: cargo test --workspace --locked
 
   # The vendored zkapi workspace has its own lockfile and target directory,

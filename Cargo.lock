@@ -2910,6 +2910,16 @@ dependencies = [
 [[package]]
 name = "nymira-fake-near-rpc"
 version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bs58 0.5.1",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
 
 [[package]]
 name = "nymira-near-codec"
