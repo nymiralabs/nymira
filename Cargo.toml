@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["contracts/vault", "crates/nymira-near-codec", "crates/nymira-verifier", "contracts/verifier-probe", "contracts/mock-usdc", "contracts/mock-ft-receiver", "crates/nymira-fake-near-ai", "crates/nymira-fake-near-rpc", "crates/nymira-near-codec-wasm", "crates/nymira-testkit"]
+members = ["contracts/vault", "crates/nymira-near-codec", "crates/nymira-verifier", "contracts/verifier-probe", "contracts/mock-usdc", "contracts/mock-ft-receiver", "crates/nymira-fake-near-ai", "crates/nymira-fake-near-rpc", "crates/nymira-near-codec-wasm", "crates/nymira-testkit", "crates/nymira-operator"]
 # The zkapi workspace keeps its own root (its crates inherit `workspace = true`
 # values from it); ours reach it by path.
 exclude = ["vendor/zkapi/protocol/rust"]
