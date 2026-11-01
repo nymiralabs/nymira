@@ -294,7 +294,10 @@ impl Operator {
                 request_json,
             })
             .await
-            .map_err(|e| ApiError::new(Code::ReplicaUnreachable, e.to_string()).retry_after(5))?;
+            .map_err(|_| {
+                ApiError::new(Code::ReplicaUnreachable, "the replica did not acknowledge")
+                    .retry_after(5)
+            })?;
         let id = lease.lease_id;
         self.store
             .run(move |c| store::mark_replicated(c, &id))
@@ -330,7 +333,9 @@ impl Operator {
 
     /// Reads the provider's balance and corrects the ledger.
     pub async fn refresh_balance(&self) {
-        if let Ok(balance) = self.provider.balance().await {
+        let read =
+            tokio::time::timeout(std::time::Duration::from_secs(5), self.provider.balance()).await;
+        if let Ok(Ok(balance)) = read {
             self.ledger.set_balance(balance);
             *self.balance_at_ms.lock().unwrap_or_else(|e| e.into_inner()) = self.clock.now_ms();
         }
@@ -351,7 +356,10 @@ impl Operator {
             return Ok(());
         }
         let unreachable = |e: crate::chain::ChainError| {
-            ApiError::new(Code::OperatorCapacity, e.to_string()).retry_after(5)
+            {
+                let _ = e; // the detail can name an RPC URL; clients get a fixed message
+                ApiError::new(Code::OperatorCapacity, "the vault could not be read").retry_after(5)
+            }
         };
         let root = self
             .vault
@@ -377,8 +385,12 @@ impl Operator {
         }
         if epoch != cache.epoch {
             // The retirement epoch moved: closed notes must not open leases on an old root.
-            let current = cache.root.clone();
-            cache.roots.retain(|r, _| *r == current);
+            // Nothing is kept for grace: the old root of a closed note must not outlive the epoch.
+            cache.roots.clear();
+            if !cache.root.is_empty() && cache.root == root {
+                let current = cache.root.clone();
+                cache.roots.insert(current, None);
+            }
             cache.epoch = epoch;
         }
         if root != cache.root {
@@ -651,7 +663,16 @@ impl Operator {
                 // A repeat of a request still being served: wait for it to finish.
                 drop(self.admission.lock().await);
             }
-            return self.seen(&nullifier, &row, &request, &canonical);
+            let n = nullifier.clone();
+            let row = self
+                .store
+                .run(move |c| store::nullifier_row(c, &n))
+                .await
+                .map_err(db_error)?;
+            if let Some(row) = row {
+                return self.seen(&nullifier, &row, &request, &canonical);
+            }
+            // The request it waited on rolled back: the nullifier is unbound, go on.
         }
 
         // Groth16, at most `max_verifications` at once, no queue.
@@ -721,7 +742,11 @@ impl Operator {
             Ok(Ok(minted)) => minted,
             Ok(Err(e)) => {
                 self.abort(&lease_id).await;
-                return Err(ApiError::new(Code::ProviderError, e.to_string()));
+                let _ = e; // upstream text stays out of the response
+                return Err(ApiError::new(
+                    Code::ProviderError,
+                    "the provider could not mint a key",
+                ));
             }
             Err(_) => {
                 self.abort(&lease_id).await;
@@ -735,10 +760,14 @@ impl Operator {
         let expires_at = issued_at + LEASE_MAX_SECS;
         {
             let (id, key) = (lease_id.clone(), minted.key_id.clone());
-            self.store
+            let activated = self
+                .store
                 .run(move |c| store::activate_lease(c, &id, &key, issued_at, expires_at))
-                .await
-                .map_err(db_error)?;
+                .await;
+            if let Err(e) = activated {
+                self.abort(&lease_id).await;
+                return Err(db_error(e));
+            }
         }
         let body = json!({
             "status": "active",
@@ -751,10 +780,12 @@ impl Operator {
             "lease_token": lease_token,
             "bound": bound.to_string(),
         });
-        self.issued
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(nullifier, (canonical, body.clone()));
+        {
+            let mut issued = self.issued.lock().unwrap_or_else(|e| e.into_inner());
+            // Entries die with their lease, so the map stays small.
+            issued.retain(|_, (_, b)| b["expires_at"].as_u64().is_some_and(|t| t > issued_at));
+            issued.insert(nullifier, (canonical, body.clone()));
+        }
         Ok((StatusCode::CREATED, body))
     }
 
@@ -832,8 +863,8 @@ fn refusal_error(refusal: Refusal, proof_ends: u64, now: u64) -> ApiError {
     }
 }
 
-fn db_error(e: rusqlite::Error) -> ApiError {
-    ApiError::new(Code::ReplicaUnreachable, format!("store: {e}")).retry_after(5)
+fn db_error(_: rusqlite::Error) -> ApiError {
+    ApiError::new(Code::ReplicaUnreachable, "the operator's store failed").retry_after(5)
 }
 
 const REQUEST_KEYS: [&str; 5] = [

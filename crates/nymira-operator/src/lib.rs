@@ -1,6 +1,6 @@
-//! Nymira operator: status, lease admission and the provider adapter (issue #23).
+//! Nymira operator: status, lease admission and the provider adapter.
 //!
-//! The settlement half (retirement, charge, signed next state) is issue #87; proxy chat is #24.
+//! Settlement (retirement, charge, signed next state) and proxy chat are not here yet.
 
 pub mod budget;
 pub mod chain;

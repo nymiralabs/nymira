@@ -887,3 +887,23 @@ async fn a_vault_that_cannot_be_read_stops_new_leases() {
     json_error(s, &v, 429, "operator_capacity");
     let _ = Value::Null;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_root_and_epoch_change_in_one_poll_gives_the_old_root_no_grace() {
+    let rig = Rig::new(Setup::default()).await;
+    let old = root_hex();
+    let new = felt_hex(&Felt252::from_u64(0x77));
+    rig.vault.edit(|v| {
+        v.root = new.clone();
+        v.epoch = 1;
+    });
+    rig.clock.advance_secs(2);
+    let (s, v, _) = rig.lease(&variant(1, 100_000, rig.clock_now(), &old)).await;
+    json_error(s, &v, 409, "root_stale");
+    assert_eq!(
+        rig.lease(&variant(1, 100_000, rig.clock_now(), &new))
+            .await
+            .0,
+        201
+    );
+}
