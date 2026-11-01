@@ -2,5 +2,6 @@
 //! ticket uses which double.
 
 pub mod build;
+pub mod clock;
 pub mod mock_usdc;
 pub mod proofs;
