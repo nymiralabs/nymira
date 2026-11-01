@@ -286,12 +286,15 @@ impl Operator {
             if lease.status == "settled" {
                 continue;
             }
+            // A lease past `active` owes a charge: it is resent if the replica missed it and kept
+            // whatever the answer, never rolled back.
+            let owes = !matches!(lease.status.as_str(), "provisioning" | "active");
             let keep = if lease.status == "provisioning" {
                 false
             } else if lease.replicated {
                 true
             } else {
-                self.replicate(&lease.lease_id).await.is_ok()
+                self.replicate(&lease.lease_id).await.is_ok() || owes
             };
             if keep {
                 self.ledger.restore(&lease.lease_id, lease.bound);

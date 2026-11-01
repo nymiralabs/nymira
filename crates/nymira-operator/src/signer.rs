@@ -24,6 +24,7 @@ use zkapi_types::{canonical_response_hash, Felt252, PROTOCOL_VERSION};
 use crate::chain::VaultView;
 use crate::charge::{charge, ChargeParams};
 use crate::clock::Clock;
+use crate::lifecycle::USAGE_WAIT_SECS;
 use crate::store::{self, Store};
 use crate::usage::{verify, SignedUsage};
 
@@ -117,6 +118,24 @@ pub fn seed_from_passphrase(passphrase: &str, role: &str, rounds: u32) -> Felt25
     Felt252(out)
 }
 
+/// Both seeds from two passphrases. Equal passphrases are refused: separate secrets are the
+/// point of two keys.
+pub fn seeds_from_passphrases(
+    state_passphrase: &str,
+    clearance_passphrase: &str,
+    rounds: u32,
+) -> Result<(Felt252, Felt252), SignerError> {
+    if state_passphrase == clearance_passphrase {
+        return Err(SignerError::Internal(
+            "the two passphrases must differ".into(),
+        ));
+    }
+    Ok((
+        seed_from_passphrase(state_passphrase, "state", rounds),
+        seed_from_passphrase(clearance_passphrase, "clearance", rounds),
+    ))
+}
+
 /// Rounds of the passphrase KDF in production.
 pub const KDF_ROUNDS: u32 = 600_000;
 
@@ -196,17 +215,24 @@ impl Signer {
         }
     }
 
+    /// Runs [`Signer::tick`] every ten seconds for as long as the process lives.
+    pub fn spawn_background(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let signer = self.clone();
+        tokio::spawn(async move {
+            loop {
+                signer.tick().await;
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+        })
+    }
+
     async fn params(&self) -> Result<ChargeParams, SignerError> {
         let config = self
             .vault
             .config()
             .await
             .map_err(|e| SignerError::Internal(e.to_string()))?;
-        Ok(ChargeParams {
-            step: config.charge_step,
-            min_charge: config.min_charge,
-            slot_rate: config.slot_rate,
-        })
+        Ok(ChargeParams::from(&config))
     }
 }
 
@@ -245,6 +271,23 @@ impl SignerApi for Signer {
         if lease.status != "retired" {
             return Err(refused("the lease is not retired"));
         }
+        let stored: Option<SignedUsage> = lease
+            .usage_json
+            .as_deref()
+            .and_then(|j| serde_json::from_str(j).ok());
+        if stored.as_ref().map(|u| &u.record) != Some(&request.usage.record) {
+            return Err(refused(
+                "the usage record is not the one stored for this lease",
+            ));
+        }
+        if request.usage.record.read_at
+            < lease
+                .revoked_at
+                .unwrap_or(u64::MAX)
+                .saturating_add(USAGE_WAIT_SECS)
+        {
+            return Err(refused("the usage was read before the key had settled"));
+        }
         if !verify(&self.minter, &request.usage) || request.usage.record.lease_id != lease_id {
             return Err(refused(
                 "the usage record is not signed by the minting process for this lease",
@@ -267,10 +310,7 @@ impl SignerApi for Signer {
             ));
         }
         let params = self.params().await?;
-        let held = lease
-            .revoked_at
-            .unwrap_or(0)
-            .saturating_sub(lease.issued_at.unwrap_or(0));
+        let held = lease.held_secs();
         let expected = match &request.usage.record.cost_nano_usd {
             Some(cost) => charge(
                 lease.bound,
@@ -418,6 +458,14 @@ pub struct SocketSigner(pub PathBuf);
 #[async_trait]
 impl SignerApi for SocketSigner {
     async fn sign_next(&self, request: SignRequest) -> Result<RequestResponseV2, SignerError> {
+        tokio::time::timeout(std::time::Duration::from_secs(10), self.call(request))
+            .await
+            .map_err(|_| SignerError::Internal("the signer did not answer in time".into()))?
+    }
+}
+
+impl SocketSigner {
+    async fn call(&self, request: SignRequest) -> Result<RequestResponseV2, SignerError> {
         let io = |e: std::io::Error| SignerError::Internal(e.to_string());
         let stream = UnixStream::connect(&self.0).await.map_err(io)?;
         let (read, mut write) = stream.into_split();

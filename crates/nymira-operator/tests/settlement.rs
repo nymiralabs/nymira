@@ -673,11 +673,101 @@ impl SignerApi for NoSigner {
 impl Rig {
     /// Records a request proxied at `after_secs` past the start, for the delivery and idle rules.
     async fn mark_delivered_at(&self, l: &Lease, _after_secs: u64) {
-        self.op.mark_delivered(&l.id).await;
+        self.op.mark_delivered(&l.id).await.unwrap();
     }
 }
 
 #[allow(dead_code)]
 fn unused(_: Value) {
     let _ = json!(null);
+}
+
+// ---------------------------------------------------------------- races and recovery
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_running_when_expire_arrives_counts_as_delivery() {
+    let rig = Rig::new(Setup::default()).await;
+    let l = open(&rig, 1).await;
+    let guard = rig.op.begin_request(&l.id).unwrap();
+    let path = format!("/v2/openrouter/leases/{}/expire", l.id);
+    let (s, v) = call(&rig, reqwest::Method::POST, &path, Some(&l.token)).await;
+    json_error(s, &v, 409, "lease_used");
+    assert!(
+        rig.op.begin_request(&l.id).is_ok(),
+        "a refused expire leaves the lease open"
+    );
+    drop(guard);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_that_will_not_deactivate_is_retried_until_the_six_hours_are_up() {
+    let rig = Rig::new(Setup::default()).await;
+    let l = open(&rig, 1).await;
+    rig.provider
+        .set_revoke_error(Some(ProviderError::Unavailable("api down".into())));
+    retire(&rig, &l).await;
+    rig.op.tick().await;
+    assert_eq!(row(&rig, &l).await.status, "retiring");
+    rig.clock.advance_secs(6 * 3600);
+    rig.provider
+        .set_usage_error(Some(ProviderError::Unavailable("api down".into())));
+    for _ in 0..4 {
+        rig.op.tick().await;
+        rig.clock.advance_secs(11);
+    }
+    let v = status(&rig, &l).await;
+    assert_eq!(
+        (v["charge_applied"].as_str(), v["charge_basis"].as_str()),
+        (Some("100000"), Some("worst_case"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_signer_signs_only_the_usage_record_stored_for_the_lease() {
+    let rig = Rig::new(Setup::default()).await;
+    let (_l, good) = retired(&rig, 1, 40_000_000).await;
+    // A genuine record from the minting key with another figure, as a replayed or stale one.
+    let mut record = good.usage.record.clone();
+    record.cost_nano_usd = Some("1".into());
+    let other = rig.minter.sign(record);
+    let request = SignRequest {
+        charge: "2000".into(),
+        usage: other,
+        ..good
+    };
+    match rig.signer.sign_next(request).await {
+        Err(SignerError::Refused(reason)) => assert!(reason.contains("stored"), "{reason}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_keeps_a_lease_that_owes_a_charge_even_if_the_replica_is_down() {
+    let mut rig = Rig::new(Setup::default()).await;
+    let (l, _good) = retired(&rig, 1, 40_000_000).await;
+    let id = l.id.clone();
+    rig.op
+        .store()
+        .run(move |c| {
+            c.execute("UPDATE leases SET replicated = 0 WHERE lease_id = ?1", [id])
+                .map(|_| ())
+        })
+        .await
+        .unwrap();
+    rig.replica.set_down(true);
+    rig.restart(Setup::default()).await;
+    assert_eq!(
+        row(&rig, &l).await.status,
+        "retired",
+        "kept, not rolled back"
+    );
+    rig.op.tick().await;
+    assert_eq!(status(&rig, &l).await["status"], "finalized");
+}
+
+#[test]
+fn the_two_passphrases_must_differ() {
+    assert!(nymira_operator::signer::seeds_from_passphrases("same", "same", 1_000).is_err());
+    let (a, b) = nymira_operator::signer::seeds_from_passphrases("one", "two", 1_000).unwrap();
+    assert_ne!(a, b);
 }

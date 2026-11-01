@@ -12,6 +12,16 @@ pub struct ChargeParams {
     pub slot_rate: u32,
 }
 
+impl From<&crate::chain::VaultConfig> for ChargeParams {
+    fn from(config: &crate::chain::VaultConfig) -> Self {
+        Self {
+            step: config.charge_step,
+            min_charge: config.min_charge,
+            slot_rate: config.slot_rate,
+        }
+    }
+}
+
 /// Seconds the usage figure and the slot fee are expressed in: 6e7 = 1e6 (parts) x 60 (seconds).
 const SLOT_DENOMINATOR: u128 = 60_000_000;
 

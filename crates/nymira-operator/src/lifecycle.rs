@@ -22,6 +22,17 @@ use crate::store::{self, LeaseRow};
 use crate::token;
 use crate::usage::{SignedUsage, UsageRecord};
 
+/// Longest any provider or signer call may hold the lifecycle lock.
+const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn timed<T>(
+    call: impl std::future::Future<Output = Result<T, ProviderError>>,
+) -> Result<T, ProviderError> {
+    tokio::time::timeout(CALL_TIMEOUT, call)
+        .await
+        .unwrap_or_else(|_| Err(ProviderError::Unavailable("timed out".into())))
+}
+
 /// A lease with no request for this long is retired.
 pub const IDLE_SECS: u64 = 5 * 60;
 /// Requests in flight get this long to drain before they are cancelled.
@@ -67,6 +78,9 @@ impl Operator {
     /// Starts a request under a lease; refused once the lease is closing. The proxy path
     /// calls this before it forwards anything.
     pub fn begin_request(&self, lease_id: &str) -> Result<InflightGuard, LeaseClosing> {
+        // The in-flight lock is held across the check and the increment, so a retirement cannot
+        // slip between them: it either sees this request or this request sees it closing.
+        let mut inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
         if self
             .closing
             .lock()
@@ -75,12 +89,7 @@ impl Operator {
         {
             return Err(LeaseClosing);
         }
-        *self
-            .inflight
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(lease_id.to_string())
-            .or_insert(0) += 1;
+        *inflight.entry(lease_id.to_string()).or_insert(0) += 1;
         Ok(InflightGuard {
             inflight: self.inflight.clone(),
             lease_id: lease_id.to_string(),
@@ -88,12 +97,15 @@ impl Operator {
     }
 
     /// The first request proxied under a lease counts as delivery; every request is activity.
-    pub async fn mark_delivered(&self, lease_id: &str) {
+    ///
+    /// A failed write is an error the proxy must act on: a delivery that is not recorded would
+    /// let `expire` close a used lease for nothing.
+    pub async fn mark_delivered(&self, lease_id: &str) -> ApiResult<()> {
         let (id, now) = (lease_id.to_string(), self.clock.now_secs());
-        let _ = self
-            .store
+        self.store
             .run(move |c| store::mark_delivered(c, &id, now))
-            .await;
+            .await
+            .map_err(db)
     }
 
     async fn authorized(&self, lease_id: &str, token: Option<&str>) -> ApiResult<LeaseRow> {
@@ -207,7 +219,23 @@ impl Operator {
             .await
             .map_err(db)?;
         let row = row.ok_or_else(|| ApiError::new(Code::LeaseNotFound, "unknown lease"))?;
-        if row.delivered {
+        // Stop new requests first, then look: a request already running counts as delivery.
+        self.closing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(lease_id.to_string());
+        let running = self
+            .inflight
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(lease_id)
+            .copied()
+            .unwrap_or(0);
+        if row.delivered || running > 0 {
+            self.closing
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(lease_id);
             return Err(ApiError::new(
                 Code::LeaseUsed,
                 "a request was proxied under this lease",
@@ -219,7 +247,7 @@ impl Operator {
                 "the lease is already retired",
             ));
         }
-        let _ = self.provider.revoke(lease_id).await;
+        let _ = timed(self.provider.revoke(lease_id)).await;
         let id = lease_id.to_string();
         self.store
             .run(move |c| store::roll_back(c, &id))
@@ -319,16 +347,19 @@ impl Operator {
         if running > 0 && now < lease.retiring_at.unwrap_or(now) + DRAIN_SECS {
             return;
         }
-        if let Ok(Some(evidence)) = self.provider.evidence(&lease.lease_id).await {
+        if let Ok(Some(evidence)) = timed(self.provider.evidence(&lease.lease_id)).await {
             self.evidence
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(lease.lease_id.clone(), evidence);
         }
-        match self.provider.revoke(&lease.lease_id).await {
-            // An unknown key is as good as deactivated.
-            Ok(()) | Err(ProviderError::Rejected(_)) => {}
-            Err(ProviderError::Unavailable(_)) => return,
+        match timed(self.provider.revoke(&lease.lease_id)).await {
+            // Only a key the provider does not know is as good as deactivated.
+            Ok(()) | Err(ProviderError::NotFound(_)) => {}
+            // Any other failure is retried, until the six hours are up: then the lease moves on and
+            // settles at its bound; the key is capped by its spend limit and expires by itself.
+            Err(_) if now < lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS => return,
+            Err(_) => {}
         }
         let id = lease.lease_id.clone();
         let _ = self
@@ -341,7 +372,7 @@ impl Operator {
         if now < lease.revoked_at.unwrap_or(now) + USAGE_WAIT_SECS {
             return;
         }
-        let cost = match self.provider.usage(&lease.lease_id).await {
+        let cost = match timed(self.provider.usage(&lease.lease_id)).await {
             Ok(usage) => Some(usage.cost_nano_usd.to_string()),
             Err(_) if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS => None,
             Err(_) => return,
@@ -374,17 +405,10 @@ impl Operator {
             let Some(config) = cache.config.as_ref() else {
                 return;
             };
-            ChargeParams {
-                step: config.charge_step,
-                min_charge: config.min_charge,
-                slot_rate: config.slot_rate,
-            }
+            ChargeParams::from(config)
         };
-        let held = lease
-            .revoked_at
-            .unwrap_or(0)
-            .saturating_sub(lease.issued_at.unwrap_or(0));
-        let (amount, basis) = match usage
+        let held = lease.held_secs();
+        let (mut amount, mut basis) = match usage
             .record
             .cost_nano_usd
             .as_deref()
@@ -393,12 +417,28 @@ impl Operator {
             Some(Ok(cost)) => (charge(lease.bound, cost, held, params), "measured"),
             _ => (lease.bound, "worst_case"),
         };
+        // A state already signed fixes the charge, whatever the parameters say now.
+        let id = lease.lease_id.clone();
+        if let Ok(Some((_, signed_charge, _))) =
+            self.store.run(move |c| store::signed_state(c, &id)).await
+        {
+            if signed_charge != amount {
+                amount = signed_charge;
+                basis = if usage.record.cost_nano_usd.is_some() {
+                    "measured"
+                } else {
+                    "worst_case"
+                };
+            }
+        }
         let request = SignRequest {
             lease_id: lease.lease_id.clone(),
             charge: amount.to_string(),
             usage,
         };
-        let Ok(signed) = self.signer.sign_next(request).await else {
+        let Ok(Ok(signed)) =
+            tokio::time::timeout(CALL_TIMEOUT, self.signer.sign_next(request)).await
+        else {
             return;
         };
         if signed.charge_applied != amount {

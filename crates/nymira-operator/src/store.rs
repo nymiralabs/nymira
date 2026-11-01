@@ -294,6 +294,15 @@ const LEASE_COLUMNS: &str = "lease_id, nullifier, token_hash, key_id, bound, sta
      expires_at, replicated, client_request_id, delivered, last_activity, retiring_at, revoked_at, \
      usage_json, charge, charge_basis, settled_at";
 
+impl LeaseRow {
+    /// Seconds the key was live: issue to deactivation.
+    pub fn held_secs(&self) -> u64 {
+        self.revoked_at
+            .unwrap_or(0)
+            .saturating_sub(self.issued_at.unwrap_or(0))
+    }
+}
+
 pub fn lease(conn: &Connection, lease_id: &str) -> rusqlite::Result<Option<LeaseRow>> {
     conn.query_row(
         &format!("SELECT {LEASE_COLUMNS} FROM leases WHERE lease_id = ?1"),
@@ -344,9 +353,8 @@ pub fn advance(
     time_column: &str,
     now: u64,
 ) -> rusqlite::Result<bool> {
-    debug_assert!(
-        ["retiring_at", "revoked_at", "settled_at", "last_activity"].contains(&time_column)
-    );
+    // The column name is spliced into the statement: only these four are ever allowed.
+    assert!(["retiring_at", "revoked_at", "settled_at", "last_activity"].contains(&time_column));
     let changed = conn.execute(
         &format!(
             "UPDATE leases SET status = ?3, {time_column} = ?4 WHERE lease_id = ?1 AND status = ?2"
@@ -360,14 +368,6 @@ pub fn advance(
 pub fn mark_delivered(conn: &Connection, lease_id: &str, now: u64) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE leases SET delivered = 1, last_activity = ?2 WHERE lease_id = ?1",
-        params![lease_id, now],
-    )?;
-    Ok(())
-}
-
-pub fn touch(conn: &Connection, lease_id: &str, now: u64) -> rusqlite::Result<()> {
-    conn.execute(
-        "UPDATE leases SET last_activity = ?2 WHERE lease_id = ?1",
         params![lease_id, now],
     )?;
     Ok(())
@@ -409,16 +409,19 @@ pub fn settle(
     Ok(true)
 }
 
+/// The lease of a client request id; none when no lease or more than one carries it (two
+/// clients that picked the same id must not read each other's state).
 pub fn lease_by_client_request_id(
     conn: &Connection,
     id: &str,
 ) -> rusqlite::Result<Option<LeaseRow>> {
-    conn.query_row(
-        &format!("SELECT {LEASE_COLUMNS} FROM leases WHERE client_request_id = ?1"),
-        [id],
-        lease_from,
-    )
-    .optional()
+    let mut statement = conn.prepare(&format!(
+        "SELECT {LEASE_COLUMNS} FROM leases WHERE client_request_id = ?1 LIMIT 2"
+    ))?;
+    let mut rows: Vec<LeaseRow> = statement
+        .query_map([id], lease_from)?
+        .collect::<Result<_, _>>()?;
+    Ok(if rows.len() == 1 { rows.pop() } else { None })
 }
 
 pub fn record_exit_seen(conn: &Connection, nullifier: &str) -> rusqlite::Result<()> {
@@ -488,7 +491,10 @@ pub fn settled_since(conn: &Connection, since: u64) -> rusqlite::Result<u128> {
     let rows = statement.query_map([since], |r| r.get::<_, String>(0))?;
     let mut total = 0u128;
     for charge in rows {
-        total += charge?.parse::<u128>().unwrap_or(0);
+        // A charge that does not parse must not read as 0: that would under-count the day.
+        total += charge?
+            .parse::<u128>()
+            .map_err(|_| rusqlite::Error::InvalidQuery)?;
     }
     Ok(total)
 }
