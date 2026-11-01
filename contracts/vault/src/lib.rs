@@ -40,7 +40,12 @@ const STATE_VERSION: u32 = 1;
 const RESERVE: u128 = 2_000_000_000_000_000_000_000_000;
 /// 0.03 USDC.
 const CLOSE_FEE: u128 = 30_000;
-/// Deposits from this account would need the Intents branch; a payout account may never be it.
+/// The account whose deposits take the Intents branch; a payout account may never be it. Sandbox
+/// builds (`test-intents-account`) name the open-source Verifier fixture's account instead. On the
+/// testnet vault `intents.near` does not exist, so the branch stays dormant there.
+#[cfg(feature = "test-intents-account")]
+const INTENTS_ACCOUNT: &str = "intents.test.near";
+#[cfg(not(feature = "test-intents-account"))]
 const INTENTS_ACCOUNT: &str = "intents.near";
 const ONE_DAY_SECS: u64 = 86_400;
 /// `sync_root` inserts when this long has passed since the last insert...
@@ -309,6 +314,49 @@ struct DepositMsg {
     withdraw_to: Option<AccountId>,
 }
 
+/// What the message of an Intents deposit says.
+#[derive(Debug, PartialEq, Eq)]
+pub enum IntentsMsg {
+    /// No valid payout account: the amount cannot be credited to anyone. The commitment is kept
+    /// only when it decodes, never the raw message.
+    Bad { commitment: Option<[u8; 32]> },
+    /// A valid payout account; `commitment` is `None` when it does not decode.
+    Valid {
+        commitment: Option<[u8; 32]>,
+        payout: AccountId,
+    },
+}
+
+/// Parses an Intents deposit message; total, it never panics. A payout account must be present
+/// and may not be the vault, the token or the Intents account.
+pub fn intents_msg(msg: &str, vault: &AccountId, token: &AccountId) -> IntentsMsg {
+    let Ok(parsed) = near_sdk::serde_json::from_str::<DepositMsg>(msg) else {
+        return IntentsMsg::Bad { commitment: None };
+    };
+    let commitment = word::decode32(&parsed.commitment);
+    match parsed.withdraw_to {
+        Some(payout)
+            if payout != *vault && payout != *token && payout.as_str() != INTENTS_ACCOUNT =>
+        {
+            IntentsMsg::Valid { commitment, payout }
+        }
+        _ => IntentsMsg::Bad { commitment },
+    }
+}
+
+/// For the fuzz target in `fuzz/`.
+#[doc(hidden)]
+pub mod fuzzing {
+    pub fn intents_msg(msg: &str) -> bool {
+        let vault = "vault.test".parse().unwrap();
+        let token = "usdc.test".parse().unwrap();
+        matches!(
+            super::intents_msg(msg, &vault, &token),
+            super::IntentsMsg::Valid { .. }
+        )
+    }
+}
+
 #[near(serializers = [json])]
 pub struct Config {
     pub operator_pk: PublicKey,
@@ -457,10 +505,16 @@ impl Vault {
     }
 
     /// NEP-141 receiver. `msg` is `{"commitment": "0x..", "withdraw_to": "<account>"?}`. Never
-    /// panics on bad input: the whole amount is returned unused. Creates no promise.
+    /// panics on bad input: the whole amount is returned unused. Creates no promise. Deposits from
+    /// the Intents account are never returned (a refund to it would get stuck): every outcome
+    /// ends in a note, a pending payout, dust or the unclaimed treasury bucket.
     pub fn ft_on_transfer(&mut self, sender_id: AccountId, amount: U128, msg: String) -> U128 {
         if env::predecessor_account_id() != self.token {
             return amount;
+        }
+        if sender_id.as_str() == INTENTS_ACCOUNT {
+            self.intents_deposit(amount.0, &msg);
+            return U128(0);
         }
         match self.deposit(sender_id, amount.0, &msg) {
             Some(()) => U128(0),
@@ -836,7 +890,12 @@ impl Vault {
         commitment: String,
     ) {
         if payout_failed() {
-            self.credit_pending(account, amount.0, Some((note_id, commitment)));
+            self.credit_pending(
+                account,
+                amount.0,
+                "transfer_failed",
+                Some((note_id, commitment)),
+            );
         }
     }
 
@@ -1187,9 +1246,15 @@ impl Vault {
         register.then(transfer)
     }
 
-    /// A failed close payout: added to the account's record, or a new record when it is at least
-    /// the note fee, otherwise dust for the treasury.
-    fn credit_pending(&mut self, account: AccountId, amount: u128, note: Option<(u32, String)>) {
+    /// An amount owed to `account`: added to its record, or a new record when it is at least the
+    /// note fee, otherwise dust for the treasury.
+    fn credit_pending(
+        &mut self,
+        account: AccountId,
+        amount: u128,
+        reason: &str,
+        note: Option<(u32, String)>,
+    ) {
         let (note_id, commitment) = note.unzip();
         let note_fee = self.note_fee;
         let existing = self.pending_payouts.get(&account).copied();
@@ -1213,7 +1278,7 @@ impl Vault {
             json!({
                 "account": account,
                 "amount": amount.to_string(),
-                "reason": "transfer_failed",
+                "reason": reason,
                 "note_id": note_id,
                 "commitment": commitment,
             }),
@@ -1231,17 +1296,73 @@ impl Vault {
             .find(|d| d.checked_add(note_fee) == Some(amount))?;
         let msg: DepositMsg = near_sdk::serde_json::from_str(msg).ok()?;
         let commitment = word::decode32(&msg.commitment)?;
+        let payout = msg.withdraw_to.unwrap_or(sender_id);
+        self.open_note(denomination, commitment, payout).map(|_| ())
+    }
+
+    /// The Intents branch: parses into a result and writes a record on every path, never
+    /// panicking. The note takes the larger denomination whose price fits `amount`; the excess
+    /// and any refused amount become a pending payout for the payout account (dust below the note
+    /// fee); an unparseable message or an invalid payout account goes to the unclaimed bucket.
+    fn intents_deposit(&mut self, amount: u128, msg: &str) {
+        let (commitment, payout) = match intents_msg(msg, &env::current_account_id(), &self.token) {
+            IntentsMsg::Bad { commitment } => {
+                self.treasury_balance += amount;
+                events::emit(
+                    "unclaimed",
+                    json!({
+                        "amount": amount.to_string(),
+                        "reason": "intents_bad_msg",
+                        "commitment": commitment.map(|c| word::encode32(&c)),
+                    }),
+                );
+                return;
+            }
+            IntentsMsg::Valid { commitment, payout } => (commitment, payout),
+        };
+        let note_fee = self.note_fee;
+        let denomination = self
+            .denominations
+            .iter()
+            .copied()
+            .filter(|d| d.checked_add(note_fee).is_some_and(|price| price <= amount))
+            .max();
+        let opened = denomination
+            .zip(commitment)
+            .and_then(|(d, c)| self.open_note(d, c, payout.clone()).map(|id| (d, c, id)));
+        match opened {
+            Some((denomination, commitment, note_id)) => {
+                let excess = amount - (denomination + note_fee);
+                if excess > 0 {
+                    let note = Some((note_id, word::encode32(&commitment)));
+                    self.credit_pending(payout, excess, "intents_excess", note);
+                }
+            }
+            // Short amount, repeated or malformed commitment, full cap, low NEAR: all of it is
+            // owed to the payout account.
+            None => self.credit_pending(payout, amount, "intents_excess", None),
+        }
+    }
+
+    /// Stores a note for `denomination` and emits `deposit`, returning its ID; any refusal
+    /// returns `None` and changes nothing. The caller has matched the amount to the denomination.
+    fn open_note(
+        &mut self,
+        denomination: u128,
+        commitment: [u8; 32],
+        payout: AccountId,
+    ) -> Option<u32> {
+        let price = denomination.checked_add(self.note_fee)?;
         if commitment >= SCALAR_MODULUS_BE || self.commitments.contains_key(&commitment) {
             return None;
         }
-        let payout = msg.withdraw_to.unwrap_or(sender_id);
         if payout == env::current_account_id()
             || payout == self.token
             || payout.as_str() == INTENTS_ACCOUNT
         {
             return None;
         }
-        if self.tvl.checked_add(amount)? > self.tvl_cap {
+        if self.tvl.checked_add(price)? > self.tvl_cap {
             return None;
         }
         if self.liquid_near().0 < RESERVE {
@@ -1266,9 +1387,9 @@ impl Vault {
             last_exit_ns: 0,
         });
         self.commitments.insert(commitment, note_id);
-        self.tvl += amount;
+        self.tvl += price;
         self.open_notes += 1;
-        self.treasury_balance += note_fee;
+        self.treasury_balance += self.note_fee;
         events::emit(
             "deposit",
             near_sdk::serde_json::json!({
@@ -1279,7 +1400,7 @@ impl Vault {
                 "withdraw_to": payout,
             }),
         );
-        Some(())
+        Some(note_id)
     }
 }
 
