@@ -1,6 +1,7 @@
 //! `nymira-vault`: USDC deposits as notes in a Poseidon Merkle tree.
 //!
-//! `new()`, deposits through `ft_on_transfer`, `sync_root` and the tree views.
+//! `new()`, deposits through `ft_on_transfer`, `sync_root`, mutual close, payouts, leaf retirement
+//! and the views.
 
 mod events;
 mod pins;
@@ -219,6 +220,8 @@ pub struct Vault {
     /// `filled[t]` for `t` in `1..32` (index 0 unused), as zkapi's `Frontier`.
     frontier: [[u8; 32]; 32],
     current_root: [u8; 32],
+    /// Raised by every `retire_closed_leaf`: the operator drops stale roots when it changes.
+    retirement_epoch: u64,
     known_roots: LookupSet<[u8; 32]>,
     /// Block time of the last insert (nanoseconds).
     last_sync_ns: u64,
@@ -388,6 +391,7 @@ impl Vault {
             leaf_count: 0,
             frontier: [[0; 32]; 32],
             current_root: empty_root,
+            retirement_epoch: 0,
             known_roots,
             last_sync_ns: env::block_timestamp(),
             nullifiers: LookupSet::new(StorageKey::Nullifiers),
@@ -569,6 +573,53 @@ impl Vault {
         ))
     }
 
+    /// Zeroes the leaf of a closed note that `sync_root` has already inserted, so no root can open
+    /// a lease for it. Anyone may call it. `siblings` are the leaf's path siblings bottom up as
+    /// `0x` words, only as many as the frontier slot holding the leaf is high (the highest bit
+    /// where `note_id` and `leaf_count` differ; none when the note is the last inserted one). They
+    /// must rebuild that slot from the stored leaf, and the rewritten slot gives the new root.
+    pub fn retire_closed_leaf(&mut self, note_id: u32, siblings: Vec<String>) {
+        let note = self
+            .notes
+            .get(note_id)
+            .unwrap_or_else(|| env::panic_str("unknown note"));
+        require!(note.status == Status::Closed, "note is not closed");
+        require!(!note.leaf_retired, "leaf already retired");
+        require!(note_id < self.leaf_count, "leaf is not in the tree yet");
+        let leaf = note.leaf;
+        let level = tree::retire_level(note_id, self.leaf_count);
+        require!(siblings.len() == level, "wrong number of siblings");
+        if level > 0 {
+            let siblings: Vec<[u8; 32]> = siblings
+                .iter()
+                .map(|s| {
+                    word::decode32(s)
+                        .filter(|w| *w < SCALAR_MODULUS_BE)
+                        .unwrap_or_else(|| env::panic_str("bad sibling"))
+                })
+                .collect();
+            let (before, after) = tree::path_nodes(note_id, &leaf, &siblings);
+            require!(
+                before == self.frontier[level],
+                "siblings do not match the tree"
+            );
+            self.frontier[level] = after;
+        }
+        self.notes
+            .get_mut(note_id)
+            .expect("note exists")
+            .leaf_retired = true;
+        let last = self
+            .notes
+            .get(self.leaf_count - 1)
+            .expect("note exists")
+            .tree_leaf();
+        self.current_root = tree::root(&self.frontier, self.leaf_count, &last);
+        self.known_roots.insert(self.current_root);
+        self.retirement_epoch += 1;
+        events::emit("retire_closed_leaf", json!({ "note_id": note_id }));
+    }
+
     /// Pays the pending payout of `account_id`, to that account only. Anyone may call it.
     pub fn claim_payout(&mut self, account_id: AccountId) -> Promise {
         require!(
@@ -663,6 +714,11 @@ impl Vault {
         (from..end)
             .map(|id| word::encode32(&self.notes.get(id).expect("note exists").tree_leaf()))
             .collect()
+    }
+
+    /// How many leaves `retire_closed_leaf` has zeroed in the inserted tree.
+    pub fn retirement_epoch(&self) -> U64 {
+        U64(self.retirement_epoch)
     }
 
     pub fn leaf_count(&self) -> u32 {

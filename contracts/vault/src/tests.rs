@@ -862,6 +862,241 @@ fn a_zero_leaf_next_to_an_odd_index_still_gives_the_client_root() {
     assert_eq!(client_root(&v), v.current_root());
 }
 
+// retire_closed_leaf
+
+/// The siblings `retire_closed_leaf` needs for note `id`, as a client reads them off its rebuild.
+fn siblings_of(v: &Vault, id: u32) -> Vec<String> {
+    let level = tree::retire_level(id, v.leaf_count);
+    let tree = MerkleTree::from_leaves(&leaves(v));
+    tree.get_siblings(id)[..level]
+        .iter()
+        .map(|s| word::encode32(&s.0))
+        .collect()
+}
+
+fn retire(v: &mut Vault, id: u32) {
+    let siblings = siblings_of(v, id);
+    testing_env!(context("anyone.test", T0 + 1_000).build());
+    v.retire_closed_leaf(id, siblings);
+}
+
+/// Deposits and syncs `n` notes.
+fn synced(n: u64) -> Vault {
+    let mut v = roomy_vault();
+    for i in 1..=n {
+        deposit_ok(&mut v, i);
+    }
+    assert_eq!(sync(&mut v, T0 + 30, 120), n as u32);
+    v
+}
+
+/// What `mutual_close` does to the note and the counters, without the proof.
+fn close_in_place(v: &mut Vault, id: u32) {
+    let note = v.notes.get_mut(id).unwrap();
+    let deposit = note.deposit_amount;
+    let was = note.status;
+    note.status = Status::Closed;
+    if was == Status::Active {
+        v.open_notes -= 1;
+    }
+    if was != Status::Closed {
+        v.tvl -= deposit + NOTE_FEE;
+    }
+}
+
+#[test]
+fn a_retirement_zeroes_the_leaf_and_moves_the_root() {
+    let mut v = synced(5);
+    close_in_place(&mut v, 1);
+    let before = v.current_root();
+    retire(&mut v, 1);
+    assert_ne!(v.current_root(), before);
+    assert_eq!(client_root(&v), v.current_root());
+    assert_eq!(v.get_leaves(1, 1), vec![commitment(0)]);
+    assert!(v.note_records(1, 1)[0].leaf_retired);
+    assert_eq!(v.retirement_epoch(), U64(1));
+    assert!(v.is_known_root(before));
+    assert!(v.is_known_root(v.current_root()));
+    let logs = get_logs();
+    assert_eq!(logs.len(), 1);
+    assert!(logs[0].contains(r#""event":"retire_closed_leaf""#));
+    assert!(logs[0].contains(r#""note_id":1"#));
+}
+
+fn assert_retire_refused(v: &mut Vault, id: u32, siblings: Vec<String>, message: &str) {
+    let root = v.current_root();
+    let epoch = v.retirement_epoch();
+    testing_env!(context("anyone.test", T0 + 1_000).build());
+    let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        v.retire_closed_leaf(id, siblings)
+    }))
+    .expect_err("must refuse");
+    let text = err
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| err.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+        .unwrap_or_default();
+    assert!(text.contains(message), "{text}");
+    assert_eq!(v.current_root(), root);
+    assert_eq!(v.retirement_epoch(), epoch);
+}
+
+#[test]
+fn retirement_refuses_a_note_that_is_not_closed() {
+    let mut v = synced(5);
+    let siblings = siblings_of(&v, 1);
+    assert_retire_refused(&mut v, 1, siblings.clone(), "note is not closed");
+    v.notes.get_mut(1).unwrap().status = Status::PendingExit;
+    assert_retire_refused(&mut v, 1, siblings, "note is not closed");
+}
+
+#[test]
+fn retirement_refuses_an_unknown_note_and_one_not_yet_in_the_tree() {
+    let mut v = synced(4);
+    assert_retire_refused(&mut v, 9, vec![], "unknown note");
+    deposit_ok(&mut v, 99);
+    close_in_place(&mut v, 4);
+    assert_retire_refused(&mut v, 4, vec![], "leaf is not in the tree yet");
+}
+
+#[test]
+fn retirement_refuses_a_second_retirement_and_a_leaf_zeroed_at_sync() {
+    let mut v = synced(5);
+    close_in_place(&mut v, 1);
+    retire(&mut v, 1);
+    let siblings = siblings_of(&v, 1);
+    assert_retire_refused(&mut v, 1, siblings, "leaf already retired");
+    // Closed before `sync_root` reached it: zeroed there, nothing left to retire.
+    deposit_ok(&mut v, 50);
+    close_in_place(&mut v, 5);
+    assert_eq!(sync(&mut v, T0 + 100, 120), 1);
+    assert_retire_refused(&mut v, 5, vec![], "leaf already retired");
+}
+
+#[test]
+fn retirement_refuses_siblings_that_do_not_match_the_tree() {
+    let mut v = synced(6);
+    close_in_place(&mut v, 0);
+    let good = siblings_of(&v, 0);
+    assert_eq!(good.len(), 2);
+    assert_retire_refused(&mut v, 0, vec![], "wrong number of siblings");
+    let mut long = good.clone();
+    long.push(good[0].clone());
+    assert_retire_refused(&mut v, 0, long, "wrong number of siblings");
+    for position in 0..good.len() {
+        let mut wrong = good.clone();
+        wrong[position] = commitment(777);
+        assert_retire_refused(&mut v, 0, wrong, "siblings do not match the tree");
+    }
+    let mut swapped = good.clone();
+    swapped.swap(0, 1);
+    assert_retire_refused(&mut v, 0, swapped, "siblings do not match the tree");
+    let mut malformed = good.clone();
+    malformed[0] = "0x12".to_owned();
+    assert_retire_refused(&mut v, 0, malformed, "bad sibling");
+    let mut above_modulus = good;
+    above_modulus[0] = word::encode32(&SCALAR_MODULUS_BE);
+    assert_retire_refused(&mut v, 0, above_modulus, "bad sibling");
+}
+
+#[test]
+fn siblings_of_another_leaf_do_not_retire_this_one() {
+    let mut v = synced(8);
+    close_in_place(&mut v, 2);
+    let other = siblings_of(&v, 5);
+    assert_retire_refused(&mut v, 2, other, "siblings do not match the tree");
+}
+
+/// Retire `index` of `first` synced notes, then sync `more` new ones and compare with a rebuild.
+fn retire_then_sync(first: u64, index: u32, more: u64) {
+    let mut v = synced(first);
+    close_in_place(&mut v, index);
+    retire(&mut v, index);
+    assert_eq!(client_root(&v), v.current_root(), "{first} {index}");
+    for n in 0..more {
+        deposit_ok(&mut v, 1_000 + n);
+    }
+    sync(&mut v, T0 + 10_000, 120);
+    assert_eq!(v.leaf_count(), (first + more) as u32);
+    assert_eq!(client_root(&v), v.current_root(), "{first} {index} {more}");
+}
+
+#[test]
+fn a_retired_leaf_in_every_frontier_position_gives_the_client_root_after_sync() {
+    // (inserted, retired index): index 0, odd, even, the last inserted (odd and even count),
+    // and the powers of two.
+    let cases = [
+        (1, 0),
+        (2, 0),
+        (5, 0),
+        (6, 3),
+        (7, 4),
+        (8, 7),
+        (9, 8),
+        (9, 4),
+        (9, 2),
+        (9, 1),
+        (16, 15),
+        (17, 16),
+        (17, 8),
+        (17, 4),
+        (20, 15),
+        (20, 19),
+        (21, 20),
+        (33, 32),
+        (33, 16),
+    ];
+    for (first, index) in cases {
+        for more in [1, 2, 3, 8, 13] {
+            retire_then_sync(first, index, more);
+        }
+    }
+}
+
+#[test]
+fn retire_and_sync_root_interleaved_keep_the_client_root() {
+    let mut v = roomy_vault();
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut random = move |bound: u64| {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) % bound
+    };
+    let mut next = 1;
+    let mut clock = T0;
+    let mut retired = 0;
+    for _ in 0..90 {
+        match random(4) {
+            0 | 1 => {
+                for _ in 0..=random(5) {
+                    deposit_ok(&mut v, next);
+                    next += 1;
+                }
+            }
+            2 => {
+                clock += 30;
+                sync(&mut v, clock, random(9) as u32 + 1);
+            }
+            _ => {
+                let inserted: Vec<u32> = (0..v.leaf_count)
+                    .filter(|id| !v.notes.get(*id).unwrap().leaf_retired)
+                    .collect();
+                if inserted.is_empty() {
+                    continue;
+                }
+                let id = inserted[random(inserted.len() as u64) as usize];
+                close_in_place(&mut v, id);
+                retire(&mut v, id);
+                retired += 1;
+            }
+        }
+        assert_eq!(client_root(&v), v.current_root());
+    }
+    assert!(retired > 5 && v.leaf_count() > 20);
+    assert_eq!(v.retirement_epoch(), U64(retired));
+}
+
 // Views
 
 #[test]
