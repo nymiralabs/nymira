@@ -78,6 +78,8 @@ enum StorageKey {
     WithdrawalVk,
     Nullifiers,
     PendingPayouts,
+    Exits,
+    Flagged,
 }
 
 #[near(serializers = [borsh, json])]
@@ -100,6 +102,8 @@ struct Note {
     /// `note_leaf(note_id, commitment, deposit_amount, expiry)`, computed at deposit.
     leaf: [u8; 32],
     leaf_retired: bool,
+    /// Block time (nanoseconds) of the last `request_exit` or `defeat_exit`; 0 if none.
+    last_exit_ns: u64,
 }
 
 impl Note {
@@ -111,6 +115,19 @@ impl Note {
             self.leaf
         }
     }
+}
+
+/// A pending exit: what `finalize_exit` pays once the deadline has passed.
+#[near(serializers = [borsh])]
+struct ExitRecord {
+    /// N_k, the escaped state's nullifier.
+    nullifier: [u8; 32],
+    /// N_{k+1}, the successor nullifier a defeat must be a request proof at.
+    next_nullifier: [u8; 32],
+    final_balance: u128,
+    conceded: u128,
+    /// Block time (nanoseconds).
+    deadline: u64,
 }
 
 /// A verifying key in the `alt_bn128` host byte format.
@@ -229,6 +246,14 @@ pub struct Vault {
     nullifiers: LookupSet<[u8; 32]>,
     /// Failed payouts by payout account: one record per account.
     pending_payouts: LookupMap<AccountId, u128>,
+    /// Pending exits by note ID.
+    exits: LookupMap<u32, ExitRecord>,
+    /// The note IDs in `exits`, ascending, so that a page boundary survives a deletion.
+    // shortcut: a sorted Vec is read on every call; open exits are bounded by the TVL cap
+    // (hundreds), upgrade to an ordered map if a mainnet cap admits thousands of notes.
+    exit_ids: Vec<u32>,
+    /// Nullifiers of escaped states whose exit was defeated: never usable again.
+    flagged: LookupSet<[u8; 32]>,
 }
 
 /// Positions of the withdrawal statement's 16 public inputs.
@@ -246,8 +271,22 @@ mod input {
     pub const DESTINATION: usize = 10;
     pub const WITHDRAWAL_NULLIFIER: usize = 11;
     pub const KIND: usize = 12;
+    pub const NEXT_NULLIFIER: usize = 13;
+    pub const CONCEDED: usize = 14;
     pub const VALID_UNTIL: usize = 15;
     pub const COUNT: usize = 16;
+}
+
+/// Positions of the request statement's 12 public inputs.
+mod request_input {
+    pub const PROTOCOL_VERSION: usize = 0;
+    pub const CHAIN_ID: usize = 1;
+    pub const CONTRACT_ADDRESS: usize = 2;
+    pub const STATE_KEY_X: usize = 4;
+    pub const STATE_KEY_Y: usize = 5;
+    pub const SOLVENCY_BOUND: usize = 7;
+    pub const REQUEST_NULLIFIER: usize = 8;
+    pub const COUNT: usize = 12;
 }
 
 /// The value of a big-endian word that must fit in `bytes` bytes.
@@ -296,6 +335,18 @@ pub struct NoteRecord {
     pub expiry: u64,
     pub status: Status,
     pub leaf_retired: bool,
+}
+
+/// A pending exit as `exit_requests` lists it.
+#[near(serializers = [json])]
+pub struct ExitRequest {
+    pub note_id: u32,
+    pub nullifier: String,
+    pub next_nullifier: String,
+    pub final_balance: U128,
+    pub conceded: U128,
+    /// Block time in nanoseconds.
+    pub deadline: U64,
 }
 
 #[near(serializers = [json])]
@@ -396,6 +447,9 @@ impl Vault {
             last_sync_ns: env::block_timestamp(),
             nullifiers: LookupSet::new(StorageKey::Nullifiers),
             pending_payouts: LookupMap::new(StorageKey::PendingPayouts),
+            exits: LookupMap::new(StorageKey::Exits),
+            exit_ids: Vec::new(),
+            flagged: LookupSet::new(StorageKey::Flagged),
         }
     }
 
@@ -468,78 +522,20 @@ impl Vault {
             env::prepaid_gas() >= MIN_GAS_MUTUAL_CLOSE,
             "not enough gas for the close and its payout"
         );
-        let (words, scalars) = parse_inputs(&inputs);
+        let (words, scalars) = parse_inputs(&inputs, input::COUNT);
         let word = |index: usize| &words[index];
         require!(small(word(input::KIND), 1) == Some(1), "not a mutual close");
-        require!(
-            small(word(input::PROTOCOL_VERSION), 2) == Some(u128::from(PROTOCOL_VERSION)),
-            "wrong protocol version"
-        );
-        require!(
-            small(word(input::CHAIN_ID), 8) == Some(u128::from(chain_id(NETWORK))),
-            "wrong chain id"
-        );
-        require!(
-            *word(input::CONTRACT_ADDRESS) == contract_address(env::current_account_id().as_str()),
-            "wrong contract address"
-        );
-        require!(
-            *word(input::STATE_KEY_X) == self.operator_pk.x
-                && *word(input::STATE_KEY_Y) == self.operator_pk.y,
-            "wrong state key"
-        );
-        require!(
-            *word(input::CLEARANCE_KEY_X) == self.clearance_pk.x
-                && *word(input::CLEARANCE_KEY_Y) == self.clearance_pk.y,
-            "wrong clearance key"
-        );
-        let (note_id, deposit_amount, expiry) =
-            zkapi_core::v2::unpack_note_fields(&Felt252(*word(input::NOTE_FIELDS)))
-                .unwrap_or_else(|| env::panic_str("invalid noteFields"));
-        let note = self
-            .notes
-            .get(note_id)
-            .unwrap_or_else(|| env::panic_str("unknown note"));
-        require!(note.status == Status::Active, "note is not active");
-        require!(*word(input::NOTE_LEAF) == note.leaf, "wrong note leaf");
-        require!(
-            deposit_amount == note.deposit_amount && expiry == note.expiry,
-            "note fields do not match the stored note"
-        );
-        let final_balance = small(word(input::FINAL_BALANCE), 16)
-            .unwrap_or_else(|| env::panic_str("final balance out of range"));
-        require!(
-            final_balance <= note.deposit_amount,
-            "final balance above the deposit"
-        );
-        require!(
-            word(input::DESTINATION)[..12].iter().all(|b| *b == 0)
-                && word(input::DESTINATION)[12..] == destination(note.withdraw_to.as_str()),
-            "destination is not the payout account"
-        );
-        let valid_until = small(word(input::VALID_UNTIL), 8)
-            .unwrap_or_else(|| env::panic_str("valid_until out of range"));
-        require!(
-            u128::from(env::block_timestamp() / 1_000_000_000) <= valid_until,
-            "proof expired"
-        );
+        let (note_id, final_balance, _) = self.check_withdrawal(&words);
         let nullifier = *word(input::WITHDRAWAL_NULLIFIER);
         require!(
             !self.nullifiers.contains(&nullifier),
             "nullifier already used"
         );
-        let key = VerifyingKey::from(&*self.withdrawal_vk);
-        let proof =
-            Proof::from_zkapi_wire(&proof.0).unwrap_or_else(|_| env::panic_str("malformed proof"));
-        require!(
-            nymira_verifier::verify(&key, &scalars, &proof) == Ok(true),
-            "invalid proof"
-        );
+        require!(!self.flagged.contains(&nullifier), "nullifier is flagged");
+        verify_proof(&VerifyingKey::from(&*self.withdrawal_vk), &scalars, &proof);
 
         // Effects before the promise.
-        let account = note.withdraw_to.clone();
-        let commitment = note.commitment;
-        let deposit = note.deposit_amount;
+        let deposit = self.notes.get(note_id).expect("note exists").deposit_amount;
         self.nullifiers.insert(nullifier);
         self.notes.get_mut(note_id).expect("note exists").status = Status::Closed;
         // `note_fee` is fixed at `new()`, so this is what the deposit added to `tvl`.
@@ -560,17 +556,165 @@ impl Vault {
                 "close_fee": close_fee.to_string(),
             }),
         );
-        if payout == 0 {
-            return PromiseOrValue::Value(());
+        self.pay_closed_note(note_id, payout)
+    }
+
+    /// Files an exit with a kind-0 withdrawal proof for the latest state the caller holds, without
+    /// the operator's clearance: `proof` is the 256-byte wire proof and `inputs` its 16 public
+    /// input words. Spends N_k and its successor, parks the note in `PendingExit` and records what
+    /// `finalize_exit` pays once the deadline has passed. Makes no USDC call.
+    pub fn request_exit(&mut self, proof: Base64VecU8, inputs: Vec<Base64VecU8>) {
+        let (words, scalars) = parse_inputs(&inputs, input::COUNT);
+        let word = |index: usize| &words[index];
+        require!(
+            small(word(input::KIND), 1) == Some(0),
+            "not an exit request"
+        );
+        let (note_id, final_balance, deposit) = self.check_withdrawal(&words);
+        let conceded = small(word(input::CONCEDED), 16)
+            .unwrap_or_else(|| env::panic_str("concession out of range"));
+        require!(
+            final_balance
+                .checked_add(conceded)
+                .is_some_and(|b| b <= deposit),
+            "balance and concession above the deposit"
+        );
+        let nullifier = *word(input::WITHDRAWAL_NULLIFIER);
+        let next_nullifier = *word(input::NEXT_NULLIFIER);
+        require!(next_nullifier != nullifier, "successor nullifier repeats");
+        for n in [&nullifier, &next_nullifier] {
+            require!(!self.nullifiers.contains(n), "nullifier already used");
+            require!(!self.flagged.contains(n), "nullifier is flagged");
         }
-        PromiseOrValue::Promise(self.payout(&account, payout).then(
-            Self::callback().on_close_payout(
-                account,
-                U128(payout),
-                note_id,
-                word::encode32(&commitment),
-            ),
-        ))
+        verify_proof(&VerifyingKey::from(&*self.withdrawal_vk), &scalars, &proof);
+
+        let now = env::block_timestamp();
+        let deadline = now + self.exit_delay_secs * 1_000_000_000;
+        self.nullifiers.insert(nullifier);
+        self.nullifiers.insert(next_nullifier);
+        let note = self.notes.get_mut(note_id).expect("note exists");
+        note.status = Status::PendingExit;
+        note.last_exit_ns = now;
+        self.open_notes -= 1;
+        self.add_exit(
+            note_id,
+            ExitRecord {
+                nullifier,
+                next_nullifier,
+                final_balance,
+                conceded,
+                deadline,
+            },
+        );
+        events::emit(
+            "request_exit",
+            json!({
+                "note_id": note_id,
+                "nullifier": word::encode32(&nullifier),
+                "next_nullifier": word::encode32(&next_nullifier),
+                "final_balance": final_balance.to_string(),
+                "conceded": conceded.to_string(),
+                "deadline": deadline.to_string(),
+            }),
+        );
+    }
+
+    /// Ends a pending exit before its deadline with a request proof at the successor nullifier:
+    /// the user spent past the escaped state. Anyone may call it. Frees both nullifiers, flags N_k
+    /// for good and returns the note to `Active`.
+    pub fn defeat_exit(&mut self, note_id: u32, proof: Base64VecU8, inputs: Vec<Base64VecU8>) {
+        let record = self.open_exit(note_id);
+        self.check_request_proof(
+            &proof,
+            &inputs,
+            &record.next_nullifier,
+            "not a request at the successor nullifier",
+        );
+        self.remove_exit(note_id);
+        self.nullifiers.remove(&record.nullifier);
+        self.nullifiers.remove(&record.next_nullifier);
+        self.flagged.insert(record.nullifier);
+        let note = self.notes.get_mut(note_id).expect("note exists");
+        note.status = Status::Active;
+        note.last_exit_ns = env::block_timestamp();
+        self.open_notes += 1;
+        events::emit(
+            "defeat_exit",
+            json!({ "note_id": note_id, "flagged_nullifier": word::encode32(&record.nullifier) }),
+        );
+    }
+
+    /// Lowers a pending exit's payout before its deadline with a request proof at the escaped
+    /// nullifier: a lease was in flight. Anyone may call it. The concession becomes
+    /// `min(amount, solvency bound, the escaped state's balance)` and must grow. The deadline stays.
+    pub fn raise_concession(
+        &mut self,
+        note_id: u32,
+        proof: Base64VecU8,
+        inputs: Vec<Base64VecU8>,
+        amount: U128,
+    ) {
+        let record = self.open_exit(note_id);
+        let bound = self.check_request_proof(
+            &proof,
+            &inputs,
+            &record.nullifier,
+            "not a request at the escaped nullifier",
+        );
+        let balance = record.final_balance + record.conceded;
+        let conceded = amount.0.min(bound).min(balance);
+        require!(conceded > record.conceded, "the concession does not grow");
+        let record = self.exits.get_mut(&note_id).expect("exit exists");
+        record.conceded = conceded;
+        record.final_balance = balance - conceded;
+        events::emit(
+            "raise_concession",
+            json!({ "note_id": note_id, "conceded": conceded.to_string() }),
+        );
+    }
+
+    /// Pays a pending exit's record once its deadline has passed, with no proof. Anyone may call
+    /// it. The payout account gets `final_balance`; the rest of the deposit goes to the treasury.
+    pub fn finalize_exit(&mut self, note_id: u32) -> PromiseOrValue<()> {
+        require!(
+            env::prepaid_gas() >= MIN_GAS_CLAIM,
+            "not enough gas for the payout"
+        );
+        let record = self.pending_exit(note_id);
+        require!(
+            env::block_timestamp() >= record.deadline,
+            "the exit window is still open"
+        );
+        let deposit = self.notes.get(note_id).expect("note exists").deposit_amount;
+        let payout = record.final_balance;
+        self.remove_exit(note_id);
+        self.notes.get_mut(note_id).expect("note exists").status = Status::Closed;
+        self.tvl -= deposit + self.note_fee;
+        self.treasury_balance += deposit - payout;
+        events::emit(
+            "finalize_exit",
+            json!({ "note_id": note_id, "amount_paid": payout.to_string() }),
+        );
+        self.pay_closed_note(note_id, payout)
+    }
+
+    /// Pending exits with note ID at or above `from_note_id`, at most `limit` (capped at 100), in
+    /// note ID order: the next page starts at the last ID plus one.
+    pub fn exit_requests(&self, from_note_id: u32, limit: u32) -> Vec<ExitRequest> {
+        let first = self.exit_ids.partition_point(|id| *id < from_note_id);
+        self.exit_ids[first..]
+            .iter()
+            .take(limit.min(MAX_PAGE) as usize)
+            .map(|note_id| (note_id, self.exits.get(note_id).expect("exit exists")))
+            .map(|(note_id, record)| ExitRequest {
+                note_id: *note_id,
+                nullifier: word::encode32(&record.nullifier),
+                next_nullifier: word::encode32(&record.next_nullifier),
+                final_balance: U128(record.final_balance),
+                conceded: U128(record.conceded),
+                deadline: U64(record.deadline),
+            })
+            .collect()
     }
 
     /// Zeroes the leaf of a closed note that `sync_root` has already inserted, so no root can open
@@ -807,6 +951,161 @@ impl Vault {
             .with_unused_gas_weight(0)
     }
 
+    /// The checks a kind-0 and a kind-1 withdrawal proof share, before the nullifiers and the
+    /// pairing: protocol version, chain, contract, both keys, the note (`Active`, its leaf and
+    /// fields), the balance, the destination and `valid_until`. Returns the note ID, the proof's
+    /// `final_balance` and the note's deposit.
+    fn check_withdrawal(&self, words: &[[u8; 32]]) -> (u32, u128, u128) {
+        let word = |index: usize| &words[index];
+        require!(
+            small(word(input::PROTOCOL_VERSION), 2) == Some(u128::from(PROTOCOL_VERSION)),
+            "wrong protocol version"
+        );
+        require!(
+            small(word(input::CHAIN_ID), 8) == Some(u128::from(chain_id(NETWORK))),
+            "wrong chain id"
+        );
+        require!(
+            *word(input::CONTRACT_ADDRESS) == contract_address(env::current_account_id().as_str()),
+            "wrong contract address"
+        );
+        require!(
+            *word(input::STATE_KEY_X) == self.operator_pk.x
+                && *word(input::STATE_KEY_Y) == self.operator_pk.y,
+            "wrong state key"
+        );
+        require!(
+            *word(input::CLEARANCE_KEY_X) == self.clearance_pk.x
+                && *word(input::CLEARANCE_KEY_Y) == self.clearance_pk.y,
+            "wrong clearance key"
+        );
+        let (note_id, deposit_amount, expiry) =
+            zkapi_core::v2::unpack_note_fields(&Felt252(*word(input::NOTE_FIELDS)))
+                .unwrap_or_else(|| env::panic_str("invalid noteFields"));
+        let note = self
+            .notes
+            .get(note_id)
+            .unwrap_or_else(|| env::panic_str("unknown note"));
+        require!(note.status == Status::Active, "note is not active");
+        require!(*word(input::NOTE_LEAF) == note.leaf, "wrong note leaf");
+        require!(
+            deposit_amount == note.deposit_amount && expiry == note.expiry,
+            "note fields do not match the stored note"
+        );
+        let final_balance = small(word(input::FINAL_BALANCE), 16)
+            .unwrap_or_else(|| env::panic_str("final balance out of range"));
+        require!(
+            final_balance <= note.deposit_amount,
+            "final balance above the deposit"
+        );
+        require!(
+            word(input::DESTINATION)[..12].iter().all(|b| *b == 0)
+                && word(input::DESTINATION)[12..] == destination(note.withdraw_to.as_str()),
+            "destination is not the payout account"
+        );
+        let valid_until = small(word(input::VALID_UNTIL), 8)
+            .unwrap_or_else(|| env::panic_str("valid_until out of range"));
+        require!(
+            u128::from(env::block_timestamp() / 1_000_000_000) <= valid_until,
+            "proof expired"
+        );
+        (note_id, final_balance, note.deposit_amount)
+    }
+
+    fn add_exit(&mut self, note_id: u32, record: ExitRecord) {
+        let at = self
+            .exit_ids
+            .binary_search(&note_id)
+            .expect_err("one exit per note");
+        self.exit_ids.insert(at, note_id);
+        self.exits.insert(note_id, record);
+    }
+
+    fn remove_exit(&mut self, note_id: u32) {
+        let at = self.exit_ids.binary_search(&note_id).expect("exit exists");
+        self.exit_ids.remove(at);
+        self.exits.remove(&note_id);
+    }
+
+    /// The exit record of a note in `PendingExit`.
+    fn pending_exit(&self, note_id: u32) -> ExitRecord {
+        let note = self
+            .notes
+            .get(note_id)
+            .unwrap_or_else(|| env::panic_str("unknown note"));
+        require!(note.status == Status::PendingExit, "no pending exit");
+        let record = self
+            .exits
+            .get(&note_id)
+            .unwrap_or_else(|| env::panic_str("no pending exit"));
+        ExitRecord { ..*record }
+    }
+
+    /// The exit record of a note whose exit window is still open.
+    fn open_exit(&self, note_id: u32) -> ExitRecord {
+        let record = self.pending_exit(note_id);
+        require!(
+            env::block_timestamp() < record.deadline,
+            "the exit window is over"
+        );
+        record
+    }
+
+    /// Checks a request proof against a pending exit: protocol version, chain, contract, the state
+    /// key (not the clearance key, which request proofs lack), the nullifier it must be at, then
+    /// the pairing. No root, request time or tag check: old evidence stays usable. Returns the
+    /// proof's solvency bound.
+    fn check_request_proof(
+        &self,
+        proof: &Base64VecU8,
+        inputs: &[Base64VecU8],
+        expected_nullifier: &[u8; 32],
+        mismatch: &str,
+    ) -> u128 {
+        let (words, scalars) = parse_inputs(inputs, request_input::COUNT);
+        let word = |index: usize| &words[index];
+        require!(
+            small(word(request_input::PROTOCOL_VERSION), 2) == Some(u128::from(PROTOCOL_VERSION)),
+            "wrong protocol version"
+        );
+        require!(
+            small(word(request_input::CHAIN_ID), 8) == Some(u128::from(chain_id(NETWORK))),
+            "wrong chain id"
+        );
+        require!(
+            *word(request_input::CONTRACT_ADDRESS)
+                == contract_address(env::current_account_id().as_str()),
+            "wrong contract address"
+        );
+        require!(
+            *word(request_input::STATE_KEY_X) == self.operator_pk.x
+                && *word(request_input::STATE_KEY_Y) == self.operator_pk.y,
+            "wrong state key"
+        );
+        require!(
+            word(request_input::REQUEST_NULLIFIER) == expected_nullifier,
+            mismatch
+        );
+        let bound = small(word(request_input::SOLVENCY_BOUND), 16)
+            .unwrap_or_else(|| env::panic_str("solvency bound out of range"));
+        verify_proof(&VerifyingKey::from(&*self.request_vk), &scalars, proof);
+        bound
+    }
+
+    /// Pays the closed note's payout account `payout` (nothing when it is 0).
+    fn pay_closed_note(&mut self, note_id: u32, payout: u128) -> PromiseOrValue<()> {
+        if payout == 0 {
+            return PromiseOrValue::Value(());
+        }
+        let note = self.notes.get(note_id).expect("note exists");
+        let account = note.withdraw_to.clone();
+        let commitment = word::encode32(&note.commitment);
+        PromiseOrValue::Promise(
+            self.payout(&account, payout)
+                .then(Self::callback().on_close_payout(account, U128(payout), note_id, commitment)),
+        )
+    }
+
     /// Registers `to` with USDC (registration only, the NEAR comes back when it is already
     /// registered), then transfers `amount` in a second receipt. Each leg has fixed gas.
     fn payout(&self, to: &AccountId, amount: u128) -> Promise {
@@ -905,6 +1204,7 @@ impl Vault {
             withdraw_to: payout.clone(),
             leaf,
             leaf_retired: false,
+            last_exit_ns: 0,
         });
         self.commitments.insert(commitment, note_id);
         self.tvl += amount;
@@ -924,15 +1224,12 @@ impl Vault {
     }
 }
 
-/// Parses the 16 public input words: the big-endian words, and the little-endian scalars the
+/// Parses `count` public input words: the big-endian words, and the little-endian scalars the
 /// verifier takes. Refuses a wrong count or length and any word at or above the field modulus.
-fn parse_inputs(inputs: &[Base64VecU8]) -> (Vec<[u8; 32]>, Vec<[u8; 32]>) {
-    require!(
-        inputs.len() == input::COUNT,
-        "wrong number of public inputs"
-    );
-    let mut words = Vec::with_capacity(input::COUNT);
-    let mut scalars = Vec::with_capacity(input::COUNT);
+fn parse_inputs(inputs: &[Base64VecU8], count: usize) -> (Vec<[u8; 32]>, Vec<[u8; 32]>) {
+    require!(inputs.len() == count, "wrong number of public inputs");
+    let mut words = Vec::with_capacity(count);
+    let mut scalars = Vec::with_capacity(count);
     for item in inputs {
         let scalar = public_input_from_wire(&item.0)
             .unwrap_or_else(|_| env::panic_str("public input is not a canonical field element"));
@@ -940,6 +1237,16 @@ fn parse_inputs(inputs: &[Base64VecU8]) -> (Vec<[u8; 32]>, Vec<[u8; 32]>) {
         scalars.push(scalar);
     }
     (words, scalars)
+}
+
+/// Panics unless the wire proof verifies against `key` for the scalars.
+fn verify_proof(key: &VerifyingKey, scalars: &[[u8; 32]], proof: &Base64VecU8) {
+    let proof =
+        Proof::from_zkapi_wire(&proof.0).unwrap_or_else(|_| env::panic_str("malformed proof"));
+    require!(
+        nymira_verifier::verify(key, scalars, &proof) == Ok(true),
+        "invalid proof"
+    );
 }
 
 /// A payout failed only when the promise it follows failed. The returned bytes are never read

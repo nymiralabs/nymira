@@ -974,4 +974,122 @@ mod close {
         assert_eq!(epoch, "1");
         Ok(())
     }
+
+    async fn call_with_bundle(
+        env: &Env,
+        method: &str,
+        bundle: &Bundle,
+        extra: Value,
+    ) -> Result<ExecutionFinalResult> {
+        let mut args = json!({
+            "proof": bundle.proof_base64(),
+            "inputs": bundle.inputs_base64(),
+        });
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        Ok(env
+            .alice
+            .call(env.vault.id(), method)
+            .args_json(args)
+            .max_gas()
+            .transact()
+            .await?)
+    }
+
+    /// The gas bound of one call: 300 Tgas with the 1.2 margin the spec asks for.
+    fn assert_in_gas(label: &str, outcome: &ExecutionFinalResult) {
+        report(label, outcome);
+        let burnt = outcome.total_gas_burnt.as_gas();
+        assert!(burnt * 12 / 10 < 300 * TGAS, "{label} burnt {burnt}");
+    }
+
+    #[tokio::test]
+    async fn the_exit_calls_work_with_usdc_paused_and_stay_in_gas() -> Result<()> {
+        use zkapi_proof::dev::tree_with;
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let valid_until = now_seconds(&env.worker).await + 3_600;
+        let g = gen(env.vault.id());
+        let s1 = state_after_spending(&env, &note);
+        let now = now_seconds(&env.worker).await;
+        let request = |bound| DevRequest {
+            request_time: now,
+            solvency_bound: bound,
+            request_context: Felt252::from_u64(99),
+            rerandomization: Felt252::from_u64(9),
+        };
+        let s2 = g.next_state(&s1, &request(100_000), 30_000, &Felt252::from_u64(18))?;
+        let tree = tree_with(&[&note]);
+        let escape = g.withdrawal(
+            &s1,
+            WithdrawalKindId::Escape,
+            env.alice.id().as_str(),
+            0,
+            valid_until,
+        )?;
+        let raise = g.request(&s1, &tree, &request(50_000))?;
+        let defeat = g.request(&s2, &tree, &request(100_000))?;
+
+        // No USDC call anywhere in the filing: it works with the token paused.
+        env.usdc.set_paused(true).await;
+        let filed = call_with_bundle(&env, "request_exit", &escape, json!({})).await?;
+        assert_in_gas("request_exit", &filed);
+        assert!(filed
+            .logs()
+            .join("\n")
+            .contains(r#""event":"request_exit""#));
+        filed.into_result()?;
+        let exits: Vec<Value> = view(
+            &env.vault,
+            "exit_requests",
+            json!({"from_note_id": 0, "limit": 100}),
+        )
+        .await;
+        assert_eq!(exits.len(), 1);
+        assert_eq!(exits[0]["final_balance"], (ONE - CHARGE).to_string());
+        let records: Vec<Value> =
+            view(&env.vault, "note_records", json!({"from": 0, "limit": 1})).await;
+        assert_eq!(records[0]["status"], "PendingExit");
+
+        // Anyone answers: raise at the escaped nullifier, then defeat at the successor.
+        let raised = call_with_bundle(
+            &env,
+            "raise_concession",
+            &raise,
+            json!({"note_id": 0, "amount": "40000"}),
+        )
+        .await?;
+        assert_in_gas("raise_concession", &raised);
+        raised.into_result()?;
+        let exits: Vec<Value> = view(
+            &env.vault,
+            "exit_requests",
+            json!({"from_note_id": 0, "limit": 100}),
+        )
+        .await;
+        assert_eq!(exits[0]["conceded"], "40000");
+        assert_eq!(
+            exits[0]["final_balance"],
+            (ONE - CHARGE - 40_000).to_string()
+        );
+        let defeated =
+            call_with_bundle(&env, "defeat_exit", &defeat, json!({"note_id": 0})).await?;
+        assert_in_gas("defeat_exit", &defeated);
+        defeated.into_result()?;
+        let records: Vec<Value> =
+            view(&env.vault, "note_records", json!({"from": 0, "limit": 1})).await;
+        assert_eq!(records[0]["status"], "Active");
+        let exits: Vec<Value> = view(
+            &env.vault,
+            "exit_requests",
+            json!({"from_note_id": 0, "limit": 100}),
+        )
+        .await;
+        assert!(exits.is_empty());
+        // The escaped state is dead for good.
+        let again = call_with_bundle(&env, "request_exit", &escape, json!({})).await?;
+        assert!(again.is_failure());
+        Ok(())
+    }
 }
