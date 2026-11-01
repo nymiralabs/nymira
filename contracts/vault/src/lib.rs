@@ -1,11 +1,11 @@
 //! `nymira-vault`: USDC deposits as notes in a Poseidon Merkle tree.
 //!
-//! This part: `new()`, deposits through `ft_on_transfer`, `sync_root` and the tree views.
+//! `new()`, deposits through `ft_on_transfer`, `sync_root` and the tree views.
 
 mod events;
-mod hex;
 mod pins;
 mod tree;
+mod word;
 mod zero_hashes;
 
 use near_sdk::json_types::{Base64VecU8, U128, U64};
@@ -130,8 +130,8 @@ struct Point {
 impl Point {
     fn parse(key: &PublicKey) -> Point {
         let point = Point {
-            x: hex::decode32(&key.x).unwrap_or_else(|| env::panic_str("bad key coordinate")),
-            y: hex::decode32(&key.y).unwrap_or_else(|| env::panic_str("bad key coordinate")),
+            x: word::decode32(&key.x).unwrap_or_else(|| env::panic_str("bad key coordinate")),
+            y: word::decode32(&key.y).unwrap_or_else(|| env::panic_str("bad key coordinate")),
         };
         require!(
             check_signing_key(&point.x, &point.y).is_ok(),
@@ -142,8 +142,8 @@ impl Point {
 
     fn json(&self) -> PublicKey {
         PublicKey {
-            x: hex::encode32(&self.x),
-            y: hex::encode32(&self.y),
+            x: word::encode32(&self.x),
+            y: word::encode32(&self.y),
         }
     }
 }
@@ -378,18 +378,18 @@ impl Vault {
             near_sdk::serde_json::json!({
                 "first_index": first,
                 "last_index": first + count - 1,
-                "root": hex::encode32(&self.current_root),
+                "root": word::encode32(&self.current_root),
             }),
         );
         count
     }
 
     pub fn current_root(&self) -> String {
-        hex::encode32(&self.current_root)
+        word::encode32(&self.current_root)
     }
 
     pub fn is_known_root(&self, root: String) -> bool {
-        hex::decode32(&root).is_some_and(|root| self.known_roots.contains(&root))
+        word::decode32(&root).is_some_and(|root| self.known_roots.contains(&root))
     }
 
     /// Leaves `from..from + limit` (limit capped at 100) of the inserted tree, zero once retired.
@@ -398,7 +398,7 @@ impl Vault {
             .saturating_add(limit.min(MAX_PAGE))
             .min(self.leaf_count);
         (from..end)
-            .map(|id| hex::encode32(&self.notes.get(id).expect("note exists").tree_leaf()))
+            .map(|id| word::encode32(&self.notes.get(id).expect("note exists").tree_leaf()))
             .collect()
     }
 
@@ -414,7 +414,7 @@ impl Vault {
     /// The status of the note with this commitment.
     pub fn note_status(&self, commitment: String) -> Option<Status> {
         let commitment =
-            hex::decode32(&commitment).unwrap_or_else(|| env::panic_str("bad commitment"));
+            word::decode32(&commitment).unwrap_or_else(|| env::panic_str("bad commitment"));
         let id = self.commitments.get(&commitment)?;
         Some(self.notes.get(*id).expect("note exists").status)
     }
@@ -451,8 +451,8 @@ impl Vault {
     /// The keccak256 hashes of the two verifying keys this build accepts.
     pub fn vk_hashes(&self) -> VkHashes {
         VkHashes {
-            request: hex::encode32(&pins::PINS.request),
-            withdrawal: hex::encode32(&pins::PINS.withdrawal),
+            request: word::encode32(&pins::PINS.request),
+            withdrawal: word::encode32(&pins::PINS.withdrawal),
         }
     }
 
@@ -491,7 +491,7 @@ impl Vault {
             .copied()
             .find(|d| d.checked_add(note_fee) == Some(amount))?;
         let msg: DepositMsg = near_sdk::serde_json::from_str(msg).ok()?;
-        let commitment = hex::decode32(&msg.commitment)?;
+        let commitment = word::decode32(&msg.commitment)?;
         if commitment >= SCALAR_MODULUS_BE || self.commitments.contains_key(&commitment) {
             return None;
         }
@@ -533,7 +533,7 @@ impl Vault {
             "deposit",
             near_sdk::serde_json::json!({
                 "note_id": note_id,
-                "commitment": hex::encode32(&commitment),
+                "commitment": word::encode32(&commitment),
                 "denomination": denomination.to_string(),
                 "expiry": expiry,
                 "withdraw_to": payout,

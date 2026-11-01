@@ -34,8 +34,8 @@ fn at(secs: u64) {
 fn key(seed: u64) -> PublicKey {
     let point = signing_key(seed);
     PublicKey {
-        x: hex::encode32(&point.x.0),
-        y: hex::encode32(&point.y.0),
+        x: word::encode32(&point.x.0),
+        y: word::encode32(&point.y.0),
     }
 }
 
@@ -106,7 +106,7 @@ fn roomy_vault() -> Vault {
 }
 
 fn commitment(n: u64) -> String {
-    hex::encode32(&Felt252::from_u64(n).0)
+    word::encode32(&Felt252::from_u64(n).0)
 }
 
 fn msg(n: u64) -> String {
@@ -123,13 +123,17 @@ fn deposit_ok(v: &mut Vault, n: u64) {
     // A fresh environment at the current time: the token calls, and the log buffer is empty.
     at(env::block_timestamp() / 1_000_000_000);
     assert_eq!(deposit(v, "alice.test", ONE + NOTE_FEE, &msg(n)), 0);
+    assert_counters(v);
 }
 
 /// `current_tvl` and `open_notes` equal what the notes say.
 fn assert_counters(v: &Vault) {
     let mut tvl = 0;
     let mut open = 0;
-    for record in v.note_records(0, u32::MAX) {
+    let records = (0..v.notes.len())
+        .step_by(100)
+        .flat_map(|from| v.note_records(from, 100));
+    for record in records {
         if record.status != Status::Closed {
             tvl += record.deposit_amount.0 + NOTE_FEE;
         }
@@ -152,13 +156,13 @@ fn leaves(v: &Vault) -> Vec<Felt252> {
         from += page.len() as u32;
         out.extend(
             page.iter()
-                .map(|leaf| Felt252(hex::decode32(leaf).unwrap())),
+                .map(|leaf| Felt252(word::decode32(leaf).unwrap())),
         );
     }
 }
 
 fn client_root(v: &Vault) -> String {
-    hex::encode32(&MerkleTree::from_leaves(&leaves(v)).root().0)
+    word::encode32(&MerkleTree::from_leaves(&leaves(v)).root().0)
 }
 
 // new()
@@ -291,7 +295,7 @@ fn new_accepts_an_exit_delay_of_exactly_a_day() {
 #[should_panic(expected = "off the curve")]
 fn new_panics_on_a_key_off_the_curve() {
     let mut bent = key(1);
-    bent.y = hex::encode32(&Felt252::from_u64(3).0);
+    bent.y = word::encode32(&Felt252::from_u64(3).0);
     try_new(Params {
         operator_pk: bent,
         ..Params::default()
@@ -403,17 +407,21 @@ fn note_ids_are_sequential_and_the_leaf_is_the_pinned_formula() {
 }
 
 #[test]
-fn the_leaf_matches_the_published_vector() {
+fn the_leaf_formula_matches_the_published_vector() {
     // zkapi's own vector: registration of secret 42, note 7, deposit 5_000_000, expiry
     // 4_000_000_000 (leaf_vectors_match_the_specification in zkapi-core).
     let registration = zkapi_core::v2::registration_commitment(&Felt252::from_u64(42));
     assert_eq!(
-        hex::encode32(&registration.0),
+        word::encode32(&registration.0),
         "0x26538304fc53474b13823162f0b9667c1538c7360828d3a1a2e8ffa019a2f8cc"
     );
     assert_eq!(
-        hex::encode32(&zkapi_core::v2::note_fields(7, 5_000_000, 4_000_000_000).0),
+        word::encode32(&zkapi_core::v2::note_fields(7, 5_000_000, 4_000_000_000).0),
         "0x0000000000000007000000000000000000000000004c4b4000000000ee6b2800"
+    );
+    assert_eq!(
+        word::encode32(&zkapi_core::v2::note_leaf(7, &registration, 5_000_000, 4_000_000_000).0),
+        "0x1698e82280376fc3506cb7ebf7278db1764d0183aea5fd4d3b475c644b61395f"
     );
 }
 
@@ -467,11 +475,24 @@ fn a_call_from_another_token_is_returned() {
 }
 
 #[test]
-fn a_wrong_amount_is_returned() {
-    let mut v = vault();
-    assert_refused(&mut v, TOKEN, "alice.test", ONE, &msg(1));
-    assert_refused(&mut v, TOKEN, "alice.test", ONE + NOTE_FEE + 1, &msg(1));
-    assert_refused(&mut v, TOKEN, "alice.test", 0, &msg(1));
+fn an_amount_missing_the_note_fee_is_returned() {
+    assert_refused(&mut vault(), TOKEN, "alice.test", ONE, &msg(1));
+}
+
+#[test]
+fn an_amount_above_denomination_plus_fee_is_returned() {
+    assert_refused(
+        &mut vault(),
+        TOKEN,
+        "alice.test",
+        ONE + NOTE_FEE + 1,
+        &msg(1),
+    );
+}
+
+#[test]
+fn a_zero_amount_is_returned() {
+    assert_refused(&mut vault(), TOKEN, "alice.test", 0, &msg(1));
 }
 
 #[test]
@@ -515,15 +536,15 @@ fn malformed_json_is_returned() {
 #[test]
 fn an_out_of_range_commitment_is_returned() {
     let mut v = vault();
-    let modulus = hex::encode32(&SCALAR_MODULUS_BE);
+    let modulus = word::encode32(&SCALAR_MODULUS_BE);
     let mut below = SCALAR_MODULUS_BE;
     below[31] -= 1;
-    for bad in [modulus, hex::encode32(&[0xff; 32])] {
+    for bad in [modulus, word::encode32(&[0xff; 32])] {
         let m = format!(r#"{{"commitment":"{bad}"}}"#);
         assert_refused(&mut v, TOKEN, "alice.test", ONE + NOTE_FEE, &m);
     }
     // The largest field element is fine.
-    let m = format!(r#"{{"commitment":"{}"}}"#, hex::encode32(&below));
+    let m = format!(r#"{{"commitment":"{}"}}"#, word::encode32(&below));
     assert_eq!(deposit(&mut v, "alice.test", ONE + NOTE_FEE, &m), 0);
 }
 
@@ -535,17 +556,32 @@ fn a_repeated_commitment_is_returned() {
     assert_refused(&mut v, TOKEN, "bob.test", FIVE + NOTE_FEE, &msg(1));
 }
 
+fn assert_named_payout_refused(payout: &str) {
+    let m = format!(
+        r#"{{"commitment":"{}","withdraw_to":"{payout}"}}"#,
+        commitment(1)
+    );
+    assert_refused(&mut vault(), TOKEN, "alice.test", ONE + NOTE_FEE, &m);
+}
+
 #[test]
-fn a_payout_account_the_vault_cannot_pay_is_returned() {
+fn a_payout_account_equal_to_the_vault_is_returned() {
+    assert_named_payout_refused(VAULT);
+}
+
+#[test]
+fn a_payout_account_equal_to_the_token_is_returned() {
+    assert_named_payout_refused(TOKEN);
+}
+
+#[test]
+fn a_payout_account_equal_to_intents_is_returned() {
+    assert_named_payout_refused("intents.near");
+}
+
+#[test]
+fn a_sender_that_cannot_be_paid_is_returned_when_no_payout_is_named() {
     let mut v = vault();
-    for payout in [VAULT, TOKEN, "intents.near"] {
-        let m = format!(
-            r#"{{"commitment":"{}","withdraw_to":"{payout}"}}"#,
-            commitment(1)
-        );
-        assert_refused(&mut v, TOKEN, "alice.test", ONE + NOTE_FEE, &m);
-    }
-    // The same accounts as the sender, with no payout named.
     for sender in [VAULT, TOKEN, "intents.near"] {
         assert_refused(&mut v, TOKEN, sender, ONE + NOTE_FEE, &msg(1));
     }
@@ -660,7 +696,7 @@ fn sync_root_with_nothing_waiting_does_nothing() {
     let mut v = vault();
     assert_eq!(sync(&mut v, T0 + 3_600, 120), 0);
     assert!(get_logs().is_empty());
-    let empty_root = hex::encode32(&zero_hashes::ZERO_HASHES[32]);
+    let empty_root = word::encode32(&zero_hashes::ZERO_HASHES[32]);
     assert_eq!(v.current_root(), empty_root);
     assert!(v.is_known_root(empty_root));
     assert_eq!(client_root(&v), v.current_root());
@@ -788,7 +824,7 @@ fn the_tree_matches_zkapi_cores_frontier_at_every_size() {
         reference
             .append(Felt252(v.notes.get(n as u32 - 1).unwrap().leaf))
             .unwrap();
-        assert_eq!(v.current_root(), hex::encode32(&reference.root().0));
+        assert_eq!(v.current_root(), word::encode32(&reference.root().0));
     }
 }
 
@@ -842,7 +878,7 @@ fn get_leaves_pages_and_caps_the_limit() {
     assert_eq!(v.get_leaves(5, 3).len(), 3);
     assert_eq!(
         v.get_leaves(5, 1)[0],
-        hex::encode32(&v.notes.get(5).unwrap().leaf)
+        word::encode32(&v.notes.get(5).unwrap().leaf)
     );
 }
 
@@ -906,9 +942,9 @@ fn open_notes_counts_active_notes() {
 #[test]
 fn hex_words_round_trip_and_refuse_bad_text() {
     let word: [u8; 32] = core::array::from_fn(|i| (i * 7) as u8);
-    assert_eq!(hex::decode32(&hex::encode32(&word)), Some(word));
+    assert_eq!(word::decode32(&word::encode32(&word)), Some(word));
     assert_eq!(
-        hex::decode32(&hex::encode32(&word).to_uppercase().replace("0X", "0x")),
+        word::decode32(&word::encode32(&word).to_uppercase().replace("0X", "0x")),
         Some(word)
     );
     for bad in [
@@ -919,6 +955,6 @@ fn hex_words_round_trip_and_refuse_bad_text() {
         &format!("1x{}", "0".repeat(64)),
         &"0".repeat(66),
     ] {
-        assert_eq!(hex::decode32(bad), None, "{bad}");
+        assert_eq!(word::decode32(bad), None, "{bad}");
     }
 }

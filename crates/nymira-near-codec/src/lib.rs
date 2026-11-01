@@ -209,6 +209,7 @@ impl VerifyingKey {
 /// on the curve and in the prime-order subgroup, and not the identity.
 pub fn check_signing_key(x: &[u8; 32], y: &[u8; 32]) -> Result<(), CodecError> {
     use ark_ed_on_bn254::{EdwardsAffine, Fq};
+    // Baby Jubjub's base field is the BN254 scalar field, so the same modulus bounds both words.
     if *x >= SCALAR_MODULUS_BE || *y >= SCALAR_MODULUS_BE {
         return Err(CodecError::NonCanonical);
     }
@@ -498,7 +499,10 @@ mod tests {
         // The identity (0, 1).
         let mut one = [0u8; 32];
         one[31] = 1;
-        assert_eq!(check_signing_key(&[0u8; 32], &one), Err(CodecError::Infinity));
+        assert_eq!(
+            check_signing_key(&[0u8; 32], &one),
+            Err(CodecError::Infinity)
+        );
         // The order-2 point (0, -1) is on the curve but outside the prime-order subgroup.
         let minus_one = word(&-ark_ed_on_bn254::Fq::from(1u64));
         assert_eq!(

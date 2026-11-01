@@ -1,6 +1,6 @@
 # nymira-vault
 
-The vault contract. This version has deposits, the Merkle tree and the tree reads. Closing, exits and expiry claims come later.
+The vault contract. Deposits, the Merkle tree and the tree reads.
 
 ## Tests
 
