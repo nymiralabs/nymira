@@ -1202,6 +1202,7 @@ fn hex_words_round_trip_and_refuse_bad_text() {
 mod exit;
 mod expiry;
 mod intents;
+mod params;
 
 // The promises these calls return are scheduled when they drop, which is what the tests read.
 #[allow(unused_must_use)]
