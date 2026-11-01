@@ -15,12 +15,12 @@
 use std::sync::OnceLock;
 
 use ark_bn254::Fr;
-use ark_crypto_primitives::sponge::poseidon::{
-    find_poseidon_ark_and_mds, PoseidonConfig, PoseidonSponge,
-};
+use ark_crypto_primitives::sponge::poseidon::{PoseidonConfig, PoseidonSponge};
 use ark_crypto_primitives::sponge::{CryptographicSponge, FieldBasedCryptographicSponge};
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::{BigInt, BigInteger, PrimeField};
 use zkapi_types::{Felt252, MERKLE_DEPTH};
+
+use crate::poseidon_params;
 
 const DOMAIN_REG: &[u8] = b"zkapi.v2.reg";
 /// Note-leaf domain, a capacity-lane domain like [`DOMAIN_NODE`]: the leaf is one permutation
@@ -51,16 +51,22 @@ pub const POSEIDON_ALPHA: u64 = 5;
 /// `skip_matrices` argument of `find_poseidon_ark_and_mds`.
 pub const POSEIDON_SKIP_MATRICES: u64 = 0;
 
+/// The Poseidon parameters from `poseidon_params.rs` (the output of `find_poseidon_ark_and_mds`,
+/// embedded so a contract does not derive them on every call; the test below regenerates them).
 fn config() -> &'static PoseidonConfig<Fr> {
     static CONFIG: OnceLock<PoseidonConfig<Fr>> = OnceLock::new();
     CONFIG.get_or_init(|| {
-        let (ark, mds) = find_poseidon_ark_and_mds::<Fr>(
-            Fr::MODULUS_BIT_SIZE as u64,
-            POSEIDON_RATE,
-            POSEIDON_FULL_ROUNDS,
-            POSEIDON_PARTIAL_ROUNDS,
-            POSEIDON_SKIP_MATRICES,
-        );
+        let field = |limbs: &[u64; 4]| {
+            Fr::from_bigint(BigInt::new(*limbs)).expect("embedded Poseidon constant is canonical")
+        };
+        let ark = poseidon_params::ARK
+            .iter()
+            .map(|round| round.iter().map(field).collect())
+            .collect();
+        let mds = poseidon_params::MDS
+            .iter()
+            .map(|row| row.iter().map(field).collect())
+            .collect();
         PoseidonConfig::new(
             POSEIDON_FULL_ROUNDS as usize,
             POSEIDON_PARTIAL_ROUNDS as usize,
@@ -277,7 +283,28 @@ pub fn clearance_message(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_crypto_primitives::sponge::poseidon::find_poseidon_ark_and_mds;
     use ark_ff::Field;
+
+    /// The embedded constants are what `find_poseidon_ark_and_mds` derives.
+    #[test]
+    fn embedded_poseidon_parameters_match_the_generator() {
+        let (ark, mds) = find_poseidon_ark_and_mds::<Fr>(
+            Fr::MODULUS_BIT_SIZE as u64,
+            POSEIDON_RATE,
+            POSEIDON_FULL_ROUNDS,
+            POSEIDON_PARTIAL_ROUNDS,
+            POSEIDON_SKIP_MATRICES,
+        );
+        let embedded = config();
+        assert_eq!(embedded.ark, ark);
+        assert_eq!(embedded.mds, mds);
+        assert_eq!(
+            poseidon_params::ROUNDS as u64,
+            POSEIDON_FULL_ROUNDS + POSEIDON_PARTIAL_ROUNDS
+        );
+        assert_eq!(poseidon_params::WIDTH, POSEIDON_RATE + POSEIDON_CAPACITY);
+    }
 
     #[test]
     fn merkle_membership_round_trip() {
