@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["contracts/vault"]
+members = ["contracts/vault", "crates/nymira-near-codec", "crates/nymira-verifier", "contracts/verifier-probe"]
 # The zkapi workspace keeps its own root (its crates inherit `workspace = true`
 # values from it); ours reach it by path.
 exclude = ["vendor/zkapi/protocol/rust"]
@@ -14,6 +14,14 @@ rust-version = "1.99"
 near-sdk = { version = "=5.29.1", default-features = false }
 near-workspaces = "=0.23.0"
 zkapi-core = { path = "vendor/zkapi/protocol/rust/crates/zkapi-core" }
+zkapi-types = { path = "vendor/zkapi/protocol/rust/crates/zkapi-types" }
+nymira-near-codec = { path = "crates/nymira-near-codec" }
+ark-bn254 = { version = "0.5", default-features = false, features = ["curve"] }
+ark-ec = { version = "0.5", default-features = false }
+ark-ff = { version = "0.5", default-features = false }
+ark-groth16 = { version = "0.5", default-features = false }
+ark-serialize = { version = "0.5", default-features = false }
+sha2 = { version = "0.10", default-features = false }
 
 # Proving tests are minutes slower with unoptimized arkworks.
 [profile.dev.package."*"]

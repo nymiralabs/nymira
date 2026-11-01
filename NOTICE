@@ -27,3 +27,8 @@ Open-source Verifier v0.4.2 (https://github.com/near/intents, tag defuse/v0.4.2)
   Release wasm kept as a sandbox test fixture:
   contracts/vault/tests/fixtures/verifier-v0.4.2.wasm.
   Licensed under MIT.
+
+Fixture generator
+  crates/nymira-verifier/examples/near_fixture.rs is adapted from zkapi's
+  protocol/rust/crates/zkapi-proof/examples/solidity_fixture.rs (same
+  statements and witnesses; the deployment values and destinations are ours).

@@ -1,0 +1,27 @@
+[package]
+name = "nymira-verifier"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+near-sdk = { workspace = true }
+nymira-near-codec = { workspace = true }
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+ark-bn254 = { workspace = true, features = ["std"] }
+ark-ec = { workspace = true, features = ["std"] }
+ark-ff = { workspace = true, features = ["std"] }
+ark-groth16 = { workspace = true, features = ["std"] }
+ark-serialize = { workspace = true, features = ["std"] }
+serde_json = "1"
+hex = "0.4"
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof", features = ["dev-setup", "dev-fixtures"] }
+zkapi-types = { workspace = true }
+ark-snark = "0.5"
+anyhow = "1"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+zkapi-core = { workspace = true }

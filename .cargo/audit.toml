@@ -1,8 +1,8 @@
-# Every advisory below is in host-side test tooling pulled in by near-workspaces
-# or near-sdk's unit-testing VM, none of it compiled into a contract wasm.
-# Newer versions are blocked by the exact near-sdk/near-workspaces pins (a
-# rustls bump conflicts on aws-lc-rs; zstd 0.14 and crypto-bigint 0.7 are major
-# bumps). Revisit when those pins move.
+# Every advisory below is in host-side test tooling (near-workspaces, near-sdk's
+# unit-testing VM, arkworks' std features) or in a compile-time proc macro; none
+# is compiled into a contract wasm. Newer versions are blocked by the exact
+# near-sdk/near-workspaces pins (a rustls bump conflicts on aws-lc-rs; zstd 0.14
+# and crypto-bigint 0.7 are major bumps). Revisit when those pins move.
 [advisories]
 ignore = [
   "RUSTSEC-2026-0387", # crypto-bigint 0.5.5, via near-sdk unit-testing VM
@@ -12,7 +12,21 @@ ignore = [
   "RUSTSEC-2026-0349", # rustls 0.23.43
   "RUSTSEC-2026-0382", # rustls-webpki 0.103.13
   "RUSTSEC-2026-0391", # zstd 0.13.3, via near-primitives
+  "RUSTSEC-2024-0449", # unsafe-libyaml unmaintained, via near-parameters
+  "RUSTSEC-2025-0055", # tracing-subscriber 0.2.25, via ark-relations std (tests; check the vault wasm tree in the vault tickets)
+  "RUSTSEC-2024-0388", # derivative unmaintained, proc macro of ark-crypto-primitives (compile time)
+  "RUSTSEC-2024-0436", # paste unmaintained, proc macro of ark-ff (compile time)
+  "RUSTSEC-2026-0253", # lru 0.16.4, via near-vm-runner (unit-testing VM)
   "RUSTSEC-2026-0403", # zstd-safe 7.3.0
   "RUSTSEC-2026-0398", # zstd-safe 7.3.0
-  "RUSTSEC-2024-0449", # unsafe-libyaml unmaintained, via near-parameters
+  "RUSTSEC-2026-0395", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0402", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0406", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0404", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0400", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0399", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0401", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0405", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0397", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0396", # zstd-safe 7.3.0
 ]
