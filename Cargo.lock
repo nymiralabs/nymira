@@ -2094,8 +2094,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mock-ft-receiver"
+version = "0.0.0"
+dependencies = [
+ "near-sdk",
+]
+
+[[package]]
 name = "mock-usdc"
 version = "0.0.0"
+dependencies = [
+ "near-sdk",
+]
 
 [[package]]
 name = "native-tls"
@@ -2767,6 +2777,11 @@ version = "0.0.0"
 [[package]]
 name = "nymira-testkit"
 version = "0.0.0"
+dependencies = [
+ "near-workspaces",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "nymira-vault"
