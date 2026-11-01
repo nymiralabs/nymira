@@ -2094,6 +2094,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mock-usdc"
+version = "0.0.0"
+
+[[package]]
 name = "native-tls"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2736,6 +2740,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nymira-fake-near-ai"
+version = "0.0.0"
+
+[[package]]
+name = "nymira-fake-near-rpc"
+version = "0.0.0"
+
+[[package]]
 name = "nymira-near-codec"
 version = "0.0.0"
 dependencies = [
@@ -2747,6 +2759,14 @@ dependencies = [
  "sha2 0.10.9",
  "zkapi-types",
 ]
+
+[[package]]
+name = "nymira-near-codec-wasm"
+version = "0.0.0"
+
+[[package]]
+name = "nymira-testkit"
+version = "0.0.0"
 
 [[package]]
 name = "nymira-vault"
