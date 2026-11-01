@@ -60,15 +60,19 @@ const MAX_SYNC_LEAVES: u32 = 80;
 const PROTOCOL_VERSION: u16 = 2;
 /// 0.00125 NEAR: what USDC keeps to register an account (`storage_balance_bounds` minimum).
 const REGISTRATION_DEPOSIT: u128 = 1_250_000_000_000_000_000_000;
-/// Fixed gas of each payout leg and of its callback, never the caller's remaining gas. Placeholders
-/// with margin over the mock token; ticket #22 measures them on the real USDC.
-const GAS_STORAGE_DEPOSIT: Gas = Gas::from_tgas(10);
-const GAS_FT_TRANSFER: Gas = Gas::from_tgas(20);
-const GAS_CALLBACK: Gas = Gas::from_tgas(10);
+/// Fixed gas of each payout leg and of its callback, never the caller's remaining gas. Measured on
+/// the sandbox against the real mainnet USDC wasm (2026-11-01): `storage_deposit` 1.82 Tgas,
+/// `ft_transfer` 2.05 Tgas, the callback 1.70 Tgas. Each constant is about 3.3 times its
+/// measurement; the margin covers a token with more state and the `ft_transfer` of a long-lived
+/// account.
+const GAS_STORAGE_DEPOSIT: Gas = Gas::from_tgas(6);
+const GAS_FT_TRANSFER: Gas = Gas::from_tgas(7);
+const GAS_CALLBACK: Gas = Gas::from_tgas(6);
 /// A payout method needs its two legs and callback, plus its own work.
 const MIN_GAS_CLAIM: Gas = Gas::from_tgas(50);
-/// `mutual_close` also verifies a Groth16 proof (about 40 Tgas with parsing).
-const MIN_GAS_MUTUAL_CLOSE: Gas = Gas::from_tgas(110);
+/// `mutual_close` also verifies a Groth16 proof: its first receipt burns 40 Tgas, and the legs
+/// attach 19 Tgas, so 59 Tgas is the least that can pass; 80 Tgas is 1.35 times that.
+const MIN_GAS_MUTUAL_CLOSE: Gas = Gas::from_tgas(80);
 /// Page size cap of `get_leaves`, `note_records` and the other paged views.
 const MAX_PAGE: u32 = 100;
 /// At most this many notes per `claim_expired_batch` call.

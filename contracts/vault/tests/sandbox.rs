@@ -27,6 +27,12 @@ fn vault_wasm(features: &[&str]) -> Vec<u8> {
     contract_wasm_with_features("contracts/vault", features)
 }
 
+/// `NYMIRA_SANDBOX_TOKEN=mainnet` runs the sandbox tests against the real mainnet USDC wasm
+/// (needs mainnet RPC) instead of the mock; tests that need a mock-only switch skip themselves.
+fn real_token() -> bool {
+    std::env::var("NYMIRA_SANDBOX_TOKEN").is_ok_and(|v| v == "mainnet")
+}
+
 fn point(seed: u64) -> Value {
     let key = signing_key(seed);
     json!({ "x": format!("0x{}", hex::encode(key.x.0)), "y": format!("0x{}", hex::encode(key.y.0)) })
@@ -80,6 +86,25 @@ fn report(label: &str, outcome: &ExecutionFinalResult) {
     );
 }
 
+/// One line per receipt of a payout, in order: `mutual_close` itself, `storage_deposit`,
+/// `ft_transfer` and the callback (receipts that only refund are skipped).
+fn print_legs(label: &str, outcome: &ExecutionFinalResult, vault: &AccountId) {
+    for (i, receipt) in outcome.receipt_outcomes().iter().enumerate() {
+        if receipt.gas_burnt.as_gas() < TGAS / 10 {
+            continue;
+        }
+        let who = if &receipt.executor_id == vault {
+            "vault"
+        } else {
+            "token"
+        };
+        println!(
+            "gas {label}, receipt {i} on the {who}: {:.2} Tgas",
+            receipt.gas_burnt.as_gas() as f64 / TGAS as f64
+        );
+    }
+}
+
 /// Gas burnt by the receipts that ran on `account` (the vault).
 fn gas_on(outcome: &ExecutionFinalResult, account: &AccountId) -> u64 {
     outcome
@@ -104,8 +129,16 @@ async fn setup(tvl_cap: u128) -> Result<Env> {
 }
 
 async fn setup_with(tvl_cap: u128, features: &[&str]) -> Result<Env> {
+    setup_full(tvl_cap, features, 7 * 86_400).await
+}
+
+async fn setup_full(tvl_cap: u128, features: &[&str], exit_delay_secs: u64) -> Result<Env> {
     let worker = near_workspaces::sandbox().await?;
-    let usdc = MockUsdc::deploy(&worker).await?;
+    let usdc = if real_token() {
+        MockUsdc::deploy_real(&worker).await?
+    } else {
+        MockUsdc::deploy(&worker).await?
+    };
     let operator = worker.dev_create_account().await?;
     let treasury = worker.dev_create_account().await?;
     // Alice is the vault owner too, so tests can call the owner methods.
@@ -128,6 +161,7 @@ async fn setup_with(tvl_cap: u128, features: &[&str]) -> Result<Env> {
         treasury.id().as_str(),
     );
     args["owner"] = json!(alice.id());
+    args["exit_delay_secs"] = json!(exit_delay_secs);
     let init = vault
         .call("new")
         .args_json(args)
@@ -443,7 +477,7 @@ mod close {
 
     use super::*;
 
-    const CHARGE: u128 = 20_000;
+    pub(super) const CHARGE: u128 = 20_000;
     const CLOSE_FEE: u128 = 30_000;
 
     fn gen(vault: &AccountId) -> &'static ProofGen {
@@ -650,6 +684,7 @@ mod close {
         let bundle = close_bundle(&env, &note, fresh.id().as_str()).await?;
         let outcome = mutual_close(&env, &env.alice, &bundle, tgas(300), json!({})).await?;
         report("mutual_close to an unregistered account", &outcome);
+        print_legs("payout, unregistered account", &outcome, env.vault.id());
         outcome.into_result()?;
         settled(&env).await;
         assert!(env.usdc.is_registered(fresh.id()).await);
@@ -666,9 +701,9 @@ mod close {
         assert!(env.usdc.is_registered(env.alice.id()).await);
         settled(&env).await;
         let before = env.vault.view_account().await?;
-        mutual_close(&env, &env.alice, &bundle, tgas(300), json!({}))
-            .await?
-            .into_result()?;
+        let outcome = mutual_close(&env, &env.alice, &bundle, tgas(300), json!({})).await?;
+        print_legs("payout, registered account", &outcome, env.vault.id());
+        outcome.into_result()?;
         settled(&env).await;
         let after = env.vault.view_account().await?;
         // The vault may even gain (it earns a share of the gas it burns), but the 0.00125 NEAR
@@ -686,6 +721,10 @@ mod close {
     async fn junk_bytes_from_a_successful_transfer_pay_once_and_create_no_pending_payout(
     ) -> Result<()> {
         let env = setup(100 * ONE).await?;
+        if env.usdc.is_real() {
+            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
+            return Ok(());
+        }
         env.usdc.set_junk_return(true).await;
         let note = deposit_note(&env, 42).await?;
         let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
@@ -705,6 +744,10 @@ mod close {
     #[tokio::test]
     async fn a_failed_transfer_creates_one_pending_payout_and_anyone_can_claim_it() -> Result<()> {
         let env = setup(100 * ONE).await?;
+        if env.usdc.is_real() {
+            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
+            return Ok(());
+        }
         let note = deposit_note(&env, 42).await?;
         let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
         env.usdc.set_panic_in_transfer(true).await;
@@ -747,6 +790,10 @@ mod close {
     #[tokio::test]
     async fn a_paused_token_leaves_a_pending_payout_and_a_failed_claim_restores_it() -> Result<()> {
         let env = setup(100 * ONE).await?;
+        if env.usdc.is_real() {
+            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
+            return Ok(());
+        }
         let note = deposit_note(&env, 42).await?;
         let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
         env.usdc.set_paused(true).await;
@@ -789,6 +836,10 @@ mod close {
     #[tokio::test]
     async fn claim_treasury_pays_the_treasury_account_only_and_restores_on_failure() -> Result<()> {
         let env = setup(100 * ONE).await?;
+        if env.usdc.is_real() {
+            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
+            return Ok(());
+        }
         deposit_note(&env, 42).await?;
         let stranger = env.worker.dev_create_account().await?;
         env.usdc.set_panic_in_transfer(true).await;
@@ -827,14 +878,14 @@ mod close {
         let note = deposit_note(&env, 42).await?;
         let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
         // One Tgas short of the minimum: the method panics before any write.
-        let short = mutual_close(&env, &env.alice, &bundle, tgas(109), json!({})).await?;
-        assert!(short.is_failure(), "109 Tgas must be refused");
+        let short = mutual_close(&env, &env.alice, &bundle, tgas(79), json!({})).await?;
+        assert!(short.is_failure(), "79 Tgas must be refused");
         let status: Value = view(&env.vault, "note_records", json!({"from": 0, "limit": 1})).await;
         assert_eq!(status[0]["status"], "Active");
         // At the minimum the payout is the same as with 300 Tgas.
         let before = env.usdc.balance_of(env.alice.id()).await;
-        let exact = mutual_close(&env, &env.alice, &bundle, tgas(110), json!({})).await?;
-        report("mutual_close, least gas (110 Tgas)", &exact);
+        let exact = mutual_close(&env, &env.alice, &bundle, tgas(80), json!({})).await?;
+        report("mutual_close, least gas (80 Tgas)", &exact);
         exact.into_result()?;
         settled(&env).await;
         assert_eq!(
@@ -983,7 +1034,21 @@ mod close {
         Ok(())
     }
 
-    async fn call_with_bundle(
+    /// Alice's note 0 (secret 42) and its kind-0 proof for the state after one charge, valid for an
+    /// hour from now.
+    pub(super) async fn exit_fixture(env: &Env) -> Result<Bundle> {
+        let note = deposit_note(env, 42).await?;
+        let valid_until = now_seconds(&env.worker).await + 3_600;
+        Ok(gen(env.vault.id()).withdrawal(
+            &state_after_spending(env, &note),
+            WithdrawalKindId::Escape,
+            env.alice.id().as_str(),
+            0,
+            valid_until,
+        )?)
+    }
+
+    pub(super) async fn call_with_bundle(
         env: &Env,
         method: &str,
         bundle: &Bundle,
@@ -1016,6 +1081,10 @@ mod close {
     async fn the_exit_calls_work_with_usdc_paused_and_stay_in_gas() -> Result<()> {
         use zkapi_proof::dev::tree_with;
         let env = setup(100 * ONE).await?;
+        if env.usdc.is_real() {
+            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
+            return Ok(());
+        }
         let note = deposit_note(&env, 42).await?;
         let valid_until = now_seconds(&env.worker).await + 3_600;
         let g = gen(env.vault.id());
@@ -1158,7 +1227,7 @@ async fn the_intents_branch_runs_against_the_open_source_verifier() -> Result<()
     report("intents deposit, note and excess", &outcome);
     let on_vault = gas_on(&outcome, env.vault.id());
     println!(
-        "gas on the vault: {:.2} Tgas",
+        "gas intents path on the vault: {:.2} Tgas",
         on_vault as f64 / TGAS as f64
     );
     assert!(on_vault < INTENTS_GAS_BUDGET, "{on_vault}");
@@ -1307,5 +1376,124 @@ async fn owner_methods_need_one_yocto_and_the_heartbeat_the_operator() -> Result
     assert!(faked.is_failure());
     let operator: String = view(&env.vault, "operator_account", json!({})).await;
     assert_eq!(operator, env.operator.id().to_string());
+    Ok(())
+}
+
+// Measurements (first-day gates of ticket 22)
+
+/// Bytes of account storage the vault holds.
+async fn storage_bytes(env: &Env) -> u64 {
+    env.vault.view_account().await.unwrap().storage_usage
+}
+
+/// Storage per note and per root, from `storage_usage` after the collections flush at the end of
+/// each transaction, and what each costs in NEAR (1 byte is 10^19 yoctoNEAR).
+#[tokio::test]
+async fn storage_per_note_and_per_root_are_measured() -> Result<()> {
+    let env = setup(1_000 * ONE).await?;
+    let base = storage_bytes(&env).await;
+    for n in 1..=48u64 {
+        transfer_call(
+            &env.usdc.contract,
+            &env.alice,
+            env.vault.id(),
+            ONE + NOTE_FEE,
+            &deposit_msg(n),
+        )
+        .await?
+        .into_result()?;
+    }
+    let notes = storage_bytes(&env).await;
+    let per_note = (notes - base) as f64 / 48.0;
+    // Three syncs of 16 leaves: three new roots, 48 new leaves (leaves live in the notes).
+    let mut roots = 0;
+    for _ in 0..3 {
+        let synced = sync_root(&env, 16).await?;
+        assert_eq!(synced.into_result()?.json::<u32>()?, 16);
+        roots += 1;
+    }
+    let after = storage_bytes(&env).await;
+    let per_root = (after - notes) as f64 / roots as f64;
+    let near = |bytes: f64| bytes * 1e19 / 1e24;
+    println!(
+        "measure storage per note: {per_note:.1} bytes = {:.6} NEAR",
+        near(per_note)
+    );
+    println!(
+        "measure storage per root: {per_root:.1} bytes = {:.6} NEAR",
+        near(per_root)
+    );
+    assert!(per_note > 100.0 && per_note < 600.0, "{per_note}");
+    assert!(per_root > 20.0 && per_root < 200.0, "{per_root}");
+    Ok(())
+}
+
+/// `finalize_exit` after a real 1-day wait (the shortest exit delay `new()` takes), with the
+/// least gas first and then plenty; about 55 minutes of wall time, so it is ignored by default:
+/// `cargo test -p nymira-vault --test sandbox finalize_gas -- --ignored --nocapture`.
+#[tokio::test]
+#[ignore = "about an hour of sandbox time"]
+async fn finalize_gas_after_a_one_day_exit_window() -> Result<()> {
+    use close::exit_fixture;
+    let env = setup_full(100 * ONE, &["dev-setup"], 86_400).await?;
+    let escape = exit_fixture(&env).await?;
+    let filed = close::call_with_bundle(&env, "request_exit", &escape, json!({})).await?;
+    filed.into_result()?;
+    let exits: Vec<Value> = view(
+        &env.vault,
+        "exit_requests",
+        json!({"from_note_id": 0, "limit": 1}),
+    )
+    .await;
+    let deadline_ns: u64 = exits[0]["deadline"].as_str().unwrap().parse().unwrap();
+    // One second before the deadline: refused. Then past it.
+    advance_to(&env.worker, deadline_ns / 1_000_000_000 - 1).await?;
+    let early = env
+        .alice
+        .call(env.vault.id(), "finalize_exit")
+        .args_json(json!({ "note_id": 0 }))
+        .max_gas()
+        .transact()
+        .await?;
+    assert!(early.is_failure());
+    advance_to(&env.worker, deadline_ns / 1_000_000_000 + 1).await?;
+    let before = env.usdc.balance_of(env.alice.id()).await;
+    let least = env
+        .alice
+        .call(env.vault.id(), "finalize_exit")
+        .args_json(json!({ "note_id": 0 }))
+        .gas(near_workspaces::types::Gas::from_tgas(50))
+        .transact()
+        .await?;
+    report("finalize_exit, 50 Tgas", &least);
+    println!(
+        "measure finalize_exit least gas succeeded: {}",
+        least.is_success()
+    );
+    let paid = if least.is_success() {
+        least.into_result()?;
+        true
+    } else {
+        let full = env
+            .alice
+            .call(env.vault.id(), "finalize_exit")
+            .args_json(json!({ "note_id": 0 }))
+            .max_gas()
+            .transact()
+            .await?;
+        report("finalize_exit, 300 Tgas", &full);
+        println!(
+            "measure finalize_exit vault gas: {:.2} Tgas",
+            gas_on(&full, env.vault.id()) as f64 / TGAS as f64
+        );
+        full.into_result()?;
+        true
+    };
+    env.worker.fast_forward(5).await?;
+    assert!(paid);
+    assert_eq!(
+        env.usdc.balance_of(env.alice.id()).await,
+        before + ONE - close::CHARGE
+    );
     Ok(())
 }

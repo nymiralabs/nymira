@@ -27,13 +27,30 @@ fn receiver_wasm() -> &'static [u8] {
 /// A deployed mock token.
 pub struct MockUsdc {
     pub contract: Contract,
+    /// Set when the contract is the real mainnet USDC wasm: the account that mints.
+    minter: Option<Account>,
 }
 
 impl MockUsdc {
     pub async fn deploy(worker: &Worker<Sandbox>) -> Result<Self> {
         Ok(Self {
             contract: worker.dev_deploy(usdc_wasm()).await?,
+            minter: None,
         })
+    }
+
+    /// The real mainnet USDC wasm behind the same helpers (needs mainnet RPC); the pause,
+    /// blocklist, panic and junk-return switches exist only on the mock.
+    pub async fn deploy_real(worker: &Worker<Sandbox>) -> Result<Self> {
+        let (contract, minter) = crate::mainnet_usdc::deploy_minting(worker).await?;
+        Ok(Self {
+            contract,
+            minter: Some(minter),
+        })
+    }
+
+    pub fn is_real(&self) -> bool {
+        self.minter.is_some()
     }
 
     pub async fn storage_deposit(
@@ -110,6 +127,18 @@ impl MockUsdc {
 
     /// Credits tokens without registration or checks.
     pub async fn mint(&self, account_id: &AccountId, amount: u128) {
+        if let Some(minter) = &self.minter {
+            minter
+                .call(self.contract.id(), "mint")
+                .args_json(serde_json::json!({ "to": account_id, "amount": amount.to_string() }))
+                .max_gas()
+                .transact()
+                .await
+                .expect("transaction runs")
+                .into_result()
+                .expect("mint succeeds");
+            return;
+        }
         self.contract
             .call("mint")
             .args_json(

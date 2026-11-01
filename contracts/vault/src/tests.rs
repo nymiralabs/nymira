@@ -1363,13 +1363,13 @@ mod close {
         assert!(lines[0].contains(r#""account_id":"alice.test""#));
         assert!(lines[0].contains(&format!(
             "deposit={REGISTRATION_DEPOSIT} gas={}",
-            10_000_000_000_000u64
+            6_000_000_000_000u64
         )));
         assert!(lines[1].starts_with("usdc.test ft_transfer"));
         assert!(lines[1].contains(&format!(r#""amount":"{}""#, ONE - CHARGE)));
-        assert!(lines[1].contains("deposit=1 gas=20000000000000"));
+        assert!(lines[1].contains("deposit=1 gas=7000000000000"));
         assert!(lines[2].starts_with("vault.test on_close_payout"));
-        assert!(lines[2].contains("gas=10000000000000 weight=0"));
+        assert!(lines[2].contains("gas=6000000000000 weight=0"));
         assert_eq!(v.note_status(commitment_of_note()), Some(Status::Closed));
         assert_eq!(v.open_notes(), 0);
         assert_eq!(v.config().current_tvl.0, 0);
@@ -1753,7 +1753,7 @@ mod close {
     fn too_little_prepaid_gas_panics_before_any_write() {
         let mut v = funded();
         let mut c = context(ALICE, CLOSE_AT);
-        c.prepaid_gas(Gas::from_tgas(109));
+        c.prepaid_gas(Gas::from_tgas(79));
         testing_env!(c.build());
         v.mutual_close(
             Base64VecU8(bundle().proof_wire.clone()),
