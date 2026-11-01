@@ -7,3 +7,5 @@ dist/
 .DS_Store
 
 !contracts/vault/tests/fixtures/*.wasm
+web-testkit/codec-pkg/
+web-testkit/test-results/
