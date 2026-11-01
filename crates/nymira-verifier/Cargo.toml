@@ -18,6 +18,10 @@ ark-groth16 = { workspace = true, features = ["std"] }
 ark-serialize = { workspace = true, features = ["std"] }
 serde_json = "1"
 hex = "0.4"
-zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof", features = ["dev-setup"] }
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof", features = ["dev-setup", "dev-fixtures"] }
 zkapi-types = { workspace = true }
 ark-snark = "0.5"
+anyhow = "1"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+zkapi-core = { workspace = true }

@@ -348,3 +348,57 @@ fn differential_against_native_arkworks() {
         assert!(checked > 30);
     }
 }
+
+/// Real proofs whose public inputs carry the codec's NEAR mappings verify
+/// through the host functions, and the inputs hold exactly the mapped values.
+#[test]
+fn near_mapped_fixture_verifies() {
+    use nymira_near_codec::{chain_id, contract_address, destination, Network};
+    let fixture: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/near-fixture.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let chain = chain_id(Network::Testnet);
+    let address = contract_address("vault.nymira.testnet");
+    let payout = destination("alice.testnet");
+    let mut count = 0;
+    for (name, kind) in [
+        ("request", KeyKind::Request),
+        ("request_signed", KeyKind::Request),
+        ("withdrawal", KeyKind::Withdrawal),
+        ("escape_c0", KeyKind::Withdrawal),
+        ("close", KeyKind::Withdrawal),
+    ] {
+        let case = &fixture[name];
+        let inputs = &case["public_inputs"];
+        assert_eq!(inputs["chain_id"].as_u64(), Some(chain), "{name}");
+        assert_eq!(
+            inputs["contract_address"].as_str().unwrap().trim_start_matches("0x"),
+            hex::encode(address),
+            "{name}"
+        );
+        if kind == KeyKind::Withdrawal && name != "close" {
+            let dest: Vec<u8> = inputs["destination"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap() as u8)
+                .collect();
+            assert_eq!(dest, payout, "{name}");
+        }
+        let words: Vec<[u8; 32]> = hex_bytes(&case["inputs_abi"])
+            .chunks(32)
+            .map(|w| w.try_into().unwrap())
+            .collect();
+        // chain_id is input 1 and contract_address input 2 in both statements.
+        assert_eq!(&words[1][24..], &chain.to_be_bytes(), "{name}");
+        assert_eq!(words[2], address, "{name}");
+        let proof = Proof::from_zkapi_wire(&hex_bytes(&case["proof_hex"])).unwrap();
+        assert_eq!(run(&near_vk(kind), &near_inputs(&words), &proof), Ok(true), "{name}");
+        count += 1;
+    }
+    assert_eq!(count, 5);
+}

@@ -2761,16 +2761,20 @@ dependencies = [
 name = "nymira-verifier"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "ark-bn254",
  "ark-ec",
  "ark-ff",
  "ark-groth16",
  "ark-serialize",
  "ark-snark",
+ "base64 0.22.1",
  "hex",
  "near-sdk",
  "nymira-near-codec",
+ "serde",
  "serde_json",
+ "zkapi-core",
  "zkapi-proof",
  "zkapi-types",
 ]
@@ -4395,6 +4399,23 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "verifier-probe"
+version = "0.0.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ec",
+ "ark-ff",
+ "base64 0.22.1",
+ "hex",
+ "near-sdk",
+ "near-workspaces",
+ "nymira-near-codec",
+ "nymira-verifier",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "version_check"
