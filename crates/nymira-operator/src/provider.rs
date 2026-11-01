@@ -51,6 +51,16 @@ pub struct KeyUsage {
     pub cost_nano_usd: u128,
 }
 
+/// What the signature and attestation fetches carry: a fresh nonce and the `signing_algo` the
+/// chat used, the same in both calls. Both are checked by `proxy::valid_nonce` and
+/// `proxy::valid_signing_algo` before they are built into a query. The adapter sends
+/// `Accept-Encoding: identity` so the signed bytes match.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvidenceQuery {
+    pub nonce: String,
+    pub signing_algo: String,
+}
+
 /// A chat request as the proxy forwards it: the validated body and the headers that may pass.
 #[derive(Clone, Debug)]
 pub struct ChatRequest {
@@ -107,7 +117,11 @@ pub trait ProviderAdapter: Send + Sync {
     /// The provider's response signature and attestation report for the lease, fetched with the
     /// lease key before it is deactivated and passed to the client unchanged. An adapter that
     /// cannot fetch it returns none.
-    async fn evidence(&self, _lease_id: &str) -> Result<Option<serde_json::Value>, ProviderError> {
+    async fn evidence(
+        &self,
+        _lease_id: &str,
+        _query: &EvidenceQuery,
+    ) -> Result<Option<serde_json::Value>, ProviderError> {
         Ok(None)
     }
 }
@@ -191,6 +205,7 @@ struct FakeState {
     chat_script: ChatScript,
     chat_calls: Vec<RecordedChat>,
     evidence: Option<serde_json::Value>,
+    evidence_queries: Vec<EvidenceQuery>,
     models: Option<Vec<LiveModel>>,
     keys: HashMap<String, FakeKey>,
     usage: HashMap<String, u128>,
@@ -237,6 +252,11 @@ impl FakeProvider {
     /// Chat answers whose upstream connection is still open.
     pub fn open_streams(&self) -> usize {
         self.open_streams.load(Ordering::SeqCst)
+    }
+
+    /// The queries the evidence fetches carried, in order.
+    pub fn evidence_queries(&self) -> Vec<EvidenceQuery> {
+        self.state().evidence_queries.clone()
     }
 
     pub fn set_evidence(&self, evidence: Option<serde_json::Value>) {
@@ -395,8 +415,14 @@ impl ProviderAdapter for FakeProvider {
         })
     }
 
-    async fn evidence(&self, _lease_id: &str) -> Result<Option<serde_json::Value>, ProviderError> {
-        Ok(self.state().evidence.clone())
+    async fn evidence(
+        &self,
+        _lease_id: &str,
+        query: &EvidenceQuery,
+    ) -> Result<Option<serde_json::Value>, ProviderError> {
+        let mut state = self.state();
+        state.evidence_queries.push(query.clone());
+        Ok(state.evidence.clone())
     }
 
     async fn models(&self) -> Result<Option<Vec<LiveModel>>, ProviderError> {

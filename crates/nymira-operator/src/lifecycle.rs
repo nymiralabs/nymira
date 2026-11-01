@@ -377,7 +377,22 @@ impl Operator {
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&lease.lease_id);
         }
-        if let Ok(Some(evidence)) = timed(self.provider.evidence(&lease.lease_id)).await {
+        let algo = self
+            .algos
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&lease.lease_id)
+            .cloned()
+            .unwrap_or_else(|| "ed25519".into());
+        let query = crate::provider::EvidenceQuery {
+            nonce: token::random_hex(32),
+            signing_algo: algo,
+        };
+        debug_assert!(
+            crate::proxy::valid_nonce(&query.nonce)
+                && crate::proxy::valid_signing_algo(&query.signing_algo)
+        );
+        if let Ok(Some(evidence)) = timed(self.provider.evidence(&lease.lease_id, &query)).await {
             let (id, json) = (lease.lease_id.clone(), evidence.to_string());
             let _ = self
                 .store
@@ -490,6 +505,10 @@ impl Operator {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .forget(&lease.lease_id);
+            self.algos
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&lease.lease_id);
             self.issued
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())

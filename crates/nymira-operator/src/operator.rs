@@ -185,6 +185,8 @@ pub struct Operator {
     pub(crate) lifecycle: tokio::sync::Mutex<()>,
     pub(crate) spend: Mutex<crate::proxy::SpendBook>,
     /// One cancel signal per running proxied request, by lease: fired when retirement runs out of patience.
+    /// The `signing_algo` each lease's chats used, for the evidence fetch.
+    pub(crate) algos: Mutex<HashMap<String, String>>,
     pub(crate) cancels: Mutex<HashMap<String, Vec<Arc<tokio::sync::Notify>>>>,
     pub(crate) limiter: crate::proxy::Limiter,
     pub(crate) blocked_models: Mutex<HashSet<String>>,
@@ -261,6 +263,7 @@ impl Operator {
             lifecycle: tokio::sync::Mutex::new(()),
             spend: Mutex::new(crate::proxy::SpendBook::default()),
             cancels: Mutex::new(HashMap::new()),
+            algos: Mutex::new(HashMap::new()),
             limiter: crate::proxy::Limiter::new(),
             blocked_models: Mutex::new(HashSet::new()),
             models_checked_ms: Mutex::new(0),

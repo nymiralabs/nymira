@@ -157,6 +157,10 @@ pub fn parse_chat(body: &[u8], cfg: &ProxyConfig, blocked: &HashSet<String>) -> 
         if !only_keys(message, &MESSAGE_KEYS) || !message["role"].is_string() {
             return Err(malformed("a message needs a role and only known fields"));
         }
+        // Every plaintext field the provider will read counts as input, one token per byte.
+        for field in ["role", "name", "tool_call_id"] {
+            input_tokens += message[field].as_str().map_or(0, |s| s.len() as u64);
+        }
         match &message["content"] {
             Value::String(s) => input_tokens += field_tokens(s),
             Value::Null => {}
@@ -212,8 +216,14 @@ pub fn parse_chat(body: &[u8], cfg: &ProxyConfig, blocked: &HashSet<String>) -> 
         return Err(malformed("seed must be an integer"));
     }
     match value.get("stop") {
-        None | Some(Value::String(_)) => {}
-        Some(Value::Array(a)) if a.len() <= 4 && a.iter().all(Value::is_string) => {}
+        None => {}
+        Some(Value::String(s)) => input_tokens += s.len() as u64,
+        Some(Value::Array(a)) if a.len() <= 4 && a.iter().all(Value::is_string) => {
+            input_tokens += a
+                .iter()
+                .map(|s| s.as_str().map_or(0, str::len) as u64)
+                .sum::<u64>();
+        }
         Some(_) => return Err(malformed("stop must be a string or up to four strings")),
     }
     if let Some(tools) = value.get("tools") {
@@ -245,7 +255,10 @@ pub fn parse_chat(body: &[u8], cfg: &ProxyConfig, blocked: &HashSet<String>) -> 
         }
     }
     match value.get("tool_choice") {
-        None | Some(Value::String(_)) | Some(Value::Object(_)) => {}
+        None => {}
+        Some(v @ (Value::String(_) | Value::Object(_))) => {
+            input_tokens += v.to_string().len() as u64
+        }
         Some(_) => return Err(malformed("tool_choice must be a string or an object")),
     }
     value["stream_options"] = json!({ "include_usage": true });
@@ -289,6 +302,7 @@ pub fn forward_headers(headers: &HeaderMap) -> ApiResult<Vec<(String, String)>> 
         }
         out.push((name.to_string(), value.to_string()));
     }
+    out.push(("content-type".into(), "application/json".into()));
     out.push(("x-encrypt-all-fields".into(), "true".into()));
     out.push(("x-no-aliasing".into(), "true".into()));
     Ok(out)
@@ -339,11 +353,12 @@ impl SpendBook {
 
     /// The reservation gives way to the estimate from the signed usage. Returns what is still
     /// reserved by the lease's other requests.
-    pub fn finish(&mut self, lease: &str, id: u64, actual: u128) -> u128 {
-        let spend = self.leases.entry(lease.to_string()).or_default();
+    pub fn finish(&mut self, lease: &str, id: u64, actual: u128) -> Option<u128> {
+        // A lease already settled or expired is gone: nothing to record.
+        let spend = self.leases.get_mut(lease)?;
         spend.reserved.remove(&id);
         spend.finished += actual;
-        spend.reserved.values().sum()
+        Some(spend.reserved.values().sum())
     }
 
     pub fn forget(&mut self, lease: &str) {
@@ -439,7 +454,7 @@ impl Limiter {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let now = clock.now_ms();
         let in_model = s.per_model.get(model).copied().unwrap_or(0);
-        let hot = in_model * 100 >= cfg.per_model * cfg.hot_pct;
+        let hot = in_model * 100 > cfg.per_model * cfg.hot_pct;
         let lease_limit = if hot { 1 } else { cfg.per_lease };
         if s.per_lease.get(lease).copied().unwrap_or(0) >= lease_limit {
             return Err(ApiError::new(
@@ -515,7 +530,12 @@ impl UsageScan {
             v["usage"]["completion_tokens"].as_u64(),
         ) {
             self.usage = Some((p, c));
-        } else if v["choices"][0].get("delta").is_some() {
+        } else if v["choices"][0]["delta"]["content"]
+            .as_str()
+            .is_some_and(|c| !c.is_empty())
+            || v["choices"][0]["delta"].get("tool_calls").is_some()
+        {
+            // Content only: the opening chunk that carries just the role costs no output token.
             self.events += 1;
         }
     }
@@ -550,6 +570,38 @@ impl UsageScan {
 }
 
 // ---------------------------------------------------------------- the operator side
+
+/// A request's reservation in the lease's spend book: released on drop, with `actual` as the
+/// request's cost, so no path out of `chat` can leak it.
+struct Reservation {
+    op: Arc<Operator>,
+    lease: String,
+    id: u64,
+    actual: u128,
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.op
+            .release_reservation(&self.lease, self.id, self.actual);
+    }
+}
+
+/// A running request's cancel signal, registered for retirement and removed on drop.
+struct CancelReg {
+    op: Arc<Operator>,
+    lease: String,
+    cancel: Arc<tokio::sync::Notify>,
+}
+
+impl Drop for CancelReg {
+    fn drop(&mut self) {
+        let mut cancels = self.op.cancels.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(list) = cancels.get_mut(&self.lease) {
+            list.retain(|c| !Arc::ptr_eq(c, &self.cancel));
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum PumpError {
@@ -633,38 +685,21 @@ impl Operator {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .reserve(lease_id, lease.bound, reserve_cost);
-        let Some((reservation, reserved_total)) = reserved else {
+        let Some((id, reserved_total)) = reserved else {
             return Err(ApiError::new(
                 Code::MaxTokensTooLarge,
                 "the worst case does not fit the lease's remaining bound",
             ));
         };
         self.ledger.set_inflight(lease_id, reserved_total);
-        self.mark_delivered(lease_id)
-            .await
-            .inspect_err(|_| self.release_reservation(lease_id, reservation, 0))?;
-
-        let request = ChatRequest {
-            body: Bytes::from(parsed.body),
-            headers: forward,
+        // From here the reservation is released whatever happens, even if the client drops this
+        // future. Until the provider answers it stands at the worst case.
+        let mut reservation = Reservation {
+            op: self.clone(),
+            lease: lease_id.to_string(),
+            id,
+            actual: reserve_cost,
         };
-        let called =
-            tokio::time::timeout(cfg.first_byte, self.provider.chat(lease_id, request)).await;
-        let response = match called {
-            Ok(Ok(response)) => response,
-            Ok(Err(e)) => {
-                self.release_reservation(lease_id, reservation, 0);
-                return Err(provider_error(e));
-            }
-            Err(_) => {
-                self.release_reservation(lease_id, reservation, 0);
-                return Err(ApiError::new(
-                    Code::ProviderTimeout,
-                    "the provider did not answer in time",
-                ));
-            }
-        };
-
         let cancel = Arc::new(tokio::sync::Notify::new());
         self.cancels
             .lock()
@@ -672,22 +707,69 @@ impl Operator {
             .entry(lease_id.to_string())
             .or_default()
             .push(cancel.clone());
+        let cancel_reg = CancelReg {
+            op: self.clone(),
+            lease: lease_id.to_string(),
+            cancel: cancel.clone(),
+        };
+        // One clock for both deadlines: the first byte within `first_byte` of the start, the
+        // whole answer within `total` of it.
+        let started = Instant::now();
+        if let Err(e) = self.mark_delivered(lease_id).await {
+            reservation.actual = 0;
+            return Err(e);
+        }
+        if let Some((_, algo)) = forward.iter().find(|(n, _)| n == "x-signing-algo") {
+            self.algos
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(lease_id.to_string(), algo.clone());
+        }
+
+        let request = ChatRequest {
+            body: Bytes::from(parsed.body),
+            headers: forward,
+        };
+        let called = tokio::select! {
+            // Retirement ran out of patience while the provider had not answered yet.
+            () = cancel.notified() => return Err(ApiError::new(Code::ProviderError, "the request was cancelled")),
+            called = tokio::time::timeout(cfg.first_byte, self.provider.chat(lease_id, request)) => called,
+        };
+        let response = match called {
+            Ok(Ok(response)) => response,
+            Ok(Err(e)) => {
+                // The provider refused outright: nothing was generated.
+                reservation.actual = 0;
+                return Err(provider_error(e));
+            }
+            Err(_) => {
+                return Err(ApiError::new(
+                    Code::ProviderTimeout,
+                    "the provider did not answer in time",
+                ));
+            }
+        };
+
         let (tx, mut rx) = mpsc::channel::<Result<Bytes, PumpError>>(8);
-        let operator = self.clone();
-        let (lease, stream, input_tokens) =
-            (lease_id.to_string(), parsed.stream, parsed.input_tokens);
+        let (stream, input_tokens) = (parsed.stream, parsed.input_tokens);
         let (idle, first_byte, total) = (cfg.idle, cfg.first_byte, cfg.total);
         let mut upstream = response.body;
         tokio::spawn(async move {
-            // The slot, the in-flight guard and the reservation live until upstream is closed.
-            let (_slot, _guard) = (slot, guard);
-            let started = Instant::now();
+            // The slot, the in-flight guard, the cancel registration and the reservation live
+            // until upstream is closed; a panic here leaves the reservation at the worst case.
+            let (_slot, _guard, _cancel_reg) = (slot, guard, cancel_reg);
+            // Move the whole reservation in (a closure would otherwise capture only its field).
+            let mut reservation = reservation;
             let mut scan = UsageScan::new(stream);
             let mut first = true;
             let mut cut = false;
             loop {
-                let wait = if first { first_byte } else { idle };
                 let left = total.saturating_sub(started.elapsed());
+                let wait = if first {
+                    first_byte.saturating_sub(started.elapsed())
+                } else {
+                    idle
+                };
                 let next = tokio::select! {
                     // The client went away: stop reading and let upstream close.
                     () = tx.closed() => break,
@@ -698,7 +780,7 @@ impl Operator {
                     }
                     next = tokio::time::timeout(wait.min(left), upstream.next_chunk()) => next,
                 };
-                let sent = match next {
+                let item = match next {
                     Err(_) => {
                         let _ = tx.send(Err(PumpError::Timeout)).await;
                         break;
@@ -711,31 +793,34 @@ impl Operator {
                     Ok(Some(Ok(chunk))) => {
                         first = false;
                         scan.push(&chunk);
-                        // A stream is cut when its estimated cost reaches its reservation.
-                        if stream && cost_micro(&spec, input_tokens, scan.events) >= reserve_cost {
+                        // A stream is cut once its estimated cost passes its reservation.
+                        if stream && cost_micro(&spec, input_tokens, scan.events) > reserve_cost {
                             cut = true;
                             let _ = tx.send(Err(PumpError::Cut)).await;
                             break;
                         }
-                        tx.send(Ok(chunk)).await.is_ok()
+                        Ok(chunk)
                     }
                 };
-                if !sent {
-                    break; // the client is gone: stop reading and close upstream
+                // A client that stops reading must not pin the slot: the hand-over has the same
+                // deadline as a read.
+                let hand_over = total.saturating_sub(started.elapsed()).min(idle);
+                let delivered = tokio::select! {
+                    sent = tx.send(item) => sent.is_ok(),
+                    () = cancel.notified() => false,
+                    () = tokio::time::sleep(hand_over) => false,
+                };
+                if !delivered {
+                    break;
                 }
             }
             drop(upstream);
             scan.finish();
-            let actual = match (cut, scan.usage) {
+            reservation.actual = match (cut, scan.usage) {
                 (false, Some((prompt, completion))) => cost_micro(&spec, prompt, completion),
                 // No signed usage, or cut: the whole reservation counts.
                 _ => reserve_cost,
             };
-            operator.release_reservation(&lease, reservation, actual);
-            let mut cancels = operator.cancels.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(list) = cancels.get_mut(&lease) {
-                list.retain(|c| !Arc::ptr_eq(c, &cancel));
-            }
         });
 
         match rx.recv().await {
@@ -784,13 +869,18 @@ impl Operator {
             reservation,
             actual,
         );
-        self.ledger.set_inflight(lease_id, still);
+        // A lease that already settled or expired has no book: nothing to tell the budget.
+        if let Some(still) = still {
+            self.ledger.set_inflight(lease_id, still);
+        }
     }
 
     /// Compares the pinned models with the provider's live list: a model that is missing, not
     /// attested, or priced differently from its pin is blocked.
     pub async fn check_models(&self) {
-        let Ok(Some(live)) = self.provider.models().await else {
+        let Ok(Ok(Some(live))) =
+            tokio::time::timeout(Duration::from_secs(10), self.provider.models()).await
+        else {
             return;
         };
         let mut blocked = HashSet::new();

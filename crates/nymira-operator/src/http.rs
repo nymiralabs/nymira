@@ -163,8 +163,16 @@ async fn chat(
         Ok(reply) => {
             use tokio_stream::StreamExt;
             let first = tokio_stream::once(Ok::<_, std::io::Error>(reply.first));
-            let rest = tokio_stream::wrappers::ReceiverStream::new(reply.rest)
-                .map(|item| item.map_err(|e| std::io::Error::other(format!("{e:?}"))));
+            let rest = tokio_stream::wrappers::ReceiverStream::new(reply.rest).map(|item| {
+                item.map_err(|e| {
+                    std::io::Error::other(match e {
+                        // A fixed word: upstream text never reaches the connection error.
+                        crate::proxy::PumpError::Timeout => "upstream timed out",
+                        crate::proxy::PumpError::Cut => "answer cut",
+                        crate::proxy::PumpError::Provider(_) => "upstream failed",
+                    })
+                })
+            });
             let mut response = Response::new(Body::from_stream(first.chain(rest)));
             if let Ok(value) = HeaderValue::from_str(&reply.content_type) {
                 response.headers_mut().insert(header::CONTENT_TYPE, value);

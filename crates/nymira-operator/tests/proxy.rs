@@ -138,6 +138,7 @@ async fn a_valid_request_is_forwarded_as_the_validated_bytes_with_only_the_encry
     assert_eq!(
         names,
         [
+            "content-type",
             "x-client-pub-key",
             "x-encrypt-all-fields",
             "x-encryption-version",
@@ -183,7 +184,9 @@ async fn other_request_headers_never_reach_the_provider() {
     let sent = rig.provider.chat_calls().remove(0).headers;
     assert!(
         sent.iter()
-            .all(|(n, v)| n.starts_with("x-") && !v.contains("203.0.113.9") && !v.contains("sk-")),
+            .all(|(n, v)| (n.starts_with("x-") || n == "content-type")
+                && !v.contains("203.0.113.9")
+                && !v.contains("sk-")),
         "{sent:?}"
     );
     assert!(!sent.iter().any(|(n, _)| n == "x-forwarded-for"));
@@ -624,7 +627,7 @@ fn above_the_hot_mark_each_lease_gets_one_slot_and_a_lease_that_held_long_gives_
     let cfg = ProxyConfig {
         per_model: 4,
         per_lease: 2,
-        hot_pct: 75,
+        hot_pct: 50,
         ..ProxyConfig::default()
     };
     let limiter = Limiter::new();
@@ -642,7 +645,7 @@ fn above_the_hot_mark_each_lease_gets_one_slot_and_a_lease_that_held_long_gives_
         Code::LeaseConcurrency
     );
     let b1 = limiter.acquire(&cfg, &clock, MODEL, "b", lifetime).unwrap();
-    // Three of four is 75 %: hot. Lease b has one slot and now gets no second.
+    // Three of four is above 50 %: hot. Lease b has one slot and now gets no second.
     assert_eq!(
         limiter
             .acquire(&cfg, &clock, MODEL, "b", lifetime)
@@ -662,7 +665,7 @@ async fn a_lease_that_held_slots_for_half_its_life_is_refused_first_when_the_mod
     let dynclock: Arc<dyn Clock> = clock.clone();
     let cfg = ProxyConfig {
         per_model: 4,
-        hot_pct: 75,
+        hot_pct: 50,
         ..ProxyConfig::default()
     };
     let limiter = Limiter::new();
@@ -1213,4 +1216,122 @@ fn the_parser_and_a_reference_parser_agree_over_the_odd_body_corpus_and_random_m
             );
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_stops_reading_does_not_pin_the_slot() {
+    let rig = Rig::new(proxy_setup(|c| c.proxy.total = Duration::from_secs(30))).await;
+    // Far more than the socket buffers hold, sent as fast as the client allows.
+    let big = format!(
+        "data: {}\n\n",
+        json!({"choices": [{"delta": {"content": "ab".repeat(128 * 1024)}}]})
+    );
+    rig.provider.set_chat_script(ChatScript {
+        chunks: Some(vec![big; 200]),
+        ..ChatScript::default()
+    });
+    let l = open(&rig, 1).await;
+    let mut held = post(
+        &rig,
+        &l,
+        serde_json::to_vec(&body(Some(100_000), true)).unwrap(),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(held.status(), 200);
+    let _first = held.chunk().await.unwrap(); // read once, then stop reading
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    settled(&rig).await;
+    assert_eq!(
+        rig.provider.open_streams(),
+        0,
+        "the unread stream was cut at its deadline"
+    );
+    assert_eq!(rig.op.limiter_in_flight(&l.id), 0);
+    drop(held);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_hangs_up_before_the_provider_answers_leaks_no_reservation() {
+    let rig = Rig::new(proxy_setup(|c| c.proxy.first_byte = Duration::from_secs(5))).await;
+    rig.provider.set_chat_script(ChatScript {
+        first_byte_delay: Duration::from_millis(800),
+        ..ChatScript::default()
+    });
+    let l = open(&rig, 1).await;
+    let hung_up = post(
+        &rig,
+        &l,
+        serde_json::to_vec(&body(Some(100), false)).unwrap(),
+    )
+    .timeout(Duration::from_millis(150))
+    .send()
+    .await;
+    assert!(hung_up.is_err());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        rig.status().await["daily_budget"]["used"],
+        "0",
+        "nothing stays reserved"
+    );
+    assert_eq!(rig.op.limiter_in_flight(&l.id), 0);
+    // The provider may have generated something: the worst case counts as spent, not zero.
+    assert!(rig.op.spent_estimate(&l.id) > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn retirement_aborts_a_request_the_provider_has_not_answered_yet() {
+    let rig = Rig::new(proxy_setup(|c| {
+        c.proxy.first_byte = Duration::from_secs(20)
+    }))
+    .await;
+    rig.provider.set_chat_script(ChatScript {
+        first_byte_delay: Duration::from_secs(10),
+        ..ChatScript::default()
+    });
+    let l = open(&rig, 1).await;
+    let pending = {
+        let request = post(
+            &rig,
+            &l,
+            serde_json::to_vec(&body(Some(10), false)).unwrap(),
+        );
+        tokio::spawn(async move { request.send().await.unwrap().status().as_u16() })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    rig.http
+        .post(format!("{}/v2/openrouter/leases/{}", rig.url, l.id))
+        .header("x-nymira-lease-token", &l.token)
+        .send()
+        .await
+        .unwrap();
+    rig.clock.advance_secs(120);
+    rig.op.tick().await;
+    assert_eq!(
+        pending.await.unwrap(),
+        502,
+        "aborted, not left running on a deactivated key"
+    );
+    assert!(rig.provider.keys()[&l.id].revoked);
+    assert_eq!(rig.status().await["daily_budget"]["used"], "0");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_evidence_fetch_carries_a_fresh_nonce_and_the_chats_signing_algorithm() {
+    let rig = Rig::new(proxy_setup(|_| {})).await;
+    rig.provider.set_evidence(Some(json!({"signature": "s"})));
+    let l = open(&rig, 1).await;
+    assert_eq!(chat(&rig, &l, &body(Some(10), false)).await.0, 200);
+    rig.http
+        .post(format!("{}/v2/openrouter/leases/{}", rig.url, l.id))
+        .header("x-nymira-lease-token", &l.token)
+        .send()
+        .await
+        .unwrap();
+    rig.op.tick().await;
+    let queries = rig.provider.evidence_queries();
+    assert_eq!(queries.len(), 1);
+    assert!(valid_nonce(&queries[0].nonce));
+    assert_eq!(queries[0].signing_algo, "ed25519");
 }
