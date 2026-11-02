@@ -51,6 +51,7 @@ pub fn router(operator: Arc<Operator>) -> Router {
         .route("/v2/nullifiers/{n}/evidence", get(nullifier_evidence))
         .route("/v2/withdraw/clearance", post(clearance))
         .route("/v1/close", post(close))
+        .route("/v2/reconcile", post(reconcile))
         .route("/v1/chat/completions", post(chat))
         .route("/v2/billing/quote", get(quote))
         .route("/v1/attestation", get(attestation))
@@ -106,6 +107,14 @@ async fn clearance(State(op): State<Arc<Operator>>, request: Request<Body>) -> R
         Err(e) => return e.into_response(),
     };
     answer(op.clearance(&body).await.map(|v| (StatusCode::OK, v)))
+}
+
+async fn reconcile(State(op): State<Arc<Operator>>, request: Request<Body>) -> Response {
+    let body = match bounded(request, LEASE_BODY_LIMIT).await {
+        Ok(body) => body,
+        Err(e) => return e.into_response(),
+    };
+    answer(op.reconcile(&body).await.map(|v| (StatusCode::OK, v)))
 }
 
 async fn close(State(op): State<Arc<Operator>>, request: Request<Body>) -> Response {

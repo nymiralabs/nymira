@@ -38,6 +38,9 @@ pub enum SignerError {
     Refused(String),
     #[error("signer failed: {0}")]
     Internal(String),
+    /// The state could not be put on the second machine, so it was not released.
+    #[error("the replica did not acknowledge")]
+    ReplicaUnreachable,
 }
 
 fn refused(reason: &str) -> SignerError {
@@ -105,6 +108,8 @@ pub struct Signer {
     clock: Arc<dyn Clock>,
     heartbeat: Arc<dyn HeartbeatSender>,
     last_heartbeat: Mutex<Option<u64>>,
+    /// Every signed state is here before it is stored where a client can read it.
+    replica: Arc<dyn crate::replica::Replica>,
 }
 
 /// A 31-byte seed from a passphrase (PBKDF2-HMAC-SHA256, salted per role), so two roles with
@@ -172,7 +177,14 @@ impl Signer {
             clock,
             heartbeat,
             last_heartbeat: Mutex::new(None),
+            replica: Arc::new(crate::replica::NoReplica),
         })
+    }
+
+    /// The second machine every signed state goes to first.
+    pub fn with_replica(mut self, replica: Arc<dyn crate::replica::Replica>) -> Self {
+        self.replica = replica;
+        self
     }
 
     /// Two seeds, checked by zkapi's operator policy (no development keys, no weak secrets)
@@ -354,40 +366,59 @@ impl SignerApi for Signer {
             serde_json::from_str(&request_json.ok_or_else(|| refused("no request proof"))?)
                 .map_err(|e| SignerError::Internal(e.to_string()))?;
         let inputs = &original.public_inputs;
-        let anonymous = zkapi_types::wire::CurvePointWire {
-            x: inputs.anonymous_commitment_x,
-            y: inputs.anonymous_commitment_y,
+        // A retry after a crash or a timeout signs the state the replica already holds, not
+        // another one with a fresh blind.
+        let held = self
+            .replica
+            .recorded(crate::replog::kinds::SIGNED, &lease_id)
+            .await;
+        let (response, json) = match held {
+            Some(json) => {
+                let response: RequestResponseV2 = serde_json::from_str(&json)
+                    .map_err(|e| SignerError::Internal(e.to_string()))?;
+                if response.charge_applied != expected {
+                    return Err(refused("a state with another charge is already signed"));
+                }
+                (response, json)
+            }
+            None => {
+                let anonymous = zkapi_types::wire::CurvePointWire {
+                    x: inputs.anonymous_commitment_x,
+                    y: inputs.anonymous_commitment_y,
+                };
+                let blind_delta = random_scalar();
+                let next_commitment = server_update(&anonymous, expected, &blind_delta)
+                    .map_err(|e| SignerError::Internal(e.to_string()))?;
+                let anchor = next_anchor(&inputs.request_nullifier);
+                let message = state_message(
+                    PROTOCOL_VERSION,
+                    self.chain_id,
+                    &self.contract,
+                    &next_commitment.x,
+                    &next_commitment.y,
+                    &anchor,
+                );
+                let payload = "{}".to_string();
+                let response = RequestResponseV2 {
+                    status: "finalized".into(),
+                    client_request_id: original.client_request_id.clone(),
+                    request_nullifier: inputs.request_nullifier,
+                    response_code: 200,
+                    response_hash: canonical_response_hash(payload.as_bytes()),
+                    response_payload: payload,
+                    charge_applied: expected,
+                    next_commitment,
+                    next_anchor: anchor,
+                    blind_delta_srv: blind_delta,
+                    next_state_signature: self.state.sign(&message),
+                    policy_reason_code: None,
+                    policy_evidence_hash: None,
+                };
+                let json = serde_json::to_string(&response)
+                    .map_err(|e| SignerError::Internal(e.to_string()))?;
+                (response, json)
+            }
         };
-        let blind_delta = random_scalar();
-        let next_commitment = server_update(&anonymous, expected, &blind_delta)
-            .map_err(|e| SignerError::Internal(e.to_string()))?;
-        let anchor = next_anchor(&inputs.request_nullifier);
-        let message = state_message(
-            PROTOCOL_VERSION,
-            self.chain_id,
-            &self.contract,
-            &next_commitment.x,
-            &next_commitment.y,
-            &anchor,
-        );
-        let payload = "{}".to_string();
-        let response = RequestResponseV2 {
-            status: "finalized".into(),
-            client_request_id: original.client_request_id.clone(),
-            request_nullifier: inputs.request_nullifier,
-            response_code: 200,
-            response_hash: canonical_response_hash(payload.as_bytes()),
-            response_payload: payload,
-            charge_applied: expected,
-            next_commitment,
-            next_anchor: anchor,
-            blind_delta_srv: blind_delta,
-            next_state_signature: self.state.sign(&message),
-            policy_reason_code: None,
-            policy_evidence_hash: None,
-        };
-        let json =
-            serde_json::to_string(&response).map_err(|e| SignerError::Internal(e.to_string()))?;
         let (id, n, cri, now) = (
             lease_id.clone(),
             nullifier,
@@ -395,7 +426,11 @@ impl SignerApi for Signer {
             self.clock.now_secs(),
         );
         let stored = json.clone();
-        // On disk (synchronous=FULL) before the response leaves.
+        // On the second machine first, then on disk (synchronous=FULL), then out.
+        self.replica
+            .record(crate::replog::kinds::SIGNED, &lease_id, Some(&json))
+            .await
+            .map_err(|_| SignerError::ReplicaUnreachable)?;
         let written = self
             .store
             .run(move |c| {
@@ -454,6 +489,7 @@ enum Reply {
     Clearance(SchnorrSignature),
     Refused(String),
     Error(String),
+    ReplicaUnreachable,
 }
 
 /// Serves typed requests, one JSON line each. A peer whose user id is not `allowed_uid` is
@@ -485,11 +521,13 @@ async fn handle(stream: UnixStream, signer: Arc<Signer>) -> std::io::Result<()> 
             Ok(response) => Reply::Ok(Box::new(response)),
             Err(SignerError::Refused(why)) => Reply::Refused(why),
             Err(SignerError::Internal(why)) => Reply::Error(why),
+            Err(SignerError::ReplicaUnreachable) => Reply::ReplicaUnreachable,
         },
         Ok(Call::Clearance { nullifier }) => match signer.sign_clearance(nullifier).await {
             Ok(signature) => Reply::Clearance(signature),
             Err(SignerError::Refused(why)) => Reply::Refused(why),
             Err(SignerError::Internal(why)) => Reply::Error(why),
+            Err(SignerError::ReplicaUnreachable) => Reply::ReplicaUnreachable,
         },
     };
     let mut bytes = serde_json::to_vec(&reply).map_err(std::io::Error::other)?;
@@ -544,6 +582,7 @@ impl SocketSigner {
         match serde_json::from_str::<Reply>(&line) {
             Ok(Reply::Refused(why)) => Err(SignerError::Refused(why)),
             Ok(Reply::Error(why)) => Err(SignerError::Internal(why)),
+            Ok(Reply::ReplicaUnreachable) => Err(SignerError::ReplicaUnreachable),
             Ok(reply) => Ok(reply),
             Err(_) => Err(SignerError::Internal(
                 "the signer closed the connection".into(),

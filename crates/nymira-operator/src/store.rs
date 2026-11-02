@@ -142,6 +142,7 @@ impl Store {
              PRAGMA checkpoint_fullfsync=ON; PRAGMA busy_timeout=5000;",
         )?;
         conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(crate::replog::SCHEMA)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -391,12 +392,17 @@ pub fn advance(
 }
 
 /// Records the first request proxied under a lease (delivery) and its activity time.
-pub fn mark_delivered(conn: &Connection, lease_id: &str, now: u64) -> rusqlite::Result<()> {
+/// True when this was the first one.
+pub fn mark_delivered(conn: &Connection, lease_id: &str, now: u64) -> rusqlite::Result<bool> {
+    let first = conn.execute(
+        "UPDATE leases SET delivered = 1 WHERE lease_id = ?1 AND delivered = 0",
+        [lease_id],
+    )? == 1;
     conn.execute(
-        "UPDATE leases SET delivered = 1, last_activity = ?2 WHERE lease_id = ?1",
+        "UPDATE leases SET last_activity = ?2 WHERE lease_id = ?1",
         params![lease_id, now],
     )?;
-    Ok(())
+    Ok(first)
 }
 
 /// The signed usage record, stored when the lease is retired.

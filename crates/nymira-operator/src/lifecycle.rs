@@ -17,7 +17,7 @@ use crate::charge::{charge, ChargeParams};
 use crate::error::{ApiError, ApiResult, Code};
 use crate::operator::{Operator, LEASE_MAX_SECS, SETTLE_AFTER_SECS};
 use crate::provider::ProviderError;
-use crate::signer::SignRequest;
+use crate::signer::{SignRequest, SignerError};
 use crate::store::{self, LeaseRow};
 use crate::token;
 use crate::usage::{SignedUsage, UsageRecord};
@@ -102,10 +102,19 @@ impl Operator {
     /// let `expire` close a used lease for nothing.
     pub async fn mark_delivered(&self, lease_id: &str) -> ApiResult<()> {
         let (id, now) = (lease_id.to_string(), self.clock.now_secs());
-        self.store
+        let first = self
+            .store
             .run(move |c| store::mark_delivered(c, &id, now))
             .await
-            .map_err(db)
+            .map_err(db)?;
+        if first {
+            // The second watcher needs it to raise a concession; a miss is sent again later.
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::DELIVERED, lease_id, None)
+                .await;
+        }
+        Ok(())
     }
 
     pub(crate) async fn authorized(
@@ -264,6 +273,12 @@ impl Operator {
             .run(move |c| store::roll_back(c, &id))
             .await
             .map_err(db)?;
+        // Without this the replica would bring the lease back after a restore and settle it at
+        // its bound, charging a user who cancelled.
+        let _ = self
+            .replica
+            .record(crate::replog::kinds::ROLLED_BACK, lease_id, None)
+            .await;
         self.ledger.release(lease_id);
         self.spend
             .lock()
@@ -317,6 +332,14 @@ impl Operator {
                 ),
                 settlement_deadline: None,
             },
+            // Settled at the bound while the second machine was away: nothing was signed, and
+            // nothing will be. The client leaves this note by exit.
+            None if row.status == "settled" => RecoveryResponseV2 {
+                status: "finalized".into(),
+                nullifier_status: "finalized".into(),
+                request_response: None,
+                settlement_deadline: None,
+            },
             None => RecoveryResponseV2 {
                 status: "pending".into(),
                 nullifier_status: "reserved".into(),
@@ -334,6 +357,19 @@ impl Operator {
     pub async fn tick(&self) {
         let _step = self.lifecycle.lock().await;
         let now = self.clock.now_secs();
+        // The replica is compared with every few seconds: this delivers the backlog of status
+        // facts and notices a disk that fell behind it.
+        let sync_due = {
+            let mut at = self.synced_at.lock().unwrap_or_else(|e| e.into_inner());
+            let due = now >= *at + crate::operator::SYNC_EVERY_SECS;
+            if due {
+                *at = now;
+            }
+            due
+        };
+        if sync_due || self.replica.in_recovery() {
+            let _ = self.restore_from_replica().await;
+        }
         let balance_due = self.clock.now_ms().saturating_sub(self.balance_read_ms())
             >= self.config().balance_refresh_secs * 1000;
         if balance_due {
@@ -356,6 +392,7 @@ impl Operator {
                 "retiring" => self.tick_retiring(&lease, now).await,
                 "revoked" => self.tick_revoked(&lease, now).await,
                 "retired" => self.settle(&lease, now).await,
+                crate::restore::RESTORED => self.settle_restored(&lease, now).await,
                 _ => {}
             }
         }
@@ -498,13 +535,22 @@ impl Operator {
             charge: amount.to_string(),
             usage,
         };
-        let Ok(Ok(signed)) =
-            tokio::time::timeout(CALL_TIMEOUT, self.signer.sign_next(request)).await
-        else {
+        // A machine that is still restoring signs nothing.
+        if self.replica.in_recovery() {
             return;
-        };
-        if signed.charge_applied != amount {
-            return;
+        }
+        match tokio::time::timeout(CALL_TIMEOUT, self.signer.sign_next(request)).await {
+            Ok(Ok(signed)) if signed.charge_applied == amount => {}
+            // The second machine has been away for six hours: the lease is settled at its bound
+            // and no next state is signed. The user leaves this note by exit.
+            // A link that answers nothing times the call out; that is the same thing.
+            Ok(Err(SignerError::ReplicaUnreachable)) | Err(_)
+                if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS =>
+            {
+                amount = lease.bound;
+                basis = "link_down";
+            }
+            _ => return,
         }
         let (id, basis) = (lease.lease_id.clone(), basis);
         let settled = self
@@ -512,6 +558,12 @@ impl Operator {
             .run(move |c| store::settle(c, &id, amount, basis, now))
             .await;
         if settled.is_ok_and(|s| s) {
+            let fact =
+                serde_json::json!({ "charge": amount.to_string(), "basis": basis }).to_string();
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::SETTLED, &lease.lease_id, Some(&fact))
+                .await;
             self.ledger.settle(&lease.lease_id, amount, now);
             self.closing
                 .lock()
@@ -530,6 +582,105 @@ impl Operator {
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&lease.nullifier);
         }
+    }
+
+    /// A lease that came back from the replica has no key and no token: six hours after the
+    /// restore it is settled at its bound, with no next state. (An honest client settles it
+    /// sooner through `POST /v2/reconcile`.)
+    async fn settle_restored(&self, lease: &LeaseRow, now: u64) {
+        if self.replica.in_recovery() {
+            return;
+        }
+        // A lease with no stamp was restored by a start-up that stopped half way: the clock
+        // starts now, and its provider key (which nobody holds a record of) goes.
+        let Some(stamp) = lease.retiring_at else {
+            let id = lease.lease_id.clone();
+            let _ = self.provider.revoke(&id).await;
+            let _ = self
+                .store
+                .run(move |c| {
+                    c.execute(
+                        "UPDATE leases SET retiring_at = ?2 WHERE lease_id = ?1 AND retiring_at IS NULL",
+                        rusqlite::params![id, now],
+                    )
+                    .map(|_| ())
+                })
+                .await;
+            return;
+        };
+        if now < stamp + UNREAD_SETTLES_AFTER_SECS {
+            return;
+        }
+        let _ = self.settle_at_bound(lease, "recovered").await;
+    }
+
+    /// Settles a restored lease at its bound and tells the second machine.
+    pub(crate) async fn settle_at_bound(&self, lease: &LeaseRow, basis: &'static str) -> bool {
+        let (id, now) = (lease.lease_id.clone(), self.clock.now_secs());
+        let done = self
+            .store
+            .run(move |c| crate::restore::settle_restored(c, &id, basis, now))
+            .await
+            .unwrap_or(false);
+        if done {
+            self.ledger.settle(&lease.lease_id, lease.bound, now);
+            self.closing
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&lease.lease_id);
+            let fact = json!({ "charge": lease.bound.to_string(), "basis": basis }).to_string();
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::SETTLED, &lease.lease_id, Some(&fact))
+                .await;
+        }
+        done
+    }
+
+    /// `POST /v2/reconcile`: an honest client that lost a lease to a restore proves it holds the
+    /// request proof, and the lease is settled at its bound. No next state is signed; the client
+    /// leaves the note by exit.
+    pub async fn reconcile(&self, body: &[u8]) -> ApiResult<Value> {
+        let value = crate::json::parse_strict(body)
+            .map_err(|e| ApiError::new(Code::MalformedRequest, e.to_string()))?;
+        let (Some(lease_id), request) = (value["lease_id"].as_str(), &value["request"]) else {
+            return Err(ApiError::new(
+                Code::MalformedRequest,
+                "lease_id and request are required",
+            ));
+        };
+        let canonical = crate::operator::parse_request(request.to_string().as_bytes())?.1;
+        let id = lease_id.to_string();
+        let (lease, stored) = self
+            .store
+            .run(move |c| Ok((store::lease(c, &id)?, store::request_json(c, &id)?)))
+            .await
+            .map_err(db)?;
+        let (Some(lease), Some(stored)) = (lease, stored) else {
+            return Err(ApiError::new(Code::LeaseNotFound, "unknown lease"));
+        };
+        // The proof the client holds is the one on file: that is who it is.
+        if serde_json::from_str::<Value>(&stored).ok().as_ref() != Some(&canonical) {
+            return Err(ApiError::new(
+                Code::ProofInvalid,
+                "the request does not match the one on file",
+            ));
+        }
+        if lease.status != crate::restore::RESTORED {
+            return Err(ApiError::new(
+                Code::LeaseNotFound,
+                "the lease is not waiting for reconciliation",
+            ));
+        }
+        if !self.settle_at_bound(&lease, "reconciled").await {
+            return Err(ApiError::new(Code::ReplicaUnreachable, "try again").retry_after(5));
+        }
+        Ok(json!({
+            "status": "finalized",
+            "nullifier_status": "finalized",
+            "charge_applied": lease.bound.to_string(),
+            "next_state": Value::Null,
+        }))
     }
 
     /// Runs [`Operator::tick`] every second for as long as the process lives.

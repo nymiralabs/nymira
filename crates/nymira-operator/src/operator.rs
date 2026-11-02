@@ -40,6 +40,8 @@ pub const ROOT_GRACE_MS: u64 = 60_000;
 pub const LEASE_MAX_SECS: u64 = 600;
 /// Usage is read at least 10 seconds after the key is deactivated; settlement waits for it.
 pub const SETTLE_AFTER_SECS: u64 = LEASE_MAX_SECS + 10;
+/// How often the replica is compared with.
+pub const SYNC_EVERY_SECS: u64 = 10;
 pub const LEASE_BODY_LIMIT: usize = 64 * 1024;
 pub const MAX_CLIENT_REQUEST_ID: usize = 36;
 pub const MAX_PAYLOAD: usize = 2 * 1024;
@@ -128,7 +130,7 @@ pub enum StartError {
     KeyMismatch,
     #[error("the vault's chain id differs from the configured one")]
     ChainMismatch,
-    #[error("a testnet or mainnet vault needs replication before the first signature, which is not built")]
+    #[error("a testnet or mainnet vault needs a real replica before the first signature")]
     NoReplication,
     #[error("store: {0}")]
     Store(String),
@@ -168,7 +170,7 @@ pub struct Operator {
     pub(crate) clock: Arc<dyn Clock>,
     vault: Arc<dyn VaultView>,
     pub(crate) provider: Arc<dyn ProviderAdapter>,
-    replica: Arc<dyn Replica>,
+    pub(crate) replica: Arc<dyn Replica>,
     verifier: Arc<dyn ProofVerifier>,
     withdrawal_verifier: Arc<dyn WithdrawalProofVerifier>,
     closer: Arc<dyn CloseApi>,
@@ -207,6 +209,8 @@ pub struct Operator {
     /// Watchers whose last poll `/v1/status` shows.
     watchers: Mutex<Vec<(String, Arc<crate::watcher::Watcher>)>>,
     started_secs: u64,
+    /// When the replica was last compared with, in Unix seconds.
+    pub(crate) synced_at: Mutex<u64>,
 }
 
 /// Without a heartbeat for this long `/v1/status` says `degraded`.
@@ -253,7 +257,7 @@ impl Operator {
             minter,
             alarms,
         } = parts;
-        if cfg.profile != Profile::Sandbox {
+        if cfg.profile != Profile::Sandbox && !replica.is_real() {
             return Err(StartError::NoReplication);
         }
         let state_pk = state_signer.public_key();
@@ -299,6 +303,7 @@ impl Operator {
             stops: Mutex::new(crate::watch::Stops::default()),
             watchers: Mutex::new(Vec::new()),
             started_secs: now_ms / 1000,
+            synced_at: Mutex::new(0),
         });
         operator
             .refresh_chain(true)
@@ -315,10 +320,47 @@ impl Operator {
                 return Err(StartError::ChainMismatch);
             }
         }
+        operator.restore_from_replica().await?;
         operator.recover().await?;
         operator.judge_credit(credit, credit).await;
         operator.check_models().await;
         Ok(operator)
+    }
+
+    /// Compares with the replica. When it holds entries this machine lacks (an old backup or a
+    /// lost disk), brings them into the database, stamps the leases they restore and revokes
+    /// their provider keys. Until that succeeds the operator is in recovery mode and signs
+    /// nothing; a failed attempt is repeated on every tick.
+    pub(crate) async fn restore_from_replica(&self) -> Result<(), StartError> {
+        let _ = self.replica.sync().await;
+        if !self.replica.in_recovery() {
+            return Ok(());
+        }
+        if self.replica.restore().await.is_err() {
+            return Ok(());
+        }
+        let now = self.clock.now_secs();
+        let restored = self
+            .store
+            .run(move |c| {
+                c.execute(
+                    "UPDATE leases SET retiring_at = ?1
+                     WHERE status = 'restored' AND retiring_at IS NULL",
+                    [now],
+                )?;
+                Ok(store::all_leases(c)?
+                    .into_iter()
+                    .filter(|l| l.status == crate::restore::RESTORED)
+                    .map(|l| l.lease_id)
+                    .collect::<Vec<_>>())
+            })
+            .await
+            .map_err(|e| StartError::Store(e.to_string()))?;
+        // The keys of these leases live on at the provider with no record here.
+        for lease_id in restored {
+            let _ = self.provider.revoke(&lease_id).await;
+        }
+        Ok(())
     }
 
     /// Start-up: provisioning reservations are rolled back and their keys revoked; unacknowledged
@@ -360,6 +402,10 @@ impl Operator {
                 .run(move |c| store::roll_back(c, &id))
                 .await
                 .map_err(|e| StartError::Store(e.to_string()))?;
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::ROLLED_BACK, &lease.lease_id, None)
+                .await;
         }
         let day_start =
             self.clock.now_secs() / crate::budget::SECS_PER_DAY * crate::budget::SECS_PER_DAY;
@@ -390,11 +436,16 @@ impl Operator {
         let (Some(lease), Some(request_json)) = (lease, request) else {
             return Err(ApiError::new(Code::ReplicaUnreachable, "no such lease"));
         };
+        // Hour-rounded from the start: exact times stay in the local store.
+        let reserved_at = self.clock.now_secs() / crate::replog::HOUR * crate::replog::HOUR;
         self.replica
             .append(&ReplicaEntry {
                 nullifier: lease.nullifier,
                 lease_id: lease.lease_id.clone(),
                 request_json,
+                bound: lease.bound,
+                client_request_id: lease.client_request_id.clone(),
+                reserved_at,
             })
             .await
             .map_err(|_| {
@@ -675,7 +726,8 @@ impl Operator {
                 "used": used.to_string(),
                 "resets_ts": resets_ts,
             },
-            "recovery_mode": false,
+            "recovery_mode": self.replica.in_recovery(),
+            "replica": self.replica.health(),
             "emergency_notice": Value::Null,
         })
     }
@@ -726,6 +778,9 @@ impl Operator {
                 Code::BodyTooLarge,
                 "request body over 64 KiB",
             ));
+        }
+        if self.replica.in_recovery() {
+            return Err(crate::operator::clearance::recovery_mode());
         }
         let now = self.clock.now_secs();
         let difficulty = self.puzzle_difficulty();
@@ -992,6 +1047,11 @@ impl Operator {
         let id = lease_id.to_string();
         let _ = self.store.run(move |c| store::roll_back(c, &id)).await;
         self.ledger.release(lease_id);
+        // Undoes the reservation on the second machine and drops its request proof there.
+        let _ = self
+            .replica
+            .record(crate::replog::kinds::ROLLED_BACK, lease_id, None)
+            .await;
     }
 
     pub(crate) fn balance_read_ms(&self) -> u64 {
@@ -1065,7 +1125,7 @@ fn malformed(message: impl Into<String>) -> ApiError {
 
 /// Strict parse of a lease request: valid JSON, no duplicate or unknown keys, bounded fields,
 /// a prompt-free payload whose hash matches. Returns the request and its canonical JSON.
-fn parse_request(body: &[u8]) -> ApiResult<(ApiRequestV2, Value)> {
+pub(crate) fn parse_request(body: &[u8]) -> ApiResult<(ApiRequestV2, Value)> {
     let value = parse_strict(body).map_err(malformed)?;
     if !only_keys(&value, &REQUEST_KEYS)
         || !only_keys(&value["public_inputs"], &INPUT_KEYS)
