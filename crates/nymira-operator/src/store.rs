@@ -142,6 +142,7 @@ impl Store {
              PRAGMA checkpoint_fullfsync=ON; PRAGMA busy_timeout=5000;",
         )?;
         conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(crate::replog::SCHEMA)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
