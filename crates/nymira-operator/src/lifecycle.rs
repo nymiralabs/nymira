@@ -635,7 +635,7 @@ impl Operator {
             return Err(ApiError::new(Code::LeaseNotFound, "unknown lease"));
         };
         // The proof the client holds is the one on file: that is who it is.
-        if stored != canonical.to_string() {
+        if serde_json::from_str::<Value>(&stored).ok().as_ref() != Some(&canonical) {
             return Err(ApiError::new(
                 Code::ProofInvalid,
                 "the request does not match the one on file",

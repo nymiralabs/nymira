@@ -263,6 +263,8 @@ impl Drop for Rig {
     }
 }
 
+pub type ReplicaFactory = Box<dyn FnOnce(Store) -> Arc<dyn nymira_operator::replica::Replica>>;
+
 pub struct Setup {
     pub verifier: Verifier,
     /// `None`: accept every withdrawal proof, or the real check when `verifier` is `Real`.
@@ -271,7 +273,7 @@ pub struct Setup {
     pub tune: Box<dyn FnOnce(&mut Config)>,
     pub clock_secs: u64,
     /// Builds the replica from the operator's own store: tests that run the real replicator.
-    pub replica: Option<Box<dyn FnOnce(Store) -> Arc<dyn nymira_operator::replica::Replica>>>,
+    pub replica: Option<ReplicaFactory>,
 }
 
 impl Default for Setup {

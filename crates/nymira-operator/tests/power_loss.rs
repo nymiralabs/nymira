@@ -31,7 +31,8 @@ fn power_loss_child() {
     runtime.block_on(async {
         let log = Log::new(Store::open(std::path::Path::new(&path)).unwrap());
         let mut out = std::io::stdout();
-        for i in 0u64.. {
+        let mut i = 0u64;
+        loop {
             let entry = log
                 .append(
                     kinds::RESERVATION,
@@ -44,6 +45,7 @@ fn power_loss_child() {
                 .unwrap();
             writeln!(out, "{}", entry.seq).unwrap();
             out.flush().unwrap();
+            i += 1;
         }
     });
 }
