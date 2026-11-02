@@ -398,3 +398,41 @@ pub async fn watcher(cfg: &Config) -> Result<(), Failure> {
     tokio::signal::ctrl_c().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// The replica node on the second machine: the log the laptop pushes to, with the operator's
+/// entry key pinned and retention run every hour.
+pub async fn replica(cfg: &Config) -> Result<(), Failure> {
+    let section = cfg
+        .replica_node
+        .as_ref()
+        .ok_or("this config has no replica_node section")?;
+    let pk: [u8; 32] = hex::decode(&section.entry_public_key)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .ok_or("entry_public_key is not 64 hex digits")?;
+    let node = Arc::new(
+        nymira_operator::replog::ReplicaNode::new(Log::new(store(cfg)?), near_key(cfg, "replica")?)
+            .with_laptop_key(pk),
+    );
+    let purging = node.clone();
+    tokio::spawn(async move {
+        loop {
+            let now = SystemClock.now_secs();
+            let _ = purging.purge(now).await;
+            tokio::time::sleep(std::time::Duration::from_secs(
+                nymira_operator::operator::PURGE_EVERY_SECS,
+            ))
+            .await;
+        }
+    });
+    let listener = tokio::net::TcpListener::bind(&section.listen)
+        .await
+        .map_err(|e| format!("listen {}: {e}", section.listen))?;
+    serve::serve(
+        listener,
+        nymira_operator::replica_http::router(node),
+        Limits::default(),
+    )
+    .await;
+    never()
+}

@@ -635,7 +635,7 @@ impl LeaseChat {
         let mut builder = self
             .http
             .post(self.url("/v1/chat/completions"))
-            .bearer_auth(&secret)
+            .bearer_auth(secret)
             // The signature covers the bytes as sent; no re-encoding on the way.
             .header("Accept-Encoding", "identity")
             .header("Content-Type", "application/json")
@@ -683,7 +683,7 @@ impl LeaseChat {
         let get = |path: String, params: Vec<(&'static str, String)>| {
             self.http
                 .get(self.url(&path))
-                .bearer_auth(&secret)
+                .bearer_auth(secret)
                 .header("Accept-Encoding", "identity")
                 .query(&params)
                 .timeout(Duration::from_secs(20))

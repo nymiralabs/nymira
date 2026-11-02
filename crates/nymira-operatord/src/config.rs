@@ -38,6 +38,8 @@ pub struct Config {
     pub budget: String,
     pub near_ai: NearAiSection,
     pub replica: Option<ReplicaSection>,
+    /// Set on the second machine only: where its replica node listens.
+    pub replica_node: Option<ReplicaNodeSection>,
     #[serde(default)]
     pub alarms: AlarmSection,
 }
@@ -63,6 +65,15 @@ pub struct ReplicaSection {
     pub url: String,
     /// The replica's acknowledgement key, as hex.
     pub public_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplicaNodeSection {
+    /// The tailnet address and port the laptop's replicator calls.
+    pub listen: String,
+    /// The operator's entry-signing key, as hex: entries without its signature are refused.
+    pub entry_public_key: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -110,7 +121,7 @@ impl Config {
         if self.rpc_urls.is_empty() {
             return Err("rpc_urls is empty".into());
         }
-        if self.profile != "sandbox" && self.replica.is_none() {
+        if self.profile != "sandbox" && self.replica.is_none() && self.replica_node.is_none() {
             return Err("a testnet or mainnet operator needs a replica".into());
         }
         if self.profile == "mainnet" && self.network != "mainnet" {

@@ -138,7 +138,22 @@ CREATE TABLE IF NOT EXISTS operator_txs(
 
 impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
-        Self::init(Connection::open(path)?)
+        // Several processes open one file at start-up. SQLite answers a lock taken while another
+        // connection switches the file to WAL at once, without the busy timeout, so retry.
+        let started = std::time::Instant::now();
+        loop {
+            match Connection::open(path).and_then(Self::init) {
+                Err(rusqlite::Error::SqliteFailure(e, _))
+                    if matches!(
+                        e.code,
+                        rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                    ) && started.elapsed() < std::time::Duration::from_secs(30) =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                other => return other,
+            }
+        }
     }
 
     pub fn open_in_memory() -> rusqlite::Result<Self> {
@@ -146,6 +161,8 @@ impl Store {
     }
 
     fn init(conn: Connection) -> rusqlite::Result<Self> {
+        // First: five processes open this file at start-up, and switching to WAL needs a lock.
+        conn.busy_timeout(std::time::Duration::from_secs(30))?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA fullfsync=ON;
              PRAGMA checkpoint_fullfsync=ON; PRAGMA busy_timeout=5000;",

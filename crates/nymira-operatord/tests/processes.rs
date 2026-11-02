@@ -287,15 +287,26 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
 
     // The key-leak stop reaches the running API through the database.
     run(&conf("api"), &["emergency", "set", "test stop"]);
-    let status: Value = http
-        .get(format!("{url}/v1/status"))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(status["emergency_notice"], "test stop");
+    // The API caches the flag for a second, so it shows within two.
+    let started = Instant::now();
+    let status: Value = loop {
+        let status: Value = http
+            .get(format!("{url}/v1/status"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if status["emergency_notice"] == "test stop" {
+            break status;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the stop never showed"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
     // Watchers write their poll time where the API shows it.
     assert!(status["watchers"].as_array().is_some());
 }
