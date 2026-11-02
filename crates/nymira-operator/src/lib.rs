@@ -14,6 +14,7 @@ pub mod http;
 pub mod ipc;
 pub mod json;
 pub mod lifecycle;
+pub mod minter_service;
 pub mod nearai;
 pub mod operator;
 pub mod provider;

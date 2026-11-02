@@ -24,7 +24,7 @@ pub fn key_cap_nano_usd(bound_micro_usd: u128) -> u128 {
     bound_micro_usd * 1_000 * 100 / 103
 }
 
-#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ProviderError {
     #[error("provider rejected the call: {0}")]
     Rejected(String),
@@ -80,7 +80,7 @@ pub struct ChatResponse {
 }
 
 /// A model as the provider lists it live, with its prices in nano-USD per token.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LiveModel {
     pub id: String,
     pub provider_type: String,
