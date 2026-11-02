@@ -369,6 +369,12 @@ impl SpendBook {
         self.leases.get(lease).map_or(0, |s| s.finished)
     }
 
+    /// Estimated cost of every lease's finished requests, micro-USD: spent at the provider, not
+    /// yet settled in the ledger.
+    pub fn total_finished(&self) -> u128 {
+        self.leases.values().map(|s| s.finished).sum()
+    }
+
     /// Whether the book has seen the lease: after a restart it has not.
     pub fn knows(&self, lease: &str) -> bool {
         self.leases.contains_key(lease)

@@ -90,10 +90,38 @@ async fn a_key_is_minted_capped_listed_and_revoked() {
     adapter.revoke("lease-1").await.unwrap();
     assert!(rig.fake.handle.keys()[0].deleted);
     assert!(adapter.list().await.unwrap().is_empty());
+    // Settlement reads the usage after the revoke; the dead key cannot chat or give evidence.
+    assert_eq!(adapter.usage("lease-1").await.unwrap().cost_nano_usd, 0);
     assert!(matches!(
-        adapter.usage("lease-1").await,
+        adapter.chat("lease-1", rig.chat_request()).await,
         Err(ProviderError::NotFound(_))
     ));
+    assert!(matches!(
+        adapter.usage("nobody").await,
+        Err(ProviderError::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn usage_billed_before_the_revoke_is_still_read_after_it() {
+    let rig = Rig::new().await;
+    let adapter = rig.adapter(Some(FIRST_REFRESH_TOKEN)).unwrap();
+    adapter.mint("a", 100_000).await.unwrap();
+    let mut chat = adapter.chat("a", rig.chat_request()).await.unwrap();
+    while chat.body.next_chunk().await.is_some() {}
+    adapter.revoke("a").await.unwrap();
+    assert_eq!(adapter.usage("a").await.unwrap().cost_nano_usd, 3_740);
+    // A restarted process still knows the key id.
+    drop(adapter);
+    assert_eq!(
+        rig.adapter(None)
+            .unwrap()
+            .usage("a")
+            .await
+            .unwrap()
+            .cost_nano_usd,
+        3_740
+    );
 }
 
 #[tokio::test]

@@ -43,7 +43,8 @@ pub struct NearAiConfig {
     pub reporting_token: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+// No `Debug` on the two secret-bearing types: a stray `{:?}` must not print a token.
+#[derive(Clone, Serialize, Deserialize)]
 struct Login {
     refresh_token: String,
     /// Unix seconds; the provider reports it with each exchange.
@@ -57,10 +58,13 @@ struct Session {
     access: Option<(String, u64)>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct KeyEntry {
     id: String,
     secret: String,
+    /// The key is dead; only the id stays, because settlement reads its usage afterwards.
+    #[serde(default)]
+    revoked: bool,
 }
 
 /// What the evidence fetch needs from a lease's chats: ids and models, newest last.
@@ -262,6 +266,17 @@ impl NearAiAdapter {
             .ok_or_else(|| ProviderError::NotFound("unknown lease".into()))
     }
 
+    /// The entry of a key that can still be used.
+    fn live_entry(&self, lease_id: &str) -> Result<KeyEntry, ProviderError> {
+        Ok(self.entry(lease_id)?).and_then(|e| {
+            if e.revoked {
+                Err(ProviderError::NotFound("key is revoked".into()))
+            } else {
+                Ok(e)
+            }
+        })
+    }
+
     /// Every active key of the workspace that this adapter named, as (provider id, name).
     async fn workspace_keys(&self) -> Result<Vec<(String, String)>, ProviderError> {
         let mut out = Vec::new();
@@ -356,6 +371,7 @@ impl ProviderAdapter for NearAiAdapter {
             KeyEntry {
                 id: id.into(),
                 secret: secret.into(),
+                revoked: false,
             },
         );
         if let Err(e) = self.save_keys() {
@@ -421,7 +437,12 @@ impl ProviderAdapter for NearAiAdapter {
             None => self.entry(lease_id)?.id,
         };
         self.deactivate(&id).await?;
-        self.keys().remove(lease_id);
+        // shortcut: revoked entries (an id each) stay in the table, so it grows with the number
+        // of leases; prune them once settlement is known to be done.
+        if let Some(entry) = self.keys().get_mut(lease_id) {
+            entry.secret.clear();
+            entry.revoked = true;
+        }
         self.chats
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -509,7 +530,7 @@ impl ProviderAdapter for NearAiAdapter {
         lease_id: &str,
         request: ChatRequest,
     ) -> Result<ChatResponse, ProviderError> {
-        let entry = self.entry(lease_id)?;
+        let entry = self.live_entry(lease_id)?;
         let mut builder = self
             .http
             .post(self.url("/v1/chat/completions"))
@@ -547,7 +568,7 @@ impl ProviderAdapter for NearAiAdapter {
         lease_id: &str,
         query: &EvidenceQuery,
     ) -> Result<Option<Value>, ProviderError> {
-        let entry = self.entry(lease_id)?;
+        let entry = self.live_entry(lease_id)?;
         let chats: Vec<(String, String)> = {
             let log = self.chats.lock().unwrap_or_else(|e| e.into_inner());
             match log.get(lease_id) {
@@ -569,7 +590,9 @@ impl ProviderAdapter for NearAiAdapter {
         };
         let mut signatures = Vec::new();
         for (chat_id, chat_model) in chats {
-            let reply = get(
+            // A failed fetch (404: not stored or never made; 5xx; 429) must not cost the other
+            // signatures and the attestation, because the key dies right after this call.
+            let Ok(reply) = get(
                 format!("/v1/signature/{}", encode_segment(&chat_id)),
                 vec![
                     ("model", chat_model),
@@ -577,12 +600,15 @@ impl ProviderAdapter for NearAiAdapter {
                 ],
             )
             .await
-            .map_err(transport)?;
-            // A 404 can mean the signature is not stored yet or was not made; keep what exists.
-            if reply.status() == reqwest::StatusCode::NOT_FOUND {
+            else {
                 continue;
-            }
-            let value: Value = checked(reply).await?.json().await.map_err(transport)?;
+            };
+            let Ok(reply) = checked(reply).await else {
+                continue;
+            };
+            let Ok(value) = reply.json::<Value>().await else {
+                continue;
+            };
             signatures.push(json!({"chat_id": chat_id, "signature": value}));
         }
         let attestation: Value = checked(

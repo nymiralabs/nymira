@@ -419,7 +419,13 @@ impl Operator {
         *self.balance_at_ms.lock().unwrap_or_else(|e| e.into_inner()) = self.clock.now_ms();
         match read {
             Ok(Ok(balance)) => {
-                let expected = self.ledger.live_credit();
+                // Chats spend credit at the provider before their lease settles in the ledger.
+                let unsettled = self
+                    .spend
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .total_finished();
+                let expected = self.ledger.live_credit().saturating_sub(unsettled);
                 self.ledger.set_balance(balance);
                 self.judge_credit(expected, balance).await;
             }
