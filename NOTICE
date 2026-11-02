@@ -27,6 +27,10 @@ zkapi (https://github.com/ethereum/zkapi)
      (src/poseidon_params.rs, from examples/gen_poseidon_params.rs; a test
      regenerates them) instead of deriving them on every call, and re-exports
      Felt252 and MERKLE_DEPTH. Same hashes, no circuit change.
+  6. Wallet::set_request_time (zkapi-client/src/wallet.rs): the request proof's
+     request_time can be set by the caller, so nymirad stamps the operator's signed
+     time on a coarse grid. Without a call the wallet stamps the local clock, as upstream
+     does. Exit locks, the near-expiry check and ownership proofs are unchanged.
   Not applied: zkapi PR #29 (sdk/ only; the JS SDK is not vendored).
   No circuit change.
 

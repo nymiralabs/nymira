@@ -47,6 +47,10 @@ zkapi-client = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-client" }
 name = "demo"
 required-features = ["mock"]
 
+[[example]]
+name = "record_evidence"
+required-features = ["mock"]
+
 [dev-dependencies]
 nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }
 near-workspaces = { workspace = true }

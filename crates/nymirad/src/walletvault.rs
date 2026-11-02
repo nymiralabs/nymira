@@ -33,6 +33,10 @@ pub struct WalletVault {
 
 type Files = BTreeMap<String, String>;
 
+/// Written last by `checkout`. A working directory without it is a checkout that died half way:
+/// it holds some of the files, so sealing it would overwrite the good sealed copy with a part.
+const COMPLETE: &str = ".nymira-complete";
+
 fn b64() -> base64::engine::GeneralPurpose {
     base64::engine::general_purpose::STANDARD
 }
@@ -93,6 +97,7 @@ impl WalletVault {
                 std::fs::write(path, data)?;
             }
         }
+        std::fs::write(dir.join(COMPLETE), b"")?;
         Ok(dir)
     }
 
@@ -116,6 +121,11 @@ impl WalletVault {
         let mut sealed = Vec::new();
         for entry in entries.flatten() {
             let key = entry.file_name().to_string_lossy().into_owned();
+            if !entry.path().join(COMPLETE).exists() {
+                // The sealed copy is still whole; the next checkout starts again from it.
+                std::fs::remove_dir_all(entry.path())?;
+                continue;
+            }
             self.checkin(&key)?;
             sealed.push(key);
         }
@@ -126,6 +136,9 @@ impl WalletVault {
 fn collect(root: &Path, dir: &Path, out: &mut Files) -> Result<(), VaultError> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
+        if path.file_name().is_some_and(|n| n == COMPLETE) {
+            continue;
+        }
         if path.is_dir() {
             collect(root, &path, out)?;
         } else {
@@ -214,6 +227,32 @@ mod tests {
             br#"{"secret_s":"beef02"}"#
         );
         next.checkin("n4").unwrap();
+    }
+
+    /// The process dies while `checkout` is still writing: the directory holds part of the wallet
+    /// and no completion marker. Sealing it would replace the whole sealed copy with that part.
+    #[test]
+    fn a_checkout_that_died_half_way_does_not_replace_the_sealed_wallet() {
+        let home = tempfile::tempdir().unwrap();
+        let vault = WalletVault::new(home.path(), "pass", 1_000);
+        let dir = vault.checkout("n5").unwrap();
+        std::fs::write(dir.join("note_state.json"), br#"{"secret_s":"f00d03"}"#).unwrap();
+        vault.checkin("n5").unwrap();
+
+        let dir = vault.checkout("n5").unwrap();
+        std::fs::remove_file(dir.join(COMPLETE)).unwrap();
+        std::fs::remove_file(dir.join("note_state.json")).unwrap();
+        drop(vault);
+
+        let next = WalletVault::new(home.path(), "pass", 1_000);
+        assert!(next.seal_leftovers().unwrap().is_empty());
+        assert!(!dir.exists());
+        let back = next.checkout("n5").unwrap();
+        assert_eq!(
+            std::fs::read(back.join("note_state.json")).unwrap(),
+            br#"{"secret_s":"f00d03"}"#
+        );
+        next.checkin("n5").unwrap();
     }
 
     #[test]

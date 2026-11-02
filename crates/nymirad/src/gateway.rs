@@ -64,9 +64,10 @@ pub struct GatewayConfig {
     /// Percent of a lease's remaining bound one request may use: 90, or 70 if the first-day
     /// overspend rule triggers (it did not, see `docs/day-1-checks.md`).
     pub share_pct: u128,
-    /// A new lease waits a random time up to this many seconds before anything goes out, and
-    /// opens its Tor circuit meanwhile (`net::prewarm`), so lease timing does not follow the
-    /// moment the user asked. 0 turns both off; over a direct transport they are off anyway.
+    /// A new lease waits a random time up to this many seconds before anything goes out, then
+    /// opens its Tor circuit while the proof is built (`net::prewarm`), so lease timing does not
+    /// follow the moment the user asked. 0 turns both off; over a direct transport they are off
+    /// anyway.
     pub prewarm_max_secs: u64,
     pub backup: Option<(age::x25519::Recipient, Vec<PathBuf>)>,
 }

@@ -88,8 +88,23 @@ pub async fn prewarm(socks: &str, identity: &str, host: &str, port: u16) -> std:
     if ok[1] != 0 {
         return Err(bad("the proxy refused the identity"));
     }
-    let mut connect = vec![5, 1, 0, 3, host.len() as u8];
-    connect.extend(host.as_bytes());
+    let mut connect = vec![5, 1, 0];
+    match host.trim_matches(['[', ']']).parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            connect.push(1);
+            connect.extend(ip.octets());
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            connect.push(4);
+            connect.extend(ip.octets());
+        }
+        // A name is left to the proxy to resolve.
+        Err(_) => {
+            connect.push(3);
+            connect.push(host.len() as u8);
+            connect.extend(host.as_bytes());
+        }
+    }
     connect.extend(port.to_be_bytes());
     s.write_all(&connect).await?;
     let mut reply = [0u8; 4];

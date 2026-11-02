@@ -271,7 +271,7 @@ async fn other_errors_come_back_by_code_with_their_hint() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_unchanged_wallet_proves_the_lease_and_installs_the_next_state() {
+async fn the_wallet_proves_the_lease_on_the_operators_time_and_installs_the_next_state() {
     use nymira_near_codec::chain_id;
     use zkapi_client::config::ClientConfig;
     use zkapi_client::wallet::Wallet;
@@ -322,6 +322,7 @@ async fn the_unchanged_wallet_proves_the_lease_and_installs_the_next_state() {
         },
         || now,
         |attempt, request_time| {
+            assert_eq!(request_time % nymirad::gate::TIME_GRID_SECS, 0);
             let mut w = wallet.lock().unwrap();
             if attempt == Attempt::Rebuild {
                 nymirad::lease::set_aside_stale(&w).unwrap();

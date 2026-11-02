@@ -241,6 +241,9 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
         Err(e) => return refuse(format!("attestation-policy.json: {e}")),
     };
     match nymirad::attest::Policy::load(&json, &signer, MIN_POLICY_VERSION) {
+        Ok(policy) if policy.deployments.is_empty() => {
+            refuse("attestation-policy.json lists no deployment".into())
+        }
         Ok(policy) => Arc::new(nymirad::nearai::NearAiAttestor::new(policy)),
         Err(e) => refuse(format!("attestation-policy.json: {e}")),
     }

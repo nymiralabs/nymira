@@ -7,6 +7,9 @@
 //! is encrypted to equals the attested signer, NVIDIA's service accepts the GPU evidence, and the
 //! measured deployment (`mr_td`, `rtmr0-2`, the compose and OS image hashes) is one the signed
 //! policy lists, as one entry. Everything is fetched through the same SOCKS proxy.
+//!
+//! Not checked: `mr_seam`, `xfam` and the TD attributes other than the debug bit. The quote's
+//! signature covers them, the policy does not name them.
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -62,6 +65,7 @@ pub enum Collateral {
         pccs_url: String,
     },
     /// A recording, checked at the time it was recorded (tests).
+    #[cfg(feature = "mock")]
     Recorded {
         collateral: Box<dcap_qvl::QuoteCollateralV3>,
         at_secs: u64,
@@ -101,7 +105,9 @@ impl IntelTdx {
         }
     }
 
-    /// Verifies the quote fully but accepts any measurement, and records it in `sink`.
+    /// Verifies the quote fully but accepts any measurement, and records it in `sink`. Release
+    /// tooling only (`record_evidence`): a build without the `mock` feature cannot reach it.
+    #[cfg(feature = "mock")]
     pub fn observing(collateral: Collateral, sink: Sink) -> Self {
         Self {
             collateral,
@@ -173,6 +179,7 @@ impl TdxQuoteVerifier for IntelTdx {
             }
         })?;
         let (collateral, now) = match &self.collateral {
+            #[cfg(feature = "mock")]
             Collateral::Recorded {
                 collateral,
                 at_secs,
@@ -196,6 +203,12 @@ impl TdxQuoteVerifier for IntelTdx {
                 )
             }
         };
+        // A new quote starts with no match, so a failure here never leaves the last one behind.
+        self.accepted
+            .matched
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let verified = dcap_qvl::verify::verify(&bytes, &collateral, now).map_err(|_| {
             VerificationError::QuoteVerificationFailed {
                 reason: "verifier_error",
@@ -300,7 +313,6 @@ struct WireSignature {
 
 /// Recorded evidence replayed in place of live fetches (tests). The nonces are the ones the
 /// recording was fetched under, and the collaterals are checked at the time they were recorded.
-#[doc(hidden)]
 pub struct Replay {
     pub model_collateral: Collateral,
     pub gateway_collateral: Collateral,
@@ -327,7 +339,7 @@ impl NearAiAttestor {
     }
 
     /// An attestor that checks recorded evidence served by a local server (tests).
-    #[doc(hidden)]
+    #[cfg(feature = "mock")]
     pub fn replaying(policy: Policy, replay: Replay) -> Self {
         Self {
             replay: Some(replay),
