@@ -575,12 +575,13 @@ async fn signature_and_attestation_input_rules() {
             .status(),
         400
     );
+    // The attestation report is public, as the live one is: an unknown key does not matter.
     assert_eq!(
         get("sk-unknown", "/v1/attestation/report".into())
             .await
             .unwrap()
             .status(),
-        401
+        200
     );
 }
 

@@ -24,6 +24,20 @@ fn usdc(base_units: &str) -> String {
     format!("{}.{:06} USDC", n / 1_000_000, n % 1_000_000)
 }
 
+/// One line per lease record: metadata only.
+pub fn lease_line(r: &crate::records::LeaseRecord) -> String {
+    let trust = r.trust.as_ref().map_or("open", |t| t.label());
+    let charge = r.charge.as_deref().unwrap_or("-");
+    let mut line = format!(
+        "Lease {} on note {}: {} requests, {} model, charge {charge}, {trust}",
+        r.lease_id, r.note_id, r.requests, r.model
+    );
+    for w in &r.warnings {
+        line.push_str(&format!("\n  warning: {w}"));
+    }
+    line
+}
+
 /// The text `nymirad status` prints. Nothing in it comes from a secret.
 pub fn render(
     operator: Result<&Value, &RpcError>,

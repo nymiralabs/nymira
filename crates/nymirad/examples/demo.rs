@@ -223,11 +223,40 @@ async fn main() {
         serde_json::to_vec_pretty(&pins).unwrap(),
     )
     .unwrap();
+    // The attestation policy for the fake gateway's test evidence, signed with a demo key.
+    let policy_signer = SigningKey::from_bytes(&rand::random::<[u8; 32]>());
+    let test = nymira_fake_near_ai::TestPolicy::fake();
+    let policy = nymirad::attest::Policy {
+        version: 1,
+        attestation_root_pk: test.attestation_root_pk,
+        accepted_measurements: test.accepted_measurements,
+        accepted_tcb_statuses: test.accepted_tcb_statuses,
+        signature: String::new(),
+    }
+    .sign(&policy_signer);
+    std::fs::write(
+        home.join("attestation-policy.json"),
+        serde_json::to_vec_pretty(&policy).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        home.join("policy-signer.pub"),
+        hex::encode(policy_signer.verifying_key().to_bytes()),
+    )
+    .unwrap();
     nymirad::config::Config {
         rpc_url: worker.rpc_addr(),
         operator_url: operator_url.clone(),
         account: alice.id().to_string(),
         vault: Some(vault.id().to_string()),
+        gateway_url: Some(fake.url()),
+        setup_dir: Some(SETUP_DIR.into()),
+        proving_key_sha256: Some({
+            use sha2::{Digest, Sha256};
+            hex::encode(Sha256::digest(
+                std::fs::read(format!("{SETUP_DIR}/request.pk")).unwrap(),
+            ))
+        }),
         ..Default::default()
     }
     .save(&home)

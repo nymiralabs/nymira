@@ -101,6 +101,12 @@ async fn guard(
     next.run(request).await
 }
 
+async fn models() -> axum::Json<serde_json::Value> {
+    axum::Json(crate::openai::models(
+        &nymira_operator::proxy::ProxyConfig::default().models,
+    ))
+}
+
 async fn not_built() -> Response {
     refuse(
         StatusCode::NOT_IMPLEMENTED,
@@ -110,22 +116,48 @@ async fn not_built() -> Response {
 }
 
 /// The guard wraps every route, including paths that do not exist, so a probe learns nothing
-/// before it passes.
+/// before it passes. Without a gateway, chat answers 501.
 pub fn router(token: Arc<OwnerToken>) -> Router {
-    Router::new()
-        .route("/v1/chat/completions", post(not_built))
-        .route("/v1/models", get(not_built))
+    router_with(token, None)
+}
+
+pub fn router_with(
+    token: Arc<OwnerToken>,
+    gateway: Option<Arc<crate::gateway::Gateway>>,
+) -> Router {
+    let routes = match gateway {
+        Some(gw) => Router::new()
+            .route("/v1/chat/completions", post(crate::gateway::chat_handler))
+            .route("/v1/models", get(crate::gateway::models_handler))
+            .with_state(gw),
+        None => Router::new()
+            .route("/v1/chat/completions", post(not_built))
+            .route("/v1/models", get(models)),
+    };
+    routes
         .fallback(not_built)
         .layer(middleware::from_fn_with_state(token.clone(), guard))
         .with_state(token)
 }
 
 /// Serves on `127.0.0.1:8788`.
-pub async fn serve(token: Arc<OwnerToken>) -> std::io::Result<()> {
+pub async fn serve(
+    token: Arc<OwnerToken>,
+    gateway: Option<Arc<crate::gateway::Gateway>>,
+) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", PORT)).await?;
+    let app = router_with(token, gateway.clone());
     axum::serve(
         listener,
-        router(token).into_make_service_with_connect_info::<SocketAddr>(),
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .await
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
+    // The conversation ends with the process: retire what is open so no slot fee runs on.
+    if let Some(gw) = gateway {
+        gw.reap(true).await;
+    }
+    Ok(())
 }

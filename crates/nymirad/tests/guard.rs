@@ -69,7 +69,12 @@ async fn the_owner_token_reaches_chat_and_models_only() {
     let f = fixture();
     for (m, p) in [("POST", "/v1/chat/completions"), ("GET", "/v1/models")] {
         let s = send(&f, req(&f, m, p, "localhost:8788"), LOCAL).await;
-        assert_eq!(s, StatusCode::NOT_IMPLEMENTED, "{m} {p} passes the guard");
+        let reached = if p == "/v1/models" {
+            StatusCode::OK
+        } else {
+            StatusCode::NOT_IMPLEMENTED
+        };
+        assert_eq!(s, reached, "{m} {p} passes the guard");
     }
     for (m, p) in [
         ("POST", "/v1/deposit"),
@@ -102,11 +107,7 @@ async fn browser_and_remote_requests_are_refused() {
     let f = fixture();
     for host in ["localhost:8788", "127.0.0.1:8788", "[::1]:8788"] {
         let b = req(&f, "GET", "/v1/models", host);
-        assert_eq!(
-            send(&f, b, LOCAL).await,
-            StatusCode::NOT_IMPLEMENTED,
-            "{host}"
-        );
+        assert_eq!(send(&f, b, LOCAL).await, StatusCode::OK, "{host}");
     }
     for host in [
         "localhost",
@@ -124,16 +125,13 @@ async fn browser_and_remote_requests_are_refused() {
         req(&f, "GET", "/v1/models", "localhost:8788").header("sec-fetch-site", "cross-site");
     assert_eq!(send(&f, cross, LOCAL).await, StatusCode::FORBIDDEN);
     let direct = req(&f, "GET", "/v1/models", "localhost:8788").header("sec-fetch-site", "none");
-    assert_eq!(send(&f, direct, LOCAL).await, StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(send(&f, direct, LOCAL).await, StatusCode::OK);
     for peer in ["192.168.1.5:4000", "[2001:db8::1]:4000"] {
         let b = req(&f, "GET", "/v1/models", "localhost:8788");
         assert_eq!(send(&f, b, peer).await, StatusCode::FORBIDDEN, "{peer}");
     }
     let v6 = req(&f, "GET", "/v1/models", "localhost:8788");
-    assert_eq!(
-        send(&f, v6, "[::1]:4000").await,
-        StatusCode::NOT_IMPLEMENTED
-    );
+    assert_eq!(send(&f, v6, "[::1]:4000").await, StatusCode::OK);
 }
 
 #[tokio::test]

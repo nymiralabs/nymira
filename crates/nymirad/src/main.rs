@@ -11,6 +11,7 @@ use nymira_operator::store::Store;
 use nymira_operator::tx::NearTx;
 use nymirad::config::Config;
 use nymirad::deposit::{Confirm, Ctx, Summary};
+use nymirad::gateway::{Gateway, GatewayConfig};
 use nymirad::mode::Mode;
 use nymirad::pins::{self, Tripwire};
 use nymirad::quotes::{Board, OneClick, QuoteSource, BASE_URL};
@@ -79,6 +80,128 @@ fn funding_key(path: &str) -> SigningKey {
     SigningKey::from_bytes(&seed)
 }
 
+/// The chat gateway, or `None` (with the reason on stderr) when something it needs is missing.
+/// The vault pins are checked here as well as before every lease.
+async fn build_gateway(
+    cfg: &Config,
+    home: &std::path::Path,
+    mode: Mode,
+    source: &PassphraseSource,
+    clock: Arc<dyn Clock>,
+) -> Option<Arc<Gateway>> {
+    if cfg.rpc_url.is_empty() {
+        return None;
+    }
+    let rpc = Rpc::new(cfg.rpc_url.clone(), &cfg.transport()).unwrap_or_else(|e| die(e));
+    let pinned = pins::compiled(mode);
+    #[cfg(feature = "mock")]
+    let pinned = pinned.or_else(|| pins::demo(home));
+    let Some(pinned) = pinned else {
+        eprintln!("warning: no vault is pinned for {mode:?} in this build: chat is off");
+        return None;
+    };
+    match Tripwire::default().check_against(&pinned, &rpc).await {
+        Ok(()) => println!("vault pins match"),
+        Err(diffs) => {
+            for line in pins::warnings(&diffs) {
+                eprintln!("warning: {line}");
+            }
+        }
+    }
+    let passphrase = source.read().unwrap_or_else(|e| die(e));
+    let notes =
+        NoteStore::open(&home.join("notes.sealed"), &passphrase, ROUNDS).unwrap_or_else(|e| die(e));
+    let setup_dir = cfg.setup_dir.clone().or_else(|| {
+        eprintln!("warning: config.json has no setup_dir (the proving key): chat is off");
+        None
+    })?;
+    let proving_key_sha256 = compiled_proving_key_hash(cfg);
+    let network = match mode {
+        Mode::Testnet => nymira_near_codec::Network::Testnet,
+        Mode::Mainnet => nymira_near_codec::Network::Mainnet,
+    };
+    let http = nymirad::rpc::client(&cfg.transport()).unwrap_or_else(|e| die(e));
+    let attestor = attestor(home);
+    let gateway = Gateway::new(
+        GatewayConfig {
+            home: home.to_path_buf(),
+            operator_url: cfg.operator_url.clone(),
+            gateway_url: cfg
+                .gateway_url
+                .clone()
+                .unwrap_or_else(|| nymirad::config::DEFAULT_GATEWAY.into()),
+            vault: pinned.vault.clone(),
+            network,
+            setup_dir,
+            proving_key_sha256,
+            models: nymira_operator::proxy::ProxyConfig::default().models,
+            rounds: ROUNDS,
+            idle_secs: cfg.idle_secs.unwrap_or(120),
+            share_pct: 90,
+            backup: cfg.backup_recipient.as_deref().and_then(|r| {
+                backup::parse_recipient(r)
+                    .ok()
+                    .map(|r| (r, cfg.backup_places.clone()))
+            }),
+        },
+        http,
+        rpc,
+        pinned,
+        notes,
+        &passphrase,
+        attestor,
+        clock,
+    );
+    let gateway = match gateway {
+        Ok(g) => Arc::new(g),
+        Err(e) => {
+            eprintln!("warning: chat is off: {e}");
+            return None;
+        }
+    };
+    for line in gateway.check_models().await {
+        eprintln!("warning: model list: {line}");
+    }
+    gateway.spawn_background(std::time::Duration::from_secs(5));
+    Some(gateway)
+}
+
+/// The proving key's SHA-256 pinned in this build. Demo builds may take it from `config.json`.
+fn compiled_proving_key_hash(cfg: &Config) -> String {
+    let _ = cfg;
+    include_str!("../pins/proving-key.sha256")
+        .trim()
+        .to_string()
+}
+
+#[cfg(feature = "mock")]
+fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
+    // Demo builds check the fake gateway's test evidence against a policy signed by the demo key.
+    let signer: [u8; 32] = std::fs::read_to_string(home.join("policy-signer.pub"))
+        .ok()
+        .and_then(|t| hex::decode(t.trim()).ok())
+        .and_then(|b| b.try_into().ok())
+        .unwrap_or_else(|| die("demo build: policy-signer.pub is missing"));
+    let json = std::fs::read(home.join("attestation-policy.json"))
+        .unwrap_or_else(|e| die(format!("attestation-policy.json: {e}")));
+    let policy = nymirad::attest::Policy::load(&json, &signer, MIN_POLICY_VERSION)
+        .unwrap_or_else(|e| die(e));
+    Arc::new(nymirad::attest::TestEvidence { policy })
+}
+
+/// This build has no verifier for NEAR AI's Intel and NVIDIA evidence, so chat is refused rather
+/// than sent to a key nobody checked.
+#[cfg(not(feature = "mock"))]
+fn attestor(_home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
+    eprintln!(
+        "warning: this build cannot verify NEAR AI attestation; chat requests will be refused"
+    );
+    Arc::new(nymirad::attest::Unavailable)
+}
+
+/// Policies older than this are refused.
+const MIN_POLICY_VERSION: u32 = 1;
+
 #[tokio::main]
 async fn main() {
     if let Err(e) = hardening::apply() {
@@ -138,33 +261,12 @@ async fn main() {
                 guard::PORT,
                 home.join("owner.token").display()
             );
-            // The pin check at open: a changed vault is shown at once, not at the first deposit.
-            match Config::load(&home) {
-                Ok(cfg) => {
-                    let rpc =
-                        Rpc::new(cfg.rpc_url.clone(), &cfg.transport()).unwrap_or_else(|e| die(e));
-                    let tripwire = Tripwire::default();
-                    let pinned = pins::compiled(mode);
-                    #[cfg(feature = "mock")]
-                    let pinned = pinned.or_else(|| pins::demo(&home));
-                    let checked = match &pinned {
-                        Some(p) => tripwire.check_against(p, &rpc).await,
-                        None => tripwire.check(mode, &rpc, "").await,
-                    };
-                    match checked {
-                        Ok(()) => println!("vault pins match"),
-                        Err(diffs) => {
-                            for line in pins::warnings(&diffs) {
-                                eprintln!("warning: {line}");
-                            }
-                        }
-                    }
-                }
-                Err(_) => {
-                    eprintln!("warning: no config.json (run init): the vault pins were not checked")
-                }
-            }
-            guard::serve(Arc::new(token))
+            let cfg = Config::load(&home).unwrap_or_else(|e| {
+                eprintln!("warning: {e} (run init): chat is off");
+                Config::default()
+            });
+            let gateway = build_gateway(&cfg, &home, mode, &source, clock.clone()).await;
+            guard::serve(Arc::new(token), gateway)
                 .await
                 .unwrap_or_else(|e| die(e));
         }
@@ -206,6 +308,14 @@ async fn main() {
             }
             let pins =
                 pinned.unwrap_or_else(|| die("no vault is pinned in this build; deposits are off"));
+            for r in nymirad::records::Records::new(&home)
+                .list()
+                .iter()
+                .rev()
+                .take(5)
+            {
+                println!("{}", status::lease_line(r));
+            }
             if transport == Transport::Direct && !cfg!(feature = "mock") {
                 println!("No Tor proxy is configured: this deposit shows your IP address to the RPC endpoint.");
                 if !Terminal.confirm_text("Type yes to go on: ") {

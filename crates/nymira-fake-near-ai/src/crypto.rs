@@ -14,7 +14,7 @@ use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-pub const HKDF_INFO: &[u8] = b"nymira-fake-near-ai/e2ee/v1";
+pub const HKDF_INFO: &[u8] = b"ed25519_encryption";
 
 /// Signs `provider_tee` signatures and is listed in the model attestation.
 pub fn model_signing_key() -> SigningKey {
@@ -32,12 +32,26 @@ pub fn attestation_root_key() -> SigningKey {
 pub fn rogue_signing_key() -> SigningKey {
     SigningKey::from_bytes(&[4; 32])
 }
-/// The model's E2EE secret key. Public so test clients can check what the fake decrypted.
-pub const MODEL_E2EE_SECRET: [u8; 32] = [7; 32];
+/// The model's E2EE secret (the scalar of its signing key). Public so test clients can check
+/// what the fake decrypted.
+pub fn model_e2ee_secret() -> [u8; 32] {
+    model_signing_key().to_scalar_bytes()
+}
 
-/// The model's E2EE public key (hex), published in the attestation report.
+/// The model's E2EE public key (hex, Ed25519), published in the attestation report. It is the
+/// model's signing address.
 pub fn model_e2ee_public_hex() -> String {
-    hex::encode(PublicKey::from(&StaticSecret::from(MODEL_E2EE_SECRET)).as_bytes())
+    verifying_hex(&model_signing_key())
+}
+
+/// The X25519 key for an Ed25519 public key.
+pub fn ed25519_to_x25519(pk: &[u8; 32]) -> Option<[u8; 32]> {
+    Some(
+        ed25519_dalek::VerifyingKey::from_bytes(pk)
+            .ok()?
+            .to_montgomery()
+            .to_bytes(),
+    )
 }
 pub fn verifying_hex(k: &SigningKey) -> String {
     hex::encode(k.verifying_key().as_bytes())
@@ -51,10 +65,11 @@ fn cipher(shared: &[u8; 32]) -> XChaCha20Poly1305 {
     XChaCha20Poly1305::new((&key).into())
 }
 
-/// Encrypts to an X25519 public key with a fresh ephemeral key.
+/// Encrypts to an Ed25519 public key with a fresh ephemeral key.
 pub fn encrypt_to(recipient: &[u8; 32], plaintext: &[u8]) -> Vec<u8> {
     let eph = StaticSecret::random_from_rng(OsRng);
-    let shared = eph.diffie_hellman(&PublicKey::from(*recipient));
+    let recipient = ed25519_to_x25519(recipient).expect("a valid Ed25519 public key");
+    let shared = eph.diffie_hellman(&PublicKey::from(recipient));
     let mut nonce = [0u8; 24];
     OsRng.fill_bytes(&mut nonce);
     let ct = cipher(shared.as_bytes())
@@ -90,8 +105,10 @@ pub fn parse_key32(hex_str: &str) -> Option<[u8; 32]> {
     hex::decode(hex_str).ok()?.try_into().ok()
 }
 
-/// An X25519 key pair for a test client: `(secret, public)`.
+/// A key pair for a test client: `(secret, Ed25519 public key)`.
 pub fn client_keypair() -> ([u8; 32], [u8; 32]) {
-    let s = StaticSecret::random_from_rng(OsRng);
-    (s.to_bytes(), *PublicKey::from(&s).as_bytes())
+    let mut seed = [0u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    let k = SigningKey::from_bytes(&seed);
+    (k.to_scalar_bytes(), k.verifying_key().to_bytes())
 }
