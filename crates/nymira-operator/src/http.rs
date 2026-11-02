@@ -47,6 +47,10 @@ pub fn router(operator: Arc<Operator>) -> Router {
         .route("/v2/openrouter/leases/{id}", get(lease_status).post(retire))
         .route("/v2/openrouter/leases/{id}/expire", post(expire))
         .route("/v2/requests/{id}", get(request_status))
+        .route("/v2/nullifiers/{n}", get(nullifier_status))
+        .route("/v2/nullifiers/{n}/evidence", get(nullifier_evidence))
+        .route("/v2/withdraw/clearance", post(clearance))
+        .route("/v1/close", post(close))
         .route("/v1/chat/completions", post(chat))
         .route("/v2/billing/quote", get(quote))
         .route("/v1/attestation", get(attestation))
@@ -58,30 +62,66 @@ async fn status(State(op): State<Arc<Operator>>) -> Json<serde_json::Value> {
     Json(op.status_json().await)
 }
 
-async fn open_lease(
-    State(op): State<Arc<Operator>>,
-    headers: HeaderMap,
-    request: Request<Body>,
-) -> Response {
-    let too_large =
-        || ApiError::new(Code::BodyTooLarge, "request body over 64 KiB").into_response();
+/// The body of a request, or the 413 that answers one over `limit`.
+async fn bounded(request: Request<Body>, limit: usize) -> Result<axum::body::Bytes, ApiError> {
+    let too_large = || {
+        ApiError::new(
+            Code::BodyTooLarge,
+            format!("request body over {} KiB", limit / 1024),
+        )
+    };
     if request
         .headers()
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<usize>().ok())
-        .is_some_and(|len| len > LEASE_BODY_LIMIT)
+        .is_some_and(|len| len > limit)
     {
-        return too_large();
+        return Err(too_large());
     }
-    let Ok(body) = to_bytes(request.into_body(), LEASE_BODY_LIMIT).await else {
-        return too_large();
+    to_bytes(request.into_body(), limit)
+        .await
+        .map_err(|_| too_large())
+}
+
+async fn open_lease(
+    State(op): State<Arc<Operator>>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    let body = match bounded(request, LEASE_BODY_LIMIT).await {
+        Ok(body) => body,
+        Err(e) => return e.into_response(),
     };
     let puzzle = headers.get(PUZZLE_HEADER).and_then(|v| v.to_str().ok());
     match op.open_lease(&body, puzzle).await {
         Ok((status, body)) => (status, Json(body)).into_response(),
         Err(e) => e.into_response(),
     }
+}
+
+async fn clearance(State(op): State<Arc<Operator>>, request: Request<Body>) -> Response {
+    let body = match bounded(request, LEASE_BODY_LIMIT).await {
+        Ok(body) => body,
+        Err(e) => return e.into_response(),
+    };
+    answer(op.clearance(&body).await.map(|v| (StatusCode::OK, v)))
+}
+
+async fn close(State(op): State<Arc<Operator>>, request: Request<Body>) -> Response {
+    let body = match bounded(request, crate::closer::CLOSE_BODY_LIMIT).await {
+        Ok(body) => body,
+        Err(e) => return e.into_response(),
+    };
+    answer(op.close(&body).await.map(|v| (StatusCode::OK, v)))
+}
+
+async fn nullifier_status(State(op): State<Arc<Operator>>, Path(n): Path<String>) -> Response {
+    answer(op.nullifier_status(&n).await)
+}
+
+async fn nullifier_evidence(State(op): State<Arc<Operator>>, Path(n): Path<String>) -> Response {
+    answer(op.nullifier_evidence(&n).await)
 }
 
 /// zkapi's billing-quote route, kept for wire compatibility: Nymira prices in USDC 1:1 and

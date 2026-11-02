@@ -14,12 +14,12 @@ use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use zkapi_core::v2::{next_anchor, state_message};
+use zkapi_core::v2::{clearance_message, next_anchor, state_message};
 use zkapi_proof::compact::{
     random_scalar, server_update, validate_operator_signing_seeds, CompactSigner,
 };
 use zkapi_types::wire::{ApiRequestV2, RequestResponseV2};
-use zkapi_types::{canonical_response_hash, Felt252, PROTOCOL_VERSION};
+use zkapi_types::{canonical_response_hash, Felt252, SchnorrSignature, PROTOCOL_VERSION};
 
 use crate::chain::VaultView;
 use crate::charge::{charge, ChargeParams};
@@ -55,6 +55,9 @@ pub struct SignRequest {
 #[async_trait]
 pub trait SignerApi: Send + Sync {
     async fn sign_next(&self, request: SignRequest) -> Result<RequestResponseV2, SignerError>;
+    /// Signs a clearance for a nullifier the operator has reserved for one: protocol version,
+    /// chain, vault and nullifier, under the clearance key.
+    async fn sign_clearance(&self, nullifier: Felt252) -> Result<SchnorrSignature, SignerError>;
 }
 
 #[async_trait]
@@ -242,6 +245,30 @@ fn internal(e: rusqlite::Error) -> SignerError {
 
 #[async_trait]
 impl SignerApi for Signer {
+    async fn sign_clearance(&self, nullifier: Felt252) -> Result<SchnorrSignature, SignerError> {
+        let n = crate::operator::felt_hex(&nullifier);
+        let (row, exit, lease) = self
+            .store
+            .run(move |c| {
+                Ok((
+                    store::nullifier_row(c, &n)?,
+                    store::is_exit_seen(c, &n)?,
+                    store::lease_by_nullifier(c, &n)?,
+                ))
+            })
+            .await
+            .map_err(internal)?;
+        if exit || lease.is_some() {
+            return Err(refused("the nullifier is in an exit or holds a lease"));
+        }
+        if row.is_none_or(|r| r.state != store::state::CLEARANCE_RESERVED) {
+            return Err(refused("no clearance is reserved for this nullifier"));
+        }
+        let message =
+            clearance_message(PROTOCOL_VERSION, self.chain_id, &self.contract, &nullifier);
+        Ok(self.clearance.sign(&message))
+    }
+
     async fn sign_next(&self, request: SignRequest) -> Result<RequestResponseV2, SignerError> {
         let lease_id = request.lease_id.clone();
         let id = lease_id.clone();
@@ -397,6 +424,10 @@ impl SignerApi for LocalSigner {
     async fn sign_next(&self, request: SignRequest) -> Result<RequestResponseV2, SignerError> {
         self.0.sign_next(request).await
     }
+
+    async fn sign_clearance(&self, nullifier: Felt252) -> Result<SchnorrSignature, SignerError> {
+        self.0.sign_clearance(nullifier).await
+    }
 }
 
 /// Binds the signer's socket, readable and writable by its owner only.
@@ -408,10 +439,19 @@ pub fn bind_socket(path: &Path) -> std::io::Result<UnixListener> {
     Ok(listener)
 }
 
+/// What a caller may ask: the next state of a retired lease, or a clearance.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum Call {
+    Next(SignRequest),
+    Clearance { nullifier: Felt252 },
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Reply {
     Ok(Box<RequestResponseV2>),
+    Clearance(SchnorrSignature),
     Refused(String),
     Error(String),
 }
@@ -439,10 +479,15 @@ async fn handle(stream: UnixStream, signer: Arc<Signer>) -> std::io::Result<()> 
     BufReader::new(read.take(MAX_REQUEST_BYTES))
         .read_line(&mut line)
         .await?;
-    let reply = match serde_json::from_str::<SignRequest>(&line) {
+    let reply = match serde_json::from_str::<Call>(&line) {
         Err(e) => Reply::Refused(format!("not a typed request: {e}")),
-        Ok(request) => match signer.sign_next(request).await {
+        Ok(Call::Next(request)) => match signer.sign_next(request).await {
             Ok(response) => Reply::Ok(Box::new(response)),
+            Err(SignerError::Refused(why)) => Reply::Refused(why),
+            Err(SignerError::Internal(why)) => Reply::Error(why),
+        },
+        Ok(Call::Clearance { nullifier }) => match signer.sign_clearance(nullifier).await {
+            Ok(signature) => Reply::Clearance(signature),
             Err(SignerError::Refused(why)) => Reply::Refused(why),
             Err(SignerError::Internal(why)) => Reply::Error(why),
         },
@@ -458,14 +503,32 @@ pub struct SocketSigner(pub PathBuf);
 #[async_trait]
 impl SignerApi for SocketSigner {
     async fn sign_next(&self, request: SignRequest) -> Result<RequestResponseV2, SignerError> {
-        tokio::time::timeout(std::time::Duration::from_secs(10), self.call(request))
-            .await
-            .map_err(|_| SignerError::Internal("the signer did not answer in time".into()))?
+        match self.ask(Call::Next(request)).await? {
+            Reply::Ok(response) => Ok(*response),
+            _ => Err(SignerError::Internal(
+                "the signer sent another answer".into(),
+            )),
+        }
+    }
+
+    async fn sign_clearance(&self, nullifier: Felt252) -> Result<SchnorrSignature, SignerError> {
+        match self.ask(Call::Clearance { nullifier }).await? {
+            Reply::Clearance(signature) => Ok(signature),
+            _ => Err(SignerError::Internal(
+                "the signer sent another answer".into(),
+            )),
+        }
     }
 }
 
 impl SocketSigner {
-    async fn call(&self, request: SignRequest) -> Result<RequestResponseV2, SignerError> {
+    async fn ask(&self, call: Call) -> Result<Reply, SignerError> {
+        tokio::time::timeout(std::time::Duration::from_secs(10), self.call(call))
+            .await
+            .map_err(|_| SignerError::Internal("the signer did not answer in time".into()))?
+    }
+
+    async fn call(&self, request: Call) -> Result<Reply, SignerError> {
         let io = |e: std::io::Error| SignerError::Internal(e.to_string());
         let stream = UnixStream::connect(&self.0).await.map_err(io)?;
         let (read, mut write) = stream.into_split();
@@ -479,9 +542,9 @@ impl SocketSigner {
             .await
             .map_err(io)?;
         match serde_json::from_str::<Reply>(&line) {
-            Ok(Reply::Ok(response)) => Ok(*response),
             Ok(Reply::Refused(why)) => Err(SignerError::Refused(why)),
             Ok(Reply::Error(why)) => Err(SignerError::Internal(why)),
+            Ok(reply) => Ok(reply),
             Err(_) => Err(SignerError::Internal(
                 "the signer closed the connection".into(),
             )),

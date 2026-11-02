@@ -4,13 +4,36 @@ use std::path::Path;
 
 use ark_ed_on_bn254::EdwardsAffine;
 use ark_ff::PrimeField;
-use zkapi_proof::compact::RequestVerifier;
+use zkapi_proof::compact::{RequestVerifier, WithdrawalVerifier};
 use zkapi_types::wire::Groth16ProofWire;
-use zkapi_types::{Felt252, RequestPublicInputsV2};
+use zkapi_types::{Felt252, RequestPublicInputsV2, WithdrawalPublicInputsV2C};
 
 /// The pairing check, behind a trait so tests can hold verifications in flight.
 pub trait ProofVerifier: Send + Sync {
     fn verify(&self, public: &RequestPublicInputsV2, proof: &Groth16ProofWire) -> bool;
+}
+
+/// The pairing check of a withdrawal proof (an ownership proof or a close), behind a trait for
+/// the same reason.
+pub trait WithdrawalProofVerifier: Send + Sync {
+    fn verify(&self, public: &WithdrawalPublicInputsV2C, proof: &Groth16ProofWire) -> bool;
+}
+
+pub struct GrothWithdrawalVerifier(WithdrawalVerifier);
+
+impl GrothWithdrawalVerifier {
+    /// Loads `withdrawal.vk` from a setup directory.
+    pub fn load(dir: &Path) -> Result<Self, String> {
+        WithdrawalVerifier::load(dir)
+            .map(Self)
+            .map_err(|e| e.to_string())
+    }
+}
+
+impl WithdrawalProofVerifier for GrothWithdrawalVerifier {
+    fn verify(&self, public: &WithdrawalPublicInputsV2C, proof: &Groth16ProofWire) -> bool {
+        self.0.verify(public, proof).unwrap_or(false)
+    }
 }
 
 pub struct GrothVerifier(RequestVerifier);

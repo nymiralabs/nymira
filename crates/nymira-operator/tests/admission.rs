@@ -630,7 +630,7 @@ async fn concurrent_lease_and_clearance_leave_exactly_one_winner() {
         let (lease, clearance) = tokio::join!(rig.lease(&r), rig.op.reserve_clearance(&nullifier));
         match (lease.0, clearance) {
             (201, Err(state)) => assert_eq!(state, "reserved"),
-            (409, Ok(())) => assert_eq!(code(&lease.1), "nullifier_seen", "{}", lease.1),
+            (409, Ok(())) => assert_eq!(code(&lease.1), "clearance_signed", "{}", lease.1),
             other => panic!("two winners or none: {other:?}"),
         }
     }
@@ -661,7 +661,7 @@ async fn a_signed_clearance_blocks_a_lease_for_good() {
         .unwrap();
     for _ in 0..2 {
         let (s, v, _) = rig.lease(&r).await;
-        json_error(s, &v, 409, "nullifier_seen");
+        json_error(s, &v, 409, "clearance_signed");
     }
 }
 
@@ -825,6 +825,8 @@ async fn the_operator_refuses_to_start_against_another_operators_key() {
         )),
         replica: Arc::new(nymira_operator::replica::NoReplica),
         verifier: Arc::new(Counting::default()),
+        withdrawal_verifier: Arc::new(AcceptWithdrawals),
+        closer: Arc::new(NoCloser),
         store: nymira_operator::store::Store::open_in_memory().unwrap(),
         state_signer: zkapi_proof::compact::CompactSigner::from_seed(&Felt252::from_u64(1)),
         signer: Arc::new(NoSigner),
@@ -918,6 +920,13 @@ struct NoSigner;
 
 #[async_trait::async_trait]
 impl nymira_operator::signer::SignerApi for NoSigner {
+    async fn sign_clearance(
+        &self,
+        _: Felt252,
+    ) -> Result<zkapi_types::SchnorrSignature, nymira_operator::signer::SignerError> {
+        Err(nymira_operator::signer::SignerError::Refused("none".into()))
+    }
+
     async fn sign_next(
         &self,
         _: nymira_operator::signer::SignRequest,

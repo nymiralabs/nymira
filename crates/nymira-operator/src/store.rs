@@ -110,7 +110,22 @@ CREATE TABLE IF NOT EXISTS signed_states(
   response_json TEXT NOT NULL,
   signed_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS exit_seen(nullifier TEXT PRIMARY KEY);";
+CREATE TABLE IF NOT EXISTS exit_seen(nullifier TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS operator_txs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  method TEXT NOT NULL,
+  args BLOB NOT NULL,
+  gas INTEGER NOT NULL,
+  public_key TEXT NOT NULL,
+  idem_key TEXT,
+  state TEXT NOT NULL,
+  nonce INTEGER,
+  signed_bytes BLOB,
+  hash TEXT,
+  detail TEXT,
+  created_at INTEGER NOT NULL
+);";
 
 impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
@@ -509,4 +524,148 @@ pub fn store_evidence(conn: &Connection, lease_id: &str, json: &str) -> rusqlite
         params![lease_id, json],
     )?;
     Ok(())
+}
+
+/// A transaction the operator sends from its own account. It is written as an intent first, then
+/// with its signed bytes, nonce and hash, and only then broadcast.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TxRow {
+    pub id: i64,
+    pub kind: String,
+    pub method: String,
+    pub args: Vec<u8>,
+    pub gas: u64,
+    pub public_key: String,
+    pub idem_key: Option<String>,
+    /// `intent`, `signed`, `final`, `failed` or `rejected`.
+    pub state: String,
+    pub nonce: Option<u64>,
+    pub signed_bytes: Option<Vec<u8>>,
+    pub hash: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: u64,
+}
+
+const TX_COLUMNS: &str = "id, kind, method, args, gas, public_key, idem_key, state, nonce, \
+     signed_bytes, hash, detail, created_at";
+
+fn tx_from(r: &rusqlite::Row<'_>) -> rusqlite::Result<TxRow> {
+    Ok(TxRow {
+        id: r.get(0)?,
+        kind: r.get(1)?,
+        method: r.get(2)?,
+        args: r.get(3)?,
+        gas: r.get::<_, i64>(4)? as u64,
+        public_key: r.get(5)?,
+        idem_key: r.get(6)?,
+        state: r.get(7)?,
+        nonce: r.get::<_, Option<i64>>(8)?.map(|n| n as u64),
+        signed_bytes: r.get(9)?,
+        hash: r.get(10)?,
+        detail: r.get(11)?,
+        created_at: r.get::<_, i64>(12)? as u64,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn insert_tx_intent(
+    conn: &Connection,
+    kind: &str,
+    method: &str,
+    args: &[u8],
+    gas: u64,
+    public_key: &str,
+    idem_key: Option<&str>,
+    now: u64,
+) -> rusqlite::Result<i64> {
+    conn.execute(
+        "INSERT INTO operator_txs(kind, method, args, gas, public_key, idem_key, state, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'intent', ?7)",
+        params![kind, method, args, gas as i64, public_key, idem_key, now as i64],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn tx(conn: &Connection, id: i64) -> rusqlite::Result<Option<TxRow>> {
+    conn.query_row(
+        &format!("SELECT {TX_COLUMNS} FROM operator_txs WHERE id = ?1"),
+        [id],
+        tx_from,
+    )
+    .optional()
+}
+
+/// The newest transaction sent under `idem_key` at or after `since`. One that failed or was
+/// refused is not returned: a repeat sends a new one.
+pub fn tx_by_idem_key(
+    conn: &Connection,
+    kind: &str,
+    idem_key: &str,
+    since: u64,
+) -> rusqlite::Result<Option<TxRow>> {
+    conn.query_row(
+        &format!(
+            "SELECT {TX_COLUMNS} FROM operator_txs
+             WHERE kind = ?1 AND idem_key = ?2 AND created_at >= ?3 AND state NOT IN ('rejected', 'failed')
+             ORDER BY id DESC LIMIT 1"
+        ),
+        params![kind, idem_key, since as i64],
+        tx_from,
+    )
+    .optional()
+}
+
+/// The highest nonce this key has signed, so a new transaction never reuses one the node has not
+/// seen yet.
+pub fn max_tx_nonce(conn: &Connection, public_key: &str) -> rusqlite::Result<u64> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(nonce), 0) FROM operator_txs WHERE public_key = ?1",
+        [public_key],
+        |r| r.get::<_, i64>(0).map(|n| n as u64),
+    )
+}
+
+/// Writes the signed bytes, nonce and hash of an intent.
+pub fn sign_tx(
+    conn: &Connection,
+    id: i64,
+    nonce: u64,
+    signed_bytes: &[u8],
+    hash: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE operator_txs SET state = 'signed', nonce = ?2, signed_bytes = ?3, hash = ?4
+         WHERE id = ?1 AND state = 'intent'",
+        params![id, nonce as i64, signed_bytes, hash],
+    )?;
+    Ok(())
+}
+
+pub fn finish_tx(conn: &Connection, id: i64, state: &str, detail: &str) -> rusqlite::Result<()> {
+    assert!(["final", "failed", "rejected"].contains(&state));
+    conn.execute(
+        "UPDATE operator_txs SET state = ?2, detail = ?3 WHERE id = ?1",
+        params![id, state, detail],
+    )?;
+    Ok(())
+}
+
+/// Transactions of one key that are written but not finished, oldest first.
+pub fn open_txs(conn: &Connection, public_key: &str) -> rusqlite::Result<Vec<TxRow>> {
+    let mut statement = conn.prepare(&format!(
+        "SELECT {TX_COLUMNS} FROM operator_txs
+         WHERE public_key = ?1 AND state IN ('intent', 'signed') ORDER BY id"
+    ))?;
+    let rows = statement.query_map([public_key], tx_from)?;
+    rows.collect()
+}
+
+/// Transactions of `kind` created at or after `since` (rejected ones never reached the chain).
+pub fn count_txs_since(conn: &Connection, kind: &str, since: u64) -> rusqlite::Result<u64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM operator_txs
+         WHERE kind = ?1 AND created_at >= ?2 AND state != 'rejected'",
+        params![kind, since as i64],
+        |r| r.get::<_, i64>(0).map(|n| n as u64),
+    )
 }

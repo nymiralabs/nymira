@@ -71,6 +71,31 @@ async fn the_views_parse_as_the_vault_spells_them() {
     );
     assert_eq!(exits[0].next_nullifier, word(54));
     assert_eq!(vault.open_among(&[2, 3]).await.unwrap(), 1);
+
+    // The closer's two reads: a note's status word and whether a nullifier is spent.
+    rpc.set_view(
+        VAULT,
+        "note_records",
+        ArgsMatch::json(json!({"from": 77, "limit": 1})),
+        ViewResult::json(json!([])),
+    );
+    rpc.set_view(
+        VAULT,
+        "is_nullifier_used",
+        ArgsMatch::json(json!({"nullifier": word(5)})),
+        ViewResult::json(json!(true)),
+    );
+    rpc.set_view(
+        VAULT,
+        "is_nullifier_used",
+        ArgsMatch::json(json!({"nullifier": word(6)})),
+        ViewResult::json(json!(false)),
+    );
+    assert_eq!(vault.note(2).await.unwrap().unwrap().status, "Active");
+    assert_eq!(vault.note(3).await.unwrap().unwrap().status, "Closed");
+    assert!(vault.note(77).await.unwrap().is_none());
+    assert!(vault.nullifier_used(&word(5)).await.unwrap());
+    assert!(!vault.nullifier_used(&word(6)).await.unwrap());
 }
 
 #[tokio::test(flavor = "multi_thread")]
