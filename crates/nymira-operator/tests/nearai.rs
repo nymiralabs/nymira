@@ -47,10 +47,10 @@ impl Rig {
         let file = |name: &str| SealedFile::open(&self.dir.path().join(name), "pass", 10).unwrap();
         NearAiAdapter::new(
             NearAiConfig {
+                user_agent: "test-agent".into(),
                 base_url: self.fake.url(),
                 org_id: "org".into(),
                 workspace_id: "ws".into(),
-                reporting_token: "rpt-test".into(),
             },
             self.clock.clone(),
             self.alarms.clone(),
@@ -180,7 +180,8 @@ async fn a_refresh_token_with_a_quarter_of_its_life_left_raises_a_warning() {
     adapter.balance().await.unwrap();
     let ttl = rig.fake.handle.switches().refresh_ttl_secs;
     let left = adapter.check_login_expiry().await.unwrap();
-    assert!(left <= ttl && left + 5 >= ttl);
+    // The fake stamps the expiry from the real clock; the test clock was set a moment earlier.
+    assert!(left + 5 >= ttl && left <= ttl + 5);
     assert!(rig.sink.sent().is_empty());
 
     rig.clock.advance_secs(ttl * 70 / 100);
@@ -341,4 +342,31 @@ async fn a_streamed_chat_is_noted_from_its_first_event() {
     };
     let evidence = adapter.evidence("a", &query).await.unwrap().unwrap();
     assert_eq!(evidence["signatures"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn the_refresh_token_works_only_under_the_user_agent_that_made_it() {
+    let rig = Rig::new().await;
+    rig.fake
+        .handle
+        .update(|s| s.exchange_user_agent = Some("test-agent".into()));
+    let adapter = rig.adapter(Some(FIRST_REFRESH_TOKEN)).unwrap();
+    adapter.balance().await.unwrap();
+
+    rig.fake
+        .handle
+        .update(|s| s.exchange_user_agent = Some("another-agent".into()));
+    let other = Rig::new().await;
+    other
+        .fake
+        .handle
+        .update(|s| s.exchange_user_agent = Some("another-agent".into()));
+    assert!(matches!(
+        other
+            .adapter(Some(FIRST_REFRESH_TOKEN))
+            .unwrap()
+            .balance()
+            .await,
+        Err(ProviderError::Rejected(_))
+    ));
 }

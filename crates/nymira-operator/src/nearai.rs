@@ -1,9 +1,8 @@
 //! The NEAR AI Cloud adapter.
 //!
-//! Key management and the balance use the organisation login: a JWT from the stored refresh
-//! token, with a rotated refresh token written back (encrypted, atomically) before anything else
-//! uses it. Usage is read with a separate read-only reporting token, so the reconciliation path
-//! cannot mint keys. Chat, signatures and attestation use the lease's own key.
+//! Key management, the balance and usage use the organisation login: a JWT from the stored
+//! refresh token, with a rotated refresh token written back (encrypted, atomically) before
+//! anything else uses it. Chat, signatures and attestation use the lease's own key.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -33,14 +32,23 @@ const REFRESH_WARN_PERCENT: u64 = 25;
 /// Chats whose signatures the evidence fetch covers, newest first.
 const EVIDENCE_CHATS: usize = 20;
 const PAGE: usize = 100;
+/// How long `mint` waits for a new key to start working: 24 tries, half a second apart.
+const KEY_ACTIVE_TRIES: u32 = 24;
+const KEY_ACTIVE_POLL: Duration = Duration::from_millis(500);
+
+/// The client identity the refresh token was made under. The service ties a refresh token to the
+/// `User-Agent` of the client that made it (measured 2026-11-02: the exchange answered 401 for
+/// every other value), so the adapter always sends the same one. A token taken from a browser
+/// login needs that browser's identity; the first exchange then fixes it for later rotations.
+pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36";
 
 pub struct NearAiConfig {
+    /// Sent on every request; see [`BROWSER_USER_AGENT`].
+    pub user_agent: String,
     /// `https://cloud-api.near.ai` outside tests.
     pub base_url: String,
     pub org_id: String,
     pub workspace_id: String,
-    /// The `rpt-` token for `usage/export` and `usage/summary`.
-    pub reporting_token: String,
 }
 
 // No `Debug` on the two secret-bearing types: a stray `{:?}` must not print a token.
@@ -119,6 +127,7 @@ impl NearAiAdapter {
         };
         Ok(Self {
             http: reqwest::Client::builder()
+                .user_agent(cfg.user_agent.clone())
                 .connect_timeout(Duration::from_secs(10))
                 .build()
                 .expect("client builds"),
@@ -310,6 +319,43 @@ impl NearAiAdapter {
         }
     }
 
+    /// A new key answers 401 for a few seconds (2 to 5 s measured on 2026-11-02, up to 10 s
+    /// documented). The lease is handed out only once the key works, or after this wait.
+    async fn wait_until_active(&self, secret: &str) {
+        for _ in 0..KEY_ACTIVE_TRIES {
+            let ready = self
+                .http
+                .post(self.url("/v1/check_api_key"))
+                .bearer_auth(secret)
+                .timeout(Duration::from_secs(5))
+                .send()
+                .await
+                .is_ok_and(|r| r.status().is_success());
+            if ready {
+                return;
+            }
+            tokio::time::sleep(KEY_ACTIVE_POLL).await;
+        }
+    }
+
+    /// A GET with the organisation login, for tools that look at what the provider returns.
+    pub async fn session_get(&self, path: &str) -> Result<Value, ProviderError> {
+        let reply = self
+            .with_session(|t| {
+                self.http
+                    .get(self.url(path))
+                    .bearer_auth(t)
+                    .timeout(Duration::from_secs(20))
+            })
+            .await?;
+        reply.json().await.map_err(transport)
+    }
+
+    /// The provider's id for a lease's key, for tools.
+    pub fn key_id(&self, lease_id: &str) -> Option<String> {
+        self.keys().get(lease_id).map(|e| e.id.clone())
+    }
+
     async fn deactivate(&self, key_id: &str) -> Result<(), ProviderError> {
         let path = format!("/v1/workspaces/{}/api-keys/{key_id}", self.cfg.workspace_id);
         match self
@@ -380,6 +426,7 @@ impl ProviderAdapter for NearAiAdapter {
             let _ = self.deactivate(id).await;
             return Err(e);
         }
+        self.wait_until_active(secret).await;
         Ok(MintedKey {
             key_id: id.into(),
             expires_at,
@@ -390,43 +437,40 @@ impl ProviderAdapter for NearAiAdapter {
         self.check_login_expiry().await;
     }
 
+    /// The key's cost from the organisation's usage history, filtered by key id. Works after the
+    /// key is deleted. (The reporting endpoints `usage/export` and `usage/summary` answered 404
+    /// on the live gateway on 2026-11-02, so the read-only reporting token is not used.)
     async fn usage(&self, lease_id: &str) -> Result<KeyUsage, ProviderError> {
         let entry = self.entry(lease_id)?;
-        let path = format!("/v1/organizations/{}/usage/export", self.cfg.org_id);
+        let path = format!("/v1/organizations/{}/usage/history", self.cfg.org_id);
         let mut cost: u128 = 0;
-        let mut cursor: Option<String> = None;
+        let mut offset = 0usize;
         loop {
-            let mut query = vec![
-                ("api_key_id".to_string(), entry.id.clone()),
-                ("limit".to_string(), "1000".to_string()),
-            ];
-            if let Some(c) = &cursor {
-                query.push(("cursor".into(), c.clone()));
-            }
-            let reply = checked(
-                self.http
-                    .get(self.url(&path))
-                    .bearer_auth(&self.cfg.reporting_token)
-                    .query(&query)
-                    .timeout(Duration::from_secs(30))
-                    .send()
-                    .await
-                    .map_err(transport)?,
-            )
-            .await?;
+            let reply = self
+                .with_session(|t| {
+                    self.http
+                        .get(self.url(&path))
+                        .bearer_auth(t)
+                        .query(&[
+                            ("api_key_id", entry.id.clone()),
+                            ("limit", PAGE.to_string()),
+                            ("offset", offset.to_string()),
+                        ])
+                        .timeout(Duration::from_secs(30))
+                })
+                .await?;
             let body: Value = reply.json().await.map_err(transport)?;
-            for row in body["data"].as_array().into_iter().flatten() {
-                cost += u128::from(row["total_cost_nano_usd"].as_u64().ok_or_else(|| {
+            let rows = body["data"].as_array().cloned().unwrap_or_default();
+            for row in &rows {
+                cost += u128::from(row["total_cost"].as_u64().ok_or_else(|| {
                     ProviderError::Unavailable("usage row without a cost".into())
                 })?);
             }
-            match body["next_cursor"].as_str() {
-                Some(next) => cursor = Some(next.into()),
-                None => {
-                    return Ok(KeyUsage {
-                        cost_nano_usd: cost,
-                    })
-                }
+            offset += rows.len();
+            if rows.is_empty() || offset as u64 >= body["total"].as_u64().unwrap_or(0) {
+                return Ok(KeyUsage {
+                    cost_nano_usd: cost,
+                });
             }
         }
     }

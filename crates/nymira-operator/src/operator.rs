@@ -103,7 +103,8 @@ impl Config {
             config_refresh_secs: 300,
             chain_refresh_ms: 1_000,
             balance_refresh_secs: 300,
-            mint_timeout_secs: 10,
+            // Above the 12 s the adapter may wait for a new key to start working.
+            mint_timeout_secs: 20,
         }
     }
 }

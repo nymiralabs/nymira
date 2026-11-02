@@ -102,6 +102,9 @@ pub struct Switches {
     pub reply: Option<String>,
     /// Whether an exchange replaces the refresh token (the real behaviour is a day-1 check).
     pub rotate_refresh_tokens: bool,
+    /// When set, the exchange answers 401 unless its `User-Agent` is exactly this: the real
+    /// service ties a refresh token to the client that made it.
+    pub exchange_user_agent: Option<String>,
     /// Lifetime reported for a refresh token, seconds.
     pub refresh_ttl_secs: u64,
 }
@@ -125,6 +128,7 @@ impl Default for Switches {
             output_price_nano_per_token: 500,
             reply: None,
             rotate_refresh_tokens: true,
+            exchange_user_agent: None,
             refresh_ttl_secs: 30 * 86_400,
         }
     }
@@ -196,8 +200,8 @@ pub struct UsageRow {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
-    /// Serialized as the real export names it.
-    #[serde(rename = "total_cost_nano_usd")]
+    /// Serialized as the real history names it.
+    #[serde(rename = "total_cost")]
     pub cost_nano_usd: u64,
 }
 

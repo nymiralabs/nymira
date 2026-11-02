@@ -22,6 +22,7 @@ use std::{collections::HashMap, convert::Infallible, time::Duration};
 pub fn router(h: Handle) -> Router {
     let api = Router::new()
         .route("/v1/model/list", get(model_list))
+        .route("/v1/check_api_key", post(check_api_key))
         .route("/v1/chat/completions", post(chat))
         .route("/v1/signature/{chat_id}", get(signature))
         .route("/v1/attestation/report", get(attestation))
@@ -33,8 +34,7 @@ pub fn router(h: Handle) -> Router {
             "/v1/workspaces/{ws}/api-keys/{id}",
             patch(patch_key).delete(delete_key),
         )
-        .route("/v1/organizations/{org}/usage/export", get(usage_export))
-        .route("/v1/organizations/{org}/usage/summary", get(usage_summary))
+        .route("/v1/organizations/{org}/usage/history", get(usage_history))
         .route("/v1/organizations/{org}/usage/balance", get(balance))
         .route("/v1/users/me/access-tokens", post(access_token))
         .layer(middleware::from_fn_with_state(h.clone(), inject));
@@ -112,17 +112,6 @@ fn require_session(headers: &HeaderMap) -> R<()> {
         .ok_or_else(|| err(401, "unauthorized", "session token required"))
 }
 
-fn require_reporting(headers: &HeaderMap) -> R<()> {
-    match bearer(headers) {
-        Some(t) if t == SESSION_TOKEN || t.starts_with("rpt-") => Ok(()),
-        _ => Err(err(
-            401,
-            "unauthorized",
-            "session or reporting token required",
-        )),
-    }
-}
-
 /// Index of the active key the request carries.
 fn key_auth(g: &Inner, headers: &HeaderMap) -> R<usize> {
     let token = bearer(headers).ok_or_else(|| err(401, "unauthorized", "missing API key"))?;
@@ -160,6 +149,13 @@ async fn model_list(State(h): State<Handle>) -> Json<Value> {
         })
         .collect();
     Json(json!({"models": models}))
+}
+
+/// 200 when the key is known and active, 401 otherwise (the real one also checks credit).
+async fn check_api_key(State(h): State<Handle>, headers: HeaderMap) -> R<StatusCode> {
+    let g = h.lock();
+    key_auth(&g, &headers)?;
+    Ok(StatusCode::OK)
 }
 
 // ---- key management -----------------------------------------------------
@@ -281,53 +277,34 @@ async fn delete_key(
 
 // ---- usage and credit ---------------------------------------------------
 
-async fn usage_export(
+/// Real shape: `{data: [rows], total, limit, offset}`, rows with `total_cost` in nano-USD.
+/// The documented `usage/export` and `usage/summary` answered 404 on the live gateway
+/// (2026-11-02), so the fake does not serve them.
+async fn usage_history(
     State(h): State<Handle>,
     headers: HeaderMap,
     Path(_org): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> R {
-    require_reporting(&headers)?;
+    require_session(&headers)?;
+    let limit = q
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100usize);
+    let offset = q
+        .get("offset")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0usize);
     let g = h.lock();
     let rows: Vec<_> = g
         .usage
         .iter()
         .filter(|r| q.get("api_key_id").is_none_or(|id| *id == r.api_key_id))
         .collect();
+    let page: Vec<_> = rows.iter().skip(offset).take(limit).collect();
     Ok(Json(
-        json!({"data": rows, "count": rows.len(), "next_cursor": null}),
+        json!({"data": page, "total": rows.len(), "limit": limit, "offset": offset}),
     ))
-}
-
-async fn usage_summary(
-    State(h): State<Handle>,
-    headers: HeaderMap,
-    Path(_org): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
-) -> R {
-    require_reporting(&headers)?;
-    let g = h.lock();
-    let rows: Vec<_> = g
-        .usage
-        .iter()
-        .filter(|r| q.get("api_key_id").is_none_or(|id| *id == r.api_key_id))
-        .collect();
-    let input: u64 = rows.iter().map(|r| r.input_tokens).sum();
-    let output: u64 = rows.iter().map(|r| r.output_tokens).sum();
-    let cost: u64 = rows.iter().map(|r| r.cost_nano_usd).sum();
-    Ok(Json(json!({
-        "totals": {
-            "request_count": rows.len(),
-            "service_usage_count": 0,
-            "input_tokens": input,
-            "output_tokens": output,
-            "cache_read_tokens": 0,
-            "total_tokens": input + output,
-            "inference_cost_nano_usd": cost,
-            "service_cost_nano_usd": 0,
-            "total_cost_nano_usd": cost,
-        },
-    })))
 }
 
 /// The real balance response: `remaining` is the credit left, in nano-USD.
@@ -359,6 +336,16 @@ async fn access_token(State(h): State<Handle>, headers: HeaderMap) -> R {
     let mut g = h.lock();
     let current = format!("rt-fake-{}", g.refresh_count);
     if bearer(&headers) != Some(current.as_str()) {
+        return Err(err(401, "unauthorized", "refresh token not valid"));
+    }
+    let agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok());
+    if g.switches
+        .exchange_user_agent
+        .as_deref()
+        .is_some_and(|want| agent != Some(want))
+    {
         return Err(err(401, "unauthorized", "refresh token not valid"));
     }
     if g.switches.rotate_refresh_tokens {

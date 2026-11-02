@@ -67,23 +67,20 @@ pub struct ProxyConfig {
 
 impl Default for ProxyConfig {
     fn default() -> Self {
-        let model = |id: &str| ModelSpec {
+        let model = |id: &str, input: u64, output: u64| ModelSpec {
             id: id.into(),
-            input_nano_per_token: 80,
-            output_nano_per_token: 500,
+            input_nano_per_token: input,
+            output_nano_per_token: output,
             output_cap_tokens: 4096,
         };
         Self {
-            // Canonical ids on 2026-10-22; prices are placeholders until the live table is read.
-            models: [
-                "z-ai/glm-5.3-flash",
-                "Qwen/Qwen3.6-35B-A3B-FP8",
-                "Qwen/Qwen3.8-27B",
-                "Qwen/Qwen3-VL-30B-A3B-Instruct",
-            ]
-            .into_iter()
-            .map(model)
-            .collect(),
+            // Canonical ids and prices (nano-USD per token) as the live list gave them on 2026-11-02.
+            models: vec![
+                model("z-ai/glm-5.3-flash", 80, 500),
+                model("Qwen/Qwen3.6-35B-A3B-FP8", 170, 1100),
+                model("Qwen/Qwen3.8-27B", 40, 1350),
+                model("Qwen/Qwen3-VL-30B-A3B-Instruct", 150, 550),
+            ],
             per_lease: 2,
             per_model: 64,
             hot_pct: 75,
