@@ -50,6 +50,20 @@ impl Minter {
     }
 }
 
+/// Whatever signs usage records: the minting process's key, reached over its socket in
+/// production.
+#[async_trait::async_trait]
+pub trait UsageSigner: Send + Sync {
+    async fn sign(&self, record: UsageRecord) -> Result<SignedUsage, String>;
+}
+
+#[async_trait::async_trait]
+impl UsageSigner for Minter {
+    async fn sign(&self, record: UsageRecord) -> Result<SignedUsage, String> {
+        Ok(Minter::sign(self, record))
+    }
+}
+
 pub fn verify(key: &VerifyingKey, usage: &SignedUsage) -> bool {
     let Ok(bytes) = hex::decode(&usage.sig) else {
         return false;

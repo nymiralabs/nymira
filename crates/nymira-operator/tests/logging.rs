@@ -6,7 +6,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::*;
-use serde_json::{json, Value};
+use serde_json::json;
 
 const IP: &str = "203.0.113.77";
 const SECRET: &str = "sk-test-SECRETKEY1234567890";

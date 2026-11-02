@@ -9,7 +9,6 @@ use axum::http::StatusCode;
 use lru::LruCache;
 use serde_json::{json, Value};
 use tokio::sync::Semaphore;
-use zkapi_proof::compact::CompactSigner;
 use zkapi_types::wire::{ApiRequestV2, OpenRouterLeaseAuthorization};
 use zkapi_types::{canonical_payload_hash, Felt252, PROTOCOL_VERSION};
 
@@ -28,7 +27,7 @@ use crate::signer::SignerApi;
 use crate::status::{StatusSigner, SLOT_SECS};
 use crate::store::{self, Cas, NewLease, Store};
 use crate::token;
-use crate::usage::Minter;
+use crate::usage::UsageSigner;
 use crate::verify::{point_checks, ProofVerifier, WithdrawalProofVerifier};
 
 /// A request proof is valid for 300 seconds, with 30 seconds of clock skew either way.
@@ -189,7 +188,7 @@ pub struct Operator {
     /// the token is stored hashed and cannot be rebuilt.
     pub(crate) issued: Mutex<HashMap<String, (Value, Value)>>,
     pub(crate) signer: Arc<dyn SignerApi>,
-    pub(crate) minter: Minter,
+    pub(crate) minter: Arc<dyn UsageSigner>,
     /// Requests in flight per lease, and the leases that take no new ones.
     pub(crate) inflight: Arc<Mutex<HashMap<String, u32>>>,
     pub(crate) closing: Mutex<HashSet<String>>,
@@ -237,9 +236,9 @@ pub struct Parts {
     /// Takes `POST /v1/close`: the closer process in production.
     pub closer: Arc<dyn CloseApi>,
     pub store: Store,
-    pub state_signer: CompactSigner,
+    pub state_signer: Arc<dyn crate::status::StateSigning>,
     pub signer: Arc<dyn SignerApi>,
-    pub minter: Minter,
+    pub minter: Arc<dyn UsageSigner>,
     pub alarms: Arc<crate::alarm::Alarms>,
 }
 
@@ -742,7 +741,7 @@ impl Operator {
         let emergency = self.emergency().await;
         let cache = self.cache.lock().await;
         let config = cache.config.clone().expect("loaded at start");
-        let slot = self.status.current(now);
+        let slot = self.status.current(now).await;
         let (limit, used, resets_ts) = self.ledger.daily(now);
         let heartbeat_age = self.heartbeat_age(now).await;
         // No heartbeat yet counts from the start of the process.
@@ -769,8 +768,9 @@ impl Operator {
             "open_notes": cache.open_notes,
             "external_notes": cache.open_notes.saturating_sub(cache.team_open),
             "team_note_ids": self.cfg.team_note_ids,
-            "nonce": { "nonce": slot.nonce, "host": slot.host, "ts": slot.ts },
-            "nonce_sig": slot.sig,
+            // Null while the signer cannot be reached: a client treats that as "do not open a lease".
+            "nonce": slot.as_ref().map_or(Value::Null, |s| json!({ "nonce": s.nonce, "host": s.host, "ts": s.ts })),
+            "nonce_sig": slot.as_ref().map_or(Value::Null, |s| json!(s.sig)),
             "heartbeat_age_secs": heartbeat_age,
             "watchers": watchers,
             "degraded": degraded,

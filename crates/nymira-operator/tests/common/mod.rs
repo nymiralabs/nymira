@@ -353,6 +353,7 @@ async fn launch(
             heartbeat.clone(),
         )
         .unwrap()
+        .with_status_host("operator.test")
         .with_replica(replica_dyn.clone()),
     );
     let op = Operator::start(Parts {
@@ -365,9 +366,9 @@ async fn launch(
         withdrawal_verifier: withdrawal,
         closer,
         store,
-        state_signer: CompactSigner::from_seed(&Felt252::from_u64(1)),
+        state_signer: Arc::new(CompactSigner::from_seed(&Felt252::from_u64(1))),
         signer: Arc::new(LocalSigner(signer.clone())),
-        minter: minter.clone(),
+        minter: Arc::new(minter.clone()),
         alarms,
     })
     .await

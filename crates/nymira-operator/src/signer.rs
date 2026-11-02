@@ -108,6 +108,7 @@ pub struct Signer {
     clock: Arc<dyn Clock>,
     heartbeat: Arc<dyn HeartbeatSender>,
     last_heartbeat: Mutex<Option<u64>>,
+    status_host: Option<String>,
     /// Every signed state is here before it is stored where a client can read it.
     replica: Arc<dyn crate::replica::Replica>,
 }
@@ -177,6 +178,7 @@ impl Signer {
             clock,
             heartbeat,
             last_heartbeat: Mutex::new(None),
+            status_host: None,
             replica: Arc::new(crate::replica::NoReplica),
         })
     }
@@ -203,6 +205,31 @@ impl Signer {
         }
         validate_operator_signing_seeds(state_seed, clearance_seed)
             .map_err(|e| SignerError::Internal(e.to_string()))
+    }
+
+    /// Signs a status nonce for the host this signer was told to serve, for the current slot or
+    /// the one before it. Nothing else is signed with this domain.
+    pub fn sign_status(&self, nonce: &str, host: &str, ts: u64) -> Result<SchnorrSignature, String> {
+        let slot = crate::status::SLOT_SECS;
+        let now = self.clock.now_secs();
+        if self.status_host.as_deref() != Some(host) {
+            return Err("not the host this signer serves".into());
+        }
+        if nonce.len() != 32 || !nonce.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return Err("a status nonce is 32 lowercase hex digits".into());
+        }
+        if ts % slot != 0 || ts > now + slot || ts + 3 * slot < now {
+            return Err("the slot is not a recent one".into());
+        }
+        Ok(self
+            .state
+            .sign(&crate::status::status_message(nonce, host, ts)))
+    }
+
+    /// The host name status nonces are signed for; without it no status is signed.
+    pub fn with_status_host(mut self, host: &str) -> Self {
+        self.status_host = Some(host.into());
+        self
     }
 
     pub fn state_public_key(&self) -> zkapi_types::wire::CurvePointWire {
@@ -480,6 +507,10 @@ pub fn bind_socket(path: &Path) -> std::io::Result<UnixListener> {
 enum Call {
     Next(SignRequest),
     Clearance { nullifier: Felt252 },
+    /// A status nonce to sign under the state key: the signer builds the message itself.
+    Status { nonce: String, host: String, ts: u64 },
+    /// The state key's public key.
+    StateKey,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -487,6 +518,8 @@ enum Call {
 enum Reply {
     Ok(Box<RequestResponseV2>),
     Clearance(SchnorrSignature),
+    Status(SchnorrSignature),
+    StateKey(zkapi_types::wire::CurvePointWire),
     Refused(String),
     Error(String),
     ReplicaUnreachable,
@@ -528,6 +561,11 @@ async fn handle(stream: UnixStream, signer: Arc<Signer>) -> std::io::Result<()> 
             Err(SignerError::Internal(why)) => Reply::Error(why),
             Err(SignerError::ReplicaUnreachable) => Reply::ReplicaUnreachable,
         },
+        Ok(Call::Status { nonce, host, ts }) => match signer.sign_status(&nonce, &host, ts) {
+            Ok(signature) => Reply::Status(signature),
+            Err(why) => Reply::Refused(why),
+        },
+        Ok(Call::StateKey) => Reply::StateKey(signer.state_public_key()),
         Ok(Call::Clearance { nullifier }) => match signer.sign_clearance(nullifier).await {
             Ok(signature) => Reply::Clearance(signature),
             Err(SignerError::Refused(why)) => Reply::Refused(why),
@@ -592,6 +630,47 @@ impl SocketSigner {
             Err(_) => Err(SignerError::Internal(
                 "the signer closed the connection".into(),
             )),
+        }
+    }
+}
+
+/// The state key as the public API process sees it: the public key fetched once, signatures
+/// asked of the signer per status slot.
+pub struct SocketStateSigner {
+    socket: SocketSigner,
+    pk: zkapi_types::wire::CurvePointWire,
+}
+
+impl SocketStateSigner {
+    pub async fn connect(path: &Path) -> Result<Self, SignerError> {
+        let socket = SocketSigner(path.into());
+        match socket.ask(Call::StateKey).await? {
+            Reply::StateKey(pk) => Ok(Self { socket, pk }),
+            _ => Err(SignerError::Internal(
+                "the signer sent another answer".into(),
+            )),
+        }
+    }
+}
+
+#[async_trait]
+impl crate::status::StateSigning for SocketStateSigner {
+    fn public_key(&self) -> zkapi_types::wire::CurvePointWire {
+        self.pk.clone()
+    }
+
+    async fn sign_status(&self, nonce: &str, host: &str, ts: u64) -> Option<SchnorrSignature> {
+        match self
+            .socket
+            .ask(Call::Status {
+                nonce: nonce.into(),
+                host: host.into(),
+                ts,
+            })
+            .await
+        {
+            Ok(Reply::Status(signature)) => Some(signature),
+            _ => None,
         }
     }
 }

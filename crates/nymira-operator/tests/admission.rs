@@ -844,9 +844,9 @@ async fn the_operator_refuses_to_start_against_another_operators_key() {
         withdrawal_verifier: Arc::new(AcceptWithdrawals),
         closer: Arc::new(NoCloser),
         store: nymira_operator::store::Store::open_in_memory().unwrap(),
-        state_signer: zkapi_proof::compact::CompactSigner::from_seed(&Felt252::from_u64(1)),
+        state_signer: Arc::new(zkapi_proof::compact::CompactSigner::from_seed(&Felt252::from_u64(1))),
         signer: Arc::new(NoSigner),
-        minter: nymira_operator::usage::Minter::generate(),
+        minter: Arc::new(nymira_operator::usage::Minter::generate()),
         alarms: std::sync::Arc::new(nymira_operator::alarm::Alarms::new(vec![], clock.clone())),
     })
     .await;

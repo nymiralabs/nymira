@@ -508,11 +508,17 @@ impl Operator {
             Err(_) if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS => None,
             Err(_) => return,
         };
-        let signed = self.minter.sign(UsageRecord {
-            lease_id: lease.lease_id.clone(),
-            cost_nano_usd: cost,
-            read_at: now,
-        });
+        let Ok(signed) = self
+            .minter
+            .sign(UsageRecord {
+                lease_id: lease.lease_id.clone(),
+                cost_nano_usd: cost,
+                read_at: now,
+            })
+            .await
+        else {
+            return;
+        };
         let (id, json) = (
             lease.lease_id.clone(),
             serde_json::to_string(&signed).expect("usage serialises"),

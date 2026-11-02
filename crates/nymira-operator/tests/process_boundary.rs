@@ -137,3 +137,35 @@ fn a_passphrase_comes_from_a_line_and_not_from_the_environment() {
         }
     }
 }
+
+// ---------------------------------------------------------------- the state key stays in the signer
+
+use common::{Rig, Setup};
+use nymira_operator::signer::{bind_socket, serve as serve_signer, SocketStateSigner};
+use nymira_operator::status::{status_message, StateSigning};
+use zkapi_proof::compact::verify_signature;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_status_nonce_is_signed_by_the_signer_and_by_nothing_else_it_is_asked_for() {
+    let rig = Rig::new(Setup::default()).await;
+    let path = rig.dir.path().join("signer.sock");
+    tokio::spawn(serve_signer(bind_socket(&path).unwrap(), rig.signer.clone(), uid()));
+    let remote = SocketStateSigner::connect(&path).await.unwrap();
+    assert_eq!(remote.public_key(), rig.signer.state_public_key());
+
+    let now = rig.clock_now() / 5 * 5;
+    let nonce = "ab".repeat(16);
+    let sig = remote.sign_status(&nonce, "operator.test", now).await.unwrap();
+    assert!(verify_signature(
+        &rig.signer.state_public_key(),
+        &status_message(&nonce, "operator.test", now),
+        &sig
+    )
+    .unwrap());
+    // Another host, a stale slot, an off-grid time and a nonce of the wrong shape are refused.
+    assert!(remote.sign_status(&nonce, "evil.test", now).await.is_none());
+    assert!(remote.sign_status(&nonce, "operator.test", now - 300).await.is_none());
+    assert!(remote.sign_status(&nonce, "operator.test", now + 1).await.is_none());
+    assert!(remote.sign_status("zz", "operator.test", now).await.is_none());
+    assert!(remote.sign_status(&"AB".repeat(16), "operator.test", now).await.is_none());
+}
