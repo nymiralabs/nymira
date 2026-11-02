@@ -27,5 +27,6 @@ pub mod tx;
 pub mod usage;
 pub mod verify;
 pub mod watch;
+pub mod watcher;
 
 pub use operator::{Config, Operator, Parts};

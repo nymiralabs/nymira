@@ -213,6 +213,7 @@ async fn the_note_must_be_active_and_its_nullifier_unspent_with_no_exit_pending(
             note_id: 4,
             nullifier: nullifier_hex(900),
             next_nullifier: nullifier_hex(901),
+            ..Default::default()
         });
     });
     let on = |n, note_id| {

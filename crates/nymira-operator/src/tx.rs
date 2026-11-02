@@ -165,6 +165,30 @@ impl NearTx {
         self
     }
 
+    /// The account the transactions are sent from.
+    pub fn signer_id(&self) -> &str {
+        &self.signer_id
+    }
+
+    /// The signer account's balance in yoctoNEAR at a final block.
+    pub async fn balance(&self) -> Result<u128, TxError> {
+        let account = self
+            .rpc(
+                "query",
+                json!({
+                    "request_type": "view_account", "finality": "final",
+                    "account_id": self.signer_id,
+                }),
+                self.cfg.send_timeout,
+            )
+            .await
+            .map_err(Self::rpc_error)?;
+        account["amount"]
+            .as_str()
+            .and_then(|a| a.parse().ok())
+            .ok_or_else(|| TxError::Rpc("the account balance is not readable".into()))
+    }
+
     /// `ed25519:` and the base58 key, as NEAR prints it.
     pub fn public_key(&self) -> String {
         format!(
