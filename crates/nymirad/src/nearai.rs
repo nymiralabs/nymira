@@ -496,7 +496,18 @@ impl Attestor for NearAiAttestor {
         request: &[u8],
         response: &[u8],
     ) -> Trust {
-        let wire: WireSignature = match serde_json::from_value(signature.clone()) {
+        // The gateway's answer for a model signature may omit the kind; the SDK reads a bare
+        // `signature` as `provider_tee`, and so do we.
+        let mut signature = signature.clone();
+        if let Some(o) = signature.as_object_mut() {
+            if o.contains_key("signature") && !o.contains_key("signature_kind") {
+                o.insert(
+                    "signature_kind".into(),
+                    Value::String("provider_tee".into()),
+                );
+            }
+        }
+        let wire: WireSignature = match serde_json::from_value(signature) {
             Ok(w) => w,
             Err(e) => return Trust::NotVerified(format!("the signature is malformed: {e}")),
         };
