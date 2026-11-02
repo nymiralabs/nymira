@@ -258,6 +258,17 @@ async fn watch_child(mut child: Child, backend: Backend, state: watch::Sender<To
                 _ => out = None,
             },
             status = child.wait() => {
+                // The process is gone, but its last lines may still sit in the pipe: they say why.
+                if let Some(reader) = out.as_mut() {
+                    let drain = async {
+                        while let Ok(Some(line)) = reader.next_line().await {
+                            if line.contains("[err]") || line.contains("[warn]") {
+                                last = line;
+                            }
+                        }
+                    };
+                    let _ = tokio::time::timeout(Duration::from_millis(300), drain).await;
+                }
                 let why = match status {
                     Ok(s) => format!("{} exited ({s})", backend.name()),
                     Err(e) => format!("{} could not be waited on: {e}", backend.name()),
