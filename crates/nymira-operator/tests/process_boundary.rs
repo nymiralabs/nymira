@@ -36,14 +36,24 @@ async fn two_processes_write_one_log_through_its_owner() {
     // The public API and the signer each hold a client, not a log.
     let (api, signer) = (SocketReplica::new(&path), SocketReplica::new(&path));
     api.append(&entry(1)).await.unwrap();
-    signer.record("signed", "l1", Some("{\"x\":1}")).await.unwrap();
+    signer
+        .record("signed", "l1", Some("{\"x\":1}"))
+        .await
+        .unwrap();
     api.append(&entry(2)).await.unwrap();
     assert_eq!(
-        owner.entries().iter().map(|e| e.lease_id.as_str()).collect::<Vec<_>>(),
+        owner
+            .entries()
+            .iter()
+            .map(|e| e.lease_id.as_str())
+            .collect::<Vec<_>>(),
         ["l1", "l2"]
     );
     assert_eq!(owner.records(), [("signed".into(), "l1".into())]);
-    assert_eq!(api.recorded("signed", "l1").await.as_deref(), Some("{\"x\":1}"));
+    assert_eq!(
+        api.recorded("signed", "l1").await.as_deref(),
+        Some("{\"x\":1}")
+    );
 
     // The owner's recovery flag and health reach the clients.
     assert!(SocketReplica::refresh(&api).await.is_ok());
@@ -59,7 +69,10 @@ async fn two_processes_write_one_log_through_its_owner() {
 async fn a_client_is_not_ready_until_the_owner_has_answered() {
     let dir = tempfile::tempdir().unwrap();
     let client = SocketReplica::new(&dir.path().join("nobody.sock"));
-    assert!(client.in_recovery(), "nothing may be signed before the first answer");
+    assert!(
+        client.in_recovery(),
+        "nothing may be signed before the first answer"
+    );
     assert_eq!(client.health(), "unreachable");
     assert!(client.append(&entry(1)).await.is_err());
 }
@@ -81,7 +94,10 @@ async fn a_socket_is_0600_and_garbage_gets_a_refusal_not_a_crash() {
     let path = dir.path().join("replica.sock");
     let owner = Arc::new(FakeReplica::default());
     tokio::spawn(serve(ipc::bind(&path).unwrap(), owner.clone(), uid()));
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     let reply: serde_json::Value = ipc::call(
         &path,
         &serde_json::json!({"op": "drop_all_tables"}),
@@ -98,9 +114,16 @@ fn a_secret_file_is_0400_and_a_loose_one_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("keys").join("nearai.token");
     secretfile::write(&path, b"token").unwrap();
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o400);
     assert_eq!(
-        std::fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777,
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o400
+    );
+    assert_eq!(
+        std::fs::metadata(path.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
         0o700
     );
     assert_eq!(&**secretfile::read(&path).unwrap(), b"token");
@@ -113,12 +136,16 @@ fn a_secret_file_is_0400_and_a_loose_one_is_refused() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
     let link = dir.path().join("link");
     std::os::unix::fs::symlink(&path, &link).unwrap();
-    assert!(secretfile::read(&link).is_err(), "a symlink is not a secret file");
+    assert!(
+        secretfile::read(&link).is_err(),
+        "a symlink is not a secret file"
+    );
 }
 
 #[test]
 fn a_passphrase_comes_from_a_line_and_not_from_the_environment() {
-    let got = secretfile::passphrase_from(std::io::Cursor::new(b"correct horse\n".to_vec())).unwrap();
+    let got =
+        secretfile::passphrase_from(std::io::Cursor::new(b"correct horse\n".to_vec())).unwrap();
     assert_eq!(&*got, "correct horse");
     assert!(secretfile::passphrase_from(std::io::Cursor::new(b"\n".to_vec())).is_err());
     assert!(secretfile::passphrase_from(std::io::Cursor::new(Vec::new())).is_err());
@@ -130,7 +157,9 @@ fn a_passphrase_comes_from_a_line_and_not_from_the_environment() {
             let text = std::fs::read_to_string(&path).unwrap();
             let code = text.split("#[cfg(test)]").next().unwrap();
             assert!(
-                !code.contains("env::var") || path.ends_with("nearai.rs") || path.ends_with("sealed.rs"),
+                !code.contains("env::var")
+                    || path.ends_with("nearai.rs")
+                    || path.ends_with("sealed.rs"),
                 "{} reads the environment",
                 path.display()
             );
@@ -149,13 +178,20 @@ use zkapi_proof::compact::verify_signature;
 async fn the_status_nonce_is_signed_by_the_signer_and_by_nothing_else_it_is_asked_for() {
     let rig = Rig::new(Setup::default()).await;
     let path = rig.dir.path().join("signer.sock");
-    tokio::spawn(serve_signer(bind_socket(&path).unwrap(), rig.signer.clone(), uid()));
+    tokio::spawn(serve_signer(
+        bind_socket(&path).unwrap(),
+        rig.signer.clone(),
+        uid(),
+    ));
     let remote = SocketStateSigner::connect(&path).await.unwrap();
     assert_eq!(remote.public_key(), rig.signer.state_public_key());
 
     let now = rig.clock_now() / 5 * 5;
     let nonce = "ab".repeat(16);
-    let sig = remote.sign_status(&nonce, "operator.test", now).await.unwrap();
+    let sig = remote
+        .sign_status(&nonce, "operator.test", now)
+        .await
+        .unwrap();
     assert!(verify_signature(
         &rig.signer.state_public_key(),
         &status_message(&nonce, "operator.test", now),
@@ -164,8 +200,20 @@ async fn the_status_nonce_is_signed_by_the_signer_and_by_nothing_else_it_is_aske
     .unwrap());
     // Another host, a stale slot, an off-grid time and a nonce of the wrong shape are refused.
     assert!(remote.sign_status(&nonce, "evil.test", now).await.is_none());
-    assert!(remote.sign_status(&nonce, "operator.test", now - 300).await.is_none());
-    assert!(remote.sign_status(&nonce, "operator.test", now + 1).await.is_none());
-    assert!(remote.sign_status("zz", "operator.test", now).await.is_none());
-    assert!(remote.sign_status(&"AB".repeat(16), "operator.test", now).await.is_none());
+    assert!(remote
+        .sign_status(&nonce, "operator.test", now - 300)
+        .await
+        .is_none());
+    assert!(remote
+        .sign_status(&nonce, "operator.test", now + 1)
+        .await
+        .is_none());
+    assert!(remote
+        .sign_status("zz", "operator.test", now)
+        .await
+        .is_none());
+    assert!(remote
+        .sign_status(&"AB".repeat(16), "operator.test", now)
+        .await
+        .is_none());
 }

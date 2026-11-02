@@ -28,9 +28,19 @@ fn seeds() -> Vec<(Wire, Vec<u8>)> {
         (Wire::Close, close),
         (Wire::Chat, chat.clone()),
         (Wire::Reconcile, reconcile),
-        (Wire::SignerCall, br#"{"op":"clearance","nullifier":"0x01"}"#.to_vec()),
-        (Wire::ReplicaCall, br#"{"op":"record","kind":"signed","key":"l1","payload":null}"#.to_vec()),
-        (Wire::ReplogEntry, br#"{"seq":1,"prev":"00","hash":"00","kind":"x","key":"k","hour":0,"payload":null}"#.to_vec()),
+        (
+            Wire::SignerCall,
+            br#"{"op":"clearance","nullifier":"0x01"}"#.to_vec(),
+        ),
+        (
+            Wire::ReplicaCall,
+            br#"{"op":"record","kind":"signed","key":"l1","payload":null}"#.to_vec(),
+        ),
+        (
+            Wire::ReplogEntry,
+            br#"{"seq":1,"prev":"00","hash":"00","kind":"x","key":"k","hour":0,"payload":null}"#
+                .to_vec(),
+        ),
         (Wire::Json, chat),
     ]
 }
@@ -56,7 +66,9 @@ fn mutate(rng: &mut rand::rngs::StdRng, seed: &[u8]) -> Vec<u8> {
             5 => {
                 b.remove(at);
             }
-            _ => b.extend_from_slice(b"{\"a\":{\"a\":{\"a\":{\"a\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[["),
+            _ => {
+                b.extend_from_slice(b"{\"a\":{\"a\":{\"a\":{\"a\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[")
+            }
         }
     }
     b
@@ -75,7 +87,11 @@ fn no_wire_type_panics_on_seeds_mutations_or_noise() {
         for _ in 0..1500 {
             let input = mutate(&mut rng, seed);
             let outcome = std::panic::catch_unwind(|| exercise(*wire, &input));
-            assert!(outcome.is_ok(), "{wire:?} panicked on {:?}", String::from_utf8_lossy(&input));
+            assert!(
+                outcome.is_ok(),
+                "{wire:?} panicked on {:?}",
+                String::from_utf8_lossy(&input)
+            );
         }
     }
     for wire in Wire::ALL {
@@ -85,8 +101,18 @@ fn no_wire_type_panics_on_seeds_mutations_or_noise() {
             let outcome = std::panic::catch_unwind(|| exercise(wire, &noise));
             assert!(outcome.is_ok(), "{wire:?} panicked on noise");
         }
-        for input in [&b""[..], b"null", b"[]", b"{}", b"\xff\xfe", &[b'['; 5000][..]] {
-            assert!(std::panic::catch_unwind(|| exercise(wire, input)).is_ok(), "{wire:?}");
+        for input in [
+            &b""[..],
+            b"null",
+            b"[]",
+            b"{}",
+            b"\xff\xfe",
+            &[b'['; 5000][..],
+        ] {
+            assert!(
+                std::panic::catch_unwind(|| exercise(wire, input)).is_ok(),
+                "{wire:?}"
+            );
         }
     }
 }
@@ -106,7 +132,14 @@ fn every_wire_type_has_a_fuzz_target() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/fuzz_targets");
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .unwrap()
-        .map(|e| e.unwrap().path().file_stem().unwrap().to_string_lossy().into_owned())
+        .map(|e| {
+            e.unwrap()
+                .path()
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect();
     names.sort();
     assert_eq!(names.len(), Wire::ALL.len());
@@ -114,15 +147,21 @@ fn every_wire_type_has_a_fuzz_target() {
         let source = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("fuzz/fuzz_targets")
-                .join(format!("{}.rs", names.iter().find(|n| {
-                    std::fs::read_to_string(
-                        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                            .join("fuzz/fuzz_targets")
-                            .join(format!("{n}.rs")),
-                    )
-                    .unwrap()
-                    .contains(&format!("Wire::{wire:?},"))
-                }).unwrap_or_else(|| panic!("no fuzz target for {wire:?}")))),
+                .join(format!(
+                    "{}.rs",
+                    names
+                        .iter()
+                        .find(|n| {
+                            std::fs::read_to_string(
+                                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("fuzz/fuzz_targets")
+                                    .join(format!("{n}.rs")),
+                            )
+                            .unwrap()
+                            .contains(&format!("Wire::{wire:?},"))
+                        })
+                        .unwrap_or_else(|| panic!("no fuzz target for {wire:?}"))
+                )),
         )
         .unwrap();
         assert!(source.contains("fuzz_target!"));

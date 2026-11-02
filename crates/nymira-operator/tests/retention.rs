@@ -43,7 +43,15 @@ async fn settled_lease(rig: &Rig) -> String {
     id
 }
 
-type Row = (Option<String>, Option<i64>, Option<i64>, Option<String>, i64, i64, String);
+type Row = (
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    i64,
+    i64,
+    String,
+);
 
 async fn row(rig: &Rig, id: &str) -> Row {
     let id = id.to_string();
@@ -77,7 +85,7 @@ async fn settlement_deletes_the_key_id_and_the_exact_timers() {
     let id = settled_lease(&rig).await;
     let (key_id, activity, revoked, usage, settled_at, issued_at, status) = row(&rig, &id).await;
     assert_eq!(status, "settled");
-    assert!(key_id.is_none() && activity.is_none() && revoked.is_none() && usage.is_none());
+    assert!(key_id.is_none() && activity.is_none() && revoked.is_none() && usage.is_some());
     assert_eq!(settled_at % 3600, 0);
     assert_eq!(issued_at % 3600, 0);
 }
@@ -97,14 +105,22 @@ async fn old_request_proofs_and_signed_states_are_purged_on_a_schedule() {
     };
     assert_eq!(count(&rig, "SELECT COUNT(*) FROM signed_states").await, 1);
     assert_eq!(
-        count(&rig, "SELECT COUNT(*) FROM leases WHERE request_json != '{}'").await,
+        count(
+            &rig,
+            "SELECT COUNT(*) FROM leases WHERE request_json != '{}'"
+        )
+        .await,
         1
     );
     rig.clock.advance_secs(RETENTION_SECS + 7_200);
     rig.op.tick().await;
     assert_eq!(count(&rig, "SELECT COUNT(*) FROM signed_states").await, 0);
     assert_eq!(
-        count(&rig, "SELECT COUNT(*) FROM leases WHERE request_json != '{}'").await,
+        count(
+            &rig,
+            "SELECT COUNT(*) FROM leases WHERE request_json != '{}'"
+        )
+        .await,
         0
     );
     // The row itself and its charge stay: the daily budget and the evidence still read them.

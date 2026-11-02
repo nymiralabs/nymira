@@ -489,7 +489,10 @@ impl Operator {
     }
 
     pub async fn clear_emergency(&self) -> Result<(), ApiError> {
-        self.store.run(|c| store::clear_emergency(c)).await.map_err(db_error)
+        self.store
+            .run(|c| store::clear_emergency(c))
+            .await
+            .map_err(db_error)
     }
 
     pub(crate) async fn refuse_in_emergency(&self) -> Result<(), ApiError> {
@@ -504,7 +507,10 @@ impl Operator {
     /// many keys it revoked.
     pub async fn revoke_provider_keys(&self) -> Result<usize, ApiError> {
         let listed = self.provider.list().await.map_err(|e| {
-            ApiError::new(Code::ProviderError, format!("the provider list failed: {e}"))
+            ApiError::new(
+                Code::ProviderError,
+                format!("the provider list failed: {e}"),
+            )
         })?;
         let mut revoked = 0;
         for lease_id in listed {

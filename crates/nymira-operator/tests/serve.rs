@@ -13,12 +13,15 @@ use tokio::net::{TcpListener, TcpStream};
 fn app() -> Router {
     Router::new()
         .route("/ok", get(|| async { "ok" }))
-        .route("/panic", get(|| async {
-            if true {
-                panic!("secret prompt text");
-            }
-            "unreachable"
-        }))
+        .route(
+            "/panic",
+            get(|| async {
+                if true {
+                    panic!("secret prompt text");
+                }
+                "unreachable"
+            }),
+        )
         .route(
             "/echo",
             post(|body: axum::body::Body| async move {
@@ -63,7 +66,9 @@ async fn closed_within(stream: &mut TcpStream, within: Duration) -> bool {
 async fn a_slow_header_client_is_cut_off() {
     let addr = start(quick()).await;
     let mut slow = TcpStream::connect(addr).await.unwrap();
-    slow.write_all(b"GET /ok HTTP/1.1\r\nHost: x\r\n").await.unwrap();
+    slow.write_all(b"GET /ok HTTP/1.1\r\nHost: x\r\n")
+        .await
+        .unwrap();
     let started = Instant::now();
     // The header never ends; one more byte every 100 ms does not extend the deadline.
     let mut cut = false;
@@ -113,8 +118,11 @@ async fn a_slow_body_client_is_cut_off_and_a_fast_one_is_not() {
     let mut fast = TcpStream::connect(addr).await.unwrap();
     let body = vec![b'b'; 20_000];
     fast.write_all(
-        format!("POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len())
-            .as_bytes(),
+        format!(
+            "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .as_bytes(),
     )
     .await
     .unwrap();
@@ -182,9 +190,11 @@ async fn a_panic_answers_a_fixed_500_and_the_service_goes_on() {
 async fn a_body_over_the_cap_is_refused_before_the_handler() {
     let addr = start(quick()).await;
     let mut conn = TcpStream::connect(addr).await.unwrap();
-    conn.write_all(b"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\nConnection: close\r\n\r\n")
-        .await
-        .unwrap();
+    conn.write_all(
+        b"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\nConnection: close\r\n\r\n",
+    )
+    .await
+    .unwrap();
     let mut text = String::new();
     let _ = tokio::time::timeout(Duration::from_secs(2), conn.read_to_string(&mut text)).await;
     assert!(text.starts_with("HTTP/1.1 413"), "{text}");

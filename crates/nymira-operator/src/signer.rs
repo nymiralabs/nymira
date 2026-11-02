@@ -209,16 +209,25 @@ impl Signer {
 
     /// Signs a status nonce for the host this signer was told to serve, for the current slot or
     /// the one before it. Nothing else is signed with this domain.
-    pub fn sign_status(&self, nonce: &str, host: &str, ts: u64) -> Result<SchnorrSignature, String> {
+    pub fn sign_status(
+        &self,
+        nonce: &str,
+        host: &str,
+        ts: u64,
+    ) -> Result<SchnorrSignature, String> {
         let slot = crate::status::SLOT_SECS;
         let now = self.clock.now_secs();
         if self.status_host.as_deref() != Some(host) {
             return Err("not the host this signer serves".into());
         }
-        if nonce.len() != 32 || !nonce.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        if nonce.len() != 32
+            || !nonce
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
             return Err("a status nonce is 32 lowercase hex digits".into());
         }
-        if ts % slot != 0 || ts > now + slot || ts + 3 * slot < now {
+        if !ts.is_multiple_of(slot) || ts > now + slot || ts + 3 * slot < now {
             return Err("the slot is not a recent one".into());
         }
         Ok(self
@@ -506,9 +515,15 @@ pub fn bind_socket(path: &Path) -> std::io::Result<UnixListener> {
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Call {
     Next(SignRequest),
-    Clearance { nullifier: Felt252 },
+    Clearance {
+        nullifier: Felt252,
+    },
     /// A status nonce to sign under the state key: the signer builds the message itself.
-    Status { nonce: String, host: String, ts: u64 },
+    Status {
+        nonce: String,
+        host: String,
+        ts: u64,
+    },
     /// The state key's public key.
     StateKey,
 }

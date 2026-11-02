@@ -356,8 +356,14 @@ impl Operator {
     /// A replica that is diverged or unreachable raises an alarm; one that is back clears it.
     async fn alarm_on_replica_health(&self) {
         for (health, what) in [
-            ("diverged", "its log and ours disagree; nothing is signed until a person looks"),
-            ("unreachable", "no signature can leave while the second machine does not answer"),
+            (
+                "diverged",
+                "its log and ours disagree; nothing is signed until a person looks",
+            ),
+            (
+                "unreachable",
+                "no signature can leave while the second machine does not answer",
+            ),
         ] {
             let key = format!("replica_{health}");
             if self.replica.health() == health {
@@ -686,7 +692,9 @@ impl Operator {
                 recent.pop_front();
             }
             if recent.len() >= crate::operator::RECONCILES_PER_MINUTE {
-                let wait = recent.front().map_or(1, |t| (*t + 60).saturating_sub(now).max(1));
+                let wait = recent
+                    .front()
+                    .map_or(1, |t| (*t + 60).saturating_sub(now).max(1));
                 return Err(ApiError::new(
                     Code::OperatorCapacity,
                     "too many reconcile calls this minute",

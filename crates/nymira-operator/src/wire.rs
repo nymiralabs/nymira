@@ -60,7 +60,9 @@ pub fn exercise(wire: Wire, bytes: &[u8]) -> bool {
         Wire::Reconcile => parse_strict(bytes)
             .ok()
             .filter(|v| v["lease_id"].is_string())
-            .is_some_and(|v| crate::operator::parse_request(v["request"].to_string().as_bytes()).is_ok()),
+            .is_some_and(|v| {
+                crate::operator::parse_request(v["request"].to_string().as_bytes()).is_ok()
+            }),
         Wire::SignerCall => std::str::from_utf8(bytes).is_ok_and(crate::signer::is_typed_request),
         Wire::ReplicaCall => {
             std::str::from_utf8(bytes).is_ok_and(crate::replica_socket::is_typed_request)
@@ -176,7 +178,10 @@ pub fn chat_agrees(bytes: &[u8]) -> bool {
     ];
     if serde_json::from_str::<Value>(raw)
         .ok()
-        .and_then(|v| v.as_object().map(|o| o.keys().any(|k| !modelled.contains(&k.as_str()))))
+        .and_then(|v| {
+            v.as_object()
+                .map(|o| o.keys().any(|k| !modelled.contains(&k.as_str())))
+        })
         .unwrap_or(false)
     {
         return true;

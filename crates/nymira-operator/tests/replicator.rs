@@ -326,7 +326,10 @@ async fn a_replica_that_pins_the_operators_key_takes_only_signed_entries() {
     // The operator's own replicator signs: its entries are taken.
     let laptop = Replicator::new(log(), wire.clone(), pk, clock()).with_signing_key(operator);
     laptop.append(&reservation(1)).await.unwrap();
-    laptop.record(kinds::SIGNED, "lease1", Some("{}")).await.unwrap();
+    laptop
+        .record(kinds::SIGNED, "lease1", Some("{}"))
+        .await
+        .unwrap();
     assert_eq!(replica.head().await.seq, 2);
 
     // A peer the network admits cannot add a fact: not unsigned, not under another key.

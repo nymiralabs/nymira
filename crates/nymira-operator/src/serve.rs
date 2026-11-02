@@ -63,15 +63,15 @@ pub fn raise_fd_limit(want: u64) -> std::io::Result<u64> {
         if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        let target = want.min(lim.rlim_max as u64);
-        if (lim.rlim_cur as u64) < target {
+        let target = want.min(lim.rlim_max);
+        if lim.rlim_cur < target {
             lim.rlim_cur = target as libc::rlim_t;
             if libc::setrlimit(libc::RLIMIT_NOFILE, &lim) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
         }
     }
-    Ok(lim.rlim_cur as u64)
+    Ok(lim.rlim_cur)
 }
 
 /// Serves `app` on `listener` until the task is dropped.
@@ -143,7 +143,10 @@ impl MinRate {
     }
 
     fn too_slow(&self) -> bool {
-        let late = self.started.elapsed().saturating_sub(self.limits.body_grace);
+        let late = self
+            .started
+            .elapsed()
+            .saturating_sub(self.limits.body_grace);
         self.received < (late.as_secs_f64() * self.limits.body_min_rate as f64) as u64
     }
 }

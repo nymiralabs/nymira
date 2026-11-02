@@ -519,7 +519,9 @@ impl ReplicaNode {
     pub async fn append(&self, entry: &Entry) -> Result<SignedHead, LogError> {
         if let Some(pk) = &self.laptop {
             if !entry_signed_by(pk, entry) {
-                return Err(LogError::Bad("the entry is not signed by the operator".into()));
+                return Err(LogError::Bad(
+                    "the entry is not signed by the operator".into(),
+                ));
             }
         }
         self.log.accept(entry).await?;

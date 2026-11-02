@@ -26,7 +26,10 @@ async fn an_emergency_stops_leases_and_clearances_and_shows_on_status() {
 
     // The lease that was open keeps working: users are told to exit, not cut off.
     let (s, _, _) = rig.lease(&rig.fresh(1)).await;
-    assert_eq!(s, 503, "a repeat of an opened lease is also a new admission");
+    assert_eq!(
+        s, 503,
+        "a repeat of an opened lease is also a new admission"
+    );
 
     rig.op.clear_emergency().await.unwrap();
     assert!(rig.status().await["emergency_notice"].is_null());

@@ -448,13 +448,12 @@ pub fn settle(
 }
 
 /// At settlement the exact timers go: times fall back to the hour (the resolution the replica
-/// holds), and the key id, the last-activity, retirement and revocation times and the usage
-/// reading are deleted. Nothing after settlement needs them.
+/// holds), and the key id, the last-activity, retirement and revocation times are deleted. The usage reading stays: the lease status
+/// reports the measured cost from it, and its `read_at` is the only exact time left.
 pub fn scrub_timers(conn: &Connection, lease_id: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE leases SET
            key_id = NULL, last_activity = NULL, retiring_at = NULL, revoked_at = NULL,
-           usage_json = NULL,
            issued_at = issued_at / 3600 * 3600, expires_at = expires_at / 3600 * 3600,
            settled_at = settled_at / 3600 * 3600, reserved_at = reserved_at / 3600 * 3600
          WHERE lease_id = ?1",
@@ -498,8 +497,10 @@ pub fn lease_by_client_request_id(
 
 /// The key-leak notice, if the operator is in emergency.
 pub fn emergency(conn: &Connection) -> rusqlite::Result<Option<String>> {
-    conn.query_row("SELECT notice FROM emergency WHERE id = 1", [], |r| r.get(0))
-        .optional()
+    conn.query_row("SELECT notice FROM emergency WHERE id = 1", [], |r| {
+        r.get(0)
+    })
+    .optional()
 }
 
 pub fn set_emergency(conn: &Connection, notice: &str, now: u64) -> rusqlite::Result<()> {

@@ -24,9 +24,9 @@ pub fn scrub(text: &str) -> String {
         let boundary = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
         let rest = &lower[i..];
         let skip = if boundary && (rest.starts_with("sk-") || rest.starts_with("rpt-")) {
-            Some(span(text, i, |c| is_token_char(c)))
+            Some(span(text, i, is_token_char))
         } else if boundary && rest.starts_with("bearer ") {
-            Some(span(text, i + 7, |c| is_token_char(c)))
+            Some(span(text, i + 7, is_token_char))
         } else if boundary && rest.starts_with("authorization") {
             // The rest of the line is the value, whatever its scheme.
             let after = i + "authorization".len();
