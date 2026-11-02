@@ -40,7 +40,7 @@ pub enum ProviderError {
 /// What the operator records about a minted key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MintedKey {
-    /// Random name unrelated to the lease id and the lease token.
+    /// The provider's id for the key, unrelated to the lease id and the lease token.
     pub key_id: String,
     pub expires_at: u64,
 }
@@ -110,6 +110,9 @@ pub trait ProviderAdapter: Send + Sync {
     async fn mint(&self, lease_id: &str, bound: u128) -> Result<MintedKey, ProviderError>;
     async fn usage(&self, lease_id: &str) -> Result<KeyUsage, ProviderError>;
     async fn revoke(&self, lease_id: &str) -> Result<(), ProviderError>;
+    /// Work the adapter does on the watcher's five-minute tick, such as warning before its login
+    /// expires.
+    async fn housekeeping(&self) {}
     /// The lease ids of every live key, for the start-up sweep.
     async fn list(&self) -> Result<Vec<String>, ProviderError>;
     /// The organisation's credit in micro-USD.

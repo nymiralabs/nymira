@@ -222,6 +222,7 @@ pub struct Rig {
     pub replica: Arc<FakeReplica>,
     pub signer: Arc<Signer>,
     pub heartbeat: Arc<FakeHeartbeat>,
+    pub sink: Arc<nymira_operator::alarm::FakeSink>,
     pub minter: Minter,
     pub url: String,
     pub http: reqwest::Client,
@@ -262,6 +263,7 @@ async fn launch(
     replica: &Arc<FakeReplica>,
     minter: &Minter,
     heartbeat: &Arc<FakeHeartbeat>,
+    sink: &Arc<nymira_operator::alarm::FakeSink>,
     setup: Setup,
 ) -> (
     Arc<Operator>,
@@ -302,6 +304,10 @@ async fn launch(
         state_signer: CompactSigner::from_seed(&Felt252::from_u64(1)),
         signer: Arc::new(LocalSigner(signer.clone())),
         minter: minter.clone(),
+        alarms: Arc::new(nymira_operator::alarm::Alarms::new(
+            vec![sink.clone()],
+            clock.clone(),
+        )),
     })
     .await
     .expect("operator starts");
@@ -329,6 +335,7 @@ impl Rig {
         let replica = Arc::new(FakeReplica::default());
         let minter = Minter::generate();
         let heartbeat = Arc::new(FakeHeartbeat::default());
+        let sink = Arc::new(nymira_operator::alarm::FakeSink::default());
         let (op, signer, url, server) = launch(
             dir.path(),
             &clock,
@@ -337,6 +344,7 @@ impl Rig {
             &replica,
             &minter,
             &heartbeat,
+            &sink,
             setup,
         )
         .await;
@@ -348,6 +356,7 @@ impl Rig {
             replica,
             signer,
             heartbeat,
+            sink,
             minter,
             url,
             http: reqwest::Client::new(),
@@ -367,6 +376,7 @@ impl Rig {
             &self.replica,
             &self.minter,
             &self.heartbeat,
+            &self.sink,
             setup,
         )
         .await;

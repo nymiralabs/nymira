@@ -12,6 +12,8 @@ use std::{
 pub const SESSION_TOKEN: &str = "fake-session-jwt";
 /// Read-only reporting token accepted by the usage endpoints.
 pub const REPORTING_TOKEN: &str = "rpt-fake-reporting";
+/// The refresh token the fake starts with. Each exchange issues `rt-fake-{n+1}` and kills `rt-fake-{n}`.
+pub const FIRST_REFRESH_TOKEN: &str = "rt-fake-0";
 
 pub struct ModelInfo {
     pub id: &'static str,
@@ -98,6 +100,13 @@ pub struct Switches {
     pub output_price_nano_per_token: u64,
     /// Fixed answer text. Default: `fake reply to: <last user message>`.
     pub reply: Option<String>,
+    /// Whether an exchange replaces the refresh token (the real behaviour is a day-1 check).
+    pub rotate_refresh_tokens: bool,
+    /// When set, the exchange answers 401 unless its `User-Agent` is exactly this: the real
+    /// service ties a refresh token to the client that made it.
+    pub exchange_user_agent: Option<String>,
+    /// Lifetime reported for a refresh token, seconds.
+    pub refresh_ttl_secs: u64,
 }
 
 impl Default for Switches {
@@ -118,6 +127,9 @@ impl Default for Switches {
             input_price_nano_per_token: 80,
             output_price_nano_per_token: 500,
             reply: None,
+            rotate_refresh_tokens: true,
+            exchange_user_agent: None,
+            refresh_ttl_secs: 30 * 86_400,
         }
     }
 }
@@ -188,6 +200,8 @@ pub struct UsageRow {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
+    /// Serialized as the real history names it.
+    #[serde(rename = "total_cost")]
     pub cost_nano_usd: u64,
 }
 
@@ -207,6 +221,8 @@ pub(crate) struct Inner {
     pub usage: Vec<UsageRow>,
     pub sigs: HashMap<String, SigRecord>,
     pub counter: u64,
+    /// How many times the refresh token was exchanged and replaced.
+    pub refresh_count: u64,
 }
 
 /// In-process control and inspection of a running fake. Cheap to clone.

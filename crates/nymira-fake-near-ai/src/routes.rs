@@ -22,6 +22,7 @@ use std::{collections::HashMap, convert::Infallible, time::Duration};
 pub fn router(h: Handle) -> Router {
     let api = Router::new()
         .route("/v1/model/list", get(model_list))
+        .route("/v1/check_api_key", post(check_api_key))
         .route("/v1/chat/completions", post(chat))
         .route("/v1/signature/{chat_id}", get(signature))
         .route("/v1/attestation/report", get(attestation))
@@ -33,9 +34,9 @@ pub fn router(h: Handle) -> Router {
             "/v1/workspaces/{ws}/api-keys/{id}",
             patch(patch_key).delete(delete_key),
         )
-        .route("/v1/organizations/{org}/usage/export", get(usage_export))
-        .route("/v1/organizations/{org}/usage/summary", get(usage_summary))
+        .route("/v1/organizations/{org}/usage/history", get(usage_history))
         .route("/v1/organizations/{org}/usage/balance", get(balance))
+        .route("/v1/users/me/access-tokens", post(access_token))
         .layer(middleware::from_fn_with_state(h.clone(), inject));
     let control = Router::new()
         .route(
@@ -111,17 +112,6 @@ fn require_session(headers: &HeaderMap) -> R<()> {
         .ok_or_else(|| err(401, "unauthorized", "session token required"))
 }
 
-fn require_reporting(headers: &HeaderMap) -> R<()> {
-    match bearer(headers) {
-        Some(t) if t == SESSION_TOKEN || t.starts_with("rpt-") => Ok(()),
-        _ => Err(err(
-            401,
-            "unauthorized",
-            "session or reporting token required",
-        )),
-    }
-}
-
 /// Index of the active key the request carries.
 fn key_auth(g: &Inner, headers: &HeaderMap) -> R<usize> {
     let token = bearer(headers).ok_or_else(|| err(401, "unauthorized", "missing API key"))?;
@@ -159,6 +149,13 @@ async fn model_list(State(h): State<Handle>) -> Json<Value> {
         })
         .collect();
     Json(json!({"models": models}))
+}
+
+/// 200 when the key is known and active, 401 otherwise (the real one also checks credit).
+async fn check_api_key(State(h): State<Handle>, headers: HeaderMap) -> R<StatusCode> {
+    let g = h.lock();
+    key_auth(&g, &headers)?;
+    Ok(StatusCode::OK)
 }
 
 // ---- key management -----------------------------------------------------
@@ -229,7 +226,7 @@ async fn list_keys(
         .map(|k| k.to_json(false))
         .collect();
     Ok(Json(
-        json!({"data": page, "total": live.len(), "limit": limit, "offset": offset}),
+        json!({"api_keys": page, "total": live.len(), "limit": limit, "offset": offset}),
     ))
 }
 
@@ -280,50 +277,107 @@ async fn delete_key(
 
 // ---- usage and credit ---------------------------------------------------
 
-async fn usage_export(
+/// Real shape: `{data: [rows], total, limit, offset}`, rows with `total_cost` in nano-USD.
+/// The documented `usage/export` and `usage/summary` answered 404 on the live gateway
+/// (2026-11-02), so the fake does not serve them.
+async fn usage_history(
     State(h): State<Handle>,
     headers: HeaderMap,
     Path(_org): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> R {
-    require_reporting(&headers)?;
+    require_session(&headers)?;
+    let limit = q
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100usize);
+    let offset = q
+        .get("offset")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0usize);
     let g = h.lock();
     let rows: Vec<_> = g
         .usage
         .iter()
         .filter(|r| q.get("api_key_id").is_none_or(|id| *id == r.api_key_id))
         .collect();
-    Ok(Json(json!({"data": rows, "count": rows.len()})))
+    let page: Vec<_> = rows.iter().skip(offset).take(limit).collect();
+    Ok(Json(
+        json!({"data": page, "total": rows.len(), "limit": limit, "offset": offset}),
+    ))
 }
 
-async fn usage_summary(
-    State(h): State<Handle>,
-    headers: HeaderMap,
-    Path(_org): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
-) -> R {
-    require_reporting(&headers)?;
+/// The real balance response: `remaining` is the credit left, in nano-USD.
+async fn balance(State(h): State<Handle>, headers: HeaderMap, Path(org): Path<String>) -> R {
+    require_session(&headers)?;
     let g = h.lock();
-    let rows: Vec<_> = g
+    let spent: u64 = g.usage.iter().map(|r| r.cost_nano_usd).sum();
+    let tokens: u64 = g
         .usage
         .iter()
-        .filter(|r| q.get("api_key_id").is_none_or(|id| *id == r.api_key_id))
-        .collect();
+        .map(|r| r.input_tokens + r.output_tokens)
+        .sum();
     Ok(Json(json!({
-        "api_key_id": q.get("api_key_id"),
-        "requests": rows.len(),
-        "input_tokens": rows.iter().map(|r| r.input_tokens).sum::<u64>(),
-        "output_tokens": rows.iter().map(|r| r.output_tokens).sum::<u64>(),
-        "cost_nano_usd": rows.iter().map(|r| r.cost_nano_usd).sum::<u64>(),
+        "organization_id": org,
+        "remaining": g.switches.balance_nano,
+        "remaining_display": null,
+        "total_spent": spent,
+        "total_spent_display": "",
+        "total_requests": g.usage.len(),
+        "total_tokens": tokens,
+        "updated_at": "1970-01-01T00:00:00Z",
+        "credit_limits": [],
     })))
 }
 
-async fn balance(State(h): State<Handle>, headers: HeaderMap, Path(_org): Path<String>) -> R {
-    require_session(&headers)?;
-    let nano = h.lock().switches.balance_nano;
-    Ok(Json(
-        json!({"balance": {"amount": nano, "scale": 9, "currency": "USD"}}),
-    ))
+/// Exchanges a refresh token for a session token and, unless switched off, a replacement
+/// refresh token. The old one stops working.
+async fn access_token(State(h): State<Handle>, headers: HeaderMap) -> R {
+    let mut g = h.lock();
+    let current = format!("rt-fake-{}", g.refresh_count);
+    if bearer(&headers) != Some(current.as_str()) {
+        return Err(err(401, "unauthorized", "refresh token not valid"));
+    }
+    let agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok());
+    if g.switches
+        .exchange_user_agent
+        .as_deref()
+        .is_some_and(|want| agent != Some(want))
+    {
+        return Err(err(401, "unauthorized", "refresh token not valid"));
+    }
+    if g.switches.rotate_refresh_tokens {
+        g.refresh_count += 1;
+    }
+    let ttl = g.switches.refresh_ttl_secs;
+    Ok(Json(json!({
+        "access_token": SESSION_TOKEN,
+        "refresh_token": format!("rt-fake-{}", g.refresh_count),
+        "refresh_token_expiration": rfc3339(now() + ttl),
+    })))
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ` for a Unix time (civil-from-days, proleptic Gregorian).
+pub fn rfc3339(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 // ---- chat ---------------------------------------------------------------

@@ -1012,24 +1012,41 @@ fn live(price_in: u64, price_out: u64, kind: &str, attested: bool) -> Vec<LiveMo
 async fn a_model_whose_live_price_differs_from_its_pin_is_blocked_and_the_check_repeats() {
     let mut rig = Rig::new(proxy_setup(|_| {})).await;
     let l = open(&rig, 1).await;
+    let held = open(&rig, 4).await;
     rig.provider.set_models(Some(live(80, 500, "vllm", true)));
     rig.op.check_models().await;
     assert!(rig.op.blocked_models().is_empty());
+    assert_eq!(rig.op.minting_stop(), None);
     assert_eq!(chat(&rig, &l, &body(Some(10), false)).await.0, 200);
 
     rig.provider.set_models(Some(live(80, 900, "vllm", true)));
-    rig.clock.advance_secs(301);
+    rig.clock.advance_secs(150);
+    assert_eq!(chat(&rig, &held, &body(Some(10), false)).await.0, 200); // keeps it from idling out
+    rig.clock.advance_secs(151);
     rig.op.tick().await; // the five-minute check (and the idle lease retires)
     assert!(rig.op.blocked_models().contains(MODEL));
-    let l = open(&rig, 2).await;
-    let (s, a, _) = chat(&rig, &l, &body(Some(10), false)).await;
+    let (s, a, _) = chat(&rig, &held, &body(Some(10), false)).await;
     assert_eq!((s, err_code(&a).as_str()), (400, "unsupported_request"));
+    // A different price also stops minting, and a person is told.
+    assert_eq!(rig.op.minting_stop(), Some("price"));
+    let (s, a, _) = rig.lease(&rig.fresh(2)).await;
+    assert_eq!(
+        (s, a["error"]["code"].as_str()),
+        (429, Some("operator_capacity"))
+    );
+    assert_eq!(rig.sink.sent().len(), 1);
+    assert_eq!(rig.sink.sent()[0].key, "model_mismatch");
 
     // Back to the pin: unblocked on the next check. A model that is not attested is blocked too.
     rig.provider.set_models(Some(live(80, 500, "vllm", false)));
     rig.clock.advance_secs(301);
     rig.op.tick().await;
     assert!(rig.op.blocked_models().contains(MODEL));
+    assert_eq!(
+        rig.op.minting_stop(),
+        None,
+        "not attested blocks the model, not minting"
+    );
     rig.provider.set_models(Some(live(80, 500, "vllm", true)));
     rig.clock.advance_secs(301);
     rig.op.tick().await;
@@ -1334,4 +1351,48 @@ async fn the_evidence_fetch_carries_a_fresh_nonce_and_the_chats_signing_algorith
     assert_eq!(queries.len(), 1);
     assert!(valid_nonce(&queries[0].nonce));
     assert_eq!(queries[0].signing_algo, "ed25519");
+}
+
+// ---------------------------------------------------------------- provider cost against the estimate
+
+async fn chat_and_retire(rig: &Rig, n: u64, provider_nano: u128) -> Lease {
+    let l = open(rig, n).await;
+    assert_eq!(chat(rig, &l, &body(Some(10), false)).await.0, 200);
+    settled(rig).await;
+    rig.http
+        .post(format!("{}/v2/openrouter/leases/{}", rig.url, l.id))
+        .header("x-nymira-lease-token", &l.token)
+        .send()
+        .await
+        .unwrap();
+    rig.provider.set_usage(&l.id, provider_nano);
+    for _ in 0..3 {
+        rig.op.tick().await;
+        rig.clock.advance_secs(11);
+    }
+    l
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lease_billed_what_the_pinned_prices_say_changes_nothing() {
+    let rig = Rig::new(proxy_setup(|_| {})).await;
+    // 10 x 80 + 20 x 500 = 10_800 nano-USD, estimated as 11 micro-USD.
+    chat_and_retire(&rig, 1, 10_800).await;
+    assert_eq!(rig.op.minting_stop(), None);
+    assert!(rig.sink.sent().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lease_billed_more_than_the_estimate_stops_minting_and_raises_an_alarm() {
+    let rig = Rig::new(proxy_setup(|_| {})).await;
+    chat_and_retire(&rig, 1, 40_000).await;
+    assert_eq!(rig.op.minting_stop(), Some("cost"));
+    let sent = rig.sink.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].key, "lease_cost_mismatch");
+    let (s, a, _) = rig.lease(&rig.fresh(2)).await;
+    assert_eq!(
+        (s, a["error"]["code"].as_str()),
+        (429, Some("operator_capacity"))
+    );
 }

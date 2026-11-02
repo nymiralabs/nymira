@@ -819,13 +819,17 @@ async fn the_operator_refuses_to_start_against_another_operators_key() {
         cfg: config(),
         clock: clock.clone(),
         vault,
-        provider: Arc::new(nymira_operator::provider::FakeProvider::new(clock, 1)),
+        provider: Arc::new(nymira_operator::provider::FakeProvider::new(
+            clock.clone(),
+            1,
+        )),
         replica: Arc::new(nymira_operator::replica::NoReplica),
         verifier: Arc::new(Counting::default()),
         store: nymira_operator::store::Store::open_in_memory().unwrap(),
         state_signer: zkapi_proof::compact::CompactSigner::from_seed(&Felt252::from_u64(1)),
         signer: Arc::new(NoSigner),
         minter: nymira_operator::usage::Minter::generate(),
+        alarms: std::sync::Arc::new(nymira_operator::alarm::Alarms::new(vec![], clock.clone())),
     })
     .await;
     assert!(matches!(

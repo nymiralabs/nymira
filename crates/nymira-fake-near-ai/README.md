@@ -21,17 +21,17 @@ Shapes follow `research/13b-near-ai-cloud-docs.md`. Where that file leaves a sha
 |---|---|---|
 | `GET /v1/model/list` | none | `modelId`, `inputCostPerToken`, `outputCostPerToken` (`{amount, scale: 9, currency}`), `metadata.{verifiable, providerType, attestationSupported}`. Four `vllm` models (the pinned ids), one `chutes`, one `external`. |
 | `POST /v1/workspaces/{ws}/api-keys` | session | Body `{name, expires_at?, spendLimit?: {amount, currency}}`, amount in nano-USD. Returns the key once in `key`. Duplicate live name is 409. |
-| `GET /v1/workspaces/{ws}/api-keys` | session | `?limit&offset`, default limit 20. `{data, total, limit, offset}`. No secrets. Deleted keys are left out. |
+| `GET /v1/workspaces/{ws}/api-keys` | session | `?limit&offset`, default limit 20. `{api_keys, total, limit, offset}`. No secrets. Deleted keys are left out. |
 | `PATCH /v1/workspaces/{ws}/api-keys/{id}` | session | `is_active`, `expires_at`, `spendLimit` (`null` removes it). |
 | `DELETE /v1/workspaces/{ws}/api-keys/{id}` | session | 204. Soft delete: the key stops working and leaves the list. |
-| `GET /v1/organizations/{org}/usage/export` | session or `rpt-*` | `?api_key_id` filter. Rows `{inference_id, api_key_id, model, input_tokens, output_tokens, cache_read_tokens, cost_nano_usd}`. |
-| `GET /v1/organizations/{org}/usage/summary` | session or `rpt-*` | Same filter. Totals and a request count. |
-| `GET /v1/organizations/{org}/usage/balance` | session | `{balance: {amount, scale: 9, currency}}`. Cost of each answer is deducted. |
+| `GET /v1/organizations/{org}/usage/history` | session | `?api_key_id&limit&offset`. `{data, total, limit, offset}`, rows `{id, api_key_id, model, input_tokens, output_tokens, cache_read_tokens, total_cost}` (nano-USD), as the live gateway returns them. The documented `usage/export` and `usage/summary` answered 404 live on 2026-11-02, so the fake does not serve them. |
+| `GET /v1/organizations/{org}/usage/balance` | session | Real shape: `remaining` is the credit in nano-USD; each answer's cost is deducted.
+| `POST /v1/users/me/access-tokens` | refresh token (`rt-fake-N`, first one `FIRST_REFRESH_TOKEN`) | `{access_token, refresh_token, refresh_token_expiration}`. The access token is `fake-session-jwt`, not a real JWT. The refresh token is replaced on every exchange unless `rotate_refresh_tokens` is off; the old one then gets 401. | |
 | `POST /v1/chat/completions` | key | OpenAI compatible, plain or SSE. |
 | `GET /v1/signature/{chat_id}` | key | `?model&signing_algo`. |
 | `GET /v1/attestation/report` | key | `?model&signing_algo&nonce` (hex, at most 128 characters). |
 
-The session token is `fake-session-jwt` (`SESSION_TOKEN`). Any bearer starting `rpt-` is a reporting token. A key is accepted only while it exists, is active and is not deleted. `expires_at` is stored and returned but not enforced.
+The session token is `fake-session-jwt` (`SESSION_TOKEN`). A key is accepted only while it exists, is active and is not deleted. `expires_at` is stored and returned but not enforced.
 
 A key whose recorded spend has reached its `spendLimit`, or any request while the balance is 0 or below, gets 402 `insufficient_credits`. The check is at request start, like `check_api_key`. Cost is `prompt_tokens * input price + completion_tokens * output price` (defaults 80 and 500 nano-USD per token, the `glm-5.3-flash` prices).
 
@@ -87,14 +87,17 @@ In process: `handle.update(|s| ...)` or `handle.patch(&json)`. Over HTTP: `GET /
 | `bad_signature` | false | Flips a byte of every signature. |
 | `unbound_key` | false | Signs with a key no attestation lists. |
 | `measurement`, `tcb_status` | policy value, `UpToDate` | Reported in both attestation entries. A changed measurement or `OutOfDate` fails the test policy. |
-| `balance_nano` | 10 USD | Credit returned by `usage/balance`. |
+| `balance_nano` | 10 USD | Credit returned by `usage/balance` as `remaining`. |
+| `rotate_refresh_tokens` | true | Each exchange replaces the refresh token. |
+| `exchange_user_agent` | none | When set, an exchange with another `User-Agent` gets 401. |
+| `refresh_ttl_secs` | 30 days | Lifetime reported for a refresh token. |
 | `input_price_nano_per_token`, `output_price_nano_per_token` | 80, 500 | Shown in the model list and used for cost. |
 | `reply` | none | Fixed answer text. |
 
 ## Choices
 
-- Chat, signature and attestation take the lease key; key management, balance and usage take the session token, as in 13b. The real JWT, refresh-token and `rpt-` token handling is not modelled.
-- Key list and balance bodies, the usage row names and the model list price fields are the simplest shapes that fit 13b. The real API may differ.
+- Chat, signature and attestation take the lease key; key management, balance and usage take the session token, as in 13b. The JWT is an opaque string without an `exp` claim; refresh-token rotation is a switch, because the real behaviour is a day-1 check.
+- Key list bodies and the model list price fields are the simplest shapes that fit 13b. Balance and usage history follow what the live gateway returned; the real API may still differ.
 - The signature kind is fixed when the chat is answered. `bad_signature` and `unbound_key` apply when the signature is fetched.
 - No billing/costs, no tools, no `max_tokens` enforcement, no rate limits and no concurrency limit. Add them when a ticket needs them.
 

@@ -10,8 +10,8 @@ pub use policy::{
 };
 pub use routes::router;
 pub use state::{
-    ChatRecord, Handle, KeyRecord, SpendLimit, Switches, Usage, UsageRow, MODELS, REPORTING_TOKEN,
-    SESSION_TOKEN,
+    ChatRecord, Handle, KeyRecord, SpendLimit, Switches, Usage, UsageRow, FIRST_REFRESH_TOKEN,
+    MODELS, REPORTING_TOKEN, SESSION_TOKEN,
 };
 
 use std::net::SocketAddr;

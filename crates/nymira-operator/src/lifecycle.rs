@@ -328,6 +328,12 @@ impl Operator {
     pub async fn tick(&self) {
         let _step = self.lifecycle.lock().await;
         let now = self.clock.now_secs();
+        let balance_due = self.clock.now_ms().saturating_sub(self.balance_read_ms())
+            >= self.config().balance_refresh_secs * 1000;
+        if balance_due {
+            self.refresh_balance().await;
+            self.provider.housekeeping().await;
+        }
         let checked = *self
             .models_checked_ms
             .lock()
@@ -419,7 +425,11 @@ impl Operator {
             return;
         }
         let cost = match timed(self.provider.usage(&lease.lease_id)).await {
-            Ok(usage) => Some(usage.cost_nano_usd.to_string()),
+            Ok(usage) => {
+                self.judge_lease_cost(&lease.lease_id, usage.cost_nano_usd)
+                    .await;
+                Some(usage.cost_nano_usd.to_string())
+            }
             Err(_) if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS => None,
             Err(_) => return,
         };
