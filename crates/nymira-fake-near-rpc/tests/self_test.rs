@@ -12,6 +12,29 @@ fn client() -> reqwest::Client {
         .unwrap()
 }
 
+#[tokio::test]
+async fn browsers_get_cors_headers_and_a_preflight_answer() {
+    let rpc = FakeRpc::start().await;
+    let preflight = client()
+        .request(reqwest::Method::OPTIONS, rpc.url())
+        .header("origin", "http://localhost:4173")
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-type")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preflight.status(), 204);
+    assert_eq!(preflight.headers()["access-control-allow-origin"], "*");
+    assert_eq!(
+        preflight.headers()["access-control-allow-headers"],
+        "content-type"
+    );
+
+    let body = json!({"jsonrpc": "2.0", "id": "t", "method": "status", "params": []});
+    let reply = client().post(rpc.url()).json(&body).send().await.unwrap();
+    assert_eq!(reply.headers()["access-control-allow-origin"], "*");
+}
+
 async fn call(url: &str, method: &str, params: Value) -> Value {
     let body = json!({"jsonrpc": "2.0", "id": "t", "method": method, "params": params});
     client()
