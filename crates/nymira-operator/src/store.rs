@@ -111,6 +111,11 @@ CREATE TABLE IF NOT EXISTS signed_states(
   signed_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS exit_seen(nullifier TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS emergency(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  notice TEXT NOT NULL,
+  since INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS operator_txs(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
@@ -454,6 +459,24 @@ pub fn lease_by_client_request_id(
         .query_map([id], lease_from)?
         .collect::<Result<_, _>>()?;
     Ok(if rows.len() == 1 { rows.pop() } else { None })
+}
+
+/// The key-leak notice, if the operator is in emergency.
+pub fn emergency(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT notice FROM emergency WHERE id = 1", [], |r| r.get(0))
+        .optional()
+}
+
+pub fn set_emergency(conn: &Connection, notice: &str, now: u64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO emergency(id, notice, since) VALUES (1, ?1, ?2)",
+        params![notice, now],
+    )
+    .map(|_| ())
+}
+
+pub fn clear_emergency(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM emergency", []).map(|_| ())
 }
 
 pub fn record_exit_seen(conn: &Connection, nullifier: &str) -> rusqlite::Result<()> {

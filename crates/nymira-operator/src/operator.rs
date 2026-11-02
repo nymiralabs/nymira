@@ -459,6 +459,51 @@ impl Operator {
             .map_err(db_error)
     }
 
+    /// The key-leak notice, if the operator is in emergency. It lives in the database, so a
+    /// restart does not end it and the process that sets it can be another one.
+    pub async fn emergency(&self) -> Option<String> {
+        self.store
+            .run(|c| store::emergency(c))
+            .await
+            .unwrap_or(None)
+    }
+
+    /// Stops new leases and clearances and shows `notice` on `/v1/status`.
+    pub async fn set_emergency(&self, notice: &str) -> Result<(), ApiError> {
+        let (notice, now) = (notice.to_string(), self.clock.now_secs());
+        self.store
+            .run(move |c| store::set_emergency(c, &notice, now))
+            .await
+            .map_err(db_error)
+    }
+
+    pub async fn clear_emergency(&self) -> Result<(), ApiError> {
+        self.store.run(|c| store::clear_emergency(c)).await.map_err(db_error)
+    }
+
+    pub(crate) async fn refuse_in_emergency(&self) -> Result<(), ApiError> {
+        match self.emergency().await {
+            Some(notice) => Err(ApiError::new(Code::Emergency, notice)),
+            None => Ok(()),
+        }
+    }
+
+    /// Revokes every key at the provider, leased or not: the response to a leaked provider
+    /// credential, after which open leases cannot chat and settle at their bound. Returns how
+    /// many keys it revoked.
+    pub async fn revoke_provider_keys(&self) -> Result<usize, ApiError> {
+        let listed = self.provider.list().await.map_err(|e| {
+            ApiError::new(Code::ProviderError, format!("the provider list failed: {e}"))
+        })?;
+        let mut revoked = 0;
+        for lease_id in listed {
+            if self.provider.revoke(&lease_id).await.is_ok() {
+                revoked += 1;
+            }
+        }
+        Ok(revoked)
+    }
+
     pub fn config(&self) -> &Config {
         &self.cfg
     }
@@ -682,6 +727,7 @@ impl Operator {
     pub async fn status_json(&self) -> Value {
         let _ = self.refresh_chain(false).await;
         let now = self.clock.now_secs();
+        let emergency = self.emergency().await;
         let cache = self.cache.lock().await;
         let config = cache.config.clone().expect("loaded at start");
         let slot = self.status.current(now);
@@ -728,7 +774,7 @@ impl Operator {
             },
             "recovery_mode": self.replica.in_recovery(),
             "replica": self.replica.health(),
-            "emergency_notice": Value::Null,
+            "emergency_notice": emergency,
         })
     }
 
@@ -779,6 +825,7 @@ impl Operator {
                 "request body over 64 KiB",
             ));
         }
+        self.refuse_in_emergency().await?;
         if self.replica.in_recovery() {
             return Err(crate::operator::clearance::recovery_mode());
         }
