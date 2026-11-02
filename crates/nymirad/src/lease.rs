@@ -287,7 +287,6 @@ mod tests {
         assert_eq!(choose_bound(&[500_000], None), None);
     }
 
-
     #[test]
     fn the_token_never_prints() {
         let lease = Lease {
