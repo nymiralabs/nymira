@@ -492,6 +492,11 @@ enum Reply {
     ReplicaUnreachable,
 }
 
+/// Whether `line` is a request the signer would act on: the wire check, with no signing.
+pub fn is_typed_request(line: &str) -> bool {
+    serde_json::from_str::<Call>(line).is_ok()
+}
+
 /// Serves typed requests, one JSON line each. A peer whose user id is not `allowed_uid` is
 /// dropped before a byte is read. The listener is a Unix socket: there is no TCP entry.
 pub async fn serve(listener: UnixListener, signer: Arc<Signer>, allowed_uid: u32) {

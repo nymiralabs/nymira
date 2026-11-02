@@ -39,5 +39,6 @@ pub mod usage;
 pub mod verify;
 pub mod watch;
 pub mod watcher;
+pub mod wire;
 
 pub use operator::{Config, Operator, Parts};

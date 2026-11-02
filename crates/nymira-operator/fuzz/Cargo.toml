@@ -1,0 +1,69 @@
+[package]
+name = "nymira-operator-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+nymira-operator = { path = ".." }
+
+[workspace]
+
+
+[[bin]]
+name = "lease"
+path = "fuzz_targets/lease.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "clearance"
+path = "fuzz_targets/clearance.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "close"
+path = "fuzz_targets/close.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "chat"
+path = "fuzz_targets/chat.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "reconcile"
+path = "fuzz_targets/reconcile.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "signer_call"
+path = "fuzz_targets/signer_call.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "replica_call"
+path = "fuzz_targets/replica_call.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "replog_entry"
+path = "fuzz_targets/replog_entry.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "json"
+path = "fuzz_targets/json.rs"
+test = false
+doc = false

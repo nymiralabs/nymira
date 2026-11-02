@@ -1079,85 +1079,6 @@ fn nonces_and_signing_algorithms_are_strictly_formatted() {
     }
 }
 
-/// Independent reading of a body: what a reference parser decides, with its own duplicate-key
-/// detector over the raw text.
-fn reference_accepts(raw: &str, cfg: &ProxyConfig) -> bool {
-    fn has_duplicate_keys(v: &str) -> bool {
-        // A second, independent detector: scan objects with a tiny tokenizer.
-        let b = v.as_bytes();
-        let (mut i, mut stack): (usize, Vec<Vec<String>>) = (0, vec![]);
-        while i < b.len() {
-            match b[i] {
-                b'{' => stack.push(vec![]),
-                b'}' => {
-                    stack.pop();
-                }
-                b'"' => {
-                    let start = i + 1;
-                    i += 1;
-                    while i < b.len() && b[i] != b'"' {
-                        if b[i] == b'\\' {
-                            i += 1;
-                        }
-                        i += 1;
-                    }
-                    let token = v[start..i.min(b.len())].to_string();
-                    let mut j = i + 1;
-                    while j < b.len() && b[j].is_ascii_whitespace() {
-                        j += 1;
-                    }
-                    if j < b.len() && b[j] == b':' {
-                        if let Some(keys) = stack.last_mut() {
-                            if keys.contains(&token) {
-                                return true;
-                            }
-                            keys.push(token);
-                        }
-                    }
-                }
-                _ => {}
-            }
-            i += 1;
-        }
-        false
-    }
-    if has_duplicate_keys(raw) {
-        return false;
-    }
-    let Ok(v) = serde_json::from_str::<Value>(raw) else {
-        return false;
-    };
-    let known = [
-        "model",
-        "messages",
-        "stream",
-        "stream_options",
-        "max_tokens",
-        "max_completion_tokens",
-        "n",
-    ];
-    v.as_object().is_some_and(|o| {
-        o.keys().all(|k| known.contains(&k.as_str()))
-            && v["model"]
-                .as_str()
-                .is_some_and(|m| cfg.models.iter().any(|p| p.id == m))
-            && v["messages"].as_array().is_some_and(|m| {
-                !m.is_empty()
-                    && m.iter().all(|x| {
-                        x.as_object().is_some_and(|o| {
-                            o.keys().all(|k| {
-                                ["role", "content", "name", "tool_calls", "tool_call_id"]
-                                    .contains(&k.as_str())
-                            })
-                        }) && x["role"].is_string()
-                            && (x["content"].is_string() || x["content"].is_null())
-                    })
-            })
-            && (v.get("n").is_none() || v["n"] == 1)
-            && !(v.get("max_tokens").is_some() && v.get("max_completion_tokens").is_some())
-    })
-}
-
 #[test]
 fn the_parser_and_a_reference_parser_agree_over_the_odd_body_corpus_and_random_mutations() {
     let cfg = ProxyConfig::default();
@@ -1212,7 +1133,7 @@ fn the_parser_and_a_reference_parser_agree_over_the_odd_body_corpus_and_random_m
     }
     for raw in corpus {
         let ours = parse_chat(raw.as_bytes(), &cfg, &blocked);
-        let reference = reference_accepts(&raw, &cfg);
+        let reference = nymira_operator::wire::reference_accepts(&raw, &cfg);
         assert_eq!(
             ours.is_ok(),
             reference,

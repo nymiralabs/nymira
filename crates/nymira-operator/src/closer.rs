@@ -363,7 +363,7 @@ type Decoded = (Vec<u8>, Vec<Vec<u8>>, WithdrawalPublicInputsV2C);
 
 /// Strict decoding of the body: one JSON object with exactly `proof` and `inputs`, the proof 256
 /// bytes of base64 and 16 inputs of 32 bytes each.
-fn decode(body: &[u8]) -> Result<Decoded, CloseError> {
+pub(crate) fn decode(body: &[u8]) -> Result<Decoded, CloseError> {
     let value = parse_strict(body).map_err(malformed)?;
     if !only_keys(&value, &["proof", "inputs"]) {
         return Err(malformed("unknown field"));

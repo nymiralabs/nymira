@@ -45,6 +45,11 @@ struct Reply {
     real: bool,
 }
 
+/// Whether `line` is a request the replication owner would act on.
+pub fn is_typed_request(line: &str) -> bool {
+    serde_json::from_str::<Call>(line).is_ok()
+}
+
 /// Serves the owner's replica on `listener` to the one allowed user.
 pub async fn serve(listener: tokio::net::UnixListener, replica: Arc<dyn Replica>, uid: u32) {
     let handler = move |call: Call| {
