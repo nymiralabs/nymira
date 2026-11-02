@@ -248,6 +248,14 @@ pub fn claim_nullifier(
     Ok(Cas::Done)
 }
 
+/// A nullifier seen in a pending exit: the signer is told, then the row is claimed for `exit`.
+/// `Cas::Conflict` when a lease or a clearance holds it (the answer to that exit is the
+/// watcher's); the signer refuses either way.
+pub fn import_exit(conn: &mut Connection, nullifier: &str, now: u64) -> rusqlite::Result<Cas> {
+    record_exit_seen(conn, nullifier)?;
+    claim_nullifier(conn, nullifier, state::EXIT, now)
+}
+
 pub fn activate_lease(
     conn: &mut Connection,
     lease_id: &str,

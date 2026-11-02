@@ -82,7 +82,7 @@ fn felt(word: &[u8; 32]) -> Felt252 {
     Felt252(*word)
 }
 
-fn inputs_from(bundle: &Bundle) -> RequestPublicInputsV2 {
+pub fn inputs_from(bundle: &Bundle) -> RequestPublicInputsV2 {
     let w = &bundle.inputs_wire;
     RequestPublicInputsV2 {
         protocol_version: felt(&w[0]).to_u64().unwrap() as u16,
@@ -236,6 +236,7 @@ pub fn vault_config() -> VaultConfig {
         charge_step: 1_000,
         min_charge: 2_000,
         slot_rate: 1_000,
+        exit_delay_secs: 7 * 86_400,
     }
 }
 
