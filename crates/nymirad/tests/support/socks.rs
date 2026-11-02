@@ -26,6 +26,8 @@ pub enum Behavior {
     Tunnel(SocketAddr),
     /// Answer every CONNECT with this SOCKS5 reply code.
     Refuse(u8),
+    /// Tunnel each CONNECT to the address it names (IP literals only).
+    Passthrough,
 }
 
 pub struct FakeSocks {
@@ -112,6 +114,18 @@ async fn serve(
     });
     match behavior {
         Behavior::Refuse(code) => s.write_all(&[5, code, 0, 1, 0, 0, 0, 0, 0, 0]).await,
+        Behavior::Passthrough => {
+            let (host, port) = {
+                let l = log.lock().unwrap();
+                let last = l.last().expect("just pushed");
+                (last.host.clone(), last.port)
+            };
+            let mut up = TcpStream::connect((host.as_str(), port)).await?;
+            s.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+            tokio::io::copy_bidirectional(&mut s, &mut up)
+                .await
+                .map(|_| ())
+        }
         Behavior::Tunnel(target) => {
             let mut up = TcpStream::connect(target).await?;
             s.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await?;

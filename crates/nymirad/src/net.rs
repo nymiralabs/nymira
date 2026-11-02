@@ -61,3 +61,56 @@ pub fn classify(e: reqwest::Error) -> Failure {
 pub fn refuses_tor(status: u16) -> bool {
     matches!(status, 403 | 451)
 }
+
+/// Opens a SOCKS5 connection to `host:port` under `identity` and closes it without sending a
+/// byte. Tor builds the circuit for that identity on the first stream, so the request that
+/// follows on a client with the same identity does not wait for one. Best effort: an error only
+/// means the circuit is built later.
+pub async fn prewarm(socks: &str, identity: &str, host: &str, port: u16) -> std::io::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let bad = |m: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, m.to_string());
+    if host.len() > 255 || identity.len() > 255 {
+        return Err(bad("name too long"));
+    }
+    let mut s = tokio::net::TcpStream::connect(socks).await?;
+    s.write_all(&[5, 1, 2]).await?;
+    let mut method = [0u8; 2];
+    s.read_exact(&mut method).await?;
+    if method != [5, 2] {
+        return Err(bad("the proxy wants no user/password"));
+    }
+    let mut auth = vec![1, identity.len() as u8];
+    auth.extend(identity.as_bytes());
+    auth.extend([1, b'x']);
+    s.write_all(&auth).await?;
+    let mut ok = [0u8; 2];
+    s.read_exact(&mut ok).await?;
+    if ok[1] != 0 {
+        return Err(bad("the proxy refused the identity"));
+    }
+    let mut connect = vec![5, 1, 0];
+    match host.trim_matches(['[', ']']).parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            connect.push(1);
+            connect.extend(ip.octets());
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            connect.push(4);
+            connect.extend(ip.octets());
+        }
+        // A name is left to the proxy to resolve.
+        Err(_) => {
+            connect.push(3);
+            connect.push(host.len() as u8);
+            connect.extend(host.as_bytes());
+        }
+    }
+    connect.extend(port.to_be_bytes());
+    s.write_all(&connect).await?;
+    let mut reply = [0u8; 4];
+    s.read_exact(&mut reply).await?;
+    if reply[1] != 0 {
+        return Err(bad("the proxy could not connect"));
+    }
+    Ok(())
+}

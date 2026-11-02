@@ -2,15 +2,17 @@
 //! under the same passphrase as the note store: the directory is unsealed when a lease starts and
 //! sealed again, then removed, when the lease has settled.
 //!
-//! Limit: while a lease is open the wallet's files exist unsealed in `work/`, a 0700 directory
-//! (the wallet writes and reads them itself and cannot be pointed at memory). A crash leaves them
-//! there; `seal_leftovers` seals them again at the next start.
+//! While a lease is open the files exist in plain form, but only in a memory-backed directory
+//! (`ramdir`), never on the disk. A crash leaves them in memory (the directory outlives the
+//! process); `seal_leftovers` seals them at the next start. If no memory-backed directory can be
+//! made, `checkout` fails and no lease opens.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use nymira_operator::sealed::{SealError, SealedFile};
+use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +32,10 @@ pub struct WalletVault {
 }
 
 type Files = BTreeMap<String, String>;
+
+/// Written last by `checkout`. A working directory without it is a checkout that died half way:
+/// it holds some of the files, so sealing it would overwrite the good sealed copy with a part.
+const COMPLETE: &str = ".nymira-complete";
 
 fn b64() -> base64::engine::GeneralPurpose {
     base64::engine::general_purpose::STANDARD
@@ -53,23 +59,28 @@ impl WalletVault {
         )?)
     }
 
+    /// Where this vault's working directories live: in memory, one subdirectory per `home`.
+    fn work_root(&self) -> Result<PathBuf, VaultError> {
+        let id = hex::encode(&Sha256::digest(self.home.as_os_str().as_encoded_bytes())[..8]);
+        Ok(crate::ramdir::root()
+            .map_err(|e| VaultError::Format(e.to_string()))?
+            .join(id))
+    }
+
     /// The working directory of a note's wallet while it is unsealed.
-    pub fn work_dir(&self, key: &str) -> PathBuf {
-        self.home.join("work").join(key)
+    pub fn work_dir(&self, key: &str) -> Result<PathBuf, VaultError> {
+        Ok(self.work_root()?.join(key))
     }
 
     /// Unseals the wallet state of `key` into its working directory and returns it. A note
     /// without sealed state gets an empty directory.
     pub fn checkout(&self, key: &str) -> Result<PathBuf, VaultError> {
-        let dir = self.work_dir(key);
+        let dir = self.work_dir(key)?;
         std::fs::create_dir_all(&dir)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(
-                self.home.join("work"),
-                std::fs::Permissions::from_mode(0o700),
-            )?;
+            std::fs::set_permissions(self.work_root()?, std::fs::Permissions::from_mode(0o700))?;
         }
         if let Some(bytes) = self.sealed(key)?.read()? {
             let bytes = Zeroizing::new(bytes);
@@ -86,12 +97,13 @@ impl WalletVault {
                 std::fs::write(path, data)?;
             }
         }
+        std::fs::write(dir.join(COMPLETE), b"")?;
         Ok(dir)
     }
 
     /// Seals the working directory of `key` and removes it.
     pub fn checkin(&self, key: &str) -> Result<(), VaultError> {
-        let dir = self.work_dir(key);
+        let dir = self.work_dir(key)?;
         let mut files = Files::new();
         collect(&dir, &dir, &mut files)?;
         let bytes = Zeroizing::new(serde_json::to_vec(&files).expect("files serialize"));
@@ -102,13 +114,18 @@ impl WalletVault {
 
     /// Seals every working directory a crash left behind.
     pub fn seal_leftovers(&self) -> Result<Vec<String>, VaultError> {
-        let work = self.home.join("work");
+        let work = self.work_root()?;
         let Ok(entries) = std::fs::read_dir(&work) else {
             return Ok(Vec::new());
         };
         let mut sealed = Vec::new();
         for entry in entries.flatten() {
             let key = entry.file_name().to_string_lossy().into_owned();
+            if !entry.path().join(COMPLETE).exists() {
+                // The sealed copy is still whole; the next checkout starts again from it.
+                std::fs::remove_dir_all(entry.path())?;
+                continue;
+            }
             self.checkin(&key)?;
             sealed.push(key);
         }
@@ -119,6 +136,9 @@ impl WalletVault {
 fn collect(root: &Path, dir: &Path, out: &mut Files) -> Result<(), VaultError> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
+        if path.file_name().is_some_and(|n| n == COMPLETE) {
+            continue;
+        }
         if path.is_dir() {
             collect(root, &path, out)?;
         } else {
@@ -147,7 +167,10 @@ mod tests {
         std::fs::write(dir.join("request_archive/a.json"), b"{}").unwrap();
         vault.checkin("n1").unwrap();
 
-        assert!(!home.path().join("work/n1").exists(), "no plain state left");
+        assert!(
+            !vault.work_dir("n1").unwrap().exists(),
+            "no plain state left"
+        );
         let sealed = std::fs::read(home.path().join("wallets/n1.sealed")).unwrap();
         assert!(!String::from_utf8_lossy(&sealed).contains("deadbeef"));
 
@@ -164,13 +187,82 @@ mod tests {
     }
 
     #[test]
+    fn open_state_is_in_memory_and_never_under_home() {
+        let home = tempfile::tempdir().unwrap();
+        let vault = WalletVault::new(home.path(), "pass", 1_000);
+        let dir = vault.checkout("n3").unwrap();
+        std::fs::write(dir.join("note_state.json"), br#"{"secret_s":"cafe01"}"#).unwrap();
+        assert!(!dir.starts_with(home.path()));
+        assert!(!dir.starts_with(std::env::temp_dir()));
+        for entry in std::fs::read_dir(home.path()).unwrap().flatten() {
+            let text = String::from_utf8_lossy(&std::fs::read(entry.path()).unwrap_or_default())
+                .into_owned();
+            assert!(
+                !text.contains("cafe01"),
+                "plain state in {:?}",
+                entry.path()
+            );
+        }
+        vault.checkin("n3").unwrap();
+    }
+
+    /// The process dies with a lease open (the vault value is dropped without `checkin`); the next
+    /// start finds the state in memory, seals it, and the note's wallet comes back whole.
+    #[test]
+    fn a_crash_in_the_middle_of_a_lease_recovers_at_the_next_start() {
+        let home = tempfile::tempdir().unwrap();
+        let first = WalletVault::new(home.path(), "pass", 1_000);
+        let dir = first.checkout("n4").unwrap();
+        std::fs::write(dir.join("note_state.json"), br#"{"secret_s":"beef02"}"#).unwrap();
+        drop(first);
+
+        let next = WalletVault::new(home.path(), "pass", 1_000);
+        assert_eq!(next.seal_leftovers().unwrap(), vec!["n4".to_string()]);
+        assert!(!dir.exists());
+        let sealed = std::fs::read(home.path().join("wallets/n4.sealed")).unwrap();
+        assert!(!String::from_utf8_lossy(&sealed).contains("beef02"));
+        let back = next.checkout("n4").unwrap();
+        assert_eq!(
+            std::fs::read(back.join("note_state.json")).unwrap(),
+            br#"{"secret_s":"beef02"}"#
+        );
+        next.checkin("n4").unwrap();
+    }
+
+    /// The process dies while `checkout` is still writing: the directory holds part of the wallet
+    /// and no completion marker. Sealing it would replace the whole sealed copy with that part.
+    #[test]
+    fn a_checkout_that_died_half_way_does_not_replace_the_sealed_wallet() {
+        let home = tempfile::tempdir().unwrap();
+        let vault = WalletVault::new(home.path(), "pass", 1_000);
+        let dir = vault.checkout("n5").unwrap();
+        std::fs::write(dir.join("note_state.json"), br#"{"secret_s":"f00d03"}"#).unwrap();
+        vault.checkin("n5").unwrap();
+
+        let dir = vault.checkout("n5").unwrap();
+        std::fs::remove_file(dir.join(COMPLETE)).unwrap();
+        std::fs::remove_file(dir.join("note_state.json")).unwrap();
+        drop(vault);
+
+        let next = WalletVault::new(home.path(), "pass", 1_000);
+        assert!(next.seal_leftovers().unwrap().is_empty());
+        assert!(!dir.exists());
+        let back = next.checkout("n5").unwrap();
+        assert_eq!(
+            std::fs::read(back.join("note_state.json")).unwrap(),
+            br#"{"secret_s":"f00d03"}"#
+        );
+        next.checkin("n5").unwrap();
+    }
+
+    #[test]
     fn a_crash_leftover_is_sealed_at_start() {
         let home = tempfile::tempdir().unwrap();
         let vault = WalletVault::new(home.path(), "pass", 1_000);
         let dir = vault.checkout("n2").unwrap();
         std::fs::write(dir.join("note_state.json"), b"{\"x\":1}").unwrap();
         assert_eq!(vault.seal_leftovers().unwrap(), vec!["n2".to_string()]);
-        assert!(!home.path().join("work/n2").exists());
+        assert!(!vault.work_dir("n2").unwrap().exists());
         assert!(home.path().join("wallets/n2.sealed").exists());
     }
 }

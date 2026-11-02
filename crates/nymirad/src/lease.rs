@@ -200,6 +200,8 @@ pub struct Pinned<'a> {
 }
 
 /// Verifies the operator's status, builds the request through `build`, and opens the lease.
+/// `build` gets the `request_time` for the proof: the signed operator time rounded down to the
+/// grid.
 ///
 /// `puzzle_required` refetches the status and retries once with a fresh solution; `root_stale`
 /// calls `build(Attempt::Rebuild)` and retries once; a second refusal of either is returned, never
@@ -211,7 +213,7 @@ pub async fn open_lease<F, Fut>(
     mut build: F,
 ) -> Result<Lease, LeaseError>
 where
-    F: FnMut(Attempt) -> Fut,
+    F: FnMut(Attempt, u64) -> Fut,
     Fut: Future<Output = Result<ApiRequestV2, String>>,
 {
     async fn checked(
@@ -228,7 +230,9 @@ where
     // No proof is built before the nonce verifies.
     let (status, nonce) = checked(client, pinned, now_secs()).await?;
     let mut puzzle = gate::puzzle_header(&status, &nonce);
-    let mut request = build(Attempt::First).await.map_err(LeaseError::Build)?;
+    let mut request = build(Attempt::First, gate::request_time(&nonce))
+        .await
+        .map_err(LeaseError::Build)?;
     let (mut retried_puzzle, mut rebuilt) = (false, false);
     loop {
         // The proof may have taken a while; the puzzle is bound to the slot nonce, so it is
@@ -245,7 +249,11 @@ where
             }
             Err(LeaseError::Operator(e)) if e.code == "root_stale" && !rebuilt => {
                 rebuilt = true;
-                request = build(Attempt::Rebuild).await.map_err(LeaseError::Build)?;
+                // A new proof gets a new time from a fresh signed status.
+                let (_, nonce) = checked(client, pinned, now_secs()).await?;
+                request = build(Attempt::Rebuild, gate::request_time(&nonce))
+                    .await
+                    .map_err(LeaseError::Build)?;
             }
             other => return other,
         }
@@ -268,9 +276,23 @@ pub fn choose_bound(classes: &[u128], max_lease_usd: Option<f64>) -> Option<u128
     }
 }
 
-/// Makes the wallet's lease request proof for `bound` at `root` with the note's `siblings`. The
-/// wallet writes the bound to disk before it proves and journals the request before this returns.
+/// Makes the wallet's lease request proof for `bound` at `root` with the note's `siblings`,
+/// stamped `request_time`. The wallet writes the bound to disk before it proves and journals the
+/// request before this returns.
 pub fn prepare(
+    wallet: &mut zkapi_client::wallet::Wallet,
+    root: zkapi_types::Felt252,
+    siblings: Vec<zkapi_types::Felt252>,
+    bound: u128,
+    request_time: u64,
+) -> Result<ApiRequestV2, String> {
+    wallet.set_request_time(Some(request_time));
+    let made = prepare_stamped(wallet, root, siblings, bound);
+    wallet.set_request_time(None);
+    made
+}
+
+fn prepare_stamped(
     wallet: &mut zkapi_client::wallet::Wallet,
     root: zkapi_types::Felt252,
     siblings: Vec<zkapi_types::Felt252>,

@@ -31,4 +31,8 @@ ignore = [
   "RUSTSEC-2026-0396", # zstd-safe 7.3.0
   "RUSTSEC-2026-0173", # proc-macro-error2 unmaintained, compile-time macro of age (nymirad backups)
   "RUSTSEC-2026-0374", # basic-toml unmaintained, compile-time dependency of age's i18n macros
+  # rsa 0.9.10 (Marvin attack, key recovery by timing of RSA decryption), via dcap-qvl-webpki and
+  # the SDK's jsonwebtoken. nymirad only verifies RSA signatures (Intel's chain, NVIDIA's JWT keys);
+  # it holds no RSA private key and decrypts nothing. No fixed version exists.
+  "RUSTSEC-2023-0071",
 ]

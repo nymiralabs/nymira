@@ -9,13 +9,11 @@
 mod attestation;
 mod bindings;
 mod cloud_api;
-mod deployment_provenance;
 mod errors;
 mod event_log;
 mod gateway;
 mod model;
 mod nvidia;
-mod provenance;
 mod quote;
 mod response;
 mod types;
@@ -25,16 +23,10 @@ pub use cloud_api::{
     find_model_attestation_for_signature, AttestationClient, DEFAULT_NEAR_AI_CLOUD_BASE_URL,
     NO_ALIASING_HEADER,
 };
-pub use deployment_provenance::{
-    verify_deployment_image_provenance, verify_deployment_image_provenance_with_signer_identities,
-};
 pub use errors::{ApiError, ApiResource, ApiTransportReason, InferenceError, VerificationError};
 pub use gateway::verify_gateway_attestation;
 pub use model::verify_model_attestation;
 pub use nvidia::{NrasGpuEvidenceVerifier, DEFAULT_NVIDIA_JWKS_URL, DEFAULT_NVIDIA_NRAS_URL};
-pub use provenance::{
-    fetch_image_provenance, fetch_image_provenance_with_client, verify_image_provenance, verify_image_provenance_with_signer_identity,
-};
 pub use quote::{
     verify_tdx_quote, verify_tdx_quote_with_client, DefaultTdxQuoteVerifier, DEFAULT_INTEL_PCCS_URL,
 };

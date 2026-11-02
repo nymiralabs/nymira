@@ -23,6 +23,8 @@ hkdf = "0.12"
 ed25519-dalek = "2"
 hex = "0.4"
 libc = "0.2"
+dcap-qvl = { path = "../../vendor/dcap-qvl" }
+nearai-inference-sdk = { path = "../../vendor/nearai-inference-sdk" }
 nymira-near-codec = { workspace = true }
 nymira-operator = { path = "../nymira-operator" }
 rand = "0.8"
@@ -43,6 +45,10 @@ zkapi-client = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-client" }
 
 [[example]]
 name = "demo"
+required-features = ["mock"]
+
+[[example]]
+name = "record_evidence"
 required-features = ["mock"]
 
 [dev-dependencies]

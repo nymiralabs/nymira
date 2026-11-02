@@ -90,14 +90,3 @@ mod utils;
 pub mod quote;
 pub mod verify;
 
-#[cfg(feature = "python")]
-pub mod python;
-
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-#[pymodule]
-fn _dcap_qvl(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    python::register_module(m)
-}

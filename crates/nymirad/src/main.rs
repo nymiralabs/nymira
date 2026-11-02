@@ -169,6 +169,7 @@ async fn build_gateway(
             rounds: ROUNDS,
             idle_secs: cfg.idle_secs.unwrap_or(120),
             share_pct: 90,
+            prewarm_max_secs: 5,
             backup: cfg.backup_recipient.as_deref().and_then(|r| {
                 backup::parse_recipient(r)
                     .ok()
@@ -220,14 +221,34 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
     Arc::new(nymirad::attest::TestEvidence { policy })
 }
 
-/// This build has no verifier for NEAR AI's Intel and NVIDIA evidence, so chat is refused rather
-/// than sent to a key nobody checked.
+/// NEAR AI's Intel and NVIDIA evidence, checked against the signed `attestation-policy.json` in
+/// the state directory. Without a pinned policy signer, a readable policy that verifies and is
+/// new enough, chat is refused rather than sent to a key nobody checked.
 #[cfg(not(feature = "mock"))]
-fn attestor(_home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
-    eprintln!(
-        "warning: this build cannot verify NEAR AI attestation; chat requests will be refused"
-    );
-    Arc::new(nymirad::attest::Unavailable)
+fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
+    let refuse = |why: String| -> Arc<dyn nymirad::attest::Attestor> {
+        eprintln!("warning: {why}; chat requests will be refused");
+        Arc::new(nymirad::attest::Unavailable)
+    };
+    let signer: Option<[u8; 32]> = hex::decode(include_str!("../pins/policy-signer.pub").trim())
+        .ok()
+        .and_then(|b| b.try_into().ok());
+    let Some(signer) = signer else {
+        return refuse("this build pins no attestation policy signer".into());
+    };
+    // A policy in the state directory wins (a newer one, downloaded); otherwise the one signed
+    // and shipped with this build.
+    let json = match std::fs::read(home.join("attestation-policy.json")) {
+        Ok(j) => j,
+        Err(_) => include_bytes!("../pins/attestation-policy.json").to_vec(),
+    };
+    match nymirad::attest::Policy::load(&json, &signer, MIN_POLICY_VERSION) {
+        Ok(policy) if policy.deployments.is_empty() => {
+            refuse("attestation-policy.json lists no deployment".into())
+        }
+        Ok(policy) => Arc::new(nymirad::nearai::NearAiAttestor::new(policy)),
+        Err(e) => refuse(format!("attestation-policy.json: {e}")),
+    }
 }
 
 /// Policies older than this are refused.

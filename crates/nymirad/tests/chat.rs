@@ -2,6 +2,8 @@
 //! gateway behind the operator, and `nymirad`'s gateway in front. A chat goes in as OpenAI JSON;
 //! the lease, the encrypted exchange, the settlement and the checks happen in between.
 
+mod support;
+
 use std::sync::Arc;
 
 use near_workspaces::types::NearToken;
@@ -61,6 +63,7 @@ struct Stack {
     gateway: Arc<Gateway>,
     home: tempfile::TempDir,
     secrets: Vec<String>,
+    operator_url: String,
 }
 
 async fn deposit(
@@ -105,13 +108,14 @@ async fn deposit(
 }
 
 async fn stack(note_count: u64, tune: impl FnOnce(&mut GatewayConfig)) -> Stack {
-    stack_with(note_count, tune, |_| {}).await
+    stack_with(note_count, tune, |_| {}, None).await
 }
 
 async fn stack_with(
     note_count: u64,
     tune: impl FnOnce(&mut GatewayConfig),
     tune_pins: impl FnOnce(&mut nymirad::pins::Pins),
+    via: Option<String>,
 ) -> Stack {
     let worker = near_workspaces::sandbox().await.unwrap();
     let usdc = MockUsdc::deploy(&worker).await.unwrap();
@@ -286,6 +290,7 @@ async fn stack_with(
         version: 1,
         attestation_root_pk: test.attestation_root_pk,
         accepted_measurements: test.accepted_measurements,
+        deployments: vec![],
         accepted_tcb_statuses: test.accepted_tcb_statuses,
         signature: String::new(),
     }
@@ -299,7 +304,7 @@ async fn stack_with(
     use sha2::{Digest, Sha256};
     let mut config = GatewayConfig {
         home: home.path().to_path_buf(),
-        operator_url,
+        operator_url: operator_url.clone(),
         gateway_url: fake.url(),
         vault: vault.id().to_string(),
         network,
@@ -315,13 +320,14 @@ async fn stack_with(
         rounds: 10,
         idle_secs: 60,
         share_pct: 90,
+        prewarm_max_secs: 0,
         backup: None,
     };
     tune(&mut config);
     let gateway = Arc::new(
         Gateway::new(
             config,
-            Transport::Direct,
+            via.map_or(Transport::Direct, Transport::Socks),
             rpc,
             pins,
             NoteStore::open(&home.path().join("notes.sealed"), PASS, 10).unwrap(),
@@ -347,6 +353,7 @@ async fn stack_with(
         gateway,
         home,
         secrets,
+        operator_url,
     }
 }
 
@@ -388,6 +395,18 @@ async fn a_chat_goes_through_the_lease_encrypted_and_settles_with_checks() {
         answer["choices"][0]["message"]["content"],
         "fake reply to: What is the capital of France?"
     );
+    // While the lease is open the wallet state is in memory only, never under the home directory.
+    assert!(
+        plain_on_disk(&s).is_empty(),
+        "plain wallet state on disk mid-lease"
+    );
+    let in_memory = walk(&nymirad::ramdir::root().unwrap())
+        .iter()
+        .any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains("current_balance")));
+    assert!(
+        in_memory,
+        "the open lease's wallet state is in the memory-backed directory"
+    );
     // The gateway saw ciphertext only.
     let seen = s.fake.handle.chats().pop().unwrap();
     assert!(seen.e2ee && seen.encrypt_all_fields && seen.no_aliasing && seen.include_usage);
@@ -416,22 +435,26 @@ async fn a_chat_goes_through_the_lease_encrypted_and_settles_with_checks() {
     );
 
     // Nothing in the clear on disk: no note secret, no wallet state, no work directory.
-    assert!(!s.home.path().join("work").join("x").exists());
+    let leaked = plain_on_disk(&s);
+    assert!(leaked.is_empty(), "plain state on disk: {leaked:?}");
+    let _ = &s.vault;
+}
+
+/// Files under the home directory that hold a note secret or wallet state in the clear.
+fn plain_on_disk(s: &Stack) -> Vec<std::path::PathBuf> {
     let mut leaked = Vec::new();
     for entry in walk(s.home.path()) {
         let bytes = std::fs::read(&entry).unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes);
-        for secret in &s.secrets {
-            if text.contains(secret.as_str()) {
-                leaked.push(entry.clone());
-            }
-        }
-        if text.contains("current_balance") {
-            leaked.push(entry.clone());
+        if s.secrets
+            .iter()
+            .any(|secret| text.contains(secret.as_str()))
+            || text.contains("current_balance")
+        {
+            leaked.push(entry);
         }
     }
-    assert!(leaked.is_empty(), "plain state on disk: {leaked:?}");
-    let _ = &s.vault;
+    leaked
 }
 
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
@@ -590,7 +613,7 @@ async fn a_charge_above_the_rules_warns() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_changed_vault_or_changed_lease_parameters_refuse_a_lease() {
     // The binary pins a different code hash than the vault has.
-    let s = stack_with(1, |_| {}, |p| p.code_hash = "different".into()).await;
+    let s = stack_with(1, |_| {}, |p| p.code_hash = "different".into(), None).await;
     let err = s
         .gateway
         .chat(request("hi", false), ChatOptions::default())
@@ -608,6 +631,7 @@ async fn a_changed_vault_or_changed_lease_parameters_refuse_a_lease() {
         |p| {
             p.config["min_charge"] = json!("1");
         },
+        None,
     )
     .await;
     let err = s
@@ -728,4 +752,42 @@ async fn a_tool_tries_openai_shapes_over_http_and_errors_keep_their_shape() {
         .unwrap();
         assert!(e["error"]["message"].is_string() && e["error"]["type"].is_string());
     }
+}
+
+/// Over a SOCKS proxy (a stand-in for Tor) a new lease first waits a random time and opens its
+/// circuit, then everything on that conversation carries the same identity: the empty connection,
+/// the lease, the chat and the retire. The attestation fetch uses an identity of its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_lease_warms_its_circuit_on_the_identity_the_conversation_then_uses() {
+    use support::socks::{Behavior, FakeSocks};
+    let proxy = FakeSocks::start(Behavior::Passthrough).await;
+    let s = stack_with(
+        1,
+        |c| c.prewarm_max_secs = 1,
+        |_| {},
+        Some(proxy.addr.to_string()),
+    )
+    .await;
+    let operator = reqwest::Url::parse(&s.operator_url).unwrap();
+    let operator_port = operator.port().unwrap();
+    let started = std::time::Instant::now();
+    let answer = json_chat(&s, "hello").await;
+    assert!(answer["choices"][0]["message"]["content"].is_string());
+    let _ = started;
+
+    let seen = proxy.seen();
+    let to_operator: Vec<_> = seen.iter().filter(|c| c.port == operator_port).collect();
+    // The first connection to the operator is the empty one, and no later one has another identity.
+    assert!(to_operator.len() >= 2, "{seen:?}");
+    let identity = &to_operator[0].user;
+    assert!(
+        to_operator.iter().all(|c| &c.user == identity),
+        "{to_operator:?}"
+    );
+    // Attestation and the model list use other identities.
+    assert!(seen
+        .iter()
+        .filter(|c| c.port != operator_port)
+        .all(|c| &c.user != identity));
+    let _ = settle(&s).await;
 }

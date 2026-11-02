@@ -177,3 +177,38 @@ async fn note_status_goes_over_tor_only() {
     );
     assert_eq!(proxy.seen().len(), 1);
 }
+
+#[tokio::test]
+async fn prewarm_opens_the_circuit_on_the_identity_the_conversation_uses() {
+    let proxy = FakeSocks::start(Behavior::Tunnel(backend(StatusCode::OK).await)).await;
+    let identity = nymirad::net::identity();
+    nymirad::net::prewarm(
+        &proxy.addr.to_string(),
+        &identity,
+        "operator.nymira.example",
+        443,
+    )
+    .await
+    .unwrap();
+    let conversation = nymirad::rpc::client_with_identity(&socks(&proxy), &identity).unwrap();
+    conversation
+        .get("http://operator.nymira.example/v1/status")
+        .send()
+        .await
+        .unwrap();
+    let seen = proxy.seen();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(
+        (
+            seen[0].user.as_str(),
+            seen[0].host.as_str(),
+            seen[0].port,
+            seen[0].atyp
+        ),
+        (identity.as_str(), "operator.nymira.example", 443, 3)
+    );
+    assert_eq!(
+        seen[0].user, seen[1].user,
+        "the request rides the warmed identity"
+    );
+}
