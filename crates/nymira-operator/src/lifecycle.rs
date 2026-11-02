@@ -17,7 +17,7 @@ use crate::charge::{charge, ChargeParams};
 use crate::error::{ApiError, ApiResult, Code};
 use crate::operator::{Operator, LEASE_MAX_SECS, SETTLE_AFTER_SECS};
 use crate::provider::ProviderError;
-use crate::signer::SignRequest;
+use crate::signer::{SignRequest, SignerError};
 use crate::store::{self, LeaseRow};
 use crate::token;
 use crate::usage::{SignedUsage, UsageRecord};
@@ -102,10 +102,19 @@ impl Operator {
     /// let `expire` close a used lease for nothing.
     pub async fn mark_delivered(&self, lease_id: &str) -> ApiResult<()> {
         let (id, now) = (lease_id.to_string(), self.clock.now_secs());
-        self.store
+        let first = self
+            .store
             .run(move |c| store::mark_delivered(c, &id, now))
             .await
-            .map_err(db)
+            .map_err(db)?;
+        if first {
+            // The second watcher needs it to raise a concession; a miss is sent again later.
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::DELIVERED, lease_id, None)
+                .await;
+        }
+        Ok(())
     }
 
     pub(crate) async fn authorized(
@@ -498,13 +507,21 @@ impl Operator {
             charge: amount.to_string(),
             usage,
         };
-        let Ok(Ok(signed)) =
-            tokio::time::timeout(CALL_TIMEOUT, self.signer.sign_next(request)).await
-        else {
+        // A machine that is still restoring signs nothing.
+        if self.replica.in_recovery() {
             return;
-        };
-        if signed.charge_applied != amount {
-            return;
+        }
+        match tokio::time::timeout(CALL_TIMEOUT, self.signer.sign_next(request)).await {
+            Ok(Ok(signed)) if signed.charge_applied == amount => {}
+            // The second machine has been away for six hours: the lease is settled at its bound
+            // and no next state is signed. The user leaves this note by exit.
+            Ok(Err(SignerError::ReplicaUnreachable))
+                if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS =>
+            {
+                amount = lease.bound;
+                basis = "link_down";
+            }
+            _ => return,
         }
         let (id, basis) = (lease.lease_id.clone(), basis);
         let settled = self
@@ -512,6 +529,12 @@ impl Operator {
             .run(move |c| store::settle(c, &id, amount, basis, now))
             .await;
         if settled.is_ok_and(|s| s) {
+            let fact =
+                serde_json::json!({ "charge": amount.to_string(), "basis": basis }).to_string();
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::SETTLED, &lease.lease_id, Some(&fact))
+                .await;
             self.ledger.settle(&lease.lease_id, amount, now);
             self.closing
                 .lock()

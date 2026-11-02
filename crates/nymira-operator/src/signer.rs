@@ -38,6 +38,9 @@ pub enum SignerError {
     Refused(String),
     #[error("signer failed: {0}")]
     Internal(String),
+    /// The state could not be put on the second machine, so it was not released.
+    #[error("the replica did not acknowledge")]
+    ReplicaUnreachable,
 }
 
 fn refused(reason: &str) -> SignerError {
@@ -105,6 +108,8 @@ pub struct Signer {
     clock: Arc<dyn Clock>,
     heartbeat: Arc<dyn HeartbeatSender>,
     last_heartbeat: Mutex<Option<u64>>,
+    /// Every signed state is here before it is stored where a client can read it.
+    replica: Arc<dyn crate::replica::Replica>,
 }
 
 /// A 31-byte seed from a passphrase (PBKDF2-HMAC-SHA256, salted per role), so two roles with
@@ -172,7 +177,14 @@ impl Signer {
             clock,
             heartbeat,
             last_heartbeat: Mutex::new(None),
+            replica: Arc::new(crate::replica::NoReplica),
         })
+    }
+
+    /// The second machine every signed state goes to first.
+    pub fn with_replica(mut self, replica: Arc<dyn crate::replica::Replica>) -> Self {
+        self.replica = replica;
+        self
     }
 
     /// Two seeds, checked by zkapi's operator policy (no development keys, no weak secrets)
@@ -395,7 +407,11 @@ impl SignerApi for Signer {
             self.clock.now_secs(),
         );
         let stored = json.clone();
-        // On disk (synchronous=FULL) before the response leaves.
+        // On the second machine first, then on disk (synchronous=FULL), then out.
+        self.replica
+            .record(crate::replog::kinds::SIGNED, &lease_id, Some(&json))
+            .await
+            .map_err(|_| SignerError::ReplicaUnreachable)?;
         let written = self
             .store
             .run(move |c| {
@@ -454,6 +470,7 @@ enum Reply {
     Clearance(SchnorrSignature),
     Refused(String),
     Error(String),
+    ReplicaUnreachable,
 }
 
 /// Serves typed requests, one JSON line each. A peer whose user id is not `allowed_uid` is
@@ -485,11 +502,13 @@ async fn handle(stream: UnixStream, signer: Arc<Signer>) -> std::io::Result<()> 
             Ok(response) => Reply::Ok(Box::new(response)),
             Err(SignerError::Refused(why)) => Reply::Refused(why),
             Err(SignerError::Internal(why)) => Reply::Error(why),
+            Err(SignerError::ReplicaUnreachable) => Reply::ReplicaUnreachable,
         },
         Ok(Call::Clearance { nullifier }) => match signer.sign_clearance(nullifier).await {
             Ok(signature) => Reply::Clearance(signature),
             Err(SignerError::Refused(why)) => Reply::Refused(why),
             Err(SignerError::Internal(why)) => Reply::Error(why),
+            Err(SignerError::ReplicaUnreachable) => Reply::ReplicaUnreachable,
         },
     };
     let mut bytes = serde_json::to_vec(&reply).map_err(std::io::Error::other)?;
@@ -544,6 +563,7 @@ impl SocketSigner {
         match serde_json::from_str::<Reply>(&line) {
             Ok(Reply::Refused(why)) => Err(SignerError::Refused(why)),
             Ok(Reply::Error(why)) => Err(SignerError::Internal(why)),
+            Ok(Reply::ReplicaUnreachable) => Err(SignerError::ReplicaUnreachable),
             Ok(reply) => Ok(reply),
             Err(_) => Err(SignerError::Internal(
                 "the signer closed the connection".into(),

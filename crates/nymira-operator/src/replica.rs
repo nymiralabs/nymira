@@ -14,6 +14,9 @@ pub struct ReplicaEntry {
     pub lease_id: String,
     /// The request proof the watcher answers exits from.
     pub request_json: String,
+    pub bound: u128,
+    pub client_request_id: String,
+    pub reserved_at: u64,
 }
 
 #[derive(Debug, thiserror::Error, Clone)]
@@ -24,6 +27,22 @@ pub struct ReplicaError(pub String);
 pub trait Replica: Send + Sync {
     /// Returns once the entry is on the replica's disk.
     async fn append(&self, entry: &ReplicaEntry) -> Result<(), ReplicaError>;
+
+    /// Records a later fact about a lease or a nullifier (`replog::kinds`) and returns once the
+    /// replica holds it. The default keeps nothing.
+    async fn record(
+        &self,
+        _kind: &str,
+        _key: &str,
+        _payload: Option<&str>,
+    ) -> Result<(), ReplicaError> {
+        Ok(())
+    }
+
+    /// True while this machine's log is behind the replica's: no signature may go out.
+    fn in_recovery(&self) -> bool {
+        false
+    }
 }
 
 /// Acknowledges at once and keeps nothing: for the sandbox profile only.
@@ -40,12 +59,21 @@ impl Replica for NoReplica {
 #[derive(Default)]
 pub struct FakeReplica {
     entries: Mutex<Vec<ReplicaEntry>>,
+    records: Mutex<Vec<(String, String)>>,
     down: Mutex<bool>,
 }
 
 impl FakeReplica {
     pub fn set_down(&self, down: bool) {
         *self.down.lock().unwrap_or_else(|e| e.into_inner()) = down;
+    }
+
+    /// `(kind, key)` of every later fact recorded.
+    pub fn records(&self) -> Vec<(String, String)> {
+        self.records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn entries(&self) -> Vec<ReplicaEntry> {
@@ -65,6 +93,23 @@ impl Replica for FakeReplica {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         if !entries.iter().any(|e| e.lease_id == entry.lease_id) {
             entries.push(entry.clone());
+        }
+        Ok(())
+    }
+
+    async fn record(
+        &self,
+        kind: &str,
+        key: &str,
+        _payload: Option<&str>,
+    ) -> Result<(), ReplicaError> {
+        if *self.down.lock().unwrap_or_else(|e| e.into_inner()) {
+            return Err(ReplicaError("down".into()));
+        }
+        let mut records = self.records.lock().unwrap_or_else(|e| e.into_inner());
+        let fact = (kind.to_string(), key.to_string());
+        if !records.contains(&fact) {
+            records.push(fact);
         }
         Ok(())
     }

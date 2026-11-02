@@ -36,6 +36,14 @@ fn nullifier_hex(text: &str) -> ApiResult<String> {
     }
 }
 
+pub(crate) fn recovery_mode() -> ApiError {
+    ApiError::new(
+        Code::RecoveryMode,
+        "the operator is restoring from its replica and signs nothing yet",
+    )
+    .retry_after(30)
+}
+
 fn malformed(why: impl Into<String>) -> ApiError {
     ApiError::new(Code::MalformedRequest, why)
 }
@@ -49,6 +57,9 @@ impl Operator {
                 Code::BodyTooLarge,
                 "request body over 64 KiB",
             ));
+        }
+        if self.replica.in_recovery() {
+            return Err(recovery_mode());
         }
         let value = parse_strict(body).map_err(malformed)?;
         let request: ClearanceRequestV2C =
@@ -159,6 +170,14 @@ impl Operator {
         if let Err(state) = self.reserve_clearance(&nullifier).await {
             return Err(held_error(&state));
         }
+        // On the second machine before the signature exists.
+        self.replica
+            .record(crate::replog::kinds::CLEARANCE, &nullifier, None)
+            .await
+            .map_err(|_| {
+                ApiError::new(Code::ReplicaUnreachable, "the replica did not acknowledge")
+                    .retry_after(5)
+            })?;
         let signature = match self
             .signer
             .sign_clearance(inputs.withdrawal_nullifier)
@@ -170,6 +189,13 @@ impl Operator {
                     Code::NullifierSeen,
                     format!("refused: {why}"),
                 ))
+            }
+            Err(SignerError::ReplicaUnreachable) => {
+                return Err(ApiError::new(
+                    Code::ReplicaUnreachable,
+                    "the replica did not acknowledge",
+                )
+                .retry_after(5))
             }
             Err(SignerError::Internal(_)) => {
                 return Err(

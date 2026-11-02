@@ -774,6 +774,10 @@ async fn a_restart_keeps_a_lease_that_owes_a_charge_even_if_the_replica_is_down(
         "retired",
         "kept, not rolled back"
     );
+    // No state is signed while the replica is away; it is signed once the replica is back.
+    rig.op.tick().await;
+    assert_eq!(status(&rig, &l).await["status"], "retiring");
+    rig.replica.set_down(false);
     rig.op.tick().await;
     assert_eq!(status(&rig, &l).await["status"], "finalized");
 }

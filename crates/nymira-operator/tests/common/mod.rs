@@ -343,7 +343,8 @@ async fn launch(
             clock.clone(),
             heartbeat.clone(),
         )
-        .unwrap(),
+        .unwrap()
+        .with_replica(replica.clone()),
     );
     let op = Operator::start(Parts {
         cfg,

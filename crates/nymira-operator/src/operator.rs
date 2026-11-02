@@ -168,7 +168,7 @@ pub struct Operator {
     pub(crate) clock: Arc<dyn Clock>,
     vault: Arc<dyn VaultView>,
     pub(crate) provider: Arc<dyn ProviderAdapter>,
-    replica: Arc<dyn Replica>,
+    pub(crate) replica: Arc<dyn Replica>,
     verifier: Arc<dyn ProofVerifier>,
     withdrawal_verifier: Arc<dyn WithdrawalProofVerifier>,
     closer: Arc<dyn CloseApi>,
@@ -390,11 +390,16 @@ impl Operator {
         let (Some(lease), Some(request_json)) = (lease, request) else {
             return Err(ApiError::new(Code::ReplicaUnreachable, "no such lease"));
         };
+        // Hour-rounded from the start: exact times stay in the local store.
+        let reserved_at = self.clock.now_secs() / crate::replog::HOUR * crate::replog::HOUR;
         self.replica
             .append(&ReplicaEntry {
                 nullifier: lease.nullifier,
                 lease_id: lease.lease_id.clone(),
                 request_json,
+                bound: lease.bound,
+                client_request_id: lease.client_request_id.clone(),
+                reserved_at,
             })
             .await
             .map_err(|_| {
@@ -675,7 +680,7 @@ impl Operator {
                 "used": used.to_string(),
                 "resets_ts": resets_ts,
             },
-            "recovery_mode": false,
+            "recovery_mode": self.replica.in_recovery(),
             "emergency_notice": Value::Null,
         })
     }
@@ -726,6 +731,9 @@ impl Operator {
                 Code::BodyTooLarge,
                 "request body over 64 KiB",
             ));
+        }
+        if self.replica.in_recovery() {
+            return Err(crate::operator::clearance::recovery_mode());
         }
         let now = self.clock.now_secs();
         let difficulty = self.puzzle_difficulty();
@@ -992,6 +1000,11 @@ impl Operator {
         let id = lease_id.to_string();
         let _ = self.store.run(move |c| store::roll_back(c, &id)).await;
         self.ledger.release(lease_id);
+        // Undoes the reservation on the second machine and drops its request proof there.
+        let _ = self
+            .replica
+            .record(crate::replog::kinds::ROLLED_BACK, lease_id, None)
+            .await;
     }
 
     pub(crate) fn balance_read_ms(&self) -> u64 {

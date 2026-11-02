@@ -149,6 +149,9 @@ async fn a_request_proof_at_the_successor_defeats_the_exit() {
             nullifier: String::new(),
             lease_id: lease,
             request_json: json,
+            bound: 0,
+            client_request_id: String::new(),
+            reserved_at: 0,
         }
     };
     let request: Value = serde_json::from_str(&stored.request_json).unwrap();

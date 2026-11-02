@@ -23,6 +23,10 @@ pub mod kinds {
     pub const DELIVERED: &str = "delivered";
     pub const SETTLED: &str = "settled";
     pub const CLEARANCE: &str = "clearance";
+    /// The signed next state of a lease: charge, how it was fixed and the response.
+    pub const SIGNED: &str = "signed";
+    /// A reservation that was undone before any key was minted: its request proof goes.
+    pub const ROLLED_BACK: &str = "rolled_back";
 }
 
 pub(crate) const SCHEMA: &str = "
@@ -176,6 +180,12 @@ fn insert(conn: &mut Connection, e: &Entry, acked: bool) -> Result<(), LogError>
             acked as i64
         ],
     )?;
+    if e.kind == kinds::ROLLED_BACK {
+        tx.execute(
+            "UPDATE replog SET payload = NULL WHERE key = ?1 AND payload IS NOT NULL",
+            [&e.key],
+        )?;
+    }
     tx.commit()?;
     Ok(())
 }
@@ -231,6 +241,23 @@ impl Log {
     pub async fn accept(&self, entry: &Entry) -> Result<(), LogError> {
         let e = entry.clone();
         self.store.run(move |c| Ok(insert(c, &e, true))).await?
+    }
+
+    /// True when an entry of this kind about this key is in the log.
+    pub async fn has(&self, kind: &str, key: &str) -> Result<bool, LogError> {
+        let (kind, key) = (kind.to_string(), key.to_string());
+        Ok(self
+            .store
+            .run(move |c| {
+                c.query_row(
+                    "SELECT 1 FROM replog WHERE kind = ?1 AND key = ?2 LIMIT 1",
+                    [kind, key],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map(|r| r.is_some())
+            })
+            .await?)
     }
 
     pub async fn hash_at(&self, seq: u64) -> Result<Option<String>, LogError> {
@@ -475,9 +502,12 @@ pub async fn audit(
     let common = mine.min(head.seq);
     if common > 0 {
         let mut asked = vec![common];
-        let mut rng = rand::thread_rng();
-        for _ in 0..samples {
-            asked.push(rng.gen_range(1..=common));
+        {
+            // Dropped before the next await: the generator is not `Send`.
+            let mut rng = rand::thread_rng();
+            for _ in 0..samples {
+                asked.push(rng.gen_range(1..=common));
+            }
         }
         asked.sort_unstable();
         asked.dedup();
