@@ -77,8 +77,8 @@ pub fn verify_tdx_quote(
 ) -> Result<QuoteFacts, String> {
     let collateral: dcap_qvl::QuoteCollateralV3 =
         serde_json::from_str(collateral_json).map_err(|e| format!("collateral: {e}"))?;
-    let verified = dcap_qvl::verify::verify(quote, &collateral, now_secs)
-        .map_err(|e| format!("{e:#}"))?;
+    let verified =
+        dcap_qvl::verify::verify(quote, &collateral, now_secs).map_err(|e| format!("{e:#}"))?;
     let td = verified
         .report
         .as_td10()
@@ -97,8 +97,103 @@ pub fn verify_tdx_quote(
     })
 }
 
+/// What the browser tests need to play an operator: its keys and the responses it signs.
+#[cfg(feature = "test-operator")]
+pub mod test_operator {
+    use super::*;
+    use zkapi_core::v2::{next_anchor, state_message};
+    use zkapi_proof::compact::{random_scalar, server_update, CompactSigner};
+    use zkapi_types::wire::{ApiRequestV2, CurvePointWire, RequestResponseV2};
+    use zkapi_types::{canonical_response_hash, PROTOCOL_VERSION};
+
+    fn signer(seed: u64) -> CompactSigner {
+        CompactSigner::from_seed(&Felt252::from_u64(seed))
+    }
+
+    /// `{"x","y"}` of the key made from `seed`.
+    pub fn public_key(seed: u64) -> String {
+        serde_json::to_string(&signer(seed).public_key()).expect("key serialises")
+    }
+
+    pub fn sign_status(seed: u64, nonce: &str, host: &str, ts: u64) -> String {
+        let sig = signer(seed).sign(&status_message(nonce, host, ts));
+        serde_json::to_string(&sig).expect("signature serialises")
+    }
+
+    /// The finalized response an operator with state key `seed` returns for `request_json`.
+    pub fn respond(
+        seed: u64,
+        request_json: &str,
+        chain_id: u64,
+        contract_hex: &str,
+        charge: u128,
+    ) -> Result<String, String> {
+        let request: ApiRequestV2 =
+            serde_json::from_str(request_json).map_err(|e| e.to_string())?;
+        let inputs = &request.public_inputs;
+        let anonymous = CurvePointWire {
+            x: inputs.anonymous_commitment_x,
+            y: inputs.anonymous_commitment_y,
+        };
+        let delta = random_scalar();
+        let next = server_update(&anonymous, charge, &delta).map_err(|e| e.to_string())?;
+        let anchor = next_anchor(&inputs.request_nullifier);
+        let contract = Felt252::from_hex(contract_hex).map_err(|e| e.to_string())?;
+        let message = state_message(
+            PROTOCOL_VERSION,
+            chain_id,
+            &contract,
+            &next.x,
+            &next.y,
+            &anchor,
+        );
+        let payload = "{}".to_string();
+        let response = RequestResponseV2 {
+            status: "finalized".into(),
+            client_request_id: request.client_request_id.clone(),
+            request_nullifier: inputs.request_nullifier,
+            response_code: 200,
+            response_hash: canonical_response_hash(payload.as_bytes()),
+            response_payload: payload,
+            charge_applied: charge,
+            next_commitment: next,
+            next_anchor: anchor,
+            blind_delta_srv: delta,
+            next_state_signature: signer(seed).sign(&message),
+            policy_reason_code: None,
+            policy_evidence_hash: None,
+        };
+        serde_json::to_string(&response).map_err(|e| e.to_string())
+    }
+}
+
 mod wasm {
     use wasm_bindgen::prelude::*;
+
+    #[cfg(feature = "test-operator")]
+    #[wasm_bindgen]
+    pub fn test_operator_public_key(seed: u64) -> String {
+        super::test_operator::public_key(seed)
+    }
+
+    #[cfg(feature = "test-operator")]
+    #[wasm_bindgen]
+    pub fn test_operator_sign_status(seed: u64, nonce: &str, host: &str, ts: u64) -> String {
+        super::test_operator::sign_status(seed, nonce, host, ts)
+    }
+
+    #[cfg(feature = "test-operator")]
+    #[wasm_bindgen]
+    pub fn test_operator_respond(
+        seed: u64,
+        request_json: &str,
+        chain_id: u64,
+        contract_hex: &str,
+        charge: u128,
+    ) -> Result<String, JsValue> {
+        super::test_operator::respond(seed, request_json, chain_id, contract_hex, charge)
+            .map_err(|e| JsValue::from_str(&e))
+    }
 
     #[wasm_bindgen]
     pub fn status_signature_valid(
@@ -144,9 +239,16 @@ mod tests {
     fn a_status_nonce_signed_by_the_state_key_verifies_and_a_changed_host_does_not() {
         let signer = CompactSigner::from_seed(&Felt252::from_u64(11));
         let pk = signer.public_key();
-        let sig = serde_json::to_string(&signer.sign(&status_message("aabb", "op.test", 7))).unwrap();
+        let sig =
+            serde_json::to_string(&signer.sign(&status_message("aabb", "op.test", 7))).unwrap();
         let (x, y) = (pk.x.to_string(), pk.y.to_string());
-        assert_eq!(status_signature_valid(&x, &y, "aabb", "op.test", 7, &sig), Ok(true));
-        assert_eq!(status_signature_valid(&x, &y, "aabb", "evil.test", 7, &sig), Ok(false));
+        assert_eq!(
+            status_signature_valid(&x, &y, "aabb", "op.test", 7, &sig),
+            Ok(true)
+        );
+        assert_eq!(
+            status_signature_valid(&x, &y, "aabb", "evil.test", 7, &sig),
+            Ok(false)
+        );
     }
 }

@@ -9,6 +9,11 @@ description = "Browser checks for the chat: the operator's signed status nonce a
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Test doubles for the browser tests: an operator's state key and the responses it signs. Never in
+# the app bundle (`web/scripts/check-bundle.mjs` looks for it).
+test-operator = []
+
 [dependencies]
 dcap-qvl = { path = "../../vendor/dcap-qvl", default-features = false, features = ["std", "report", "rustcrypto", "js"] }
 hex = "0.4"
