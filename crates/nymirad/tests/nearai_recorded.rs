@@ -423,3 +423,73 @@ fn completion_signatures_map_to_model_signed_gateway_signed_or_not_verified() {
     ));
     let _ = CompletionSignatureKind::Gateway;
 }
+
+// ---- a real completion signature ----
+
+fn chat_fixture(name: &str) -> Vec<u8> {
+    let dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/near-ai-recorded/chat");
+    std::fs::read(dir.join(name)).unwrap_or_else(|e| panic!("chat/{name}: {e}"))
+}
+
+/// One real chat with `z-ai/glm-5.3-flash` (recorded by `record_signature`): the exact request and
+/// response bytes, the signature NEAR AI returned, and the report of the VM that signed it. The
+/// attestation is verified offline as before; the signature then has to verify as model-signed
+/// under the key that attestation established.
+#[tokio::test]
+async fn a_real_provider_tee_signature_verifies_as_model_signed() {
+    let meta: Value = serde_json::from_slice(&chat_fixture("meta.json")).unwrap();
+    let at = meta["recorded_at_secs"].as_u64().unwrap();
+    let collateral = |name: &str| Collateral::Recorded {
+        collateral: Box::new(serde_json::from_slice(&chat_fixture(name)).unwrap()),
+        at_secs: at,
+    };
+    let replay = Replay {
+        model_collateral: collateral("collateral-model.json"),
+        gateway_collateral: collateral("collateral-gateway.json"),
+        gpu: Arc::new(RecordedGpu),
+        nonce_model: meta["nonce_model"].as_str().unwrap().into(),
+        nonce_gateway: meta["nonce_gateway"].as_str().unwrap().into(),
+    };
+    let draft: Policy = serde_json::from_slice(&chat_fixture("policy-draft.json")).unwrap();
+    let attestor = NearAiAttestor::replaying(policy(draft.deployments), replay);
+
+    let url = serve(
+        String::from_utf8(chat_fixture("model-report.json")).unwrap(),
+        String::from_utf8(chat_fixture("gateway-report.json")).unwrap(),
+    )
+    .await;
+    let http = reqwest::Client::new();
+    let identity = attestor
+        .verify_model(&ReportRequest {
+            gateway_url: &url,
+            model: MODEL,
+            nonce: "unused",
+            http: &http,
+            socks_url: None,
+        })
+        .await
+        .expect("the recorded report of the signing VM verifies");
+
+    let signature: Value = serde_json::from_slice(&chat_fixture("signature.json")).unwrap();
+    assert_eq!(signature["signature_kind"], "provider_tee");
+    let (request, response) = (chat_fixture("request.json"), chat_fixture("response.json"));
+    assert_eq!(
+        attestor.verify_signature(&identity, &signature, MODEL, &request, &response),
+        Trust::ModelSigned
+    );
+    // The same signature does not cover other bytes, and a bare signature (no kind) reads as the
+    // model's.
+    let mut other = response.clone();
+    other.push(b' ');
+    assert!(matches!(
+        attestor.verify_signature(&identity, &signature, MODEL, &request, &other),
+        Trust::NotVerified(_)
+    ));
+    let mut bare = signature.clone();
+    bare.as_object_mut().unwrap().remove("signature_kind");
+    assert_eq!(
+        attestor.verify_signature(&identity, &bare, MODEL, &request, &response),
+        Trust::ModelSigned
+    );
+}

@@ -51,6 +51,10 @@ required-features = ["mock"]
 name = "record_evidence"
 required-features = ["mock"]
 
+[[example]]
+name = "record_signature"
+required-features = ["mock"]
+
 [dev-dependencies]
 nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }
 near-workspaces = { workspace = true }

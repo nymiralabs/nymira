@@ -24,6 +24,8 @@ pub mod openai;
 pub mod pins;
 pub mod quotes;
 pub mod ramdir;
+#[cfg(feature = "mock")]
+pub mod record;
 pub mod records;
 pub mod rpc;
 pub mod secrets;
