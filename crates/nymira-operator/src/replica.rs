@@ -8,15 +8,28 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReplicaEntry {
     pub nullifier: String,
     pub lease_id: String,
     /// The request proof the watcher answers exits from.
     pub request_json: String,
+    #[serde(with = "as_decimal")]
     pub bound: u128,
     pub client_request_id: String,
     pub reserved_at: u64,
+}
+
+/// `u128` as a decimal string: JSON numbers stop at 64 bits and tagged enums refuse 128.
+mod as_decimal {
+    pub fn serialize<S: serde::Serializer>(n: &u128, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&n.to_string())
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u128, D::Error> {
+        let text = <String as serde::Deserialize>::deserialize(d)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, thiserror::Error, Clone)]
