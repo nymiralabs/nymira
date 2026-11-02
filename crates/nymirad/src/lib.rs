@@ -8,6 +8,7 @@ pub mod backup;
 pub mod calendar;
 pub mod config;
 pub mod deposit;
+pub mod gate;
 pub mod guard;
 pub mod hardening;
 pub mod mode;

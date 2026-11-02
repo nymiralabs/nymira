@@ -131,10 +131,7 @@ async fn browser_and_remote_requests_are_refused() {
         assert_eq!(send(&f, b, peer).await, StatusCode::FORBIDDEN, "{peer}");
     }
     let v6 = req(&f, "GET", "/v1/models", "localhost:8788");
-    assert_eq!(
-        send(&f, v6, "[::1]:4000").await,
-        StatusCode::OK
-    );
+    assert_eq!(send(&f, v6, "[::1]:4000").await, StatusCode::OK);
 }
 
 #[tokio::test]
