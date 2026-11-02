@@ -71,6 +71,14 @@ async fn a_usage_record_is_signed_only_for_what_the_provider_reports() {
     r.remote.mint("lease1", 100_000).await.unwrap();
     r.fake.set_usage("lease1", 7_000);
     let now = r.clock.now_secs();
+    // While the key is live no record is signed, whatever the cost.
+    let live = UsageRecord {
+        lease_id: "lease1".into(),
+        cost_nano_usd: Some("7000".into()),
+        read_at: now,
+    };
+    assert!(r.remote.sign(live).await.is_err());
+    r.remote.revoke("lease1").await.unwrap();
     let record = |cost: Option<&str>, read_at| UsageRecord {
         lease_id: "lease1".into(),
         cost_nano_usd: cost.map(Into::into),

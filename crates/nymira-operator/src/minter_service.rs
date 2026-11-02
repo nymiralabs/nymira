@@ -33,12 +33,18 @@ const WAIT: Duration = Duration::from_secs(60);
 #[async_trait]
 pub trait SecretSource: ProviderAdapter {
     async fn secret(&self, lease_id: &str) -> Option<String>;
+    /// True once the key is deactivated: its usage no longer grows.
+    async fn is_revoked(&self, lease_id: &str) -> bool;
 }
 
 #[async_trait]
 impl SecretSource for NearAiAdapter {
     async fn secret(&self, lease_id: &str) -> Option<String> {
         NearAiAdapter::secret(self, lease_id)
+    }
+
+    async fn is_revoked(&self, lease_id: &str) -> bool {
+        NearAiAdapter::is_revoked(self, lease_id)
     }
 }
 
@@ -47,6 +53,10 @@ impl SecretSource for crate::provider::FakeProvider {
     async fn secret(&self, lease_id: &str) -> Option<String> {
         self.is_live(lease_id)
             .then(|| format!("fake-secret-{lease_id}"))
+    }
+
+    async fn is_revoked(&self, lease_id: &str) -> bool {
+        self.keys().get(lease_id).is_some_and(|k| k.revoked)
     }
 }
 
@@ -132,6 +142,10 @@ async fn answer(
             cost_nano_usd: provider.usage(&lease_id).await?.cost_nano_usd.to_string(),
         },
         Call::SignUsage { record } => {
+            // A live key is still spending: a reading taken now is not the lease's final one.
+            if !provider.is_revoked(&record.lease_id).await {
+                return Err(ProviderError::Rejected("the key is still live".into()));
+            }
             let now = clock.now_secs();
             if record.read_at.abs_diff(now) > READ_SKEW_SECS {
                 return Err(ProviderError::Rejected("the reading time is off".into()));

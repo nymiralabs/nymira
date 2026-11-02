@@ -353,6 +353,11 @@ impl NearAiAdapter {
         reply.json().await.map_err(transport)
     }
 
+    /// True when the lease's key has been deactivated.
+    pub fn is_revoked(&self, lease_id: &str) -> bool {
+        self.entry(lease_id).is_ok_and(|e| e.revoked)
+    }
+
     /// The secret of a lease's live key, for the process that proxies its chat.
     pub fn secret(&self, lease_id: &str) -> Option<String> {
         self.live_entry(lease_id).ok().map(|e| e.secret)

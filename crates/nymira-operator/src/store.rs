@@ -165,7 +165,7 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(30))?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA fullfsync=ON;
-             PRAGMA checkpoint_fullfsync=ON; PRAGMA busy_timeout=5000;",
+             PRAGMA checkpoint_fullfsync=ON;",
         )?;
         conn.execute_batch(SCHEMA)?;
         conn.execute_batch(crate::replog::SCHEMA)?;

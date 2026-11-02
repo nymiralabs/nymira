@@ -276,13 +276,16 @@ pub async fn signer(cfg: &Config) -> Result<(), Failure> {
         .ok()
         .and_then(|b| b.try_into().ok())
         .ok_or("usage_public_key is not 64 hex digits")?;
-    let heartbeat = NearHeartbeat(tx(
+    let heartbeat_tx = tx(
         cfg,
         &cfg.operator_account,
         near_key(cfg, "heartbeat")?,
         store.clone(),
         clock.clone(),
-    ));
+    );
+    // A heartbeat signed before a crash and never sent goes out now.
+    heartbeat_tx.resume().await;
+    let heartbeat = NearHeartbeat(heartbeat_tx);
     let replica = Arc::new(SocketReplica::new(&cfg.socket("replica")));
     let signer = Arc::new(
         Signer::new(
@@ -310,14 +313,17 @@ pub async fn closer(cfg: &Config) -> Result<(), Failure> {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let store = store(cfg)?;
     let alarms = alarms(cfg, clock.clone())?;
+    let close_tx = tx(
+        cfg,
+        &cfg.operator_account,
+        near_key(cfg, "mutual_close")?,
+        store.clone(),
+        clock.clone(),
+    );
+    // A close signed before a crash and never sent goes out now.
+    close_tx.resume().await;
     let sender = NearCloseSender {
-        tx: tx(
-            cfg,
-            &cfg.operator_account,
-            near_key(cfg, "mutual_close")?,
-            store.clone(),
-            clock.clone(),
-        ),
+        tx: close_tx,
         store,
         clock: clock.clone(),
         alarms: alarms.clone(),
@@ -383,6 +389,9 @@ pub async fn watcher(cfg: &Config) -> Result<(), Failure> {
             clock.clone(),
         ),
     };
+    // Calls signed before a crash and never sent go out now.
+    calls.answer.resume().await;
+    calls.upkeep.resume().await;
     let watcher = Arc::new(
         Watcher::new(
             providers,
