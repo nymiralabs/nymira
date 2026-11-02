@@ -7,7 +7,7 @@
 //! keys behind [`VaultCalls`]: one for exit answers with its own balance, one for upkeep. It has
 //! no way to send `mutual_close`: that call belongs to the closer.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -44,6 +44,11 @@ const YOCTO_PER_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 /// provider to agree.
 const FAILED_ALARM: usize = 3;
 const FAILED_DEGRADE: usize = 10;
+/// New exit requests within [`WAVE_WINDOW_SECS`] that raise an alarm.
+const WAVE_SIZE: usize = 3;
+const WAVE_WINDOW_SECS: u64 = 3_600;
+/// Providers further apart than this many blocks disagree.
+const MAX_BLOCK_GAP: u64 = 10;
 const HOUR: u64 = 3_600;
 /// A call that failed is not repeated for this long.
 const RETRY_SECS: u64 = 60;
@@ -221,6 +226,12 @@ struct State {
     not_before: HashMap<(&'static str, u32), u64>,
     last_sync: u64,
     last_poll: Option<u64>,
+    /// Exits already counted toward a wave, by note and nullifier.
+    seen_exits: HashSet<(u32, String)>,
+    /// When new exits were first confirmed, within the hour.
+    wave: VecDeque<u64>,
+    /// Polls in a row in which the providers disagreed.
+    disagreed: u32,
 }
 
 pub struct Watcher {
@@ -358,6 +369,7 @@ impl Watcher {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .last_poll = Some(now);
+            self.check_wave(exits).await;
             for exit in exits {
                 self.import(exit).await;
             }
@@ -369,6 +381,7 @@ impl Watcher {
             self.alarms.resolve("answers_failing");
         }
         self.check_balance().await;
+        self.check_providers().await;
         let Some(view) = self.providers.first() else {
             return;
         };
@@ -376,6 +389,81 @@ impl Watcher {
             self.retire_closed(view.as_ref(), &records).await;
             self.claim_expired(&records).await;
             self.sync_root(view.as_ref(), &records).await;
+        }
+    }
+
+    /// Counts exits not seen before; a burst of them gets a person's attention.
+    async fn check_wave(&self, exits: &[ExitEntry]) {
+        let now = self.clock.now_secs();
+        let size = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            for exit in exits {
+                if state
+                    .seen_exits
+                    .insert((exit.note_id, exit.nullifier.to_ascii_lowercase()))
+                {
+                    state.wave.push_back(now);
+                }
+            }
+            while state
+                .wave
+                .front()
+                .is_some_and(|at| now >= at + WAVE_WINDOW_SECS)
+            {
+                state.wave.pop_front();
+            }
+            state.wave.len()
+        };
+        if size >= WAVE_SIZE {
+            self.alarms
+                .raise(
+                    "exit_wave",
+                    "A wave of exit requests",
+                    &format!("{size} new exit requests in the last hour; look at them."),
+                )
+                .await;
+        } else {
+            self.alarms.resolve("exit_wave");
+        }
+    }
+
+    /// Providers more than ten blocks apart, or showing different leaf counts at one block, in
+    /// two polls in a row. A few blocks of drift is normal and says nothing.
+    async fn check_providers(&self) {
+        let mut heads = Vec::new();
+        for provider in &self.providers {
+            if let Ok(head) = provider.head().await {
+                heads.push(head);
+            }
+        }
+        let differ = heads.iter().any(|a| {
+            heads.iter().any(|b| {
+                a.height.abs_diff(b.height) > MAX_BLOCK_GAP
+                    || (a.height == b.height && a.leaf_count != b.leaf_count)
+            })
+        });
+        let streak = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.disagreed = if differ { state.disagreed + 1 } else { 0 };
+            state.disagreed
+        };
+        if streak >= 2 {
+            self.alarms
+                .raise(
+                    "providers_disagree",
+                    "RPC providers disagree",
+                    &format!(
+                        "The providers have not agreed for {streak} polls in a row; heads (height, leaves): {}.",
+                        heads
+                            .iter()
+                            .map(|h| format!("({}, {})", h.height, h.leaf_count))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ),
+                )
+                .await;
+        } else if !differ {
+            self.alarms.resolve("providers_disagree");
         }
     }
 

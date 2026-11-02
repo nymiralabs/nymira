@@ -668,6 +668,15 @@ pub fn open_txs(conn: &Connection, public_key: &str) -> rusqlite::Result<Vec<TxR
     rows.collect()
 }
 
+/// When the newest transaction of `kind` that reached the chain was created.
+pub fn last_final_tx_at(conn: &Connection, kind: &str) -> rusqlite::Result<Option<u64>> {
+    conn.query_row(
+        "SELECT MAX(created_at) FROM operator_txs WHERE kind = ?1 AND state = 'final'",
+        params![kind],
+        |r| r.get::<_, Option<i64>>(0).map(|t| t.map(|t| t as u64)),
+    )
+}
+
 /// Transactions of `kind` created at or after `since` (rejected ones never reached the chain).
 pub fn count_txs_since(conn: &Connection, kind: &str, since: u64) -> rusqlite::Result<u64> {
     conn.query_row(
