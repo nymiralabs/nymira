@@ -466,7 +466,7 @@ async fn chat(State(h): State<Handle>, headers: HeaderMap, body: Bytes) -> R<Res
                 continue;
             };
             let plain = match (client_pk, field == "content" || all_fields) {
-                (Some(_), true) => crypto::decrypt_hex(&crypto::MODEL_E2EE_SECRET, text)
+                (Some(_), true) => crypto::decrypt_hex(&crypto::model_e2ee_secret(), text)
                     .map_err(|e| err(400, "decryption_failed", format!("{field}: {e}")))?,
                 _ => text.to_string(),
             };
@@ -646,8 +646,9 @@ async fn attestation(
     Query(q): Query<HashMap<String, String>>,
 ) -> R {
     check_algo(&q)?;
+    // Public, as the live endpoint is (checked 2026-11-02): no key needed.
+    let _ = &headers;
     let g = h.lock();
-    key_auth(&g, &headers)?;
     let model = q.get("model").map_or(MODELS[0].id, String::as_str);
     if !MODELS.iter().any(|m| m.id == model) {
         return Err(err(404, "model_not_found", "unknown model"));

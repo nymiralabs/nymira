@@ -164,7 +164,7 @@ async fn main() {
                     eprintln!("warning: no config.json (run init): the vault pins were not checked")
                 }
             }
-            guard::serve(Arc::new(token))
+            guard::serve(Arc::new(token), None)
                 .await
                 .unwrap_or_else(|e| die(e));
         }

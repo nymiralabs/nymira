@@ -241,7 +241,8 @@ fn seal_tool(t: &Value, key: &[u8; 32]) -> Result<Value, E2eeError> {
 }
 
 fn open_field(keys: &ClientKeys, parent: &mut Value, field: &str) -> Result<(), E2eeError> {
-    if let Some(Value::String(s)) = parent.get(field) {
+    // The empty string opens a stream (`"content": ""`); it holds nothing to decrypt.
+    if let Some(Value::String(s)) = parent.get(field).filter(|v| v.as_str() != Some("")) {
         let plain = decrypt(keys, s)?;
         parent[field] = Value::String(plain);
     }

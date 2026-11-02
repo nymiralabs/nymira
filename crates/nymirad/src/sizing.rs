@@ -9,17 +9,6 @@ use nymira_operator::proxy::ModelSpec;
 /// overspend rule (day-1-checks.md) triggers.
 pub const BOUND_SHARE_PCT: u128 = 90;
 
-/// Upper bound on the prompt's token count from its size: a token is at least one byte, and
-/// English text averages about four, so bytes / 2 stays above the real count for any usual text.
-/// shortcut: a tokenizer would size the input tighter; it only matters for very long prompts.
-pub fn estimate_input_tokens(message_bytes: &[usize]) -> u128 {
-    message_bytes
-        .iter()
-        .map(|b| (*b as u128).div_ceil(2) + 4)
-        .sum::<u128>()
-        + 16
-}
-
 /// `(bound x share - estimated input cost) / output price`, in tokens. Hidden reasoning tokens
 /// are part of the completion count the provider bills, so they are inside this cap. `None` when
 /// the bound cannot pay for the prompt and a single output token.
@@ -45,6 +34,12 @@ pub struct ChargeCheck {
     pub warning: Option<String>,
 }
 
+/// Cost in nano-USD of `prompt` and `completion` tokens (reasoning tokens are in `completion`).
+pub fn cost_nano(model: &ModelSpec, prompt: u64, completion: u64) -> u128 {
+    u128::from(prompt) * u128::from(model.input_nano_per_token)
+        + u128::from(completion) * u128::from(model.output_nano_per_token)
+}
+
 /// Recomputes the charge from signed usage and the pinned values.
 pub fn check_charge(
     bound_micro: u128,
@@ -55,9 +50,20 @@ pub fn check_charge(
     params: ChargeParams,
     reported: u128,
 ) -> ChargeCheck {
-    let cost_nano = u128::from(prompt_tokens) * u128::from(model.input_nano_per_token)
-        + u128::from(completion_tokens) * u128::from(model.output_nano_per_token);
-    let expected = charge(bound_micro, cost_nano, held_secs, params);
+    let cost = cost_nano(model, prompt_tokens, completion_tokens);
+    check_charge_cost(bound_micro, cost, held_secs, params, reported)
+}
+
+/// The same from a cost already summed over models. `held_secs` is an upper bound (the operator
+/// counts to the moment it deactivates the key, which the client cannot see).
+pub fn check_charge_cost(
+    bound_micro: u128,
+    cost_nano_usd: u128,
+    held_secs: u64,
+    params: ChargeParams,
+    reported: u128,
+) -> ChargeCheck {
+    let expected = charge(bound_micro, cost_nano_usd, held_secs, params);
     let warning = (reported > expected + params.step).then(|| {
         format!(
             "the operator charged {reported} micro-USD; the signed usage and the vault's rules give {expected} (more than one step of {} above)",
@@ -104,14 +110,6 @@ mod tests {
         assert_eq!(max_tokens(100_000, 90, &glm(), 2_000_000), None);
         // Exactly the budget leaves no output token.
         assert_eq!(max_tokens(100_000, 90, &glm(), 1_125_000), None);
-    }
-
-    #[test]
-    fn the_input_estimate_never_undercounts_plain_text() {
-        let text = "hello world, this is a short prompt";
-        let real_upper = text.split_whitespace().count() as u128 * 2;
-        assert!(estimate_input_tokens(&[text.len()]) >= real_upper);
-        assert_eq!(estimate_input_tokens(&[]), 16);
     }
 
     #[test]
