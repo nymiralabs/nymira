@@ -121,6 +121,15 @@ pub trait VaultView: Send + Sync {
     async fn note(&self, note_id: u32) -> Result<Option<NoteInfo>, ChainError>;
     /// Whether the vault has spent the nullifier (`0x` and 64 hex digits).
     async fn nullifier_used(&self, nullifier: &str) -> Result<bool, ChainError>;
+    /// The block this provider answered at and the leaf count it showed there.
+    async fn head(&self) -> Result<Head, ChainError>;
+}
+
+/// What a provider showed at one block, for comparing providers with each other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Head {
+    pub height: u64,
+    pub leaf_count: u32,
 }
 
 pub struct RpcVault {
@@ -150,6 +159,15 @@ impl RpcVault {
         method: &str,
         args: Value,
     ) -> Result<T, ChainError> {
+        Ok(self.view_at(method, args).await?.0)
+    }
+
+    /// The decoded result and the height of the block it was read at.
+    async fn view_at<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        args: Value,
+    ) -> Result<(T, u64), ChainError> {
         let body = json!({
             "jsonrpc": "2.0", "id": "nymira", "method": "query",
             "params": {
@@ -177,7 +195,10 @@ impl RpcVault {
             .iter()
             .map(|b| b.as_u64().unwrap_or(0) as u8)
             .collect();
-        serde_json::from_slice(&bytes).map_err(|e| ChainError(format!("{method}: {e}")))
+        let height = reply["result"]["block_height"].as_u64().unwrap_or(0);
+        let value =
+            serde_json::from_slice(&bytes).map_err(|e| ChainError(format!("{method}: {e}")))?;
+        Ok((value, height))
     }
 }
 
@@ -263,6 +284,11 @@ impl VaultView for RpcVault {
         self.view("is_nullifier_used", json!({ "nullifier": nullifier }))
             .await
     }
+
+    async fn head(&self) -> Result<Head, ChainError> {
+        let (leaf_count, height) = self.view_at("leaf_count", json!({})).await?;
+        Ok(Head { height, leaf_count })
+    }
 }
 
 #[derive(Clone)]
@@ -280,6 +306,8 @@ pub struct FakeVaultState {
     /// What `get_leaves` lists.
     pub leaves: Vec<String>,
     pub leaf_count: u32,
+    /// The block height `head` reports.
+    pub height: u64,
     /// Spent nullifiers, lowercase.
     pub used: std::collections::HashSet<String>,
     pub failing: bool,
@@ -301,6 +329,7 @@ impl FakeVault {
             records: Vec::new(),
             leaves: Vec::new(),
             leaf_count: 0,
+            height: 0,
             used: Default::default(),
             failing: false,
         }))
@@ -383,5 +412,12 @@ impl VaultView for FakeVault {
 
     async fn nullifier_used(&self, nullifier: &str) -> Result<bool, ChainError> {
         self.read(|s| s.used.contains(&nullifier.to_ascii_lowercase()))
+    }
+
+    async fn head(&self) -> Result<Head, ChainError> {
+        self.read(|s| Head {
+            height: s.height,
+            leaf_count: s.leaf_count,
+        })
     }
 }
