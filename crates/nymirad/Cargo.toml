@@ -48,3 +48,8 @@ bs58 = "0.5"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 nymirad = { path = ".", features = ["mock"] }
+# The operator's test harness (`tests/common` of nymira-operator) is included by path.
+async-trait = "0.1"
+nymira-fake-near-rpc = { path = "../nymira-fake-near-rpc" }
+zkapi-core = { workspace = true }
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof", features = ["dev-setup", "dev-fixtures"] }

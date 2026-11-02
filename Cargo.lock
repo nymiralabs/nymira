@@ -3556,6 +3556,7 @@ dependencies = [
  "libc",
  "near-workspaces",
  "nymira-fake-near-ai",
+ "nymira-fake-near-rpc",
  "nymira-near-codec",
  "nymira-operator",
  "nymira-testkit",

@@ -11,6 +11,7 @@ pub mod deposit;
 pub mod gate;
 pub mod guard;
 pub mod hardening;
+pub mod lease;
 pub mod mode;
 pub mod openai;
 pub mod pins;
