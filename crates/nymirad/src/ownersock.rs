@@ -60,6 +60,8 @@ pub enum Command {
         family: String,
     },
     SubmitterList,
+    /// Writes the encrypted backup of the whole state now.
+    Backup,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -281,6 +283,22 @@ pub async fn run(gw: &Gateway, command: Command, ask: &SocketAsk) -> Result<Stri
             Ok(format!(
                 "Note {note} uses the submitter of family {family:?}."
             ))
+        }
+        Command::Backup => {
+            let written = gw.write_backup().map_err(|e| e.to_string())?;
+            Ok(if written.is_empty() {
+                "No backup is set up: run `nymirad backup-setup`.".to_string()
+            } else {
+                format!(
+                    "Backup written to {} place(s):\n{}",
+                    written.len(),
+                    written
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            })
         }
         Command::SubmitterList => {
             let list = gw.submitters().list().map_err(|e| e.to_string())?;

@@ -94,6 +94,20 @@ impl SubmitterStore {
         Ok(self.file.write(&bytes)?)
     }
 
+    /// The whole store as JSON, for the backup.
+    pub fn export_json(&self) -> Result<Zeroizing<Vec<u8>>, SubmitterError> {
+        Ok(Zeroizing::new(
+            serde_json::to_vec(&self.load()?).map_err(|e| SubmitterError::Format(e.to_string()))?,
+        ))
+    }
+
+    /// Replaces the store with the JSON a backup carried.
+    pub fn import_json(&self, json: &[u8]) -> Result<(), SubmitterError> {
+        let contents: Contents =
+            serde_json::from_slice(json).map_err(|e| SubmitterError::Format(e.to_string()))?;
+        self.save(&contents)
+    }
+
     /// Makes a key for `account` under `family`. The user adds its public key to the account
     /// with the access the printed instructions name.
     pub fn add(&self, family: &str, account: &str) -> Result<Submitter, SubmitterError> {

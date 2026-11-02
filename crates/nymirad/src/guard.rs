@@ -157,7 +157,9 @@ pub async fn serve(
     .await?;
     // The conversation ends with the process: retire what is open so no slot fee runs on.
     if let Some(gw) = gateway {
-        gw.reap(true).await;
+        for event in gw.end_session().await {
+            eprintln!("{event}");
+        }
     }
     Ok(())
 }

@@ -12,6 +12,7 @@ pub mod deposit;
 pub mod direct;
 pub mod e2ee;
 pub mod exits;
+pub mod expiry;
 pub mod gate;
 pub mod gateway;
 pub mod guard;
@@ -29,6 +30,7 @@ pub mod ramdir;
 #[cfg(feature = "mock")]
 pub mod record;
 pub mod records;
+pub mod restore;
 pub mod rpc;
 pub mod secrets;
 pub mod sizing;

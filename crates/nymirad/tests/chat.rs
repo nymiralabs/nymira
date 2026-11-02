@@ -672,26 +672,24 @@ async fn the_live_model_list_is_compared_at_start() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_backup_carries_the_lease_record_and_the_sealed_state() {
+async fn the_backup_carries_the_lease_record_and_the_state() {
     let places = tempfile::tempdir().unwrap();
     let (private, public) = nymirad::backup::generate_identity();
     let recipient = nymirad::backup::parse_recipient(&public).unwrap();
     let place = places.path().to_path_buf();
-    let s = stack(1, move |c| c.backup = Some((recipient, vec![place]))).await;
+    let s = stack(1, move |c| {
+        c.backup = Some(nymirad::backup::Target::new(recipient, vec![place]))
+    })
+    .await;
     json_chat(&s, "backed up?").await;
     settle(&s).await;
-    let sealed = std::fs::read(places.path().join("state.age")).unwrap();
-    let plain = nymirad::backup::decrypt(private.as_str(), &sealed).unwrap();
-    let files: std::collections::BTreeMap<String, String> = serde_json::from_slice(&plain).unwrap();
-    assert!(files.contains_key("lease-records.jsonl"));
-    assert!(files.contains_key("notes.sealed"));
-    assert!(files.keys().any(|k| k.starts_with("wallets/")));
-    // Restoring needs only the private key: the sealed files inside open with the passphrase.
-    use base64::Engine;
-    let record = base64::engine::general_purpose::STANDARD
-        .decode(&files["lease-records.jsonl"])
-        .unwrap();
-    assert!(String::from_utf8(record).unwrap().contains("\"charge\""));
+    let file = std::fs::read(places.path().join("state.age")).unwrap();
+    let plain = nymirad::backup::decrypt(private.as_str(), &file).unwrap();
+    let state = nymirad::backup::StateBackup::from_bytes(&plain).unwrap();
+    assert_eq!(state.notes.len(), 1);
+    assert_eq!(state.notes[0].secret, s.secrets[0]);
+    assert!(state.wallets.contains_key(&state.notes[0].commitment));
+    assert!(state.files.contains_key("lease-records.jsonl"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

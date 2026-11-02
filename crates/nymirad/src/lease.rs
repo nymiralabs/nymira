@@ -69,6 +69,9 @@ pub enum LeaseError {
     Gate(#[from] Refusal),
     #[error("could not build the request: {0}")]
     Build(String),
+    /// The operator's status carries an emergency notice: no proof is sent.
+    #[error("the operator reports an emergency: {0}")]
+    Emergency(String),
 }
 
 pub struct LeaseClient {
@@ -222,6 +225,9 @@ where
         now: u64,
     ) -> Result<(Value, gate::Nonce), LeaseError> {
         let status = client.status().await?;
+        if let Some(notice) = status["emergency_notice"].as_str() {
+            return Err(LeaseError::Emergency(notice.to_string()));
+        }
         gate::check_params(&status, pinned.config)?;
         let nonce = gate::verify_status(&status, pinned.operator_pk, now)?;
         Ok((status, nonce))

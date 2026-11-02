@@ -116,8 +116,8 @@ pub struct Ctx {
     pub tx_store: Store,
     pub sender: String,
     pub clock: Arc<dyn Clock>,
-    /// Age recipient and places for the encrypted backup, if the user set them up.
-    pub backup: Option<(age::x25519::Recipient, Vec<PathBuf>)>,
+    /// Where the encrypted backup goes and who can read it, if the user set it up.
+    pub backup: Option<backup::Target>,
     /// Where the calendar file goes.
     pub calendar_dir: PathBuf,
 }
@@ -379,16 +379,19 @@ impl Ctx {
         })
     }
 
-    /// Writes the encrypted backup of the note list, if a recipient is set up.
+    /// Writes the encrypted backup of the note list, if a recipient is set up. The daemon's
+    /// `state.age` carries the wallets too; this one covers the time before the first lease.
     pub fn back_up(&self) -> Result<(), DepositError> {
-        let Some((recipient, places)) = &self.backup else {
+        let Some(target) = &self.backup else {
             return Ok(());
         };
-        let plain = zeroize::Zeroizing::new(
-            serde_json::to_vec(&self.notes.list()?)
-                .map_err(|e| StoreError::Format(e.to_string()))?,
-        );
-        backup::write_backups(recipient, &plain, places, "notes.age")?;
+        let state = backup::StateBackup {
+            version: backup::VERSION,
+            taken_at: self.clock.now_secs(),
+            notes: self.notes.list()?,
+            ..Default::default()
+        };
+        backup::write_backups(target, &state.to_bytes()?, backup::NOTES_FILE)?;
         Ok(())
     }
 
