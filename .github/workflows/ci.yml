@@ -45,6 +45,30 @@ jobs:
         run: cargo check --target wasm32-unknown-unknown --locked -p nymira-vault -p nymira-near-codec -p nymira-verifier -p verifier-probe -p mock-usdc -p mock-ft-receiver -p nymira-near-codec-wasm
       - run: cargo test --workspace --locked
 
+  # What a newcomer runs from a clean checkout: `make demo` builds, and the golden path (a note
+  # deposited, used, settled, closed and retired in the mock stack) passes (issue 35).
+  quickstart:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - name: Free disk space (preinstalled toolchains the job does not use)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Install cargo-near 0.22.0 (release binary, checksum pinned)
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o cargo-near.tar.gz \
+            https://github.com/near/cargo-near/releases/download/cargo-near-v0.22.0/cargo-near-x86_64-unknown-linux-gnu.tar.gz
+          echo "9429064e30a427e96523f539cb255f3688d2345e5000d7d4e4873a8247247d1a  cargo-near.tar.gz" | sha256sum -c -
+          tar -xzf cargo-near.tar.gz
+          install -m 0755 cargo-near-x86_64-unknown-linux-gnu/cargo-near "$HOME/.cargo/bin/cargo-near"
+          cargo near --version
+      - run: make quickstart
+
   # The vendored zkapi workspace has its own lockfile and target directory,
   # so it builds in parallel with the job above.
   zkapi-vendor:
