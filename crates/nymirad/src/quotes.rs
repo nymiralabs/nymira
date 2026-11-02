@@ -65,6 +65,15 @@ impl OneClick {
             base: base.trim_end_matches('/').into(),
         })
     }
+
+    /// Over a client the caller built, for a stub on loopback in tests. The shipped path is
+    /// [`OneClick::new`].
+    pub fn over(http: reqwest::Client, base: &str) -> Self {
+        Self {
+            http,
+            base: base.trim_end_matches('/').into(),
+        }
+    }
 }
 
 #[async_trait]

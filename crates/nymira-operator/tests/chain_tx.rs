@@ -9,7 +9,9 @@ use ed25519_dalek::SigningKey;
 use nymira_fake_near_rpc::{
     AccessKeySpec, AccountSpec, Failure, FakeRpc, OutcomeSpec, ReceiptSpec, TxStatusSpec,
 };
+use nymira_operator::alarm::{Alarms, FakeSink};
 use nymira_operator::clock::ManualClock;
+use nymira_operator::closer::{CloseSender, NearCloseSender};
 use nymira_operator::signer::HeartbeatSender;
 use nymira_operator::store::{self, Store};
 use nymira_operator::tx::{
@@ -314,4 +316,32 @@ async fn a_node_that_errors_is_retried_and_the_same_row_finishes_later() {
     e.rpc.set_failure(Failure::None);
     let end = tx.drive(row.id).await.unwrap();
     assert!(end.success, "the same row finishes once the node answers");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_close_that_fails_after_the_answer_raises_an_alarm() {
+    let e = env(0).await;
+    let tx = Arc::new(near_tx(&e));
+    // The row exists first, so the sender's repeat key finds it and the status can be scripted.
+    let row = tx.submit(request(Some("n1"))).await.unwrap();
+    let mut spec = TxStatusSpec::success(row.hash.as_deref().unwrap(), OPERATOR, VAULT);
+    spec.receipts = vec![ReceiptSpec {
+        executor_id: VAULT.into(),
+        logs: vec![],
+        status: OutcomeSpec::Failure("vault refused".into()),
+    }];
+    e.rpc.set_tx_status(spec);
+    let sink = Arc::new(FakeSink::default());
+    let sender = NearCloseSender {
+        tx,
+        store: e.store.clone(),
+        clock: e.clock.clone(),
+        alarms: Arc::new(Alarms::new(vec![sink.clone()], e.clock.clone())),
+    };
+    let answer = sender.send("n1", b"AA==".to_vec(), vec![]).await;
+    assert!(answer.is_err(), "{answer:?}");
+    let sent = sink.sent();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].key, "close_failed:n1");
+    assert!(sent[0].body.contains("vault refused"), "{}", sent[0].body);
 }

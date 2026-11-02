@@ -1,9 +1,16 @@
-//! One-time setup of the NEAR AI settings in `~/.nymira-operator.env`.
+//! Setup and renewal of the NEAR AI login, with the settings in `~/.nymira-operator.env`.
 //!
 //! Exchanges the refresh token for a session token and writes the replacement refresh token
 //! back at once, because the provider may kill the old one. Finds the organisation and workspace
 //! ids and creates a read-only reporting token when the file has none. Prints ids' names, lengths
 //! and lifetimes, never a token.
+//!
+//! The refresh token comes from `NEAR_AI_REFRESH_TOKEN` in the env file when that holds an `rt_`
+//! token (a fresh browser login: copy the `refresh_token` cookie there), otherwise from the
+//! sealed login file `~/.nymira-live/login.enc` (passphrase `NYMIRA_SEAL_PASSPHRASE`). The
+//! rotated token goes back into the sealed file, and the env line is blanked, so one copy exists.
+//! Run it before 2026-11-09 08:30 UTC, the expiry of the current token, and again to measure
+//! whether each exchange extends it.
 //!
 //! `cargo run -p nymira-operator --example nearai_setup`
 
@@ -11,7 +18,9 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use base64::Engine;
-use serde_json::Value;
+use nymira_operator::nearai::parse_rfc3339;
+use nymira_operator::sealed::SealedFile;
+use serde_json::{json, Value};
 
 const BASE: &str = "https://cloud-api.near.ai";
 
@@ -97,10 +106,34 @@ fn jwt_times(token: &str) -> Option<(u64, u64)> {
 async fn main() {
     let mut env = Env::load();
     let settings = env.map();
-    let refresh = settings
+    let sealed = settings.get("NYMIRA_SEAL_PASSPHRASE").and_then(|pass| {
+        let dir = format!("{}/.nymira-live", std::env::var("HOME").unwrap());
+        SealedFile::open(format!("{dir}/login.enc").as_ref(), pass, 600_000).ok()
+    });
+    let stored: Option<Value> = sealed
+        .as_ref()
+        .and_then(|f| f.read().ok().flatten())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let from_env = settings
         .get("NEAR_AI_REFRESH_TOKEN")
-        .cloned()
+        .filter(|t| t.starts_with("rt_"))
+        .cloned();
+    let replacing = from_env.is_some();
+    let refresh = from_env
+        .or_else(|| {
+            stored
+                .as_ref()
+                .and_then(|l| l["refresh_token"].as_str().map(String::from))
+        })
         .unwrap_or_default();
+    if let Some(l) = stored.as_ref().filter(|_| !replacing) {
+        println!(
+            "sealed login: expires {}",
+            l["expires_at"]
+                .as_u64()
+                .map_or("unknown".into(), |t| t.to_string())
+        );
+    }
     let http = reqwest::Client::builder()
         .user_agent(nymira_operator::nearai::BROWSER_USER_AGENT)
         .build()
@@ -145,8 +178,32 @@ async fn main() {
             };
             // Before anything else: the old refresh token may be dead now.
             let rotated = new_refresh != refresh;
-            if rotated {
-                env.set("NEAR_AI_REFRESH_TOKEN", new_refresh);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let expires_at = body["refresh_token_expiration"]
+                .as_str()
+                .and_then(parse_rfc3339);
+            let issued_at = match stored.as_ref().filter(|_| !replacing && !rotated) {
+                Some(l) => l["issued_at"].as_u64().unwrap_or(now),
+                None => now,
+            };
+            match &sealed {
+                Some(file) => {
+                    let login = json!({
+                        "refresh_token": new_refresh,
+                        "expires_at": expires_at,
+                        "issued_at": issued_at,
+                    });
+                    file.write(&serde_json::to_vec(&login).expect("login serializes"))
+                        .expect("sealed login written");
+                    if replacing {
+                        env.set("NEAR_AI_REFRESH_TOKEN", "");
+                    }
+                    println!("refresh token stored in the sealed login file");
+                }
+                None if rotated => env.set("NEAR_AI_REFRESH_TOKEN", new_refresh),
+                None => {}
             }
             println!("refresh token rotated on exchange: {rotated}");
             println!(

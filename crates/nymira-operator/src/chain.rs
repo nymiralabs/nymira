@@ -107,6 +107,8 @@ pub trait VaultView: Send + Sync {
     async fn current_root(&self) -> Result<String, ChainError>;
     async fn retirement_epoch(&self) -> Result<u64, ChainError>;
     async fn open_notes(&self) -> Result<u32, ChainError>;
+    /// NEAR the vault can spend: its balance minus the storage it must keep covered.
+    async fn liquid_near(&self) -> Result<u128, ChainError>;
     /// Every pending exit, paged by note id inside the implementation.
     async fn exits(&self) -> Result<Vec<ExitEntry>, ChainError>;
     /// How many of the given notes are `Active`.
@@ -221,6 +223,13 @@ impl VaultView for RpcVault {
         self.view("open_notes", json!({})).await
     }
 
+    async fn liquid_near(&self) -> Result<u128, ChainError> {
+        let yocto: String = self.view("liquid_near", json!({})).await?;
+        yocto
+            .parse()
+            .map_err(|_| ChainError(format!("liquid_near: {yocto}")))
+    }
+
     async fn exits(&self) -> Result<Vec<ExitEntry>, ChainError> {
         let mut all = Vec::new();
         let mut from = 0u32;
@@ -297,6 +306,8 @@ pub struct FakeVaultState {
     pub root: String,
     pub epoch: u64,
     pub open_notes: u32,
+    /// What `liquid_near` reports, in yoctoNEAR.
+    pub liquid_near: u128,
     pub open_team_notes: u32,
     pub exits: Vec<ExitEntry>,
     /// Note id -> status word. A note not listed does not exist.
@@ -323,6 +334,7 @@ impl FakeVault {
             root: root.into(),
             epoch: 0,
             open_notes: 0,
+            liquid_near: 10_000_000_000_000_000_000_000_000,
             open_team_notes: 0,
             exits: Vec::new(),
             notes: Default::default(),
@@ -364,6 +376,10 @@ impl VaultView for FakeVault {
 
     async fn open_notes(&self) -> Result<u32, ChainError> {
         self.read(|s| s.open_notes)
+    }
+
+    async fn liquid_near(&self) -> Result<u128, ChainError> {
+        self.read(|s| s.liquid_near)
     }
 
     async fn exits(&self) -> Result<Vec<ExitEntry>, ChainError> {

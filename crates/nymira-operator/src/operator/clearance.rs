@@ -122,6 +122,22 @@ impl Operator {
             }
         }
 
+        // The vault would refuse the close later; saying so now spares the client a signature it
+        // cannot use.
+        let status = self
+            .vault
+            .note(inputs.note_id)
+            .await
+            .map_err(|_| {
+                ApiError::new(Code::OperatorCapacity, "the vault could not be read").retry_after(5)
+            })?
+            .map(|n| n.status);
+        match status.as_deref() {
+            Some("Active") => {}
+            Some("PendingExit") => return Err(held_error(store::state::EXIT)),
+            _ => return Err(ApiError::new(Code::NoteNotActive, "the note is not active")),
+        }
+
         let permit = self.verify_slots.clone().try_acquire_owned().map_err(|_| {
             ApiError::new(Code::OperatorCapacity, "verification pool full").retry_after(1)
         })?;

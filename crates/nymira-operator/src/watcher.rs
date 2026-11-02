@@ -201,6 +201,9 @@ pub struct WatcherConfig {
     pub quorum: usize,
     /// Exit-answer balance under which an alarm goes out.
     pub balance_alarm: u128,
+    /// Vault liquid NEAR under which an alarm goes out: the vault's own floor (2 NEAR, under it
+    /// deposits stop) plus 1 NEAR of warning.
+    pub vault_liquid_alarm: u128,
     /// A note a batch did not sweep is looked at again after this long.
     pub claim_retry_secs: u64,
     /// Least time between two `sync_root` calls.
@@ -212,6 +215,7 @@ impl Default for WatcherConfig {
         Self {
             quorum: 2,
             balance_alarm: 2 * YOCTO_PER_NEAR,
+            vault_liquid_alarm: 3 * YOCTO_PER_NEAR,
             claim_retry_secs: HOUR,
             sync_every_secs: 30,
         }
@@ -381,6 +385,7 @@ impl Watcher {
             self.alarms.resolve("answers_failing");
         }
         self.check_balance().await;
+        self.check_vault_liquid().await;
         self.check_providers().await;
         let Some(view) = self.providers.first() else {
             return;
@@ -630,6 +635,29 @@ impl Watcher {
                     .await;
             }
             Ok(_) => self.alarms.resolve("answer_balance_low"),
+            Err(_) => {}
+        }
+    }
+
+    async fn check_vault_liquid(&self) {
+        let Some(view) = self.providers.first() else {
+            return;
+        };
+        match view.liquid_near().await {
+            Ok(liquid) if liquid < self.cfg.vault_liquid_alarm => {
+                self.alarms
+                    .raise(
+                        "vault_liquid_low",
+                        "The vault is running low on NEAR",
+                        &format!(
+                            "The vault can spend {}.{:03} NEAR after its storage. Under 2 NEAR it refuses deposits and a failed payout may not be recorded; top it up.",
+                            liquid / YOCTO_PER_NEAR,
+                            liquid % YOCTO_PER_NEAR / (YOCTO_PER_NEAR / 1_000)
+                        ),
+                    )
+                    .await;
+            }
+            Ok(_) => self.alarms.resolve("vault_liquid_low"),
             Err(_) => {}
         }
     }

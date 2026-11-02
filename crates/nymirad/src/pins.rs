@@ -95,6 +95,28 @@ pub fn diff(pinned: &Pins, live: &Pins) -> Vec<String> {
     out
 }
 
+/// The lines shown for a failed check. A change in the lease parameters is what the vault's
+/// `params_applied` leaves behind, so it also says what to do about it.
+pub fn warnings(diffs: &[String]) -> Vec<String> {
+    let mut out = vec![format!(
+        "the vault differs from the pins in this build: {}. Deposits and new leases are stopped.",
+        diffs.join(", ")
+    )];
+    const PARAMS: [&str; 4] = [
+        "config.bound_classes",
+        "config.charge_step",
+        "config.min_charge",
+        "config.slot_rate",
+    ];
+    if diffs.iter().any(|d| PARAMS.contains(&d.as_str())) {
+        out.push(
+            "The owner applied new lease parameters (params_applied). Update nymirad before opening a new lease; closing and exiting keep working."
+                .into(),
+        );
+    }
+    out
+}
+
 /// Holds the result of the last check.
 #[derive(Default)]
 pub struct Tripwire {
@@ -142,5 +164,20 @@ impl Tripwire {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::warnings;
+
+    #[test]
+    fn a_parameter_change_says_to_update_and_other_changes_do_not() {
+        let owner = warnings(&["config.owner".into()]);
+        assert_eq!(owner.len(), 1);
+        assert!(owner[0].contains("config.owner"));
+        let params = warnings(&["code hash".into(), "config.slot_rate".into()]);
+        assert_eq!(params.len(), 2);
+        assert!(params[1].contains("params_applied"));
     }
 }

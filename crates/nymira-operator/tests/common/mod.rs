@@ -382,6 +382,10 @@ impl Rig {
         let dir = tempfile::tempdir().unwrap();
         let clock = Arc::new(ManualClock::new(setup.clock_secs * 1000));
         let vault = Arc::new(FakeVault::new(vault_config(), &root_hex()));
+        // Every test proof names note 0.
+        vault.edit(|v| {
+            v.notes.insert(0, "Active".into());
+        });
         let provider = Arc::new(FakeProvider::new(clock.clone(), setup.credit));
         let replica = Arc::new(FakeReplica::default());
         let minter = Minter::generate();
