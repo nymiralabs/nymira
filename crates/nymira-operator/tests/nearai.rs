@@ -392,7 +392,11 @@ async fn the_chat_ids_survive_a_restart_of_the_process_that_proxies_chat() {
     }
     // A new process: no memory, same database.
     let reborn = LeaseChat::new(reqwest::Client::new(), &rig.fake.url()).with_store(store);
-    let evidence = reborn.evidence(&secret, "a", &query).await.unwrap().unwrap();
+    let evidence = reborn
+        .evidence(&secret, "a", &query)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(evidence["signatures"].as_array().unwrap().len(), 2);
     // Without the database the ids are gone.
     let amnesiac = LeaseChat::new(reqwest::Client::new(), &rig.fake.url());

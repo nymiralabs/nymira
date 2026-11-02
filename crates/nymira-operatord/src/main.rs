@@ -8,7 +8,7 @@ use nymira_operator::store::{self, Store};
 use nymira_operatord::{config::Config, hardening, roles};
 
 const USAGE: &str = "usage: nymira-operatord <command> --config FILE
-processes:  api | minter | signer | closer | watcher | replica (second machine)
+processes:  api | minter | signer | closer | watcher | replica | deadman (second machine)
 tools:      emergency set <notice> | emergency show | emergency clear
             keygen <name>      writes a new 32-byte secret file and prints its public key";
 
@@ -41,6 +41,7 @@ async fn main() {
         "closer" => roles::closer(&cfg).await,
         "watcher" => roles::watcher(&cfg).await,
         "replica" => roles::replica(&cfg).await,
+        "deadman" => roles::deadman(&cfg).await,
         "emergency" => emergency(&cfg, &args[1..]).await,
         "keygen" => keygen(&cfg, args.get(1).map(String::as_str)),
         _ => Err(USAGE.to_string()),

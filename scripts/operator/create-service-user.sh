@@ -9,7 +9,12 @@ HOME_DIR="/var/nymira"
 BIN="${NYMIRA_BIN:-/usr/local/libexec/nymira/nymira-operatord}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "run with sudo" >&2; exit 1; fi
-if [ ! -x "$BIN" ]; then echo "build and install the binary at $BIN first" >&2; exit 1; fi
+if [ ! -x "$BIN" ]; then
+  echo "install the binary at $BIN first:" >&2
+  echo "  cargo build --profile operator -p nymira-operatord   (add --features dev-setup for rehearsal keys)" >&2
+  echo "  sudo install -d -m 755 $(dirname "$BIN") && sudo install -m 755 target/operator/nymira-operatord $BIN" >&2
+  exit 1
+fi
 
 if ! id "$USER_NAME" >/dev/null 2>&1; then
   # No password, no login shell, hidden from the login window, not an administrator.

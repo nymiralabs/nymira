@@ -38,6 +38,8 @@ pub struct Config {
     pub budget: String,
     pub near_ai: NearAiSection,
     pub replica: Option<ReplicaSection>,
+    /// Set on the second machine only: the status URL the dead-man switch watches.
+    pub deadman_status_url: Option<String>,
     /// Set on the second machine only: where its replica node listens.
     pub replica_node: Option<ReplicaNodeSection>,
     #[serde(default)]

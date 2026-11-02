@@ -1,11 +1,15 @@
 #!/bin/bash
-# Checks the service user and its files. Safe to run any time; changes nothing.
-# usage: scripts/operator/check-service-user.sh [user]
+# Checks the service user and its files. Changes nothing. Run with sudo.
+# usage: sudo scripts/operator/check-service-user.sh [user]
 set -u
 USER_NAME="${1:-nymira-op}"
 HOME_DIR="/var/nymira"
 fail=0
+# The service directories are mode 700, so only root can look inside them.
+if [ "$(id -u)" -ne 0 ]; then echo "run with sudo: sudo $0 $USER_NAME" >&2; exit 2; fi
 check() { if eval "$2"; then echo "ok    $1"; else echo "FAIL  $1"; fail=1; fi; }
+
+check "$HOME_DIR exists" "[ -d $HOME_DIR ]"
 
 check "user $USER_NAME exists" "id $USER_NAME >/dev/null 2>&1"
 check "login shell is /usr/bin/false" "[ \"\$(dscl . -read /Users/$USER_NAME UserShell 2>/dev/null | awk '{print \$2}')\" = /usr/bin/false ]"

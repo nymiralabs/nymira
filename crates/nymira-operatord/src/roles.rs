@@ -445,3 +445,21 @@ pub async fn replica(cfg: &Config) -> Result<(), Failure> {
     .await;
     never()
 }
+
+/// The dead-man switch, run on the second machine: it watches the operator's `/v1/status` and
+/// speaks through the alarm channels when the operator does not.
+pub async fn deadman(cfg: &Config) -> Result<(), Failure> {
+    let url = cfg
+        .deadman_status_url
+        .clone()
+        .ok_or("this config has no deadman_status_url")?;
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let deadman = Arc::new(nymira_operator::deadman::Deadman::new(
+        url,
+        clock.clone(),
+        alarms(cfg, clock)?,
+    ));
+    deadman.spawn();
+    tokio::signal::ctrl_c().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
