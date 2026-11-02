@@ -1,0 +1,8 @@
+{
+  "model": "z-ai/glm-5.3-flash",
+  "gateway": "https://cloud-api.near.ai",
+  "recorded_at_secs": 1793643311,
+  "nonce_model": "4c74cd629110dd5c18304eadb092adc75406ef8b6aafe9d4c3cedfccbc23c918",
+  "nonce_gateway": "588fb2374fd3ffd011f63f65edda504e41ac4bfe3cc97ed91072f2f3161cc10d",
+  "pccs": "https://api.trustedservices.intel.com"
+}
