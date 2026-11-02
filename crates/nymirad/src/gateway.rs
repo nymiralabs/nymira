@@ -26,7 +26,7 @@ use zkapi_client::wallet::Wallet;
 use zkapi_types::wire::CurvePointWire;
 use zkapi_types::Felt252;
 
-use crate::attest::{Attestor, ModelIdentity, Trust};
+use crate::attest::{Attestor, ModelIdentity, ReportRequest, Trust};
 use crate::e2ee::{self, ClientKeys};
 use crate::lease::{self, Attempt, Lease, LeaseClient, LeaseError, Pinned};
 use crate::openai::ApiError;
@@ -407,26 +407,24 @@ impl Gateway {
 
     async fn model_identity(&self, model: &str) -> Result<ModelIdentity, ApiError> {
         let nonce = hex::encode(rand::random::<[u8; 32]>());
-        // Its own connection and identity: the attestation fetch is not on a lease's circuit.
-        let http = client(&self.transport).map_err(|e| net_error("attestation_unreachable", e))?;
-        let report: Value = http
-            .get(format!(
-                "{}/v1/attestation/report",
-                self.cfg.gateway_url.trim_end_matches('/')
-            ))
-            .query(&[
-                ("model", model),
-                ("signing_algo", "ed25519"),
-                ("nonce", &nonce),
-            ])
-            .send()
-            .await
-            .map_err(|e| net_error("attestation_unreachable", send_error(e)))?
-            .json()
-            .await
-            .map_err(|e| unavailable("attestation_unreachable", e.without_url().to_string()))?;
+        // Its own identity: the attestation fetch is not on a lease's circuit. Every client the
+        // verifier builds (gateway, Intel, NVIDIA) goes through the same proxy.
+        let identity = crate::net::identity();
+        let http = client_with_identity(&self.transport, &identity)
+            .map_err(|e| net_error("attestation_unreachable", e))?;
+        let socks_url = self
+            .transport
+            .socks_url(&identity)
+            .map_err(|e| net_error("attestation_unreachable", e))?;
         self.attestor
-            .verify_report(&report, model, &nonce)
+            .verify_model(&ReportRequest {
+                gateway_url: &self.cfg.gateway_url,
+                model,
+                nonce: &nonce,
+                http: &http,
+                socks_url: socks_url.as_deref(),
+            })
+            .await
             .map_err(|e| unavailable("attestation_failed", e))
     }
 

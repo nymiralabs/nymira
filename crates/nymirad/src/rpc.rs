@@ -26,6 +26,19 @@ impl Transport {
         matches!(self, Self::Direct)
     }
 
+    /// The SOCKS5 URL for `identity` (`socks5h://<identity>:x@127.0.0.1:port`), `None` on a direct
+    /// transport. A managed Tor that is not ready is an error, so no caller builds a client for it.
+    pub fn socks_url(&self, identity: &str) -> Result<Option<String>, RpcError> {
+        match self {
+            Self::Direct => Ok(None),
+            Self::Socks(addr) => Ok(Some(format!("socks5h://{identity}:x@{addr}"))),
+            Self::Tor(tor) => {
+                tor.ensure_ready().map_err(RpcError::TorDown)?;
+                Ok(Some(format!("socks5h://{identity}:x@{}", tor.socks_addr())))
+            }
+        }
+    }
+
     /// The loopback SOCKS address, when there is one.
     pub fn socks_addr(&self) -> Option<String> {
         match self {

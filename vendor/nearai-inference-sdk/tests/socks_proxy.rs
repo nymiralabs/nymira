@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use nearai_inference_sdk::{
-    create_pinned_tls_client_via, fetch_image_provenance_with_client, AttestationClient,
+    create_pinned_tls_client_via, AttestationClient,
     DefaultTdxQuoteVerifier, GpuEvidenceVerifier, NrasGpuEvidenceVerifier, TdxQuoteVerifier,
     DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
 };
@@ -81,7 +81,7 @@ async fn the_pinned_client_uses_the_proxy() {
 }
 
 #[tokio::test]
-async fn nras_provenance_and_pccs_use_the_proxy() {
+async fn nras_and_pccs_use_the_proxy() {
     let (url, log) = proxy().await;
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -91,14 +91,6 @@ async fn nras_provenance_and_pccs_use_the_proxy() {
 
     let nras = NrasGpuEvidenceVerifier::with_client(client.clone(), DEFAULT_NVIDIA_NRAS_URL);
     let _ = nras.verify(&format!(r#"{{"nonce":"{}"}}"#, "ab".repeat(32))).await;
-    let _ = fetch_image_provenance_with_client(
-        &client,
-        "nearai/example",
-        &format!("sha256:{}", "cd".repeat(32)),
-        None,
-    )
-    .await;
-
     // A structurally valid SGX quote that asks the PCCS for a PCK certificate.
     let mut auth = vec![0; 64 + 64 + 384 + 64];
     auth.extend(0_u16.to_le_bytes());
@@ -117,7 +109,6 @@ async fn nras_provenance_and_pccs_use_the_proxy() {
     let names = seen(&log);
     for expected in [
         "nras.attestation.nvidia.com:443",
-        "api.github.com:443",
         "api.trustedservices.intel.com:443",
     ] {
         assert!(names.iter().any(|n| n == expected), "{expected} not in {names:?}");

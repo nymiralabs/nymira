@@ -6,11 +6,13 @@
 //! anything is encrypted; a bad signature does not hide the answer but is reported as
 //! "not verified".
 //!
-//! Only the verifier for the test evidence format of the fake gateway is built in (`mock`
-//! feature). A release build has no verifier for NEAR AI's Intel and NVIDIA evidence yet, so it
-//! refuses to chat rather than encrypt to a key it cannot check.
+//! A release build verifies NEAR AI's Intel TDX and NVIDIA GPU evidence ([`crate::nearai`]); the
+//! verifier for the fake gateway's test evidence is built only with the `mock` feature. A build
+//! with no verifier refuses to chat rather than encrypt to a key it cannot check.
 
+use async_trait::async_trait;
 use ed25519_dalek::{Signature, VerifyingKey};
+use nearai_inference_sdk::{VerifiedGatewayAttestation, VerifiedModelAttestation};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -42,17 +44,29 @@ pub struct ModelIdentity {
     pub model_pub: [u8; 32],
     pub model_signing_address: String,
     pub gateway_signing_address: String,
+    /// What the SDK established, kept to check completion signatures. `None` for test evidence.
+    pub verified_model: Option<VerifiedModelAttestation>,
+    pub verified_gateway: Option<VerifiedGatewayAttestation>,
 }
 
+/// What an attestor needs to fetch and check the evidence for one model.
+pub struct ReportRequest<'a> {
+    pub gateway_url: &'a str,
+    pub model: &'a str,
+    /// A fresh nonce for verifiers that fetch the report themselves with it.
+    pub nonce: &'a str,
+    /// A client on its own connection and identity, for verifiers that fetch with it.
+    pub http: &'a reqwest::Client,
+    /// The SOCKS5 URL the same identity uses (`socks5h://<identity>:x@127.0.0.1:port`), `None` on
+    /// a direct transport. Verifiers that build their own clients (Intel, NVIDIA) use it.
+    pub socks_url: Option<&'a str>,
+}
+
+#[async_trait]
 pub trait Attestor: Send + Sync {
-    /// Checks the report for `model` against the policy and the nonce we sent, and returns the
-    /// key it binds.
-    fn verify_report(
-        &self,
-        report: &Value,
-        model: &str,
-        nonce: &str,
-    ) -> Result<ModelIdentity, String>;
+    /// Fetches the evidence for `ask.model`, checks it against the policy, and returns the key it
+    /// binds.
+    async fn verify_model(&self, ask: &ReportRequest<'_>) -> Result<ModelIdentity, String>;
 
     /// Checks a `/v1/signature/{id}` answer against the exact bytes exchanged.
     fn verify_signature(
@@ -68,8 +82,9 @@ pub trait Attestor: Send + Sync {
 /// The release default: no verifier for the real evidence is built in.
 pub struct Unavailable;
 
+#[async_trait]
 impl Attestor for Unavailable {
-    fn verify_report(&self, _: &Value, _: &str, _: &str) -> Result<ModelIdentity, String> {
+    async fn verify_model(&self, _: &ReportRequest<'_>) -> Result<ModelIdentity, String> {
         Err("this build cannot verify NEAR AI attestation reports, so it will not encrypt to an unchecked key".into())
     }
 
@@ -82,11 +97,31 @@ impl Attestor for Unavailable {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Policy {
     pub version: u32,
+    /// The key that signs the fake gateway's test evidence. Real evidence is rooted in Intel's and
+    /// NVIDIA's keys, which are built into the verifiers.
     pub attestation_root_pk: String,
+    /// Measurements the fake gateway's test evidence may carry.
     pub accepted_measurements: Vec<String>,
+    /// The deployments NEAR AI's real evidence may come from. Every field is checked.
+    #[serde(default)]
+    pub deployments: Vec<Deployment>,
     pub accepted_tcb_statuses: Vec<String>,
     /// Ed25519 signature (hex) by the policy signer over [`Policy::signed_text`].
     pub signature: String,
+}
+
+/// One accepted deployment: the Intel TDX measurements of the confidential VM and the hashes
+/// dstack derives from its event log. All values are lower-case hex without `0x`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deployment {
+    /// `model` for a model-serving VM, `gateway` for the gateway's.
+    pub role: String,
+    pub compose_hash: String,
+    pub os_image_hash: String,
+    pub mr_td: String,
+    pub rtmr0: String,
+    pub rtmr1: String,
+    pub rtmr2: String,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -99,8 +134,10 @@ pub enum PolicyError {
     TooOld { have: u32, need: u32 },
     #[error("the policy accepts TCB status {0}, which a strict policy never does")]
     Lenient(String),
-    #[error("the policy accepts no measurement")]
+    #[error("the policy accepts no measurement or deployment")]
     Empty,
+    #[error("the policy lists a deployment with a malformed value: {0}")]
+    BadDeployment(String),
 }
 
 /// The only TCB status a policy may accept. `OutOfDate` and every other status are refused.
@@ -108,12 +145,30 @@ pub const STRICT_TCB: &str = "UpToDate";
 
 impl Policy {
     pub fn signed_text(&self) -> String {
+        let deployments: Vec<String> = self
+            .deployments
+            .iter()
+            .map(|d| {
+                [
+                    &d.role,
+                    &d.compose_hash,
+                    &d.os_image_hash,
+                    &d.mr_td,
+                    &d.rtmr0,
+                    &d.rtmr1,
+                    &d.rtmr2,
+                ]
+                .map(String::as_str)
+                .join(",")
+            })
+            .collect();
         format!(
-            "nymira/attestation-policy/v1|{}|{}|{}|{}",
+            "nymira/attestation-policy/v2|{}|{}|{}|{}|{}",
             self.version,
             self.attestation_root_pk,
             self.accepted_measurements.join(","),
-            self.accepted_tcb_statuses.join(",")
+            self.accepted_tcb_statuses.join(","),
+            deployments.join(";")
         )
     }
 
@@ -143,8 +198,34 @@ impl Policy {
         {
             return Err(PolicyError::Lenient(bad.clone()));
         }
-        if policy.accepted_measurements.is_empty() || policy.accepted_tcb_statuses.is_empty() {
+        if (policy.accepted_measurements.is_empty() && policy.deployments.is_empty())
+            || policy.accepted_tcb_statuses.is_empty()
+        {
             return Err(PolicyError::Empty);
+        }
+        for d in &policy.deployments {
+            let sizes = [
+                ("role", &d.role, 0),
+                ("compose_hash", &d.compose_hash, 32),
+                ("os_image_hash", &d.os_image_hash, 32),
+                ("mr_td", &d.mr_td, 48),
+                ("rtmr0", &d.rtmr0, 48),
+                ("rtmr1", &d.rtmr1, 48),
+                ("rtmr2", &d.rtmr2, 48),
+            ];
+            for (name, value, bytes) in sizes {
+                let ok = if bytes == 0 {
+                    matches!(value.as_str(), "model" | "gateway")
+                } else {
+                    value.len() == bytes * 2
+                        && value
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                };
+                if !ok {
+                    return Err(PolicyError::BadDeployment(name.into()));
+                }
+            }
         }
         Ok(policy)
     }
@@ -211,8 +292,8 @@ mod test_scheme {
         Ok(a.to_string())
     }
 
-    impl Attestor for TestEvidence {
-        fn verify_report(
+    impl TestEvidence {
+        fn check_report(
             &self,
             report: &Value,
             model: &str,
@@ -237,7 +318,33 @@ mod test_scheme {
                 model_pub,
                 model_signing_address: address,
                 gateway_signing_address: gateway,
+                verified_model: None,
+                verified_gateway: None,
             })
+        }
+    }
+
+    #[async_trait]
+    impl Attestor for TestEvidence {
+        async fn verify_model(&self, ask: &ReportRequest<'_>) -> Result<ModelIdentity, String> {
+            let report: Value = ask
+                .http
+                .get(format!(
+                    "{}/v1/attestation/report",
+                    ask.gateway_url.trim_end_matches('/')
+                ))
+                .query(&[
+                    ("model", ask.model),
+                    ("signing_algo", "ed25519"),
+                    ("nonce", ask.nonce),
+                ])
+                .send()
+                .await
+                .map_err(|e| e.without_url().to_string())?
+                .json()
+                .await
+                .map_err(|e| e.without_url().to_string())?;
+            self.check_report(&report, ask.model, ask.nonce)
         }
 
         fn verify_signature(
@@ -292,6 +399,7 @@ mod tests {
             version,
             attestation_root_pk: "aa".into(),
             accepted_measurements: vec!["m1".into()],
+            deployments: vec![],
             accepted_tcb_statuses: tcb.iter().map(|s| s.to_string()).collect(),
             signature: String::new(),
         }
@@ -341,11 +449,75 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_release_default_refuses_to_pick_a_key() {
+    #[tokio::test]
+    async fn the_release_default_refuses_to_pick_a_key() {
+        let http = reqwest::Client::new();
+        let ask = ReportRequest {
+            gateway_url: "http://127.0.0.1:1",
+            model: "m",
+            nonce: "n",
+            http: &http,
+            socks_url: None,
+        };
         assert!(Unavailable
-            .verify_report(&Value::Null, "m", "n")
+            .verify_model(&ask)
+            .await
             .unwrap_err()
             .contains("will not encrypt"));
+    }
+
+    fn deployment() -> Deployment {
+        Deployment {
+            role: "model".into(),
+            compose_hash: "a".repeat(64),
+            os_image_hash: "b".repeat(64),
+            mr_td: "c".repeat(96),
+            rtmr0: "d".repeat(96),
+            rtmr1: "e".repeat(96),
+            rtmr2: "f".repeat(96),
+        }
+    }
+
+    #[test]
+    fn deployments_are_signed_and_each_value_is_checked() {
+        let mut p = policy(3, &["UpToDate"]);
+        p.accepted_measurements.clear();
+        p.deployments.push(deployment());
+        let p = p.sign(&signer());
+        let json = serde_json::to_vec(&p).unwrap();
+        assert_eq!(Policy::load(&json, &pk(), 1).unwrap().deployments.len(), 1);
+
+        // A changed measurement breaks the signature.
+        let mut tampered = p.clone();
+        tampered.deployments[0].mr_td = "0".repeat(96);
+        assert_eq!(
+            Policy::load(&serde_json::to_vec(&tampered).unwrap(), &pk(), 1),
+            Err(PolicyError::Signature)
+        );
+        // A signed value of the wrong shape is refused all the same.
+        for (field, bad) in [("mr_td", "ab"), ("role", "other"), ("rtmr1", "ZZ")] {
+            let mut q = p.clone();
+            match field {
+                "mr_td" => q.deployments[0].mr_td = bad.into(),
+                "role" => q.deployments[0].role = bad.into(),
+                _ => q.deployments[0].rtmr1 = bad.into(),
+            }
+            let q = q.sign(&signer());
+            assert!(matches!(
+                Policy::load(&serde_json::to_vec(&q).unwrap(), &pk(), 1),
+                Err(PolicyError::BadDeployment(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn a_policy_with_neither_measurements_nor_deployments_is_refused() {
+        let mut p = policy(3, &["UpToDate"]);
+        p.accepted_measurements.clear();
+        let p = p.sign(&signer());
+        assert_eq!(
+            Policy::load(&serde_json::to_vec(&p).unwrap(), &pk(), 1),
+            Err(PolicyError::Empty)
+        );
     }
 }

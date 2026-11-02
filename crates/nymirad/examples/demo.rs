@@ -230,6 +230,7 @@ async fn main() {
         version: 1,
         attestation_root_pk: test.attestation_root_pk,
         accepted_measurements: test.accepted_measurements,
+        deployments: vec![],
         accepted_tcb_statuses: test.accepted_tcb_statuses,
         signature: String::new(),
     }
