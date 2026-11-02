@@ -456,3 +456,28 @@ async fn the_signer_answers_a_clearance_over_its_socket_and_only_to_its_user() {
         .await
         .is_err());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_note_that_is_not_active_gets_no_clearance() {
+    let rig = Rig::new(Setup::default()).await;
+    for (n, status, code) in [
+        (60, "Closed", "note_not_active"),
+        (61, "PendingExit", "nullifier_in_exit"),
+    ] {
+        rig.vault.edit(|v| {
+            v.notes.insert(0, status.into());
+        });
+        let (s, v) = rig.clearance(&rig.ownership(n)).await;
+        json_error(s, &v, 409, code);
+    }
+    rig.vault.edit(|v| {
+        v.notes.remove(&0);
+    });
+    let (s, v) = rig.clearance(&rig.ownership(62)).await;
+    json_error(s, &v, 409, "note_not_active");
+    // Nothing was reserved: once the note is active the same nullifier clears.
+    rig.vault.edit(|v| {
+        v.notes.insert(0, "Active".into());
+    });
+    assert_eq!(rig.clearance(&rig.ownership(62)).await.0, 200);
+}

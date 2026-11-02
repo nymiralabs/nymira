@@ -32,6 +32,11 @@ async fn the_views_parse_as_the_vault_spells_them() {
     view("current_root", ArgsMatch::Any, json!(word(9)));
     view("retirement_epoch", ArgsMatch::Any, json!("3"));
     view("open_notes", ArgsMatch::Any, json!(7));
+    view(
+        "liquid_near",
+        ArgsMatch::Any,
+        json!("2500000000000000000000000"),
+    );
     let exit = |id: u32| {
         json!({"note_id": id, "nullifier": word(id as u8), "next_nullifier": word(id as u8 + 50),
                "final_balance": "1", "conceded": "0", "deadline": "5"})
@@ -64,6 +69,10 @@ async fn the_views_parse_as_the_vault_spells_them() {
     assert_eq!(vault.current_root().await.unwrap(), word(9));
     assert_eq!(vault.retirement_epoch().await.unwrap(), 3);
     assert_eq!(vault.open_notes().await.unwrap(), 7);
+    assert_eq!(
+        vault.liquid_near().await.unwrap(),
+        2_500_000_000_000_000_000_000_000
+    );
     let exits = vault.exits().await.unwrap();
     assert_eq!(
         exits.iter().map(|e| e.note_id).collect::<Vec<_>>(),

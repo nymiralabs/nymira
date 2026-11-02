@@ -338,6 +338,33 @@ async fn a_low_exit_answer_balance_raises_an_alarm() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_low_vault_liquid_balance_raises_an_alarm_and_a_top_up_clears_it() {
+    let w = world().await;
+    w.watcher.poll().await;
+    assert!(w.rig.sink.sent().is_empty());
+    w.rig
+        .vault
+        .edit(|v| v.liquid_near = 2_500_000_000_000_000_000_000_000);
+    w.watcher.poll().await;
+    let sent = w.rig.sink.sent();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].key, "vault_liquid_low");
+    assert!(sent[0].body.contains("2.500 NEAR"), "{}", sent[0].body);
+    // Still low: inside the repeat window nothing more goes out.
+    w.watcher.poll().await;
+    assert_eq!(w.rig.sink.sent().len(), 1);
+    w.rig
+        .vault
+        .edit(|v| v.liquid_near = 5_000_000_000_000_000_000_000_000);
+    w.watcher.poll().await;
+    w.rig
+        .vault
+        .edit(|v| v.liquid_near = 2_000_000_000_000_000_000_000_000);
+    w.watcher.poll().await;
+    assert_eq!(w.rig.sink.sent().len(), 2, "resolved, then raised again");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_undefeated_exit_is_finalized_after_its_deadline_and_not_answered() {
     let w = world().await;
     w.open_lease(2, false).await;

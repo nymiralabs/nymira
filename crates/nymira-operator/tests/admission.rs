@@ -140,8 +140,23 @@ async fn malformed_requests_are_refused() {
 async fn an_oversize_body_is_refused_before_anything_else() {
     let (calls, setup) = counting();
     let rig = Rig::new(setup).await;
-    let (status, v, _) = rig.post_lease(vec![b' '; 64 * 1024 + 1]).await;
-    json_error(status, &v, 413, "body_too_large");
+    // The server may answer 413 and close before the client has sent the whole body; on a slow
+    // runner the client then sees a reset instead of the answer.
+    let refused = rig
+        .http
+        .post(format!("{}/v2/openrouter/leases", rig.url))
+        .header("content-type", "application/json")
+        .body(vec![b' '; 64 * 1024 + 1])
+        .send()
+        .await;
+    match refused {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let v: Value = response.json().await.unwrap();
+            json_error(status, &v, 413, "body_too_large");
+        }
+        Err(e) => assert!(!e.is_timeout(), "a reset is fine, a hang is not: {e}"),
+    }
     assert_eq!(calls.0.load(Ordering::SeqCst), 0);
     assert_eq!(rig.op.attempt_entries(), 0);
     // Just at the limit it is parsed (and fails as malformed).

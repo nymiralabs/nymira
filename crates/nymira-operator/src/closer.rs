@@ -103,6 +103,8 @@ pub struct NearCloseSender {
     pub tx: Arc<NearTx>,
     pub store: Store,
     pub clock: Arc<dyn Clock>,
+    /// Told when a close fails after the client already has its answer.
+    pub alarms: Arc<Alarms>,
 }
 
 #[async_trait]
@@ -153,8 +155,30 @@ impl CloseSender for NearCloseSender {
             .map_err(|e| e.to_string())?;
         let hash = row.hash.clone().ok_or("the transaction has no hash")?;
         // Await FINAL and read the receipts in the background; the answer waits only a while.
-        let (tx, id) = (self.tx.clone(), row.id);
-        let driving = tokio::spawn(async move { tx.drive(id).await });
+        let (tx, id, alarms, nullifier) = (
+            self.tx.clone(),
+            row.id,
+            self.alarms.clone(),
+            nullifier.to_string(),
+        );
+        let driving = tokio::spawn(async move {
+            let end = tx.drive(id).await;
+            let failure = match &end {
+                Err(e) => Some(e.to_string()),
+                Ok(end) if !end.success => Some(end.detail.clone()),
+                Ok(_) => None,
+            };
+            if let Some(why) = failure {
+                alarms
+                    .raise(
+                        &format!("close_failed:{nullifier}"),
+                        "An operator-sent close failed",
+                        &format!("mutual_close for nullifier {nullifier} failed: {why}"),
+                    )
+                    .await;
+            }
+            end
+        });
         match tokio::time::timeout(std::time::Duration::from_secs(ANSWER_WAIT_SECS), driving).await
         {
             Ok(Ok(Err(e))) => Err(e.to_string()),

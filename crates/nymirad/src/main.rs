@@ -138,6 +138,32 @@ async fn main() {
                 guard::PORT,
                 home.join("owner.token").display()
             );
+            // The pin check at open: a changed vault is shown at once, not at the first deposit.
+            match Config::load(&home) {
+                Ok(cfg) => {
+                    let rpc =
+                        Rpc::new(cfg.rpc_url.clone(), &cfg.transport()).unwrap_or_else(|e| die(e));
+                    let tripwire = Tripwire::default();
+                    let pinned = pins::compiled(mode);
+                    #[cfg(feature = "mock")]
+                    let pinned = pinned.or_else(|| pins::demo(&home));
+                    let checked = match &pinned {
+                        Some(p) => tripwire.check_against(p, &rpc).await,
+                        None => tripwire.check(mode, &rpc, "").await,
+                    };
+                    match checked {
+                        Ok(()) => println!("vault pins match"),
+                        Err(diffs) => {
+                            for line in pins::warnings(&diffs) {
+                                eprintln!("warning: {line}");
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    eprintln!("warning: no config.json (run init): the vault pins were not checked")
+                }
+            }
             guard::serve(Arc::new(token))
                 .await
                 .unwrap_or_else(|e| die(e));
