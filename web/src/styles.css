@@ -1,0 +1,198 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1b1d22;
+  --bg: #fbfbfc;
+  --muted: #5a6070;
+  --line: #d5d8df;
+  --accent: #2a4fd7;
+  --warn-bg: #fff4d6;
+  --warn-fg: #5c3d00;
+  --err: #a31919;
+  --ok: #0f6b3a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8eaf0;
+    --bg: #14161b;
+    --muted: #9aa1b2;
+    --line: #2d313b;
+    --accent: #8aa4ff;
+    --warn-bg: #3a2f10;
+    --warn-fg: #ffd98a;
+    --err: #ff8d8d;
+    --ok: #6fd9a0;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    16px/1.5 system-ui,
+    sans-serif;
+}
+
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.8rem;
+  margin: 0.25rem 0.25rem 0.25rem 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+button.brand {
+  border: 0;
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+input[type='text'],
+input[type='password'] {
+  display: block;
+  width: 100%;
+  font: inherit;
+  padding: 0.4rem;
+  margin: 0.25rem 0 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+}
+
+label {
+  display: block;
+  margin: 0.4rem 0;
+}
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+}
+
+.lead {
+  font-size: 1.15rem;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.notice,
+.banner,
+.warning {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+}
+
+.error {
+  color: var(--err);
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.price th {
+  text-align: left;
+  font-weight: 400;
+  padding-right: 1rem;
+}
+
+.who svg {
+  width: 100%;
+  height: auto;
+}
+
+.who .box rect {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 2;
+}
+
+.who .arrow path {
+  stroke: var(--muted);
+  stroke-width: 2;
+  fill: none;
+}
+
+.who text {
+  fill: var(--fg);
+  font-size: 13px;
+  text-anchor: middle;
+}
+
+.who .head text {
+  font-weight: 700;
+}
+
+ul.wallets,
+ul.notes {
+  list-style: none;
+  padding: 0;
+}
+
+ul.notes li {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem;
+  margin: 0.5rem 0;
+}
+
+/* The sandboxed wallet frame: invisible and click-through until a wallet popup is on screen. */
+.wallet-frame {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.wallet-frame.active {
+  pointer-events: auto;
+}

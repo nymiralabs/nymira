@@ -1,0 +1,41 @@
+{
+  "vaultAccount": "vault.test",
+  "tokenAccount": "usdc.test",
+  "operatorUrl": "http://127.0.0.1:18546",
+  "rpcUrls": ["http://127.0.0.1:18545"],
+  "senderAccount": "alice.test",
+  "otherPayoutAccount": "bob.test",
+  "pins": {
+    "codeHash": "7Vd9TqQ4rEYbcG3JmZ2xPLw8nKFh5sAiRtUoN6yXvB1c",
+    "vkHashes": {
+      "request": "0x38348b670fd21c8c622075f84f5c4a246f54081e09886b0a3c86c89edc01e1c8",
+      "withdrawal": "0xc14844d3af2b29303852e7e47e642830552e0c73df3ebbed8f0d27c316be9ffa"
+    },
+    "config": {
+      "operator_pk": {
+        "x": "0x0f1c0d3c1b0e9a6a2f7d6b61a3b3a8f0c1d2e3f405162738495a6b7c8d9e0f10",
+        "y": "0x1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+      },
+      "clearance_pk": {
+        "x": "0x2c1d0e9fa8b7c6d5e4f30211203f4e5d6c7b8a99887766554433221100ffeedd",
+        "y": "0x0b1a29384756657483920a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
+      },
+      "operator_account": "operator.test",
+      "token": "usdc.test",
+      "treasury": "treasury.test",
+      "owner": "owner.test",
+      "chain_id": "7718972759422244814",
+      "denominations": ["1000000", "5000000"],
+      "note_fee": "50000",
+      "close_fee": "30000",
+      "bound_classes": ["20000", "100000", "500000"],
+      "charge_step": "10000",
+      "min_charge": "10000",
+      "slot_rate": 300,
+      "exit_delay_secs": 604800,
+      "note_ttl": 2592000
+    },
+    "accessKeys": [],
+    "teamNoteIds": [0, 1, 2]
+  }
+}

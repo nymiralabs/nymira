@@ -1,0 +1,14 @@
+{
+  "_note": "Test-only executor. It is copied into mock builds only and never into testnet or mainnet builds. Its hash is checked by `npm run check:executors` like the real ones.",
+  "wallets": {
+    "fake-wallet": {
+      "name": "Fake sandbox wallet",
+      "file": "fake-wallet.js",
+      "sha256": "b980e629a106c707e98c516aacc043982b62212b971d95727475ec49c4a6fef3",
+      "bytes": 3008,
+      "source": "test-fixtures/executors/fake-wallet.js",
+      "manifestVersion": "0.0.0",
+      "retrieved": "2026-11-03"
+    }
+  }
+}

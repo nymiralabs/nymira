@@ -1,0 +1,44 @@
+{
+  "name": "nymira-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Nymira web app: fund a private prepaid credit note from the browser.",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "build:wasm": "./scripts/build-wasm.sh",
+    "build": "vite build --mode testnet",
+    "build:mock": "vite build --mode mock",
+    "build:mainnet": "vite build --mode mainnet",
+    "dev": "vite --mode mock",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:executors": "node scripts/check-executors.mjs",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test": "npm run typecheck && npm run format:check && npm run check:executors && npm run test:unit && npm run test:e2e",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "pin-vault": "node scripts/pin-vault.mjs"
+  },
+  "dependencies": {
+    "@hot-labs/near-connect": "0.11.4",
+    "fake-indexeddb": "6.2.5",
+    "hash-wasm": "4.12.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}
