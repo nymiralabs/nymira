@@ -60,6 +60,37 @@ pub struct Entry {
     pub payload_hash: String,
     pub payload: Option<String>,
     pub hash: String,
+    /// The operator's signature over `hash`, added when the laptop sends the entry and checked
+    /// by a replica that has the laptop's key pinned. Not kept in the log.
+    #[serde(default)]
+    pub sig: Option<String>,
+}
+
+fn entry_message(hash: &str) -> Vec<u8> {
+    let mut m = b"nymira/replog-entry/v1\0".to_vec();
+    m.extend_from_slice(hash.as_bytes());
+    m
+}
+
+/// `e` with the operator's signature over its hash.
+pub fn sign_entry(key: &SigningKey, e: &Entry) -> Entry {
+    let mut signed = e.clone();
+    signed.sig = Some(hex::encode(key.sign(&entry_message(&e.hash)).to_bytes()));
+    signed
+}
+
+/// Whether `e` carries a valid signature of the operator key `pk`.
+pub fn entry_signed_by(pk: &[u8; 32], e: &Entry) -> bool {
+    let (Ok(key), Some(sig)) = (VerifyingKey::from_bytes(pk), e.sig.as_deref()) else {
+        return false;
+    };
+    let Some(sig) = hex::decode(sig)
+        .ok()
+        .and_then(|b| Signature::from_slice(&b).ok())
+    else {
+        return false;
+    };
+    key.verify(&entry_message(&e.hash), &sig).is_ok()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
@@ -141,6 +172,7 @@ fn entry_from(r: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
         payload_hash: r.get(5)?,
         payload: r.get(6)?,
         hash: r.get(7)?,
+        sig: None,
     })
 }
 
@@ -206,6 +238,16 @@ pub struct Log {
 }
 
 impl Log {
+    /// The payload hash an entry with this payload carries (tests build entries by hand).
+    pub fn payload_hash_of(payload: Option<&str>) -> String {
+        payload_hash(payload)
+    }
+
+    /// The hash of an entry's fields (tests build entries by hand).
+    pub fn hash_of(e: &Entry) -> String {
+        entry_hash(e)
+    }
+
     pub fn new(store: Store) -> Self {
         Self { store }
     }
@@ -239,6 +281,7 @@ impl Log {
                     payload_hash: payload_hash(payload.as_deref()),
                     payload,
                     hash: String::new(),
+                    sig: None,
                 };
                 e.hash = entry_hash(&e);
                 Ok(insert(c, &e, acked, false).map(|()| e))
@@ -439,11 +482,24 @@ pub trait Link: Send + Sync {
 pub struct ReplicaNode {
     log: Log,
     key: SigningKey,
+    /// The operator's entry-signing key, pinned here: when set, an entry without a valid
+    /// signature is refused, so a peer the network admits cannot forge a fact.
+    laptop: Option<[u8; 32]>,
 }
 
 impl ReplicaNode {
     pub fn new(log: Log, key: SigningKey) -> Self {
-        Self { log, key }
+        Self {
+            log,
+            key,
+            laptop: None,
+        }
+    }
+
+    /// Pins the operator's entry-signing key.
+    pub fn with_laptop_key(mut self, pk: [u8; 32]) -> Self {
+        self.laptop = Some(pk);
+        self
     }
 
     pub fn public_key(&self) -> [u8; 32] {
@@ -461,6 +517,11 @@ impl ReplicaNode {
 
     /// Stores the entry, then signs the head. The SQLite settings sync before `accept` returns.
     pub async fn append(&self, entry: &Entry) -> Result<SignedHead, LogError> {
+        if let Some(pk) = &self.laptop {
+            if !entry_signed_by(pk, entry) {
+                return Err(LogError::Bad("the entry is not signed by the operator".into()));
+            }
+        }
         self.log.accept(entry).await?;
         Ok(self.head().await)
     }
