@@ -51,7 +51,7 @@ wasm-bindgen --target web --out-dir "$out/web-checks" \
 
 # The test operator (state key and signed responses) for the browser tests: never in a bundle.
 cargo build --locked --release -p nymira-web-wasm --features test-operator --target wasm32-unknown-unknown
-wasm-bindgen --target nodejs --out-dir "$out/web-checks-test" \
+wasm-bindgen --target web --out-dir "$out/web-checks-test" \
   "${WS_TARGET}"/wasm32-unknown-unknown/release/nymira_web_wasm.wasm
 
 echo "wasm built: web/src/wasm"
