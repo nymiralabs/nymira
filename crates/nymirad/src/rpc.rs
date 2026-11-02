@@ -90,6 +90,8 @@ pub enum RpcError {
 pub struct Rpc {
     transport: Transport,
     url: String,
+    /// A client fixed by the caller: the confirmed direct send's allow-listed client.
+    fixed: Option<reqwest::Client>,
 }
 
 /// An HTTP client for `transport`: no redirects, no proxy from the environment. Over SOCKS the
@@ -148,13 +150,31 @@ impl Rpc {
         Ok(Self {
             transport: transport.clone(),
             url: url.into(),
+            fixed: None,
         })
+    }
+
+    /// Reads through `http`, which the user agreed to send directly (see `direct`). Nothing else
+    /// builds a direct `Rpc` in a release build.
+    pub fn confirmed_direct(url: impl Into<String>, http: reqwest::Client) -> Self {
+        Self {
+            transport: Transport::Direct,
+            url: url.into(),
+            fixed: Some(http),
+        }
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let body = json!({ "jsonrpc": "2.0", "id": "nymirad", "method": method, "params": params });
         // One connection, one identity: a read never shares a circuit with another read.
-        let http = client(&self.transport)?;
+        let http = match &self.fixed {
+            Some(http) => http.clone(),
+            None => client(&self.transport)?,
+        };
         let reply = http
             .post(&self.url)
             .json(&body)

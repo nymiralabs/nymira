@@ -26,6 +26,8 @@ use zkapi_client::wallet::Wallet;
 use zkapi_types::wire::CurvePointWire;
 use zkapi_types::Felt252;
 
+pub mod close;
+
 use crate::attest::{Attestor, ModelIdentity, ReportRequest, Trust};
 use crate::e2ee::{self, ClientKeys};
 use crate::lease::{self, Attempt, Lease, LeaseClient, LeaseError, Pinned};
@@ -36,6 +38,7 @@ use crate::rpc::{client, client_with_identity, send_error, Rpc, RpcError, Transp
 use crate::secrets::{NoteEntry, NoteStatus, NoteStore};
 use crate::sizing;
 use crate::snapshot;
+use crate::submitter::SubmitterStore;
 use crate::walletvault::WalletVault;
 
 pub const DAY_SECS: u64 = 86_400;
@@ -137,6 +140,16 @@ pub struct Gateway {
     /// Notes whose lease is being settled: they stay busy until the wallet is sealed again.
     settling: Mutex<std::collections::HashSet<String>>,
     open_lock: Mutex<()>,
+    /// Close and exit transactions: the submitters' keys, the sender's database and settings.
+    submitters: SubmitterStore,
+    tx_store: nymira_operator::store::Store,
+    tx_config: nymira_operator::tx::TxConfig,
+    /// What left, with the exit deadlines.
+    exits: crate::exits::ExitBook,
+    /// Holds whose release found the lock busy (see `close::Hold`).
+    stuck_holds: std::sync::Mutex<Vec<String>>,
+    /// When `finalize_exit` was last tried for a note (Unix seconds).
+    finalize_tried: std::sync::Mutex<HashMap<String, u64>>,
 }
 
 fn felt_point(v: &Value) -> Option<CurvePointWire> {
@@ -202,7 +215,18 @@ impl Gateway {
         check_proving_key(&cfg.setup_dir, &cfg.proving_key_sha256)?;
         let vault = WalletVault::new(&cfg.home, passphrase, cfg.rounds);
         vault.seal_leftovers().map_err(|e| e.to_string())?;
+        let submitters =
+            SubmitterStore::open(&cfg.home.join("submitters.sealed"), passphrase, cfg.rounds)
+                .map_err(|e| e.to_string())?;
+        let tx_store = nymira_operator::store::Store::open(&cfg.home.join("tx.db"))
+            .map_err(|e| e.to_string())?;
         Ok(Self {
+            submitters,
+            tx_store,
+            tx_config: Default::default(),
+            exits: crate::exits::ExitBook::new(&cfg.home),
+            stuck_holds: Default::default(),
+            finalize_tried: Default::default(),
             records: Records::new(&cfg.home),
             transport,
             rpc,
@@ -218,6 +242,21 @@ impl Gateway {
             open_lock: Mutex::new(()),
             cfg,
         })
+    }
+
+    /// Waits and retries of the close and exit transactions (tests shorten them).
+    pub fn with_tx_config(mut self, cfg: nymira_operator::tx::TxConfig) -> Self {
+        self.tx_config = cfg;
+        self
+    }
+
+    /// The submitter accounts, for the CLI that adds and lists them.
+    pub fn submitters(&self) -> &SubmitterStore {
+        &self.submitters
+    }
+
+    pub fn vault_account(&self) -> &str {
+        &self.cfg.vault
     }
 
     pub fn records(&self) -> Vec<LeaseRecord> {
@@ -325,6 +364,13 @@ impl Gateway {
             }
             match self.unsealed_wallet(&entry, bound).await {
                 Ok(wallet) => {
+                    // An exit lock means a close or exit began: no new request on this note.
+                    if wallet.exit_lock().ok().flatten().is_some() {
+                        reasons.push(format!("note {id} is closing or exiting"));
+                        drop(wallet);
+                        let _ = self.vault.checkin(&entry.commitment);
+                        continue;
+                    }
                     let balance = wallet.state().map_or(0, |s| s.current_balance);
                     if balance < bound {
                         reasons.push(format!(
@@ -353,6 +399,22 @@ impl Gateway {
     /// answer) is resolved first: if the operator has settled it the wallet installs the next
     /// state, otherwise the note waits.
     async fn unsealed_wallet(&self, entry: &NoteEntry, bound: u128) -> Result<Wallet, Skip> {
+        let mut wallet = self.open_wallet(entry, bound)?;
+        if wallet.has_pending_request() {
+            match wallet.recover_pending().await {
+                Ok(Some(_)) if !wallet.has_pending_request() => {}
+                _ => {
+                    return Err(Skip::Reason(
+                        "an earlier lease is not settled yet; it is resolved when the operator finishes it".into(),
+                    ))
+                }
+            }
+        }
+        Ok(wallet)
+    }
+
+    /// The note's wallet, unsealed, with its state in place and nothing resolved.
+    fn open_wallet(&self, entry: &NoteEntry, bound: u128) -> Result<Wallet, Skip> {
         let fatal = |code: &str, m: String| Skip::Fatal(unavailable(code, m));
         let dir = self
             .vault
@@ -376,16 +438,6 @@ impl Gateway {
                     entry.expiry_ns.unwrap_or(0),
                 )
                 .map_err(|e| fatal("wallet_unreadable", e.to_string()))?;
-        }
-        if wallet.has_pending_request() {
-            match wallet.recover_pending().await {
-                Ok(Some(_)) if !wallet.has_pending_request() => {}
-                _ => {
-                    return Err(Skip::Reason(
-                        "an earlier lease is not settled yet; it is resolved when the operator finishes it".into(),
-                    ))
-                }
-            }
         }
         Ok(wallet)
     }
@@ -1003,6 +1055,10 @@ impl Gateway {
             }
         };
         add("notes.sealed".into(), self.cfg.home.join("notes.sealed"));
+        // What close and exit need after a restore: the submitter keys and the exit deadlines.
+        for name in ["submitters.sealed", crate::exits::FILE] {
+            add(name.into(), self.cfg.home.join(name));
+        }
         add(
             crate::records::FILE.into(),
             self.cfg.home.join(crate::records::FILE),
@@ -1027,6 +1083,12 @@ impl Gateway {
                 tokio::time::sleep(every).await;
                 gw.reap(false).await;
                 gw.settle().await;
+                for (id, result) in gw.finalize_due().await {
+                    match result {
+                        Ok(p) => eprintln!("note {id}: exit finalized ({})", p.tx_hash),
+                        Err(e) => eprintln!("warning: finalize_exit for note {id} waits: {e}"),
+                    }
+                }
             }
         });
     }

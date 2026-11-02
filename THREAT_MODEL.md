@@ -30,3 +30,11 @@ The operator signs a state only after a second machine has the record on disk, s
 ## If a key leaks
 
 New leases and clearances stop at once (`emergency`) and `/v1/status` shows why; users are told to exit and a new vault is deployed. A leaked state key lets an attacker sign states, a leaked clearance key lets an attacker forge clearances, and a leaked provider credential lets an attacker spend the prepaid credit. None of these gives access to user funds held by the vault, whose rules are in the contract.
+
+## What closing and exiting show on chain
+
+A close, an exit request and a payout name the note's ID in the vault call. `nymirad` sends them from a submitter account, a separate NEAR account whose access key can call only `request_exit`, `finalize_exit`, `mutual_close` and `claim_payout` on the vault, so the account that funded the note does not sign them. The submitter's own funding trail is visible on chain: whoever funds it can be seen to have paid for gas next to your note ID.
+
+One submitter shared by every note puts all of those notes next to one account. `nymirad` keeps one submitter per family (your personal notes, and each budget note on its own) so you can keep that link apart. A note belongs to the family `personal` until you assign another.
+
+Sends go over Tor, each on its own circuit. If Tor is down, `nymirad` sends nothing by itself. It asks you first, in fixed words: a direct send shows your IP address to the RPC endpoint together with the note's ID and its total spend. The clearance request and the operator's close intake never go direct, because they would show your address to the operator. A close can go to the operator's intake when the submitter has no NEAR; the operator then keeps its close fee.

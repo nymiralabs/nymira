@@ -29,7 +29,13 @@ commands:
   serve                             the local gateway on 127.0.0.1:8788
   status
   deposit --key-file FILE --amount BASE_UNITS [--payout ACCOUNT]
-  recover --key-file FILE           finds notes again after a crash";
+  recover --key-file FILE           finds notes again after a crash
+  close --note ID [--delay SECS] [--family NAME] [--via-operator]
+  exit --note ID [--family NAME]    files request_exit; finalize follows after the window
+  finalize --note ID [--family NAME]
+  claim-payout --note ID [--family NAME]
+  submitter add --family NAME --account ACCOUNT | list | assign --note ID --family NAME
+The last group talks to `nymirad serve` over the owner socket in <home>/run.";
 
 struct Terminal;
 
@@ -318,6 +324,14 @@ async fn main() {
                 Config::default()
             });
             let gateway = build_gateway(&cfg, &home, mode, &source, clock.clone()).await;
+            if let Some(gw) = &gateway {
+                let listener = nymirad::ownersock::bind(&home).unwrap_or_else(|e| die(e));
+                println!(
+                    "owner socket: {}",
+                    nymirad::ownersock::socket_path(&home).display()
+                );
+                tokio::spawn(nymirad::ownersock::serve(listener, gw.clone()));
+            }
             guard::serve(Arc::new(token), gateway)
                 .await
                 .unwrap_or_else(|e| die(e));
@@ -430,7 +444,74 @@ async fn main() {
                 Err(e) => die(e),
             }
         }
+        "close" | "exit" | "finalize" | "claim-payout" | "submitter" => {
+            owner_command(&home, &command, &mut args).await
+        }
         _ => die(USAGE),
+    }
+}
+
+fn note_id(args: &mut Vec<String>) -> u32 {
+    flag(args, "--note")
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| die(USAGE))
+}
+
+/// Parses an owner command and sends it to the daemon.
+async fn owner_command(home: &std::path::Path, command: &str, args: &mut Vec<String>) {
+    use nymirad::ownersock::{request, Command};
+    let family = flag(args, "--family");
+    let cmd = match command {
+        "close" => Command::Close {
+            note: note_id(args),
+            delay_secs: flag(args, "--delay").map(|d| {
+                d.parse()
+                    .unwrap_or_else(|_| die("--delay is a number of seconds"))
+            }),
+            family,
+            via_operator: switch(args, "--via-operator"),
+        },
+        "exit" => Command::Exit {
+            note: note_id(args),
+            family,
+        },
+        "finalize" => Command::Finalize {
+            note: note_id(args),
+            family,
+        },
+        "claim-payout" => Command::ClaimPayout {
+            note: note_id(args),
+            family,
+        },
+        _ => match (args.first().map(String::as_str), family) {
+            (Some("add"), Some(family)) => {
+                args.remove(0);
+                Command::SubmitterAdd {
+                    family,
+                    account: flag(args, "--account").unwrap_or_else(|| die(USAGE)),
+                }
+            }
+            (Some("assign"), Some(family)) => {
+                args.remove(0);
+                Command::SubmitterAssign {
+                    note: note_id(args),
+                    family,
+                }
+            }
+            (Some("list"), _) => Command::SubmitterList,
+            _ => die(USAGE),
+        },
+    };
+    let result = request(
+        home,
+        &cmd,
+        |line| println!("{line}"),
+        |question| Terminal.confirm_text(&format!("{question}\n> ")),
+    )
+    .await;
+    match result {
+        Ok(text) => println!("{text}"),
+        Err(e) => die(e),
     }
 }
 
