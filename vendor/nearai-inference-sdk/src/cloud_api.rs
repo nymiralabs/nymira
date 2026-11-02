@@ -194,10 +194,28 @@ impl AttestationClient {
         signing_algo: Option<SigningAlgo>,
         signing_address: Option<&str>,
     ) -> Result<FetchedModelAttestations, ApiError> {
+        self.fetch_model_attestations_with_nonce(
+            model,
+            signing_algo,
+            signing_address,
+            generate_nonce(),
+        )
+        .await
+    }
+
+    /// Nymira patch: [`Self::fetch_model_attestations`] with the nonce chosen by the caller, so a
+    /// recorded report can be replayed against a local server. A live caller uses the function
+    /// above, which draws a fresh nonce.
+    pub async fn fetch_model_attestations_with_nonce(
+        &self,
+        model: &str,
+        signing_algo: Option<SigningAlgo>,
+        signing_address: Option<&str>,
+        nonce: String,
+    ) -> Result<FetchedModelAttestations, ApiError> {
         if let Some(signing_address) = signing_address {
             validate_input_signing_address(signing_address, signing_algo, "signing_address")?;
         }
-        let nonce = generate_nonce();
         let mut url = self.endpoint("attestation/report")?;
         {
             let mut query = url.query_pairs_mut();
@@ -254,7 +272,16 @@ impl AttestationClient {
         &self,
         options: GatewayAttestationFetchOptions,
     ) -> Result<FetchedGatewayAttestation, ApiError> {
-        let nonce = generate_nonce();
+        self.fetch_gateway_attestation_with_nonce(options, generate_nonce())
+            .await
+    }
+
+    /// Nymira patch: [`Self::fetch_gateway_attestation`] with the nonce chosen by the caller.
+    pub async fn fetch_gateway_attestation_with_nonce(
+        &self,
+        options: GatewayAttestationFetchOptions,
+        nonce: String,
+    ) -> Result<FetchedGatewayAttestation, ApiError> {
         let mut url = self.endpoint("attestation/report")?;
         {
             let mut query = url.query_pairs_mut();

@@ -112,11 +112,15 @@ pub struct Policy {
 
 /// One accepted deployment: the Intel TDX measurements of the confidential VM and the hashes
 /// dstack derives from its event log. All values are lower-case hex without `0x`.
+///
+/// One machine image runs on many VMs, and each VM's compose file differs in small ways (an
+/// instance label), so the compose hash differs per VM while `mr_td`, `rtmr0-2` and the OS image
+/// hash do not. An entry therefore lists every compose hash seen for that image.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Deployment {
     /// `model` for a model-serving VM, `gateway` for the gateway's.
     pub role: String,
-    pub compose_hash: String,
+    pub compose_hashes: Vec<String>,
     pub os_image_hash: String,
     pub mr_td: String,
     pub rtmr0: String,
@@ -151,7 +155,7 @@ impl Policy {
             .map(|d| {
                 [
                     &d.role,
-                    &d.compose_hash,
+                    &d.compose_hashes.join("+"),
                     &d.os_image_hash,
                     &d.mr_td,
                     &d.rtmr0,
@@ -204,9 +208,16 @@ impl Policy {
             return Err(PolicyError::Empty);
         }
         for d in &policy.deployments {
+            let is_hex = |v: &str, bytes: usize| {
+                v.len() == bytes * 2
+                    && v.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            };
+            if d.compose_hashes.is_empty() || !d.compose_hashes.iter().all(|h| is_hex(h, 32)) {
+                return Err(PolicyError::BadDeployment("compose_hashes".into()));
+            }
             let sizes = [
                 ("role", &d.role, 0),
-                ("compose_hash", &d.compose_hash, 32),
                 ("os_image_hash", &d.os_image_hash, 32),
                 ("mr_td", &d.mr_td, 48),
                 ("rtmr0", &d.rtmr0, 48),
@@ -217,10 +228,7 @@ impl Policy {
                 let ok = if bytes == 0 {
                     matches!(value.as_str(), "model" | "gateway")
                 } else {
-                    value.len() == bytes * 2
-                        && value
-                            .bytes()
-                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    is_hex(value, bytes)
                 };
                 if !ok {
                     return Err(PolicyError::BadDeployment(name.into()));
@@ -469,7 +477,7 @@ mod tests {
     fn deployment() -> Deployment {
         Deployment {
             role: "model".into(),
-            compose_hash: "a".repeat(64),
+            compose_hashes: vec!["a".repeat(64)],
             os_image_hash: "b".repeat(64),
             mr_td: "c".repeat(96),
             rtmr0: "d".repeat(96),

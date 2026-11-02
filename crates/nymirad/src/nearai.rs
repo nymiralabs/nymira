@@ -16,10 +16,10 @@ use nearai_inference_sdk::{
     verify_gateway_attestation, verify_gateway_response, verify_model_attestation,
     verify_model_response, AttestationClient, AttestationPolicy, AttestationVerifiers,
     CompletionSignature, CompletionSignatureKind, DeploymentVerifier,
-    GatewayAttestationFetchOptions, GpuEvidenceRequirement, MeasuredDeployment,
-    ModelAttestationPolicy, ModelAttestationVerifiers, NrasGpuEvidenceVerifier, SigningAlgo,
-    SigningIdentity, TcbStatus, TdxQuoteVerificationResult, TdxQuoteVerifier, VerificationError,
-    DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
+    GatewayAttestationFetchOptions, GpuEvidenceRequirement, GpuEvidenceVerifier,
+    MeasuredDeployment, ModelAttestationPolicy, ModelAttestationVerifiers, NrasGpuEvidenceVerifier,
+    SigningAlgo, SigningIdentity, TcbStatus, TdxQuoteVerificationResult, TdxQuoteVerifier,
+    VerificationError, DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -68,10 +68,74 @@ pub enum Collateral {
     },
 }
 
+/// Measurements a verified quote and its event log carried; the values a policy lists.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Observed {
+    pub mr_td: String,
+    pub rtmr0: String,
+    pub rtmr1: String,
+    pub rtmr2: String,
+    pub compose_hash: Option<String>,
+    pub os_image_hash: Option<String>,
+}
+
+/// Where an observing verifier writes what it saw.
+pub type Sink = Arc<Mutex<Vec<Observed>>>;
+
 /// Intel TDX quote verification that also reads `mr_td` and `rtmr0-2` and holds them to the policy.
 pub struct IntelTdx {
     collateral: Collateral,
     accepted: Accepted,
+    /// Release tooling only: accept any measurement and write it here (how a policy is drafted
+    /// from a live report). `NearAiAttestor` never sets it.
+    observe: Option<Sink>,
+}
+
+impl IntelTdx {
+    /// A verifier for `role` of `policy`.
+    pub fn new(collateral: Collateral, policy: &Policy, role: &str) -> Self {
+        Self {
+            collateral,
+            accepted: Accepted::new(policy, role),
+            observe: None,
+        }
+    }
+
+    /// Verifies the quote fully but accepts any measurement, and records it in `sink`.
+    pub fn observing(collateral: Collateral, sink: Sink) -> Self {
+        Self {
+            collateral,
+            accepted: Accepted {
+                deployments: vec![],
+                matched: Arc::default(),
+            },
+            observe: Some(sink),
+        }
+    }
+
+    /// The deployment check that goes with this verifier: the same matched entries, or, when
+    /// observing, the same sink.
+    pub fn deployment_check(&self) -> impl DeploymentVerifier {
+        DeploymentCheck {
+            accepted: self.accepted.clone(),
+            observe: self.observe.clone(),
+        }
+    }
+
+    fn result(
+        &self,
+        verified: &dcap_qvl::verify::VerifiedReport,
+        td10: &dcap_qvl::quote::TDReport10,
+    ) -> Result<TdxQuoteVerificationResult, VerificationError> {
+        Ok(TdxQuoteVerificationResult {
+            tcb_status: tcb_status(&verified.status)?,
+            advisory_ids: verified.advisory_ids.clone(),
+            debug_enabled: (td10.td_attributes[0] & 0x01) != 0,
+            report_data: td10.report_data.to_vec(),
+            mr_config_id: td10.mr_config_id.to_vec(),
+            rt_mr3: td10.rt_mr3.to_vec(),
+        })
+    }
 }
 
 fn tcb_status(status: &str) -> Result<TcbStatus, VerificationError> {
@@ -149,6 +213,18 @@ impl TdxQuoteVerifier for IntelTdx {
             hex::encode(td10.rt_mr1),
             hex::encode(td10.rt_mr2),
         ];
+        if let Some(sink) = &self.observe {
+            sink.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(Observed {
+                    mr_td: measured[0].clone(),
+                    rtmr0: measured[1].clone(),
+                    rtmr1: measured[2].clone(),
+                    rtmr2: measured[3].clone(),
+                    ..Observed::default()
+                });
+            return self.result(&verified, td10);
+        }
         let matched: Vec<usize> = self
             .accepted
             .deployments
@@ -169,15 +245,7 @@ impl TdxQuoteVerifier for IntelTdx {
             .matched
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = matched;
-
-        Ok(TdxQuoteVerificationResult {
-            tcb_status: tcb_status(&verified.status)?,
-            advisory_ids: verified.advisory_ids,
-            debug_enabled: (td10.td_attributes[0] & 0x01) != 0,
-            report_data: td10.report_data.to_vec(),
-            mr_config_id: td10.mr_config_id.to_vec(),
-            rt_mr3: td10.rt_mr3.to_vec(),
-        })
+        self.result(&verified, td10)
     }
 }
 
@@ -185,6 +253,7 @@ impl TdxQuoteVerifier for IntelTdx {
 /// carried, so entries are never mixed.
 struct DeploymentCheck {
     accepted: Accepted,
+    observe: Option<Sink>,
 }
 
 #[async_trait]
@@ -195,6 +264,13 @@ impl DeploymentVerifier for DeploymentCheck {
             return Err(VerificationError::DeploymentProvenanceRejected);
         };
         let (compose, os) = (norm(compose), norm(os));
+        if let Some(sink) = &self.observe {
+            if let Some(last) = sink.lock().unwrap_or_else(|e| e.into_inner()).last_mut() {
+                last.compose_hash = Some(compose);
+                last.os_image_hash = Some(os);
+            }
+            return Ok(());
+        }
         let matched = self
             .accepted
             .matched
@@ -202,7 +278,7 @@ impl DeploymentVerifier for DeploymentCheck {
             .unwrap_or_else(|e| e.into_inner());
         let ok = matched.iter().any(|i| {
             let d = &self.accepted.deployments[*i];
-            d.compose_hash == compose && d.os_image_hash == os
+            d.compose_hashes.contains(&compose) && d.os_image_hash == os
         });
         if ok {
             Ok(())
@@ -222,10 +298,22 @@ struct WireSignature {
     signing_algo: SigningAlgo,
 }
 
+/// Recorded evidence replayed in place of live fetches (tests). The nonces are the ones the
+/// recording was fetched under, and the collaterals are checked at the time they were recorded.
+#[doc(hidden)]
+pub struct Replay {
+    pub model_collateral: Collateral,
+    pub gateway_collateral: Collateral,
+    pub gpu: Arc<dyn GpuEvidenceVerifier>,
+    pub nonce_model: String,
+    pub nonce_gateway: String,
+}
+
 pub struct NearAiAttestor {
     policy: Policy,
     pccs_url: String,
     nras_url: String,
+    replay: Option<Replay>,
 }
 
 impl NearAiAttestor {
@@ -234,6 +322,16 @@ impl NearAiAttestor {
             policy,
             pccs_url: DEFAULT_INTEL_PCCS_URL.into(),
             nras_url: DEFAULT_NVIDIA_NRAS_URL.into(),
+            replay: None,
+        }
+    }
+
+    /// An attestor that checks recorded evidence served by a local server (tests).
+    #[doc(hidden)]
+    pub fn replaying(policy: Policy, replay: Replay) -> Self {
+        Self {
+            replay: Some(replay),
+            ..Self::new(policy)
         }
     }
 
@@ -264,27 +362,42 @@ impl Attestor for NearAiAttestor {
             api = api.with_socks_proxy(url).map_err(|e| e.to_string())?;
         }
         let http = Self::proxied(ask.socks_url)?;
-        let collateral = Collateral::Live {
+        let live = Collateral::Live {
             client: http.clone(),
             pccs_url: self.pccs_url.clone(),
         };
-        let nras = match &http {
+        let nras_live = match &http {
             Some(c) => NrasGpuEvidenceVerifier::with_client(c.clone(), &self.nras_url),
             None => NrasGpuEvidenceVerifier::new(&self.nras_url),
         };
+        let (collateral, collateral_gateway, nras): (_, _, &dyn GpuEvidenceVerifier) =
+            match &self.replay {
+                Some(r) => (
+                    r.model_collateral.clone(),
+                    r.gateway_collateral.clone(),
+                    r.gpu.as_ref(),
+                ),
+                None => (live.clone(), live, &nras_live),
+            };
 
-        let fetched = api
-            .fetch_model_attestations(ask.model, Some(SigningAlgo::Ed25519), None)
-            .await
-            .map_err(|e| format!("{e} ({})", e.code()))?;
-        let model_accepted = Accepted::new(&self.policy, "model");
-        let tdx = IntelTdx {
-            collateral: collateral.clone(),
-            accepted: model_accepted.clone(),
-        };
-        let deployment = DeploymentCheck {
-            accepted: model_accepted,
-        };
+        let fetched = match &self.replay {
+            Some(r) => {
+                api.fetch_model_attestations_with_nonce(
+                    ask.model,
+                    Some(SigningAlgo::Ed25519),
+                    None,
+                    r.nonce_model.clone(),
+                )
+                .await
+            }
+            None => {
+                api.fetch_model_attestations(ask.model, Some(SigningAlgo::Ed25519), None)
+                    .await
+            }
+        }
+        .map_err(|e| format!("{e} ({})", e.code()))?;
+        let tdx = IntelTdx::new(collateral, &self.policy, "model");
+        let deployment = tdx.deployment_check();
         let policy = ModelAttestationPolicy {
             accepted_tcb_statuses: Some(vec![TcbStatus::UpToDate]),
             gpu_evidence: GpuEvidenceRequirement::Required,
@@ -304,7 +417,7 @@ impl Attestor for NearAiAttestor {
                 ModelAttestationVerifiers {
                     tdx_quote: Some(&tdx),
                     deployment: Some(&deployment),
-                    gpu_evidence: Some(&nras),
+                    gpu_evidence: Some(nras),
                 },
             )
             .await
@@ -318,21 +431,20 @@ impl Attestor for NearAiAttestor {
         }
         let verified = verified.ok_or(last)?;
 
-        let gateway = api
-            .fetch_gateway_attestation(GatewayAttestationFetchOptions {
-                signing_algo: Some(SigningAlgo::Ed25519),
-                include_spki_fingerprint: false,
-            })
-            .await
-            .map_err(|e| format!("{e} ({})", e.code()))?;
-        let gateway_accepted = Accepted::new(&self.policy, "gateway");
-        let tdx_gateway = IntelTdx {
-            collateral,
-            accepted: gateway_accepted.clone(),
+        let options = GatewayAttestationFetchOptions {
+            signing_algo: Some(SigningAlgo::Ed25519),
+            include_spki_fingerprint: false,
         };
-        let deployment_gateway = DeploymentCheck {
-            accepted: gateway_accepted,
-        };
+        let gateway = match &self.replay {
+            Some(r) => {
+                api.fetch_gateway_attestation_with_nonce(options, r.nonce_gateway.clone())
+                    .await
+            }
+            None => api.fetch_gateway_attestation(options).await,
+        }
+        .map_err(|e| format!("{e} ({})", e.code()))?;
+        let tdx_gateway = IntelTdx::new(collateral_gateway, &self.policy, "gateway");
+        let deployment_gateway = tdx_gateway.deployment_check();
         let verified_gateway = verify_gateway_attestation(
             &gateway.attestation,
             &gateway.client_binding,

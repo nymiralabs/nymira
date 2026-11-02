@@ -6,9 +6,8 @@
 use std::sync::{Arc, Mutex};
 
 use nearai_inference_sdk::{
-    create_pinned_tls_client_via, AttestationClient,
-    DefaultTdxQuoteVerifier, GpuEvidenceVerifier, NrasGpuEvidenceVerifier, TdxQuoteVerifier,
-    DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
+    create_pinned_tls_client_via, AttestationClient, DefaultTdxQuoteVerifier, GpuEvidenceVerifier,
+    NrasGpuEvidenceVerifier, TdxQuoteVerifier, DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -16,12 +15,17 @@ use tokio::net::TcpListener;
 /// A SOCKS5 listener without authentication that records `host:port` of each CONNECT.
 async fn proxy() -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("socks5h://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let url = format!(
+        "socks5h://127.0.0.1:{}",
+        listener.local_addr().unwrap().port()
+    );
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
     tokio::spawn(async move {
         loop {
-            let Ok((mut s, _)) = listener.accept().await else { return };
+            let Ok((mut s, _)) = listener.accept().await else {
+                return;
+            };
             let log = log.clone();
             tokio::spawn(async move {
                 let mut head = [0u8; 2];
@@ -43,7 +47,9 @@ async fn proxy() -> (String, Arc<Mutex<Vec<String>>>) {
                 };
                 let mut port = [0u8; 2];
                 s.read_exact(&mut port).await.ok()?;
-                log.lock().unwrap().push(format!("{host}:{}", u16::from_be_bytes(port)));
+                log.lock()
+                    .unwrap()
+                    .push(format!("{host}:{}", u16::from_be_bytes(port)));
                 // "Connection refused" ends the request.
                 s.write_all(&[5, 5, 0, 1, 0, 0, 0, 0, 0, 0]).await.ok()
             });
@@ -64,19 +70,23 @@ async fn the_cloud_api_client_and_its_gateway_binding_client_use_the_proxy() {
         .with_socks_proxy(&url)
         .unwrap();
     let _ = api.fetch_model_metadata("zai-org/GLM-5").await;
-    let _ = api
-        .fetch_gateway_attestation(Default::default())
-        .await;
+    let _ = api.fetch_gateway_attestation(Default::default()).await;
     let names = seen(&log);
     assert!(names.len() >= 2, "{names:?}");
-    assert!(names.iter().all(|n| n == "cloud-api.near.ai:443"), "{names:?}");
+    assert!(
+        names.iter().all(|n| n == "cloud-api.near.ai:443"),
+        "{names:?}"
+    );
 }
 
 #[tokio::test]
 async fn the_pinned_client_uses_the_proxy() {
     let (url, log) = proxy().await;
     let client = create_pinned_tls_client_via(&["ab".repeat(32)], Some(&url)).unwrap();
-    let _ = client.get("https://cloud-api.near.ai/v1/models").send().await;
+    let _ = client
+        .get("https://cloud-api.near.ai/v1/models")
+        .send()
+        .await;
     assert_eq!(seen(&log), ["cloud-api.near.ai:443"]);
 }
 
@@ -90,7 +100,9 @@ async fn nras_and_pccs_use_the_proxy() {
         .unwrap();
 
     let nras = NrasGpuEvidenceVerifier::with_client(client.clone(), DEFAULT_NVIDIA_NRAS_URL);
-    let _ = nras.verify(&format!(r#"{{"nonce":"{}"}}"#, "ab".repeat(32))).await;
+    let _ = nras
+        .verify(&format!(r#"{{"nonce":"{}"}}"#, "ab".repeat(32)))
+        .await;
     // A structurally valid SGX quote that asks the PCCS for a PCK certificate.
     let mut auth = vec![0; 64 + 64 + 384 + 64];
     auth.extend(0_u16.to_le_bytes());
@@ -111,7 +123,10 @@ async fn nras_and_pccs_use_the_proxy() {
         "nras.attestation.nvidia.com:443",
         "api.trustedservices.intel.com:443",
     ] {
-        assert!(names.iter().any(|n| n == expected), "{expected} not in {names:?}");
+        assert!(
+            names.iter().any(|n| n == expected),
+            "{expected} not in {names:?}"
+        );
     }
     assert!(names.iter().all(|n| !n.starts_with('<')), "{names:?}");
 }

@@ -85,3 +85,49 @@ async fn every_client_goes_out_by_name_through_the_proxy() {
         );
     }
 }
+
+/// The real attestor fetches evidence through the proxy, by name, on the identity it was given.
+/// (Intel's collateral and NVIDIA's service use clients built from the same proxy URL; the SDK's
+/// `tests/socks_proxy.rs` covers those two hosts.)
+#[tokio::test]
+async fn the_attestor_fetches_the_report_through_the_proxy_by_name() {
+    use nymirad::attest::{Attestor, Policy, ReportRequest};
+    let sink = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let sink_addr = sink.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let _ = sink.accept().await;
+        }
+    });
+    let proxy = FakeSocks::start(Behavior::Tunnel(sink_addr)).await;
+    let identity = nymirad::net::identity();
+    let socks_url = format!("socks5h://{identity}:x@{}", proxy.addr);
+    let policy = Policy {
+        version: 1,
+        attestation_root_pk: String::new(),
+        accepted_measurements: vec!["m".into()],
+        deployments: vec![],
+        accepted_tcb_statuses: vec!["UpToDate".into()],
+        signature: String::new(),
+    };
+    let http = reqwest::Client::new();
+    let result = nymirad::nearai::NearAiAttestor::new(policy)
+        .verify_model(&ReportRequest {
+            gateway_url: "https://cloud-api.near.ai",
+            model: "z-ai/glm-5.3-flash",
+            nonce: "unused",
+            http: &http,
+            socks_url: Some(&socks_url),
+        })
+        .await;
+    assert!(result.is_err(), "the sink serves no report");
+    let seen = proxy.seen();
+    assert!(!seen.is_empty());
+    for s in &seen {
+        assert_eq!(
+            (s.host.as_str(), s.port, s.atyp),
+            ("cloud-api.near.ai", 443, 3)
+        );
+        assert_eq!(s.user, identity);
+    }
+}

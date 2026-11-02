@@ -80,7 +80,7 @@ pub async fn verify_tdx_quote_with_client(
         Some(client) => get_collateral_with_client(client, pccs_url, &quote_bytes).await,
         None => dcap_qvl::collateral::get_collateral(pccs_url, &quote_bytes).await,
     }
-        .map_err(|_| VerificationError::QuoteCollateralUnavailable)?;
+    .map_err(|_| VerificationError::QuoteCollateralUnavailable)?;
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| VerificationError::QuoteVerificationFailed {
