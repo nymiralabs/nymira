@@ -211,7 +211,17 @@ pub struct Operator {
     started_secs: u64,
     /// When the replica was last compared with, in Unix seconds.
     pub(crate) synced_at: Mutex<u64>,
+    /// When retention last ran, in Unix seconds.
+    pub(crate) purged_at: Mutex<u64>,
+    /// Seconds of the recent `POST /v2/reconcile` calls, for the global rate limit.
+    pub(crate) reconciles: Mutex<std::collections::VecDeque<u64>>,
 }
+
+/// `POST /v2/reconcile` takes this many calls a minute across all callers: it needs no identity
+/// and a restored lease needs one call.
+pub const RECONCILES_PER_MINUTE: usize = 30;
+/// Retention runs this often.
+pub const PURGE_EVERY_SECS: u64 = 3_600;
 
 /// Without a heartbeat for this long `/v1/status` says `degraded`.
 pub const DEGRADED_AFTER_SECS: u64 = 2 * 3_600;
@@ -304,6 +314,8 @@ impl Operator {
             watchers: Mutex::new(Vec::new()),
             started_secs: now_ms / 1000,
             synced_at: Mutex::new(0),
+            purged_at: Mutex::new(0),
+            reconciles: Mutex::new(std::collections::VecDeque::new()),
         });
         operator
             .refresh_chain(true)

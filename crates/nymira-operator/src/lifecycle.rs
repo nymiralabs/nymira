@@ -353,6 +353,23 @@ impl Operator {
         })
     }
 
+    /// A replica that is diverged or unreachable raises an alarm; one that is back clears it.
+    async fn alarm_on_replica_health(&self) {
+        for (health, what) in [
+            ("diverged", "its log and ours disagree; nothing is signed until a person looks"),
+            ("unreachable", "no signature can leave while the second machine does not answer"),
+        ] {
+            let key = format!("replica_{health}");
+            if self.replica.health() == health {
+                self.alarms
+                    .raise(&key, &format!("Replica {health}"), what)
+                    .await;
+            } else {
+                self.alarms.resolve(&key);
+            }
+        }
+    }
+
     /// Runs every due lifecycle step once.
     pub async fn tick(&self) {
         let _step = self.lifecycle.lock().await;
@@ -369,6 +386,21 @@ impl Operator {
         };
         if sync_due || self.replica.in_recovery() {
             let _ = self.restore_from_replica().await;
+            self.alarm_on_replica_health().await;
+        }
+        let purge_due = {
+            let mut at = self.purged_at.lock().unwrap_or_else(|e| e.into_inner());
+            let due = now >= *at + crate::operator::PURGE_EVERY_SECS;
+            if due {
+                *at = now;
+            }
+            due
+        };
+        if purge_due {
+            let _ = self
+                .store
+                .run(move |c| store::purge_old(c, now, crate::replog::RETENTION_SECS))
+                .await;
         }
         let balance_due = self.clock.now_ms().saturating_sub(self.balance_read_ms())
             >= self.config().balance_refresh_secs * 1000;
@@ -641,6 +673,22 @@ impl Operator {
     /// request proof, and the lease is settled at its bound. No next state is signed; the client
     /// leaves the note by exit.
     pub async fn reconcile(&self, body: &[u8]) -> ApiResult<Value> {
+        {
+            let now = self.clock.now_secs();
+            let mut recent = self.reconciles.lock().unwrap_or_else(|e| e.into_inner());
+            while recent.front().is_some_and(|t| *t + 60 <= now) {
+                recent.pop_front();
+            }
+            if recent.len() >= crate::operator::RECONCILES_PER_MINUTE {
+                let wait = recent.front().map_or(1, |t| (*t + 60).saturating_sub(now).max(1));
+                return Err(ApiError::new(
+                    Code::OperatorCapacity,
+                    "too many reconcile calls this minute",
+                )
+                .retry_after(wait));
+            }
+            recent.push_back(now);
+        }
         let value = crate::json::parse_strict(body)
             .map_err(|e| ApiError::new(Code::MalformedRequest, e.to_string()))?;
         let (Some(lease_id), request) = (value["lease_id"].as_str(), &value["request"]) else {

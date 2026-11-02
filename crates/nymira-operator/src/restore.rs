@@ -180,6 +180,7 @@ pub fn settle_restored(
          WHERE lease_id = ?1 AND state = 'reserved'",
         params![lease_id, now],
     )?;
+    crate::store::scrub_timers(&tx, lease_id)?;
     tx.commit()?;
     Ok(true)
 }

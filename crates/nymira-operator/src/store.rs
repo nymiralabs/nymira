@@ -442,8 +442,43 @@ pub fn settle(
     if moved != 1 || finalized != 1 {
         return Ok(false);
     }
+    scrub_timers(&tx, lease_id)?;
     tx.commit()?;
     Ok(true)
+}
+
+/// At settlement the exact timers go: times fall back to the hour (the resolution the replica
+/// holds), and the key id, the last-activity, retirement and revocation times and the usage
+/// reading are deleted. Nothing after settlement needs them.
+pub fn scrub_timers(conn: &Connection, lease_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE leases SET
+           key_id = NULL, last_activity = NULL, retiring_at = NULL, revoked_at = NULL,
+           usage_json = NULL,
+           issued_at = issued_at / 3600 * 3600, expires_at = expires_at / 3600 * 3600,
+           settled_at = settled_at / 3600 * 3600, reserved_at = reserved_at / 3600 * 3600
+         WHERE lease_id = ?1",
+        [lease_id],
+    )?;
+    conn.execute(
+        "UPDATE signed_states SET signed_at = signed_at / 3600 * 3600 WHERE lease_id = ?1",
+        [lease_id],
+    )?;
+    Ok(())
+}
+
+/// Retention on this machine: request proofs and signed states older than `retention` seconds
+/// go, as the replica's do (a proof cannot be tied to its note, so the limit is age). Returns
+/// the number of rows changed.
+pub fn purge_old(conn: &Connection, now: u64, retention: u64) -> rusqlite::Result<usize> {
+    let cutoff = now.saturating_sub(retention);
+    let proofs = conn.execute(
+        "UPDATE leases SET request_json = '{}'
+         WHERE status = 'settled' AND request_json != '{}' AND reserved_at < ?1",
+        [cutoff],
+    )?;
+    let states = conn.execute("DELETE FROM signed_states WHERE signed_at < ?1", [cutoff])?;
+    Ok(proofs + states)
 }
 
 /// The lease of a client request id; none when no lease or more than one carries it (two
