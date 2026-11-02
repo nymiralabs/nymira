@@ -3,6 +3,8 @@
 # closer sockets must exist before the API starts. Passphrases are typed here and go to the
 # processes through a pipe on standard input; nothing reads them from the environment.
 # usage: sudo scripts/operator/start.sh /var/nymira/operator.json
+# A clean PATH: sudo keeps the caller's, which may hold another `install` or `sudo`.
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 set -euo pipefail
 CONFIG="${1:?config path}"
 BIN="${NYMIRA_BIN:-/usr/local/libexec/nymira/nymira-operatord}"

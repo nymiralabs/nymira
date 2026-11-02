@@ -2,6 +2,8 @@
 # Creates the dedicated macOS user the operator runs as, its directories and its launchd jobs.
 # Run once, as an administrator, on the operator laptop: sudo scripts/operator/create-service-user.sh
 # It changes the system (a user, directories under /var/nymira, launchd jobs), so read it first.
+# A clean PATH: sudo keeps the caller's, which may hold another `install` or `sudo`.
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 set -euo pipefail
 
 USER_NAME="${NYMIRA_SERVICE_USER:-nymira-op}"
@@ -12,7 +14,7 @@ if [ "$(id -u)" -ne 0 ]; then echo "run with sudo" >&2; exit 1; fi
 if [ ! -x "$BIN" ]; then
   echo "install the binary at $BIN first:" >&2
   echo "  cargo build --profile operator -p nymira-operatord   (add --features dev-setup for rehearsal keys)" >&2
-  echo "  sudo install -d -m 755 $(dirname "$BIN") && sudo install -m 755 target/operator/nymira-operatord $BIN" >&2
+  echo "  sudo /usr/bin/install -d -m 755 $(dirname "$BIN") && sudo /usr/bin/install -m 755 target/operator/nymira-operatord $BIN" >&2
   exit 1
 fi
 

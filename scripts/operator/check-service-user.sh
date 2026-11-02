@@ -1,6 +1,8 @@
 #!/bin/bash
 # Checks the service user and its files. Changes nothing. Run with sudo.
 # usage: sudo scripts/operator/check-service-user.sh [user]
+# A clean PATH: sudo keeps the caller's.
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 set -u
 USER_NAME="${1:-nymira-op}"
 HOME_DIR="/var/nymira"
