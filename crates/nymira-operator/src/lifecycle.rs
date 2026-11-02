@@ -294,13 +294,20 @@ impl Operator {
             .await
             .map_err(db)?;
         let row = row.ok_or_else(|| ApiError::new(Code::LeaseNotFound, "unknown request"))?;
+        let recovery = self.recovery_of(&row).await?;
+        Ok(serde_json::to_value(recovery).expect("recovery serialises"))
+    }
+
+    /// What a lease says about its nullifier: the signed next state once it exists, otherwise
+    /// the time by which the operator settles. Never a key.
+    pub(crate) async fn recovery_of(&self, row: &LeaseRow) -> ApiResult<RecoveryResponseV2> {
         let lease_id = row.lease_id.clone();
         let signed = self
             .store
             .run(move |c| store::signed_state(c, &lease_id))
             .await
             .map_err(db)?;
-        let recovery = match signed {
+        Ok(match signed {
             Some((_, _, json)) => RecoveryResponseV2 {
                 status: "finalized".into(),
                 nullifier_status: "finalized".into(),
@@ -320,8 +327,7 @@ impl Operator {
                         + UNREAD_SETTLES_AFTER_SECS,
                 ),
             },
-        };
-        Ok(serde_json::to_value(recovery).expect("recovery serialises"))
+        })
     }
 
     /// Runs every due lifecycle step once.

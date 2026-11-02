@@ -40,6 +40,43 @@ pub enum Code {
 }
 
 impl Code {
+    pub const ALL: [Code; 30] = [
+        Code::MalformedRequest,
+        Code::UnsupportedVersion,
+        Code::BoundClassInvalid,
+        Code::ProofExpired,
+        Code::UnsupportedRequest,
+        Code::MaxTokensInvalid,
+        Code::MaxTokensTooLarge,
+        Code::LeaseTokenInvalid,
+        Code::LeaseNotFound,
+        Code::RootStale,
+        Code::NullifierSeen,
+        Code::NullifierInExit,
+        Code::ClearanceSigned,
+        Code::LeaseOpen,
+        Code::LeaseUsed,
+        Code::NoteNotActive,
+        Code::LeaseEnded,
+        Code::BodyTooLarge,
+        Code::ProofInvalid,
+        Code::OperatorCapacity,
+        Code::NullifierRateLimited,
+        Code::LeaseConcurrency,
+        Code::ProviderRateLimit,
+        Code::PuzzleRequired,
+        Code::CloseRateLimited,
+        Code::ProviderError,
+        Code::RecoveryMode,
+        Code::ReplicaUnreachable,
+        Code::Emergency,
+        Code::ProviderTimeout,
+    ];
+
+    pub fn parse(word: &str) -> Option<Code> {
+        Self::ALL.into_iter().find(|c| c.as_str() == word)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Code::MalformedRequest => "malformed_request",

@@ -10,13 +10,16 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use nymira_near_codec::{chain_id, contract_address, Network};
 use nymira_operator::chain::{FakeVault, Key, VaultConfig};
 use nymira_operator::clock::ManualClock;
+use nymira_operator::closer::{CloseApi, CloseError, Closer, FakeCloseSender};
 use nymira_operator::operator::{felt_hex, Config, Operator, Parts};
 use nymira_operator::provider::FakeProvider;
 use nymira_operator::replica::FakeReplica;
 use nymira_operator::signer::{FakeHeartbeat, LocalSigner, Signer};
 use nymira_operator::store::Store;
 use nymira_operator::usage::Minter;
-use nymira_operator::verify::{GrothVerifier, ProofVerifier};
+use nymira_operator::verify::{
+    GrothVerifier, GrothWithdrawalVerifier, ProofVerifier, WithdrawalProofVerifier,
+};
 use nymira_testkit::proofs::{signing_key, Bundle, ProofGen};
 use serde_json::{json, Value};
 use zkapi_core::MerkleTree;
@@ -188,6 +191,28 @@ impl ProofVerifier for Gate {
     }
 }
 
+/// Accepts every withdrawal proof.
+pub struct AcceptWithdrawals;
+
+impl WithdrawalProofVerifier for AcceptWithdrawals {
+    fn verify(&self, _: &zkapi_types::WithdrawalPublicInputsV2C, _: &Groth16ProofWire) -> bool {
+        true
+    }
+}
+
+/// A closer that is not there.
+pub struct NoCloser;
+
+#[async_trait::async_trait]
+impl CloseApi for NoCloser {
+    async fn close(&self, _: &[u8]) -> Result<String, CloseError> {
+        Err(CloseError::new(
+            nymira_operator::error::Code::OperatorCapacity,
+            "no closer",
+        ))
+    }
+}
+
 pub enum Verifier {
     Real,
     Stub(Arc<dyn ProofVerifier>),
@@ -223,6 +248,7 @@ pub struct Rig {
     pub signer: Arc<Signer>,
     pub heartbeat: Arc<FakeHeartbeat>,
     pub sink: Arc<nymira_operator::alarm::FakeSink>,
+    pub sender: Arc<FakeCloseSender>,
     pub minter: Minter,
     pub url: String,
     pub http: reqwest::Client,
@@ -238,6 +264,8 @@ impl Drop for Rig {
 
 pub struct Setup {
     pub verifier: Verifier,
+    /// `None`: accept every withdrawal proof, or the real check when `verifier` is `Real`.
+    pub withdrawal: Option<Arc<dyn WithdrawalProofVerifier>>,
     pub credit: u128,
     pub tune: Box<dyn FnOnce(&mut Config)>,
     pub clock_secs: u64,
@@ -247,6 +275,7 @@ impl Default for Setup {
     fn default() -> Self {
         Self {
             verifier: Verifier::Stub(Arc::new(Counting::default())),
+            withdrawal: None,
             credit: 100_000_000,
             tune: Box::new(|_| {}),
             clock_secs: T0,
@@ -264,6 +293,7 @@ async fn launch(
     minter: &Minter,
     heartbeat: &Arc<FakeHeartbeat>,
     sink: &Arc<nymira_operator::alarm::FakeSink>,
+    sender: &Arc<FakeCloseSender>,
     setup: Setup,
 ) -> (
     Arc<Operator>,
@@ -273,10 +303,31 @@ async fn launch(
 ) {
     let mut cfg = config();
     (setup.tune)(&mut cfg);
+    let real = matches!(setup.verifier, Verifier::Real);
     let verifier: Arc<dyn ProofVerifier> = match setup.verifier {
         Verifier::Real => Arc::new(GrothVerifier::load(std::path::Path::new(SETUP_DIR)).unwrap()),
         Verifier::Stub(v) => v,
     };
+    let withdrawal: Arc<dyn WithdrawalProofVerifier> = match setup.withdrawal {
+        Some(v) => v,
+        None if real => {
+            Arc::new(GrothWithdrawalVerifier::load(std::path::Path::new(SETUP_DIR)).unwrap())
+        }
+        None => Arc::new(AcceptWithdrawals),
+    };
+    let alarms = Arc::new(nymira_operator::alarm::Alarms::new(
+        vec![sink.clone()],
+        clock.clone(),
+    ));
+    let closer = Arc::new(Closer::new(
+        vault.clone(),
+        withdrawal.clone(),
+        sender.clone(),
+        clock.clone(),
+        alarms.clone(),
+        chain_id(network()),
+        contract(),
+    ));
     let store = Store::open(&dir.join("operator.db")).unwrap();
     // The signer has its own handle on the database, as a separate process would.
     let signer = Arc::new(
@@ -300,14 +351,13 @@ async fn launch(
         provider: provider.clone(),
         replica: replica.clone(),
         verifier,
+        withdrawal_verifier: withdrawal,
+        closer,
         store,
         state_signer: CompactSigner::from_seed(&Felt252::from_u64(1)),
         signer: Arc::new(LocalSigner(signer.clone())),
         minter: minter.clone(),
-        alarms: Arc::new(nymira_operator::alarm::Alarms::new(
-            vec![sink.clone()],
-            clock.clone(),
-        )),
+        alarms,
     })
     .await
     .expect("operator starts");
@@ -336,6 +386,7 @@ impl Rig {
         let minter = Minter::generate();
         let heartbeat = Arc::new(FakeHeartbeat::default());
         let sink = Arc::new(nymira_operator::alarm::FakeSink::default());
+        let sender = Arc::new(FakeCloseSender::with_clock(clock.clone()));
         let (op, signer, url, server) = launch(
             dir.path(),
             &clock,
@@ -345,6 +396,7 @@ impl Rig {
             &minter,
             &heartbeat,
             &sink,
+            &sender,
             setup,
         )
         .await;
@@ -357,6 +409,7 @@ impl Rig {
             signer,
             heartbeat,
             sink,
+            sender,
             minter,
             url,
             http: reqwest::Client::new(),
@@ -377,6 +430,7 @@ impl Rig {
             &self.minter,
             &self.heartbeat,
             &self.sink,
+            &self.sender,
             setup,
         )
         .await;
@@ -445,4 +499,155 @@ pub fn json_error(status: u16, v: &Value, expected_status: u16, expected_code: &
     assert_eq!(code(v), expected_code, "{v}");
     assert!(v["error"]["message"].is_string());
     let _ = json!(null);
+}
+
+// ---------------------------------------------------------------- withdrawal proofs
+
+use zkapi_types::wire::{ClearanceOwnershipProofV2C, ClearanceRequestV2C};
+use zkapi_types::{WithdrawalPublicInputsV2C, PROTOCOL_VERSION};
+
+/// The statement of a kind-2 or kind-1 withdrawal for nullifier `1000 + n`, naming this
+/// deployment and its two keys. Only a verifier stub accepts a proof for it.
+pub fn withdrawal_statement(n: u64, kind: u8, valid_until: u64) -> WithdrawalPublicInputsV2C {
+    let (state, clearance) = (signing_key(1), signing_key(2));
+    WithdrawalPublicInputsV2C {
+        protocol_version: PROTOCOL_VERSION,
+        chain_id: chain_id(network()),
+        contract_address: contract(),
+        note_leaf: Felt252::from_u64(5),
+        state_signing_key_x: state.x,
+        state_signing_key_y: state.y,
+        clearance_signing_key_x: clearance.x,
+        clearance_signing_key_y: clearance.y,
+        note_id: 0,
+        deposit_amount: 2_000_000,
+        expiry_ts: EXPIRY,
+        final_balance: 1_990_000,
+        destination: if kind == 2 { [0; 20] } else { [7; 20] },
+        withdrawal_nullifier: Felt252::from_u64(1_000 + n),
+        kind,
+        next_nullifier: Felt252::ZERO,
+        conceded: 0,
+        valid_until,
+    }
+}
+
+pub fn dummy_proof() -> Groth16ProofWire {
+    Groth16ProofWire {
+        backend: ProofBackendWire::Groth16Bn254,
+        proof: base64_of(&[0u8; 256]),
+    }
+}
+
+pub fn base64_of(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// The JSON body of `POST /v2/withdraw/clearance`.
+pub fn clearance_body(public: &WithdrawalPublicInputsV2C, proof: Groth16ProofWire) -> Vec<u8> {
+    serde_json::to_vec(&ClearanceRequestV2C {
+        withdrawal_nullifier: public.withdrawal_nullifier,
+        ownership_proof: ClearanceOwnershipProofV2C {
+            public_inputs: public.clone(),
+            proof,
+        },
+    })
+    .unwrap()
+}
+
+/// The statement of a real withdrawal proof, read back from its wire words.
+pub fn statement_of(bundle: &Bundle) -> WithdrawalPublicInputsV2C {
+    let w = |i: usize| Felt252(bundle.inputs_wire[i]);
+    let fields = &bundle.inputs_wire[8];
+    WithdrawalPublicInputsV2C {
+        protocol_version: w(0).to_u64().unwrap() as u16,
+        chain_id: w(1).to_u64().unwrap(),
+        contract_address: w(2),
+        note_leaf: w(3),
+        state_signing_key_x: w(4),
+        state_signing_key_y: w(5),
+        clearance_signing_key_x: w(6),
+        clearance_signing_key_y: w(7),
+        note_id: u32::from_be_bytes(fields[4..8].try_into().unwrap()),
+        deposit_amount: u128::from_be_bytes(fields[8..24].try_into().unwrap()),
+        expiry_ts: u64::from_be_bytes(fields[24..32].try_into().unwrap()),
+        final_balance: w(9).to_u128().unwrap(),
+        destination: bundle.inputs_wire[10][12..].try_into().unwrap(),
+        withdrawal_nullifier: w(11),
+        kind: w(12).to_u64().unwrap() as u8,
+        next_nullifier: w(13),
+        conceded: w(14).to_u128().unwrap(),
+        valid_until: w(15).to_u64().unwrap(),
+    }
+}
+
+pub fn wire_proof(bundle: &Bundle) -> Groth16ProofWire {
+    Groth16ProofWire {
+        backend: ProofBackendWire::Groth16Bn254,
+        proof: bundle.proof_base64(),
+    }
+}
+
+/// The JSON body of `POST /v1/close` from statement words and a proof.
+pub fn close_body(words: &[[u8; 32]], proof: &[u8]) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "proof": base64_of(proof),
+        "inputs": words.iter().map(|w| base64_of(w)).collect::<Vec<_>>(),
+    }))
+    .unwrap()
+}
+
+/// The body of a close for a hand-made statement; only a verifier stub accepts it.
+pub fn stub_close_body(public: &WithdrawalPublicInputsV2C) -> Vec<u8> {
+    let words: Vec<[u8; 32]> = public
+        .to_field_elements()
+        .iter()
+        .map(|f| *f.as_bytes())
+        .collect();
+    close_body(&words, &[0u8; 256])
+}
+
+impl Rig {
+    pub async fn post_json(&self, path: &str, body: Vec<u8>) -> (u16, Value) {
+        let response = self
+            .http
+            .post(format!("{}{path}", self.url))
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status().as_u16();
+        (status, response.json().await.unwrap_or(Value::Null))
+    }
+
+    pub async fn get_json(&self, path: &str) -> (u16, Value) {
+        let response = self
+            .http
+            .get(format!("{}{path}", self.url))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status().as_u16();
+        (status, response.json().await.unwrap_or(Value::Null))
+    }
+
+    pub async fn clearance(&self, public: &WithdrawalPublicInputsV2C) -> (u16, Value) {
+        self.post_json(
+            "/v2/withdraw/clearance",
+            clearance_body(public, dummy_proof()),
+        )
+        .await
+    }
+
+    /// An ownership statement for nullifier `1000 + n`, valid for 3,000 seconds from now.
+    pub fn ownership(&self, n: u64) -> WithdrawalPublicInputsV2C {
+        withdrawal_statement(n, 2, self.clock_now() + 3_000)
+    }
+}
+
+/// The spelling of nullifier `1000 + n`, the one `variant(n, ..)` and `withdrawal_statement(n, ..)` use.
+pub fn nullifier_hex(n: u64) -> String {
+    felt_hex(&Felt252::from_u64(1_000 + n))
 }

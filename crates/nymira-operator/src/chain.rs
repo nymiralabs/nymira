@@ -65,6 +65,12 @@ pub struct VaultConfig {
     pub slot_rate: u32,
 }
 
+/// A note as the vault records it: its status word (`Active`, `PendingExit` or `Closed`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoteInfo {
+    pub status: String,
+}
+
 /// A pending exit: the nullifier it spent and the successor it published.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct ExitEntry {
@@ -83,6 +89,10 @@ pub trait VaultView: Send + Sync {
     async fn exits(&self) -> Result<Vec<ExitEntry>, ChainError>;
     /// How many of the given notes are `Active`.
     async fn open_among(&self, note_ids: &[u32]) -> Result<u32, ChainError>;
+    /// The note's record, `None` for an id the vault never issued.
+    async fn note(&self, note_id: u32) -> Result<Option<NoteInfo>, ChainError>;
+    /// Whether the vault has spent the nullifier (`0x` and 64 hex digits).
+    async fn nullifier_used(&self, nullifier: &str) -> Result<bool, ChainError>;
 }
 
 pub struct RpcVault {
@@ -195,6 +205,22 @@ impl VaultView for RpcVault {
         }
         Ok(open)
     }
+
+    async fn note(&self, note_id: u32) -> Result<Option<NoteInfo>, ChainError> {
+        let records: Vec<Value> = self
+            .view("note_records", json!({ "from": note_id, "limit": 1 }))
+            .await?;
+        Ok(records
+            .into_iter()
+            .find(|r| r["note_id"] == note_id)
+            .and_then(|r| r["status"].as_str().map(String::from))
+            .map(|status| NoteInfo { status }))
+    }
+
+    async fn nullifier_used(&self, nullifier: &str) -> Result<bool, ChainError> {
+        self.view("is_nullifier_used", json!({ "nullifier": nullifier }))
+            .await
+    }
 }
 
 #[derive(Clone)]
@@ -205,6 +231,10 @@ pub struct FakeVaultState {
     pub open_notes: u32,
     pub open_team_notes: u32,
     pub exits: Vec<ExitEntry>,
+    /// Note id -> status word. A note not listed does not exist.
+    pub notes: std::collections::HashMap<u32, String>,
+    /// Spent nullifiers, lowercase.
+    pub used: std::collections::HashSet<String>,
     pub failing: bool,
 }
 
@@ -220,6 +250,8 @@ impl FakeVault {
             open_notes: 0,
             open_team_notes: 0,
             exits: Vec::new(),
+            notes: Default::default(),
+            used: Default::default(),
             failing: false,
         }))
     }
@@ -261,5 +293,17 @@ impl VaultView for FakeVault {
 
     async fn open_among(&self, _note_ids: &[u32]) -> Result<u32, ChainError> {
         self.read(|s| s.open_team_notes)
+    }
+
+    async fn note(&self, note_id: u32) -> Result<Option<NoteInfo>, ChainError> {
+        self.read(|s| {
+            s.notes.get(&note_id).map(|status| NoteInfo {
+                status: status.clone(),
+            })
+        })
+    }
+
+    async fn nullifier_used(&self, nullifier: &str) -> Result<bool, ChainError> {
+        self.read(|s| s.used.contains(&nullifier.to_ascii_lowercase()))
     }
 }

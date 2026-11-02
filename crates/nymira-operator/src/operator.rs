@@ -13,9 +13,12 @@ use zkapi_proof::compact::CompactSigner;
 use zkapi_types::wire::{ApiRequestV2, OpenRouterLeaseAuthorization};
 use zkapi_types::{canonical_payload_hash, Felt252, PROTOCOL_VERSION};
 
+mod clearance;
+
 use crate::budget::{BudgetConfig, Ledger, Refusal};
 use crate::chain::{VaultConfig, VaultView};
 use crate::clock::Clock;
+use crate::closer::CloseApi;
 use crate::error::{ApiError, ApiResult, Code};
 use crate::json::{only_keys, parse_strict};
 use crate::provider::ProviderAdapter;
@@ -26,7 +29,7 @@ use crate::status::{StatusSigner, SLOT_SECS};
 use crate::store::{self, Cas, NewLease, Store};
 use crate::token;
 use crate::usage::Minter;
-use crate::verify::{point_checks, ProofVerifier};
+use crate::verify::{point_checks, ProofVerifier, WithdrawalProofVerifier};
 
 /// A request proof is valid for 300 seconds, with 30 seconds of clock skew either way.
 pub const PROOF_LIFE_SECS: u64 = 300;
@@ -40,6 +43,8 @@ pub const SETTLE_AFTER_SECS: u64 = LEASE_MAX_SECS + 10;
 pub const LEASE_BODY_LIMIT: usize = 64 * 1024;
 pub const MAX_CLIENT_REQUEST_ID: usize = 36;
 pub const MAX_PAYLOAD: usize = 2 * 1024;
+/// An ownership proof must end within this many seconds.
+pub const OWNERSHIP_LIFE_SECS: u64 = 3_300;
 
 /// Where the operator runs. Only the sandbox may start without a replica.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +170,8 @@ pub struct Operator {
     pub(crate) provider: Arc<dyn ProviderAdapter>,
     replica: Arc<dyn Replica>,
     verifier: Arc<dyn ProofVerifier>,
+    withdrawal_verifier: Arc<dyn WithdrawalProofVerifier>,
+    closer: Arc<dyn CloseApi>,
     pub(crate) store: Store,
     pub(crate) ledger: Ledger,
     status: StatusSigner,
@@ -174,7 +181,7 @@ pub struct Operator {
     /// Held across the compare-and-set, the replica acknowledgement and the key mint.
     admission: tokio::sync::Mutex<()>,
     attempts: Mutex<LruCache<String, Attempt>>,
-    verify_slots: Arc<Semaphore>,
+    pub(super) verify_slots: Arc<Semaphore>,
     load: Mutex<Load>,
     /// Issued 201 bodies by nullifier, so a duplicate POST returns the same lease. Memory only:
     /// the token is stored hashed and cannot be rebuilt.
@@ -206,6 +213,9 @@ pub struct Parts {
     pub provider: Arc<dyn ProviderAdapter>,
     pub replica: Arc<dyn Replica>,
     pub verifier: Arc<dyn ProofVerifier>,
+    pub withdrawal_verifier: Arc<dyn WithdrawalProofVerifier>,
+    /// Takes `POST /v1/close`: the closer process in production.
+    pub closer: Arc<dyn CloseApi>,
     pub store: Store,
     pub state_signer: CompactSigner,
     pub signer: Arc<dyn SignerApi>,
@@ -229,6 +239,8 @@ impl Operator {
             provider,
             replica,
             verifier,
+            withdrawal_verifier,
+            closer,
             store,
             state_signer,
             signer,
@@ -257,6 +269,8 @@ impl Operator {
             provider,
             replica,
             verifier,
+            withdrawal_verifier,
+            closer,
             store,
             state_pk,
             cache: tokio::sync::Mutex::new(Cache::default()),
@@ -548,7 +562,7 @@ impl Operator {
         }
     }
 
-    fn note_load(&self, held: u32) {
+    pub(super) fn note_load(&self, held: u32) {
         let slot = self.clock.now_secs() / SLOT_SECS;
         let mut load = self.load.lock().unwrap_or_else(|e| e.into_inner());
         Self::rotate(&mut load, slot);
@@ -628,7 +642,7 @@ impl Operator {
         })
     }
 
-    fn count_attempt(&self, nullifier: &str) -> ApiResult<()> {
+    pub(super) fn count_attempt(&self, nullifier: &str) -> ApiResult<()> {
         let now = self.clock.now_secs();
         let mut attempts = self.attempts.lock().unwrap_or_else(|e| e.into_inner());
         let window = self.cfg.attempts_window_secs;
@@ -912,6 +926,12 @@ impl Operator {
                 "nullifier is in a pending or finished exit",
             ));
         }
+        if row.state == store::state::CLEARANCE_RESERVED {
+            return Err(ApiError::new(
+                Code::ClearanceSigned,
+                "a clearance exists for this nullifier",
+            ));
+        }
         if row.state == store::state::RESERVED
             && row.client_request_id.as_deref() == Some(request.client_request_id.as_str())
         {
@@ -975,7 +995,7 @@ fn refusal_error(refusal: Refusal, proof_ends: u64, now: u64) -> ApiError {
     }
 }
 
-fn db_error(_: rusqlite::Error) -> ApiError {
+pub(crate) fn db_error(_: rusqlite::Error) -> ApiError {
     ApiError::new(Code::ReplicaUnreachable, "the operator's store failed").retry_after(5)
 }
 

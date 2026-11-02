@@ -645,6 +645,8 @@ async fn the_operator_refuses_to_start_against_a_testnet_or_mainnet_vault() {
             )),
             replica: Arc::new(nymira_operator::replica::NoReplica),
             verifier: Arc::new(Counting::default()),
+            withdrawal_verifier: Arc::new(AcceptWithdrawals),
+            closer: Arc::new(NoCloser),
             store: nymira_operator::store::Store::open(&dir.path().join("db")).unwrap(),
             state_signer: CompactSigner::from_seed(&Felt252::from_u64(1)),
             signer: Arc::new(NoSigner),
@@ -666,6 +668,13 @@ struct NoSigner;
 
 #[async_trait::async_trait]
 impl SignerApi for NoSigner {
+    async fn sign_clearance(
+        &self,
+        _: Felt252,
+    ) -> Result<zkapi_types::SchnorrSignature, nymira_operator::signer::SignerError> {
+        Err(nymira_operator::signer::SignerError::Refused("none".into()))
+    }
+
     async fn sign_next(
         &self,
         _: SignRequest,
