@@ -351,7 +351,7 @@ fn verified(sk: &SigningKey, gateway: bool) -> (ModelIdentity, SigningIdentity) 
             evidence: evidence.clone(),
             gpu_evidence: GpuEvidenceStatus::Verified,
         }),
-        verified_gateway: gateway.then(|| VerifiedGatewayAttestation {
+        verified_gateway: gateway.then_some(VerifiedGatewayAttestation {
             evidence,
             tls_binding: GatewayTlsBinding::None,
         }),

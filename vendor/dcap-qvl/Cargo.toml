@@ -84,14 +84,6 @@ crate-type = [
 ]
 path = "src/lib.rs"
 
-[[test]]
-name = "quote_parsing"
-path = "tests/quote_parsing.rs"
-
-[[test]]
-name = "verify_quote"
-path = "tests/verify_quote.rs"
-
 [dependencies.anyhow]
 version = "1.0.100"
 optional = true
