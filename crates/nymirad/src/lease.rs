@@ -57,6 +57,12 @@ pub enum LeaseError {
     Operator(#[from] OperatorError),
     #[error("could not reach the operator: {0}")]
     Transport(String),
+    /// Tor is not running or the proxy went away; nothing reached the operator.
+    #[error("Tor is down: {0}")]
+    TorDown(String),
+    /// Tor works and the operator, or the exit's path to it, refuses.
+    #[error("the other side refuses Tor: {0}")]
+    TorRefused(String),
     #[error("the operator's answer did not parse: {0}")]
     Shape(String),
     #[error(transparent)]
@@ -71,7 +77,11 @@ pub struct LeaseClient {
 }
 
 fn transport(e: reqwest::Error) -> LeaseError {
-    LeaseError::Transport(e.without_url().to_string())
+    match crate::net::classify(e) {
+        crate::net::Failure::TorDown(m) => LeaseError::TorDown(m),
+        crate::net::Failure::TorRefused(m) => LeaseError::TorRefused(m),
+        crate::net::Failure::Other(m) => LeaseError::Transport(m),
+    }
 }
 
 impl LeaseClient {
@@ -106,6 +116,11 @@ impl LeaseClient {
             return Ok(body);
         }
         let e = &body["error"];
+        // A 403 or 451 with no operator error body comes from something in front of it (a CDN
+        // or a funnel turning Tor exits away), not from the operator.
+        if crate::net::refuses_tor(status) && e["code"].as_str().unwrap_or("").is_empty() {
+            return Err(LeaseError::TorRefused(format!("status {status}")));
+        }
         Err(OperatorError {
             status,
             code: e["code"].as_str().unwrap_or("").to_string(),

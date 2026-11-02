@@ -18,6 +18,7 @@ use nymirad::quotes::{Board, OneClick, QuoteSource, BASE_URL};
 use nymirad::rpc::{Rpc, Transport};
 use nymirad::secrets::{NoteStore, PassphraseSource, ROUNDS};
 use nymirad::token::OwnerToken;
+use nymirad::tor::Tor;
 use nymirad::{backup, guard, hardening, status};
 
 const USAGE: &str =
@@ -80,6 +81,36 @@ fn funding_key(path: &str) -> SigningKey {
     SigningKey::from_bytes(&seed)
 }
 
+/// Where this process's traffic goes: a SOCKS proxy the user runs, the Tor `nymirad` starts, or,
+/// in demo builds only, nothing. Waits `wait` for a managed Tor to finish its bootstrap.
+async fn connect(cfg: &Config, home: &std::path::Path, wait: std::time::Duration) -> Transport {
+    if let Some(addr) = &cfg.socks {
+        // Only a proxy on this machine: anything else would carry the destination names and
+        // the identities to another host.
+        match addr.parse::<std::net::SocketAddr>() {
+            Ok(a) if a.ip().is_loopback() => {}
+            _ => die(format!(
+                "socks must be a loopback IP and port, like 127.0.0.1:9050, not {addr}"
+            )),
+        }
+        return Transport::Socks(addr.clone());
+    }
+    if cfg.direct_allowed() {
+        return Transport::Direct;
+    }
+    let tor_cfg = cfg.tor_config(home).unwrap_or_else(|e| die(e));
+    let tor = Tor::start(&tor_cfg).await.unwrap_or_else(|e| die(e));
+    eprintln!("{}", tor.status_line());
+    match tor.wait_ready(wait).await {
+        Ok(()) => eprintln!("{}", tor.status_line()),
+        // The gateway stays closed (no request goes out) while the state is not Ready.
+        Err(e) => eprintln!("warning: {e}"),
+    }
+    Transport::Tor(Arc::new(tor))
+}
+
+const TOR_WAIT: std::time::Duration = std::time::Duration::from_secs(180);
+
 /// The chat gateway, or `None` (with the reason on stderr) when something it needs is missing.
 /// The vault pins are checked here as well as before every lease.
 async fn build_gateway(
@@ -92,7 +123,8 @@ async fn build_gateway(
     if cfg.rpc_url.is_empty() {
         return None;
     }
-    let rpc = Rpc::new(cfg.rpc_url.clone(), &cfg.transport()).unwrap_or_else(|e| die(e));
+    let transport = connect(cfg, home, TOR_WAIT).await;
+    let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
     let pinned = pins::compiled(mode);
     #[cfg(feature = "mock")]
     let pinned = pinned.or_else(|| pins::demo(home));
@@ -120,7 +152,6 @@ async fn build_gateway(
         Mode::Testnet => nymira_near_codec::Network::Testnet,
         Mode::Mainnet => nymira_near_codec::Network::Mainnet,
     };
-    let http = nymirad::rpc::client(&cfg.transport()).unwrap_or_else(|e| die(e));
     let attestor = attestor(home);
     let gateway = Gateway::new(
         GatewayConfig {
@@ -144,7 +175,7 @@ async fn build_gateway(
                     .map(|r| (r, cfg.backup_places.clone()))
             }),
         },
-        http,
+        transport,
         rpc,
         pinned,
         notes,
@@ -275,7 +306,7 @@ async fn main() {
             let passphrase = source.read().unwrap_or_else(|e| die(e));
             let notes = NoteStore::open(&home.join("notes.sealed"), &passphrase, ROUNDS)
                 .unwrap_or_else(|e| die(e));
-            let transport = cfg.transport();
+            let transport = connect(&cfg, &home, TOR_WAIT).await;
             let tripwire = Arc::new(Tripwire::default());
             let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
             let pinned = pins::compiled(mode);
@@ -287,16 +318,17 @@ async fn main() {
                     None => tripwire.check(mode, &rpc, "").await,
                 };
                 let operator = status::operator_status(&cfg.operator_url, &transport).await;
-                let quote_source: Option<Arc<dyn QuoteSource>> = match &cfg.socks {
-                    Some(addr) => OneClick::new(BASE_URL, addr)
+                let quote_source: Option<Arc<dyn QuoteSource>> = match &transport {
+                    Transport::Direct => None,
+                    t => OneClick::new(BASE_URL, t)
                         .ok()
                         .map(|q| Arc::new(q) as Arc<dyn QuoteSource>),
-                    None => None,
                 };
                 let board = Board::new(mode, quote_source, clock.clone());
                 println!(
                     "{}",
                     status::render(
+                        &transport.status_line(),
                         operator.as_ref(),
                         &notes.list().unwrap_or_else(|e| die(e)),
                         &tripwire,
@@ -315,12 +347,6 @@ async fn main() {
                 .take(5)
             {
                 println!("{}", status::lease_line(r));
-            }
-            if transport == Transport::Direct && !cfg!(feature = "mock") {
-                println!("No Tor proxy is configured: this deposit shows your IP address to the RPC endpoint.");
-                if !Terminal.confirm_text("Type yes to go on: ") {
-                    die("declined");
-                }
             }
             let key = funding_key(&flag(&mut args, "--key-file").unwrap_or_else(|| die(USAGE)));
             let tx_store = Store::open(&home.join("tx.db")).unwrap_or_else(|e| die(e));

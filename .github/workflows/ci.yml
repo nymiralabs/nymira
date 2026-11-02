@@ -59,6 +59,22 @@ jobs:
         working-directory: vendor/zkapi/protocol/rust
         run: cargo test --locked -p zkapi-types -p zkapi-core -p zkapi-proof --lib
 
+  # The vendored NEAR AI SDK (SOCKS5 patch, issue 32) has its own lockfile and target directory.
+  nearai-sdk-vendor:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: vendor/nearai-inference-sdk
+      - name: Vendored SDK tests
+        working-directory: vendor/nearai-inference-sdk
+        run: cargo test --locked
+
   # The test wallet and the browser build of the NEAR codec (issue 86).
   web-testkit:
     runs-on: ubuntu-24.04
@@ -93,6 +109,21 @@ jobs:
         run: scripts/check-vault-deps.sh
       - name: Unsafe profiles are refused
         run: scripts/check-profiles.sh
+
+  # nymirad in Tor mode: every connect() of the egress test stays on loopback (issue 32).
+  egress:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Install strace
+        run: sudo apt-get update && sudo apt-get install -y strace
+      - name: No direct connection in Tor mode
+        run: scripts/egress-check.sh
 
   audit:
     runs-on: ubuntu-24.04

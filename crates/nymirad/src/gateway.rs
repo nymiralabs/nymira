@@ -32,7 +32,7 @@ use crate::lease::{self, Attempt, Lease, LeaseClient, LeaseError, Pinned};
 use crate::openai::ApiError;
 use crate::pins::{self, Pins, Tripwire};
 use crate::records::{LeaseRecord, Records};
-use crate::rpc::Rpc;
+use crate::rpc::{client, send_error, Rpc, RpcError, Transport};
 use crate::secrets::{NoteEntry, NoteStatus, NoteStore};
 use crate::sizing;
 use crate::snapshot;
@@ -86,6 +86,9 @@ struct Session {
     note_key: String,
     wallet: Wallet,
     lease: Lease,
+    /// This conversation's connection: one SOCKS identity, so one Tor circuit, for the lease and
+    /// everything sent on it.
+    http: reqwest::Client,
     keys: Arc<ClientKeys>,
     identities: HashMap<String, ModelIdentity>,
     spent_micro: u128,
@@ -115,8 +118,7 @@ pub enum Outcome {
 
 pub struct Gateway {
     cfg: GatewayConfig,
-    http: reqwest::Client,
-    client: LeaseClient,
+    transport: Transport,
     rpc: Rpc,
     pins: Pins,
     tripwire: Tripwire,
@@ -151,6 +153,10 @@ fn lease_error(e: LeaseError) -> ApiError {
             ApiError::from_operator(o.status, &o.code, &o.message, o.retry_after_secs)
         }
         LeaseError::Gate(g) => unavailable("operator_untrusted", g.to_string()),
+        LeaseError::TorDown(m) => unavailable("tor_down", format!("Tor is down: {m}")),
+        LeaseError::TorRefused(m) => {
+            unavailable("tor_refused", format!("the other side refuses Tor: {m}"))
+        }
         other => unavailable("operator_unreachable", other.to_string()),
     }
 }
@@ -161,6 +167,17 @@ enum Skip {
     Fatal(ApiError),
 }
 
+/// A failed call to a service nymirad reaches through Tor, with the Tor causes told apart.
+fn net_error(code: &str, e: RpcError) -> ApiError {
+    match e {
+        RpcError::TorDown(m) => unavailable("tor_down", format!("Tor is down: {m}")),
+        RpcError::TorRefused(m) => {
+            unavailable("tor_refused", format!("the other side refuses Tor: {m}"))
+        }
+        other => unavailable(code, other.to_string()),
+    }
+}
+
 fn micro_ceil(nano: u128) -> u128 {
     nano.div_ceil(1000)
 }
@@ -169,7 +186,7 @@ impl Gateway {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cfg: GatewayConfig,
-        http: reqwest::Client,
+        transport: Transport,
         rpc: Rpc,
         pins: Pins,
         notes: NoteStore,
@@ -181,9 +198,8 @@ impl Gateway {
         let vault = WalletVault::new(&cfg.home, passphrase, cfg.rounds);
         vault.seal_leftovers().map_err(|e| e.to_string())?;
         Ok(Self {
-            client: LeaseClient::new(http.clone(), &cfg.operator_url),
             records: Records::new(&cfg.home),
-            http,
+            transport,
             rpc,
             pins,
             tripwire: Tripwire::default(),
@@ -209,7 +225,11 @@ impl Gateway {
 
     /// At start-up: the pinned models against the live list. Differences are warnings.
     pub async fn check_models(&self) -> Vec<String> {
-        match crate::models::fetch_live(&self.http, &self.cfg.gateway_url).await {
+        let http = match client(&self.transport) {
+            Ok(h) => h,
+            Err(e) => return vec![format!("the live model list could not be read: {e}")],
+        };
+        match crate::models::fetch_live(&http, &self.cfg.gateway_url).await {
             Ok(live) => crate::models::compare(&self.cfg.models, &live),
             Err(e) => vec![format!("the live model list could not be read: {e}")],
         }
@@ -383,8 +403,9 @@ impl Gateway {
 
     async fn model_identity(&self, model: &str) -> Result<ModelIdentity, ApiError> {
         let nonce = hex::encode(rand::random::<[u8; 32]>());
-        let report: Value = self
-            .http
+        // Its own connection and identity: the attestation fetch is not on a lease's circuit.
+        let http = client(&self.transport).map_err(|e| net_error("attestation_unreachable", e))?;
+        let report: Value = http
             .get(format!(
                 "{}/v1/attestation/report",
                 self.cfg.gateway_url.trim_end_matches('/')
@@ -396,7 +417,7 @@ impl Gateway {
             ])
             .send()
             .await
-            .map_err(|e| unavailable("attestation_unreachable", e.without_url().to_string()))?
+            .map_err(|e| net_error("attestation_unreachable", send_error(e)))?
             .json()
             .await
             .map_err(|e| unavailable("attestation_unreachable", e.without_url().to_string()))?;
@@ -426,6 +447,9 @@ impl Gateway {
                 "the vault lists no 0.10 USDC lease class",
             )
         })?;
+        // A new conversation, a new circuit. With Tor not ready this fails before a note is touched.
+        let http = client(&self.transport).map_err(|e| net_error("operator_unreachable", e))?;
+        let lease_client = LeaseClient::new(http.clone(), &self.cfg.operator_url);
         let (entry, wallet) = self.pick_note(bound, &busy).await?;
         let (note_id, note_key) = (entry.note_id.expect("picked"), entry.commitment.clone());
         let wallet = Mutex::new(wallet);
@@ -435,7 +459,7 @@ impl Gateway {
             config: &self.pins.config,
         };
         let opened = lease::open_lease(
-            &self.client,
+            &lease_client,
             &pinned,
             || self.clock.now_secs(),
             |attempt| {
@@ -515,6 +539,7 @@ impl Gateway {
             note_key,
             wallet,
             lease,
+            http,
             keys: Arc::new(ClientKeys::generate()),
             identities: HashMap::new(),
             spent_micro: 0,
@@ -580,7 +605,7 @@ impl Gateway {
         }
 
         // Size the request with the operator's own parser, so the two agree.
-        let (keys, lease, remaining) = {
+        let (keys, lease, remaining, http) = {
             let sessions = self.sessions.lock().await;
             let s = sessions
                 .get(&key)
@@ -590,6 +615,7 @@ impl Gateway {
                 s.keys.clone(),
                 s.lease.clone(),
                 bound.saturating_sub(s.spent_micro + s.reserved_micro),
+                s.http.clone(),
             )
         };
         let cfg = ProxyConfig {
@@ -634,8 +660,10 @@ impl Gateway {
             s.last_used = self.clock.now_secs();
         }
 
-        let sent = self
-            .http
+        self.transport
+            .ensure_ready()
+            .map_err(|e| net_error("operator_unreachable", e))?;
+        let sent = http
             .post(format!("{}/v1/chat/completions", self.cfg.operator_url))
             .header("content-type", "application/json")
             .header("x-nymira-lease-id", &lease.id)
@@ -659,10 +687,7 @@ impl Gateway {
             Ok(r) => r,
             Err(e) => {
                 release(self).await;
-                return Err(unavailable(
-                    "operator_unreachable",
-                    e.without_url().to_string(),
-                ));
+                return Err(net_error("operator_unreachable", send_error(e)));
             }
         };
         if !response.status().is_success() {
@@ -674,6 +699,14 @@ impl Gateway {
                 .and_then(|v| v.parse().ok());
             let err: Value = response.json().await.unwrap_or(Value::Null);
             release(self).await;
+            if crate::net::refuses_tor(status)
+                && err["error"]["code"].as_str().unwrap_or("").is_empty()
+            {
+                return Err(net_error(
+                    "operator_unreachable",
+                    RpcError::TorRefused(format!("status {status}")),
+                ));
+            }
             return Err(ApiError::from_operator(
                 status,
                 err["error"]["code"].as_str().unwrap_or(""),
@@ -751,7 +784,7 @@ impl Gateway {
 
     /// Ends the lease on a note: no more requests, the operator settles.
     pub async fn retire(&self, note_key: &str) -> Result<(), ApiError> {
-        let lease = {
+        let (lease, http) = {
             let mut sessions = self.sessions.lock().await;
             let Some(s) = sessions.get_mut(note_key) else {
                 return Ok(());
@@ -760,9 +793,15 @@ impl Gateway {
                 return Ok(());
             }
             s.retiring = true;
-            s.lease.clone()
+            (s.lease.clone(), s.http.clone())
         };
-        if let Err(e) = self.client.retire(&lease).await {
+        let lease_client = LeaseClient::new(http, &self.cfg.operator_url);
+        let retired = match self.transport.ensure_ready() {
+            Ok(()) => lease_client.retire(&lease).await,
+            Err(RpcError::TorDown(m)) => Err(LeaseError::TorDown(m)),
+            Err(other) => Err(LeaseError::Transport(other.to_string())),
+        };
+        if let Err(e) = retired {
             // Not retired: the next pass tries again.
             if let Some(s) = self.sessions.lock().await.get_mut(note_key) {
                 s.retiring = false;
@@ -829,7 +868,10 @@ impl Gateway {
         let mut warnings = Vec::new();
 
         // Signatures: the operator fetched them before it revoked the key.
-        let status = self.client.lease_status(&s.lease).await.ok();
+        let status = LeaseClient::new(s.http.clone(), &self.cfg.operator_url)
+            .lease_status(&s.lease)
+            .await
+            .ok();
         let signatures: Vec<Value> = status
             .as_ref()
             .and_then(|v| v["provider_evidence"]["signatures"].as_array().cloned())

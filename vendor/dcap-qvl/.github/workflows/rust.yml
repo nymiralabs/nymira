@@ -1,0 +1,85 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+
+  python-bindings:
+    name: Build & Test Python bindings (unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install maturin pytest pytest-asyncio
+
+      - name: Build & install Python package (editable)
+        run: |
+          python -m pip install -e python-bindings
+
+      - name: Run Python unit tests (no network)
+        run: |
+          pytest -q python-bindings/tests
+
+  wasm:
+    name: Check WebAssembly target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Check wasm32 build
+        run: cargo check --target wasm32-unknown-unknown --features js
+
+  format:
+    name: Format code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Format code
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Check code with clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check code with clippy
+        run: cargo clippy -- -D warnings
+
+  clippy-cli:
+    name: Check cli code with clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check cli code with clippy
+        run: cd cli && cargo clippy -- -D warnings

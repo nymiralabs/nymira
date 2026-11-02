@@ -52,16 +52,26 @@ pub trait QuoteSource: Send + Sync {
     async fn quote(&self, asset: &Asset) -> Result<String, QuoteError>;
 }
 
-/// 1Click over a SOCKS proxy. There is no constructor without one.
+/// 1Click over Tor. There is no constructor for a direct client.
 pub struct OneClick {
-    http: reqwest::Client,
+    route: Route,
     base: String,
 }
 
+enum Route {
+    /// A fresh connection and identity for every quote.
+    Transport(Transport),
+    /// A client the test built.
+    Client(reqwest::Client),
+}
+
 impl OneClick {
-    pub fn new(base: &str, socks_addr: &str) -> Result<Self, String> {
+    pub fn new(base: &str, transport: &Transport) -> Result<Self, String> {
+        if transport.is_direct() {
+            return Err("1Click is reached through Tor only".into());
+        }
         Ok(Self {
-            http: client(&Transport::Socks(socks_addr.into())).map_err(|e| e.to_string())?,
+            route: Route::Transport(transport.clone()),
             base: base.trim_end_matches('/').into(),
         })
     }
@@ -71,7 +81,7 @@ impl OneClick {
     #[doc(hidden)]
     pub fn over(http: reqwest::Client, base: &str) -> Self {
         Self {
-            http,
+            route: Route::Client(http),
             base: base.trim_end_matches('/').into(),
         }
     }
@@ -94,8 +104,11 @@ impl QuoteSource for OneClick {
             "recipientType": "DESTINATION_CHAIN",
             "deadline": "2099-01-01T00:00:00.000Z",
         });
-        let reply = self
-            .http
+        let http = match &self.route {
+            Route::Client(c) => c.clone(),
+            Route::Transport(t) => client(t).map_err(|e| QuoteError::Failed(e.to_string()))?,
+        };
+        let reply = http
             .post(format!("{}/v0/quote", self.base))
             .json(&body)
             .send()

@@ -39,3 +39,19 @@ Fixture generator
   crates/nymira-verifier/examples/near_fixture.rs is adapted from zkapi's
   protocol/rust/crates/zkapi-proof/examples/solidity_fixture.rs (same
   statements and witnesses; the deployment values and destinations are ours).
+
+nearai-inference-sdk 0.1.0 (https://github.com/nearai/inference-sdk)
+  Vendored in vendor/nearai-inference-sdk/. Licensed under MIT.
+  Patch: every client that fetches evidence can go through a SOCKS5 proxy.
+  The upstream clients connect directly. Changes: AttestationClient::with_socks_proxy
+  (cloud_api.rs); create_pinned_tls_client_via (pinned_tls.rs); a socks_proxy option on
+  InferenceClientOptions and DirectInferenceClientOptions, used for the Gateway
+  attestation fetch and the pinned client (inference.rs, direct.rs);
+  fetch_image_provenance_with_client (provenance.rs); a client option on
+  DefaultTdxQuoteVerifier and verify_tdx_quote_with_client (quote.rs); reqwest's
+  "socks" feature; tests/socks_proxy.rs.
+
+dcap-qvl 0.3.12 (https://github.com/Phala-Network/dcap-qvl)
+  Vendored in vendor/dcap-qvl/ (src/ only). Licensed under MIT.
+  Patch: get_collateral_with_client takes the HTTP client from the caller, so the
+  PCCS fetch can go through a SOCKS5 proxy; get_collateral calls it.
