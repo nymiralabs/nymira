@@ -88,7 +88,7 @@ pub struct NearAiAdapter {
     key_file: SealedFile,
     session: tokio::sync::Mutex<Session>,
     keys: Mutex<HashMap<String, KeyEntry>>,
-    chats: Arc<Mutex<HashMap<String, ChatLog>>>,
+    lease_chat: LeaseChat,
 }
 
 impl NearAiAdapter {
@@ -125,12 +125,14 @@ impl NearAiAdapter {
                 .map_err(|_| ProviderError::Unavailable("key file is damaged".into()))?,
             None => HashMap::new(),
         };
+        let http = reqwest::Client::builder()
+            .user_agent(cfg.user_agent.clone())
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .expect("client builds");
+        let base = cfg.base_url.clone();
         Ok(Self {
-            http: reqwest::Client::builder()
-                .user_agent(cfg.user_agent.clone())
-                .connect_timeout(Duration::from_secs(10))
-                .build()
-                .expect("client builds"),
+            http: http.clone(),
             cfg,
             clock,
             alarms,
@@ -141,7 +143,7 @@ impl NearAiAdapter {
                 access: None,
             }),
             keys: Mutex::new(keys),
-            chats: Arc::new(Mutex::new(HashMap::new())),
+            lease_chat: LeaseChat::new(http, &base),
         })
     }
 
@@ -351,6 +353,16 @@ impl NearAiAdapter {
         reply.json().await.map_err(transport)
     }
 
+    /// True when the lease's key has been deactivated.
+    pub fn is_revoked(&self, lease_id: &str) -> bool {
+        self.entry(lease_id).is_ok_and(|e| e.revoked)
+    }
+
+    /// The secret of a lease's live key, for the process that proxies its chat.
+    pub fn secret(&self, lease_id: &str) -> Option<String> {
+        self.live_entry(lease_id).ok().map(|e| e.secret)
+    }
+
     /// The provider's id for a lease's key, for tools.
     pub fn key_id(&self, lease_id: &str) -> Option<String> {
         self.keys().get(lease_id).map(|e| e.id.clone())
@@ -487,10 +499,7 @@ impl ProviderAdapter for NearAiAdapter {
             entry.secret.clear();
             entry.revoked = true;
         }
-        self.chats
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(lease_id);
+        self.lease_chat.forget(lease_id);
         self.save_keys()
     }
 
@@ -575,10 +584,72 @@ impl ProviderAdapter for NearAiAdapter {
         request: ChatRequest,
     ) -> Result<ChatResponse, ProviderError> {
         let entry = self.live_entry(lease_id)?;
+        self.lease_chat.chat(&entry.secret, lease_id, request).await
+    }
+
+    /// For the lease's recent chats: the response signature of each, and one attestation report,
+    /// all with the lease key, the chat's `signing_algo` and the caller's nonce.
+    async fn evidence(
+        &self,
+        lease_id: &str,
+        query: &EvidenceQuery,
+    ) -> Result<Option<Value>, ProviderError> {
+        let entry = self.live_entry(lease_id)?;
+        self.lease_chat
+            .evidence(&entry.secret, lease_id, query)
+            .await
+    }
+}
+
+/// Chat and evidence with a lease key. It holds no login: the key is handed in per call, so the
+/// process that proxies chat needs only the lease keys, never the organisation's tokens.
+#[derive(Clone)]
+pub struct LeaseChat {
+    http: reqwest::Client,
+    base_url: String,
+    chats: Arc<Mutex<HashMap<String, ChatLog>>>,
+    /// When set, chat ids are also kept in the database, so the evidence fetch survives a restart.
+    store: Option<crate::store::Store>,
+}
+
+impl LeaseChat {
+    pub fn new(http: reqwest::Client, base_url: &str) -> Self {
+        Self {
+            http,
+            base_url: base_url.trim_end_matches('/').into(),
+            chats: Arc::new(Mutex::new(HashMap::new())),
+            store: None,
+        }
+    }
+
+    /// Keeps the chat ids of each lease in the database as well as in memory.
+    pub fn with_store(mut self, store: crate::store::Store) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{}", self.base_url, path)
+    }
+
+    /// Forgets the chat ids of a lease.
+    pub fn forget(&self, lease_id: &str) {
+        self.chats
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(lease_id);
+    }
+
+    pub async fn chat(
+        &self,
+        secret: &str,
+        lease_id: &str,
+        request: ChatRequest,
+    ) -> Result<ChatResponse, ProviderError> {
         let mut builder = self
             .http
             .post(self.url("/v1/chat/completions"))
-            .bearer_auth(&entry.secret)
+            .bearer_auth(secret)
             // The signature covers the bytes as sent; no re-encoding on the way.
             .header("Accept-Encoding", "identity")
             .header("Content-Type", "application/json")
@@ -599,6 +670,7 @@ impl ProviderAdapter for NearAiAdapter {
                 reply,
                 lease_id: lease_id.into(),
                 chats: self.chats.clone(),
+                store: self.store.clone(),
                 head: Vec::new(),
                 noted: false,
             }),
@@ -607,26 +679,43 @@ impl ProviderAdapter for NearAiAdapter {
 
     /// For the lease's recent chats: the response signature of each, and one attestation report,
     /// all with the lease key, the chat's `signing_algo` and the caller's nonce.
-    async fn evidence(
+    pub async fn evidence(
         &self,
+        secret: &str,
         lease_id: &str,
         query: &EvidenceQuery,
     ) -> Result<Option<Value>, ProviderError> {
-        let entry = self.live_entry(lease_id)?;
-        let chats: Vec<(String, String)> = {
+        let mut chats: Vec<(String, String)> = {
             let log = self.chats.lock().unwrap_or_else(|e| e.into_inner());
             match log.get(lease_id) {
                 Some(l) => l.0.iter().rev().take(EVIDENCE_CHATS).cloned().collect(),
-                None => return Ok(None),
+                None => Vec::new(),
             }
         };
+        // After a restart the memory is empty; the database still has the ids.
+        if chats.is_empty() {
+            if let Some(store) = &self.store {
+                let lease = lease_id.to_string();
+                chats = store
+                    .run(move |c| crate::store::chats_of(c, &lease))
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .rev()
+                    .take(EVIDENCE_CHATS)
+                    .collect();
+            }
+        }
+        if chats.is_empty() {
+            return Ok(None);
+        }
         let Some((_, model)) = chats.first().cloned() else {
             return Ok(None);
         };
         let get = |path: String, params: Vec<(&'static str, String)>| {
             self.http
                 .get(self.url(&path))
-                .bearer_auth(&entry.secret)
+                .bearer_auth(secret)
                 .header("Accept-Encoding", "identity")
                 .query(&params)
                 .timeout(Duration::from_secs(20))
@@ -683,14 +772,16 @@ struct UpstreamBody {
     reply: reqwest::Response,
     lease_id: String,
     chats: Arc<Mutex<HashMap<String, ChatLog>>>,
+    store: Option<crate::store::Store>,
     head: Vec<u8>,
     noted: bool,
 }
 
 impl UpstreamBody {
-    fn note(&mut self, chunk: &[u8]) {
+    /// Scans the first bytes; returns the chat's id and model the first time they are found.
+    fn note(&mut self, chunk: &[u8]) -> Option<(String, String)> {
         if self.noted {
-            return;
+            return None;
         }
         self.head.extend_from_slice(chunk);
         // Non-streamed: one JSON object. Streamed: the first `data:` line is one.
@@ -712,10 +803,12 @@ impl UpstreamBody {
                     .or_default()
                     .0
                     .push((id.into(), model.into()));
+                return Some((id.into(), model.into()));
             }
         } else if self.head.len() > 64 * 1024 {
             self.noted = true;
         }
+        None
     }
 }
 
@@ -724,7 +817,12 @@ impl ChatBody for UpstreamBody {
     async fn next_chunk(&mut self) -> Option<Result<Bytes, ProviderError>> {
         match self.reply.chunk().await {
             Ok(Some(chunk)) => {
-                self.note(&chunk);
+                if let (Some((id, model)), Some(store)) = (self.note(&chunk), &self.store) {
+                    let lease = self.lease_id.clone();
+                    let _ = store
+                        .run(move |c| crate::store::add_chat(c, &lease, &id, &model))
+                        .await;
+                }
                 Some(Ok(chunk))
             }
             Ok(None) => None,

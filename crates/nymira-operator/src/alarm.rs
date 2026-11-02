@@ -70,8 +70,8 @@ impl Alarms {
         }
         let alarm = Alarm {
             key: key.into(),
-            subject: subject.into(),
-            body: body.into(),
+            subject: crate::redact::scrub(subject),
+            body: crate::redact::scrub(body),
         };
         let mut delivered = false;
         for sink in &self.sinks {

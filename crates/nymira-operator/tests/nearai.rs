@@ -370,3 +370,35 @@ async fn the_refresh_token_works_only_under_the_user_agent_that_made_it() {
         Err(ProviderError::Rejected(_))
     ));
 }
+
+#[tokio::test]
+async fn the_chat_ids_survive_a_restart_of_the_process_that_proxies_chat() {
+    use nymira_operator::nearai::LeaseChat;
+    use nymira_operator::store::Store;
+    let rig = Rig::new().await;
+    let adapter = rig.adapter(Some(FIRST_REFRESH_TOKEN)).unwrap();
+    adapter.mint("a", 100_000).await.unwrap();
+    let secret = adapter.secret("a").unwrap();
+    let store = Store::open(&rig.dir.path().join("chats.db")).unwrap();
+    let query = EvidenceQuery {
+        nonce: "ab".repeat(32),
+        signing_algo: "ed25519".into(),
+    };
+
+    let first = LeaseChat::new(reqwest::Client::new(), &rig.fake.url()).with_store(store.clone());
+    for _ in 0..2 {
+        let mut chat = first.chat(&secret, "a", rig.chat_request()).await.unwrap();
+        while chat.body.next_chunk().await.is_some() {}
+    }
+    // A new process: no memory, same database.
+    let reborn = LeaseChat::new(reqwest::Client::new(), &rig.fake.url()).with_store(store);
+    let evidence = reborn
+        .evidence(&secret, "a", &query)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(evidence["signatures"].as_array().unwrap().len(), 2);
+    // Without the database the ids are gone.
+    let amnesiac = LeaseChat::new(reqwest::Client::new(), &rig.fake.url());
+    assert_eq!(amnesiac.evidence(&secret, "a", &query).await.unwrap(), None);
+}

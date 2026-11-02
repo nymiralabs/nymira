@@ -49,6 +49,8 @@ pub struct Replicator {
     /// Set once this log has been compared with the replica. Before that nothing is written: a
     /// disk that was lost would start a chain of its own beside the replica's.
     based: AtomicBool,
+    /// Signs every entry sent to the replica, when the replica pins the matching key.
+    signing: Option<ed25519_dalek::SigningKey>,
 }
 
 fn down(e: impl std::fmt::Display) -> ReplicaError {
@@ -65,7 +67,14 @@ impl Replicator {
             gate: tokio::sync::Mutex::new(()),
             state: Mutex::new(State::Ready),
             based: AtomicBool::new(false),
+            signing: None,
         }
+    }
+
+    /// Signs each entry with the operator's entry key before it leaves this machine.
+    pub fn with_signing_key(mut self, key: ed25519_dalek::SigningKey) -> Self {
+        self.signing = Some(key);
+        self
     }
 
     pub fn log(&self) -> &Log {
@@ -126,7 +135,11 @@ impl Replicator {
                         break;
                     };
                     for entry in &batch {
-                        let ack = self.link.append(entry).await.map_err(|e| {
+                        let sent = match &self.signing {
+                            Some(key) => crate::replog::sign_entry(key, entry),
+                            None => entry.clone(),
+                        };
+                        let ack = self.link.append(&sent).await.map_err(|e| {
                             if let LinkError::Refused(crate::replog::LogError::Fork { seq }) = e {
                                 self.set(State::Diverged { seq });
                             } else {

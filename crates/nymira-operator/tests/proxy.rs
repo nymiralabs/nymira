@@ -1079,85 +1079,6 @@ fn nonces_and_signing_algorithms_are_strictly_formatted() {
     }
 }
 
-/// Independent reading of a body: what a reference parser decides, with its own duplicate-key
-/// detector over the raw text.
-fn reference_accepts(raw: &str, cfg: &ProxyConfig) -> bool {
-    fn has_duplicate_keys(v: &str) -> bool {
-        // A second, independent detector: scan objects with a tiny tokenizer.
-        let b = v.as_bytes();
-        let (mut i, mut stack): (usize, Vec<Vec<String>>) = (0, vec![]);
-        while i < b.len() {
-            match b[i] {
-                b'{' => stack.push(vec![]),
-                b'}' => {
-                    stack.pop();
-                }
-                b'"' => {
-                    let start = i + 1;
-                    i += 1;
-                    while i < b.len() && b[i] != b'"' {
-                        if b[i] == b'\\' {
-                            i += 1;
-                        }
-                        i += 1;
-                    }
-                    let token = v[start..i.min(b.len())].to_string();
-                    let mut j = i + 1;
-                    while j < b.len() && b[j].is_ascii_whitespace() {
-                        j += 1;
-                    }
-                    if j < b.len() && b[j] == b':' {
-                        if let Some(keys) = stack.last_mut() {
-                            if keys.contains(&token) {
-                                return true;
-                            }
-                            keys.push(token);
-                        }
-                    }
-                }
-                _ => {}
-            }
-            i += 1;
-        }
-        false
-    }
-    if has_duplicate_keys(raw) {
-        return false;
-    }
-    let Ok(v) = serde_json::from_str::<Value>(raw) else {
-        return false;
-    };
-    let known = [
-        "model",
-        "messages",
-        "stream",
-        "stream_options",
-        "max_tokens",
-        "max_completion_tokens",
-        "n",
-    ];
-    v.as_object().is_some_and(|o| {
-        o.keys().all(|k| known.contains(&k.as_str()))
-            && v["model"]
-                .as_str()
-                .is_some_and(|m| cfg.models.iter().any(|p| p.id == m))
-            && v["messages"].as_array().is_some_and(|m| {
-                !m.is_empty()
-                    && m.iter().all(|x| {
-                        x.as_object().is_some_and(|o| {
-                            o.keys().all(|k| {
-                                ["role", "content", "name", "tool_calls", "tool_call_id"]
-                                    .contains(&k.as_str())
-                            })
-                        }) && x["role"].is_string()
-                            && (x["content"].is_string() || x["content"].is_null())
-                    })
-            })
-            && (v.get("n").is_none() || v["n"] == 1)
-            && !(v.get("max_tokens").is_some() && v.get("max_completion_tokens").is_some())
-    })
-}
-
 #[test]
 fn the_parser_and_a_reference_parser_agree_over_the_odd_body_corpus_and_random_mutations() {
     let cfg = ProxyConfig::default();
@@ -1212,7 +1133,7 @@ fn the_parser_and_a_reference_parser_agree_over_the_odd_body_corpus_and_random_m
     }
     for raw in corpus {
         let ours = parse_chat(raw.as_bytes(), &cfg, &blocked);
-        let reference = reference_accepts(&raw, &cfg);
+        let reference = nymira_operator::wire::reference_accepts(&raw, &cfg);
         assert_eq!(
             ours.is_ok(),
             reference,
@@ -1394,5 +1315,56 @@ async fn a_lease_billed_more_than_the_estimate_stops_minting_and_raises_an_alarm
     assert_eq!(
         (s, a["error"]["code"].as_str()),
         (429, Some("operator_capacity"))
+    );
+}
+
+// ---------------------------------------------------------------- admission and reserved cost
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_in_flight_holds_back_the_next_lease_until_it_ends() {
+    // A budget under one request's worst case (2_049 micro-USD for an uncapped stream).
+    let rig = Rig::new(proxy_setup(|c| c.budget.daily_limit = 2_000)).await;
+    rig.provider.set_chat_script(ChatScript {
+        stream_events: 40,
+        chunk_delay: Duration::from_millis(50),
+        ..ChatScript::default()
+    });
+    let l = open(&rig, 1).await;
+    let held = post(&rig, &l, serde_json::to_vec(&body(None, true)).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(held.status(), 200);
+    assert_eq!(rig.status().await["daily_budget"]["used"], "2049");
+
+    let (s, v, _) = rig.lease(&rig.fresh(2)).await;
+    json_error(s, &v, 429, "operator_capacity");
+
+    // The request ends: its reservation falls to the estimate and the next lease is admitted.
+    drop(held);
+    settled(&rig).await;
+    let (s, v, _) = rig.lease(&rig.fresh(2)).await;
+    assert_eq!(s, 201, "{v}");
+}
+
+// ---------------------------------------------------------------- the spend book survives a restart
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_finished_spend_of_an_open_lease_survives_a_restart() {
+    let mut rig = Rig::new(proxy_setup(|_| {})).await;
+    let l = open(&rig, 1).await;
+    let (s, _, _) = chat(&rig, &l, &body(Some(50), false)).await;
+    assert_eq!(s, 200);
+    settled(&rig).await;
+    // The write behind a finished request is a background task.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let before = rig.op.spent_estimate(&l.id);
+    assert!(before > 0);
+
+    rig.restart(proxy_setup(|_| {})).await;
+    assert_eq!(
+        rig.op.spent_estimate(&l.id),
+        before,
+        "the restarted operator counts what the lease already spent"
     );
 }

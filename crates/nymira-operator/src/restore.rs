@@ -101,6 +101,7 @@ pub fn apply(conn: &Connection, e: &Entry) -> rusqlite::Result<()> {
                  WHERE lease_id = ?1 AND state = 'reserved'",
                 params![e.key, e.hour],
             )?;
+            crate::store::scrub_timers(conn, &e.key)?;
         }
         kinds::SETTLED => {
             let fact = e
@@ -130,6 +131,7 @@ pub fn apply(conn: &Connection, e: &Entry) -> rusqlite::Result<()> {
             if basis == "link_down" {
                 conn.execute("DELETE FROM signed_states WHERE lease_id = ?1", [&e.key])?;
             }
+            crate::store::scrub_timers(conn, &e.key)?;
         }
         kinds::CLEARANCE => {
             conn.execute(
@@ -180,6 +182,7 @@ pub fn settle_restored(
          WHERE lease_id = ?1 AND state = 'reserved'",
         params![lease_id, now],
     )?;
+    crate::store::scrub_timers(&tx, lease_id)?;
     tx.commit()?;
     Ok(true)
 }

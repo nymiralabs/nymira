@@ -9,7 +9,6 @@ use axum::http::StatusCode;
 use lru::LruCache;
 use serde_json::{json, Value};
 use tokio::sync::Semaphore;
-use zkapi_proof::compact::CompactSigner;
 use zkapi_types::wire::{ApiRequestV2, OpenRouterLeaseAuthorization};
 use zkapi_types::{canonical_payload_hash, Felt252, PROTOCOL_VERSION};
 
@@ -28,7 +27,7 @@ use crate::signer::SignerApi;
 use crate::status::{StatusSigner, SLOT_SECS};
 use crate::store::{self, Cas, NewLease, Store};
 use crate::token;
-use crate::usage::Minter;
+use crate::usage::UsageSigner;
 use crate::verify::{point_checks, ProofVerifier, WithdrawalProofVerifier};
 
 /// A request proof is valid for 300 seconds, with 30 seconds of clock skew either way.
@@ -189,7 +188,7 @@ pub struct Operator {
     /// the token is stored hashed and cannot be rebuilt.
     pub(crate) issued: Mutex<HashMap<String, (Value, Value)>>,
     pub(crate) signer: Arc<dyn SignerApi>,
-    pub(crate) minter: Minter,
+    pub(crate) minter: Arc<dyn UsageSigner>,
     /// Requests in flight per lease, and the leases that take no new ones.
     pub(crate) inflight: Arc<Mutex<HashMap<String, u32>>>,
     pub(crate) closing: Mutex<HashSet<String>>,
@@ -211,7 +210,22 @@ pub struct Operator {
     started_secs: u64,
     /// When the replica was last compared with, in Unix seconds.
     pub(crate) synced_at: Mutex<u64>,
+    /// When retention last ran, in Unix seconds.
+    pub(crate) purged_at: Mutex<u64>,
+    /// The emergency notice as last read, and when: a flag set by another process shows within
+    /// [`EMERGENCY_CACHE`].
+    emergency_cache: Mutex<Option<(std::time::Instant, Option<String>)>>,
+    /// Seconds of the recent `POST /v2/reconcile` calls, for the global rate limit.
+    pub(crate) reconciles: Mutex<std::collections::VecDeque<u64>>,
 }
+
+/// `POST /v2/reconcile` takes this many calls a minute across all callers: it needs no identity
+/// and a restored lease needs one call.
+pub const RECONCILES_PER_MINUTE: usize = 30;
+/// A flag set by another process shows within this long.
+const EMERGENCY_CACHE: std::time::Duration = std::time::Duration::from_secs(1);
+/// Retention runs this often.
+pub const PURGE_EVERY_SECS: u64 = 3_600;
 
 /// Without a heartbeat for this long `/v1/status` says `degraded`.
 pub const DEGRADED_AFTER_SECS: u64 = 2 * 3_600;
@@ -227,9 +241,9 @@ pub struct Parts {
     /// Takes `POST /v1/close`: the closer process in production.
     pub closer: Arc<dyn CloseApi>,
     pub store: Store,
-    pub state_signer: CompactSigner,
+    pub state_signer: Arc<dyn crate::status::StateSigning>,
     pub signer: Arc<dyn SignerApi>,
-    pub minter: Minter,
+    pub minter: Arc<dyn UsageSigner>,
     pub alarms: Arc<crate::alarm::Alarms>,
 }
 
@@ -304,6 +318,9 @@ impl Operator {
             watchers: Mutex::new(Vec::new()),
             started_secs: now_ms / 1000,
             synced_at: Mutex::new(0),
+            purged_at: Mutex::new(0),
+            emergency_cache: Mutex::new(None),
+            reconciles: Mutex::new(std::collections::VecDeque::new()),
         });
         operator
             .refresh_chain(true)
@@ -407,6 +424,17 @@ impl Operator {
                 .record(crate::replog::kinds::ROLLED_BACK, &lease.lease_id, None)
                 .await;
         }
+        let spends = self
+            .store
+            .run(|c| store::open_spends(c))
+            .await
+            .map_err(|e| StartError::Store(e.to_string()))?;
+        {
+            let mut book = self.spend.lock().unwrap_or_else(|e| e.into_inner());
+            for (lease, finished) in spends {
+                book.restore(&lease, finished);
+            }
+        }
         let day_start =
             self.clock.now_secs() / crate::budget::SECS_PER_DAY * crate::budget::SECS_PER_DAY;
         let settled = self
@@ -457,6 +485,84 @@ impl Operator {
             .run(move |c| store::mark_replicated(c, &id))
             .await
             .map_err(db_error)
+    }
+
+    /// The key-leak notice, if the operator is in emergency. It lives in the database, so a
+    /// restart does not end it and the process that sets it can be another one.
+    pub async fn emergency(&self) -> Option<String> {
+        {
+            let cache = self
+                .emergency_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some((at, notice)) = cache.as_ref() {
+                if at.elapsed() < EMERGENCY_CACHE {
+                    return notice.clone();
+                }
+            }
+        }
+        let notice = self
+            .store
+            .run(|c| store::emergency(c))
+            .await
+            .unwrap_or(None);
+        *self
+            .emergency_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), notice.clone()));
+        notice
+    }
+
+    /// Stops new leases and clearances and shows `notice` on `/v1/status`.
+    pub async fn set_emergency(&self, notice: &str) -> Result<(), ApiError> {
+        let (notice, now) = (notice.to_string(), self.clock.now_secs());
+        self.store
+            .run(move |c| store::set_emergency(c, &notice, now))
+            .await
+            .map_err(db_error)?;
+        *self
+            .emergency_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        Ok(())
+    }
+
+    pub async fn clear_emergency(&self) -> Result<(), ApiError> {
+        self.store
+            .run(|c| store::clear_emergency(c))
+            .await
+            .map_err(db_error)?;
+        *self
+            .emergency_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        Ok(())
+    }
+
+    pub(crate) async fn refuse_in_emergency(&self) -> Result<(), ApiError> {
+        match self.emergency().await {
+            Some(notice) => Err(ApiError::new(Code::Emergency, notice)),
+            None => Ok(()),
+        }
+    }
+
+    /// Revokes every key at the provider, leased or not: the response to a leaked provider
+    /// credential, after which open leases cannot chat and settle at their bound. Returns how
+    /// many keys it revoked.
+    pub async fn revoke_provider_keys(&self) -> Result<usize, ApiError> {
+        let listed = self.provider.list().await.map_err(|e| {
+            ApiError::new(
+                Code::ProviderError,
+                format!("the provider list failed: {e}"),
+            )
+        })?;
+        let mut revoked = 0;
+        for lease_id in listed {
+            if self.provider.revoke(&lease_id).await.is_ok() {
+                revoked += 1;
+            }
+        }
+        Ok(revoked)
     }
 
     pub fn config(&self) -> &Config {
@@ -682,21 +788,33 @@ impl Operator {
     pub async fn status_json(&self) -> Value {
         let _ = self.refresh_chain(false).await;
         let now = self.clock.now_secs();
+        let emergency = self.emergency().await;
         let cache = self.cache.lock().await;
         let config = cache.config.clone().expect("loaded at start");
-        let slot = self.status.current(now);
+        let slot = self.status.current(now).await;
         let (limit, used, resets_ts) = self.ledger.daily(now);
         let heartbeat_age = self.heartbeat_age(now).await;
         // No heartbeat yet counts from the start of the process.
         let degraded = heartbeat_age.unwrap_or_else(|| now.saturating_sub(self.started_secs))
             >= DEGRADED_AFTER_SECS;
-        let watchers: Vec<Value> = self
+        let mut watchers: Vec<Value> = self
             .watchers
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .map(|(id, w)| json!({ "id": id, "last_poll_ts": w.last_poll() }))
             .collect();
+        // Watchers in other processes write their poll time to the shared database.
+        let polled = self
+            .store
+            .run(|c| store::watcher_polls(c))
+            .await
+            .unwrap_or_default();
+        for (id, ts) in polled {
+            if !watchers.iter().any(|w| w["id"] == id.as_str()) {
+                watchers.push(json!({ "id": id, "last_poll_ts": ts }));
+            }
+        }
         json!({
             "version": 1,
             "operator_pk": { "x": config.operator_pk.x, "y": config.operator_pk.y },
@@ -711,8 +829,9 @@ impl Operator {
             "open_notes": cache.open_notes,
             "external_notes": cache.open_notes.saturating_sub(cache.team_open),
             "team_note_ids": self.cfg.team_note_ids,
-            "nonce": { "nonce": slot.nonce, "host": slot.host, "ts": slot.ts },
-            "nonce_sig": slot.sig,
+            // Null while the signer cannot be reached: a client treats that as "do not open a lease".
+            "nonce": slot.as_ref().map_or(Value::Null, |s| json!({ "nonce": s.nonce, "host": s.host, "ts": s.ts })),
+            "nonce_sig": slot.as_ref().map_or(Value::Null, |s| json!(s.sig)),
             "heartbeat_age_secs": heartbeat_age,
             "watchers": watchers,
             "degraded": degraded,
@@ -728,7 +847,7 @@ impl Operator {
             },
             "recovery_mode": self.replica.in_recovery(),
             "replica": self.replica.health(),
-            "emergency_notice": Value::Null,
+            "emergency_notice": emergency,
         })
     }
 
@@ -779,6 +898,7 @@ impl Operator {
                 "request body over 64 KiB",
             ));
         }
+        self.refuse_in_emergency().await?;
         if self.replica.in_recovery() {
             return Err(crate::operator::clearance::recovery_mode());
         }

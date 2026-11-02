@@ -358,6 +358,11 @@ impl SpendBook {
         Some(spend.reserved.values().sum())
     }
 
+    /// Puts back what a restart lost: the finished spend of an open lease.
+    pub fn restore(&mut self, lease: &str, finished: u128) {
+        self.leases.entry(lease.to_string()).or_default().finished = finished;
+    }
+
     pub fn forget(&mut self, lease: &str) {
         self.leases.remove(lease);
     }
@@ -880,6 +885,16 @@ impl Operator {
         // A lease that already settled or expired has no book: nothing to tell the budget.
         if let Some(still) = still {
             self.ledger.set_inflight(lease_id, still);
+            // Kept on disk, so a restart does not start the lease's worst-case check from zero.
+            let finished = self.spent_estimate(lease_id);
+            let (store, id) = (self.store.clone(), lease_id.to_string());
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move {
+                    let _ = store
+                        .run(move |c| crate::store::set_spend(c, &id, finished))
+                        .await;
+                });
+            }
         }
     }
 

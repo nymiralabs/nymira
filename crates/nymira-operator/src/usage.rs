@@ -40,6 +40,11 @@ impl Minter {
         Self(SigningKey::from_bytes(&seed))
     }
 
+    /// The minting process's key, from its 32-byte seed file.
+    pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self(SigningKey::from_bytes(seed))
+    }
+
     pub fn public_key(&self) -> VerifyingKey {
         self.0.verifying_key()
     }
@@ -47,6 +52,20 @@ impl Minter {
     pub fn sign(&self, record: UsageRecord) -> SignedUsage {
         let sig = hex::encode(self.0.sign(&message(&record)).to_bytes());
         SignedUsage { record, sig }
+    }
+}
+
+/// Whatever signs usage records: the minting process's key, reached over its socket in
+/// production.
+#[async_trait::async_trait]
+pub trait UsageSigner: Send + Sync {
+    async fn sign(&self, record: UsageRecord) -> Result<SignedUsage, String>;
+}
+
+#[async_trait::async_trait]
+impl UsageSigner for Minter {
+    async fn sign(&self, record: UsageRecord) -> Result<SignedUsage, String> {
+        Ok(Minter::sign(self, record))
     }
 }
 

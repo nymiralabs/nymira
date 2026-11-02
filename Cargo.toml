@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["contracts/vault", "crates/nymira-near-codec", "crates/nymira-verifier", "contracts/verifier-probe", "contracts/mock-usdc", "contracts/mock-ft-receiver", "crates/nymira-fake-near-ai", "crates/nymira-fake-near-rpc", "crates/nymira-near-codec-wasm", "crates/nymira-testkit", "crates/nymira-operator", "crates/nymirad"]
+members = ["contracts/vault", "crates/nymira-near-codec", "crates/nymira-verifier", "contracts/verifier-probe", "contracts/mock-usdc", "contracts/mock-ft-receiver", "crates/nymira-fake-near-ai", "crates/nymira-fake-near-rpc", "crates/nymira-near-codec-wasm", "crates/nymira-testkit", "crates/nymira-operator", "crates/nymirad", "crates/nymira-operatord"]
 # The zkapi workspace keeps its own root (its crates inherit `workspace = true`
 # values from it); ours reach it by path.
-exclude = ["vendor/zkapi/protocol/rust"]
+exclude = ["vendor/zkapi/protocol/rust", "crates/nymira-operator/fuzz"]
 
 [workspace.package]
 edition = "2021"
@@ -34,3 +34,12 @@ lto = true
 codegen-units = 1
 panic = "abort"
 overflow-checks = true
+
+# The operator binary. `release` sets panic = "abort" for the contracts; here a panic in a handler
+# must unwind, so the per-request panic catch works.
+[profile.operator]
+inherits = "release"
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+panic = "unwind"

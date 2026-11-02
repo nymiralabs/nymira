@@ -310,3 +310,50 @@ async fn the_replica_speaks_http_and_the_laptop_checks_every_answer() {
     // And with the server gone, nothing is released.
     assert!(laptop.append(&reservation(6)).await.is_err());
 }
+
+// ---------------------------------------------------------------- the operator signs its entries
+
+#[tokio::test]
+async fn a_replica_that_pins_the_operators_key_takes_only_signed_entries() {
+    let operator = key(9);
+    let replica = Arc::new(
+        ReplicaNode::new(log(), key(1)).with_laptop_key(operator.verifying_key().to_bytes()),
+    );
+    let wire = Wire::new(replica.clone());
+    let pk = key(1).verifying_key().to_bytes();
+    let clock = || Arc::new(ManualClock::new(7_200_000));
+
+    // The operator's own replicator signs: its entries are taken.
+    let laptop = Replicator::new(log(), wire.clone(), pk, clock()).with_signing_key(operator);
+    laptop.append(&reservation(1)).await.unwrap();
+    laptop
+        .record(kinds::SIGNED, "lease1", Some("{}"))
+        .await
+        .unwrap();
+    assert_eq!(replica.head().await.seq, 2);
+
+    // A peer the network admits cannot add a fact: not unsigned, not under another key.
+    let head = replica.head().await;
+    let forged = |sig: Option<String>| Entry {
+        seq: head.seq + 1,
+        prev: head.head.clone(),
+        kind: kinds::SETTLED.into(),
+        key: "lease1".into(),
+        hour: 7_200,
+        payload_hash: String::new(),
+        payload: None,
+        hash: String::new(),
+        sig,
+    };
+    let mut unsigned = forged(None);
+    unsigned.payload_hash = nymira_operator::replog::Log::payload_hash_of(None);
+    unsigned.hash = nymira_operator::replog::Log::hash_of(&unsigned);
+    assert!(replica.append(&unsigned).await.is_err());
+    let stranger = nymira_operator::replog::sign_entry(&key(7), &unsigned);
+    assert!(replica.append(&stranger).await.is_err());
+    assert_eq!(replica.head().await.seq, 2, "nothing was added");
+
+    // A laptop without the signing key is refused, and says so as an unreachable replica.
+    let plain = Replicator::new(log(), wire, pk, clock());
+    assert!(plain.append(&reservation(5)).await.is_err());
+}

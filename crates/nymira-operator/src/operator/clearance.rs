@@ -58,6 +58,7 @@ impl Operator {
                 "request body over 64 KiB",
             ));
         }
+        self.refuse_in_emergency().await?;
         if self.replica.in_recovery() {
             return Err(recovery_mode());
         }

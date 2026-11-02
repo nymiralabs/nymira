@@ -111,6 +111,26 @@ CREATE TABLE IF NOT EXISTS signed_states(
   signed_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS exit_seen(nullifier TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS lease_spend(
+  lease_id TEXT PRIMARY KEY,
+  finished TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lease_chats(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lease_id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  UNIQUE(lease_id, chat_id)
+);
+CREATE TABLE IF NOT EXISTS watcher_status(
+  id TEXT PRIMARY KEY,
+  last_poll INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS emergency(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  notice TEXT NOT NULL,
+  since INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS operator_txs(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
@@ -129,7 +149,22 @@ CREATE TABLE IF NOT EXISTS operator_txs(
 
 impl Store {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
-        Self::init(Connection::open(path)?)
+        // Several processes open one file at start-up. SQLite answers a lock taken while another
+        // connection switches the file to WAL at once, without the busy timeout, so retry.
+        let started = std::time::Instant::now();
+        loop {
+            match Connection::open(path).and_then(Self::init) {
+                Err(rusqlite::Error::SqliteFailure(e, _))
+                    if matches!(
+                        e.code,
+                        rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                    ) && started.elapsed() < std::time::Duration::from_secs(30) =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                other => return other,
+            }
+        }
     }
 
     pub fn open_in_memory() -> rusqlite::Result<Self> {
@@ -137,9 +172,11 @@ impl Store {
     }
 
     fn init(conn: Connection) -> rusqlite::Result<Self> {
+        // First: five processes open this file at start-up, and switching to WAL needs a lock.
+        conn.busy_timeout(std::time::Duration::from_secs(30))?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA fullfsync=ON;
-             PRAGMA checkpoint_fullfsync=ON; PRAGMA busy_timeout=5000;",
+             PRAGMA checkpoint_fullfsync=ON;",
         )?;
         conn.execute_batch(SCHEMA)?;
         conn.execute_batch(crate::replog::SCHEMA)?;
@@ -437,8 +474,45 @@ pub fn settle(
     if moved != 1 || finalized != 1 {
         return Ok(false);
     }
+    scrub_timers(&tx, lease_id)?;
     tx.commit()?;
     Ok(true)
+}
+
+/// At settlement the exact timers go: times fall back to the hour (the resolution the replica
+/// holds), and the key id, the last-activity, retirement and revocation times are deleted. The usage reading stays: the lease status
+/// reports the measured cost from it, and its `read_at` is the only exact time left.
+pub fn scrub_timers(conn: &Connection, lease_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE leases SET
+           key_id = NULL, last_activity = NULL, retiring_at = NULL, revoked_at = NULL,
+           issued_at = issued_at / 3600 * 3600, expires_at = expires_at / 3600 * 3600,
+           settled_at = settled_at / 3600 * 3600, reserved_at = reserved_at / 3600 * 3600
+         WHERE lease_id = ?1",
+        [lease_id],
+    )?;
+    conn.execute(
+        "UPDATE signed_states SET signed_at = signed_at / 3600 * 3600 WHERE lease_id = ?1",
+        [lease_id],
+    )?;
+    // The spend book and the chat ids serve an open lease only.
+    conn.execute("DELETE FROM lease_spend WHERE lease_id = ?1", [lease_id])?;
+    conn.execute("DELETE FROM lease_chats WHERE lease_id = ?1", [lease_id])?;
+    Ok(())
+}
+
+/// Retention on this machine: request proofs and signed states older than `retention` seconds
+/// go, as the replica's do (a proof cannot be tied to its note, so the limit is age). Returns
+/// the number of rows changed.
+pub fn purge_old(conn: &Connection, now: u64, retention: u64) -> rusqlite::Result<usize> {
+    let cutoff = now.saturating_sub(retention);
+    let proofs = conn.execute(
+        "UPDATE leases SET request_json = '{}'
+         WHERE status = 'settled' AND request_json != '{}' AND reserved_at < ?1",
+        [cutoff],
+    )?;
+    let states = conn.execute("DELETE FROM signed_states WHERE signed_at < ?1", [cutoff])?;
+    Ok(proofs + states)
 }
 
 /// The lease of a client request id; none when no lease or more than one carries it (two
@@ -454,6 +528,93 @@ pub fn lease_by_client_request_id(
         .query_map([id], lease_from)?
         .collect::<Result<_, _>>()?;
     Ok(if rows.len() == 1 { rows.pop() } else { None })
+}
+
+/// The estimated cost (micro-USD) of a lease's finished requests, kept so a restart does not
+/// start an open lease's worst-case check from zero.
+pub fn set_spend(conn: &Connection, lease_id: &str, finished: u128) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO lease_spend(lease_id, finished) VALUES (?1, ?2)",
+        params![lease_id, finished.to_string()],
+    )
+    .map(|_| ())
+}
+
+/// The finished spend of every lease that has not settled.
+pub fn open_spends(conn: &Connection) -> rusqlite::Result<Vec<(String, u128)>> {
+    let mut statement = conn.prepare(
+        "SELECT s.lease_id, s.finished FROM lease_spend s
+         JOIN leases l ON l.lease_id = s.lease_id WHERE l.status != 'settled'",
+    )?;
+    let rows = statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (lease, finished) = row?;
+        out.push((
+            lease,
+            finished
+                .parse()
+                .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        ));
+    }
+    Ok(out)
+}
+
+/// A chat the evidence fetch will need: its id and model, as the first reply bytes name them.
+pub fn add_chat(
+    conn: &Connection,
+    lease_id: &str,
+    chat_id: &str,
+    model: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO lease_chats(lease_id, chat_id, model) VALUES (?1, ?2, ?3)",
+        params![lease_id, chat_id, model],
+    )
+    .map(|_| ())
+}
+
+/// The lease's chats, oldest first.
+pub fn chats_of(conn: &Connection, lease_id: &str) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut statement =
+        conn.prepare("SELECT chat_id, model FROM lease_chats WHERE lease_id = ?1 ORDER BY id")?;
+    let rows = statement.query_map([lease_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// A watcher process records its last poll here, so the public API process can show it.
+pub fn set_watcher_poll(conn: &Connection, id: &str, ts: u64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO watcher_status(id, last_poll) VALUES (?1, ?2)",
+        params![id, ts],
+    )
+    .map(|_| ())
+}
+
+pub fn watcher_polls(conn: &Connection) -> rusqlite::Result<Vec<(String, u64)>> {
+    let mut statement = conn.prepare("SELECT id, last_poll FROM watcher_status ORDER BY id")?;
+    let rows = statement.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as u64)))?;
+    rows.collect()
+}
+
+/// The key-leak notice, if the operator is in emergency.
+pub fn emergency(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT notice FROM emergency WHERE id = 1", [], |r| {
+        r.get(0)
+    })
+    .optional()
+}
+
+pub fn set_emergency(conn: &Connection, notice: &str, now: u64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO emergency(id, notice, since) VALUES (1, ?1, ?2)",
+        params![notice, now],
+    )
+    .map(|_| ())
+}
+
+pub fn clear_emergency(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM emergency", []).map(|_| ())
 }
 
 pub fn record_exit_seen(conn: &Connection, nullifier: &str) -> rusqlite::Result<()> {

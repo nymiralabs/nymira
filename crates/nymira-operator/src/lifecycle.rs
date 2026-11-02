@@ -353,6 +353,29 @@ impl Operator {
         })
     }
 
+    /// A replica that is diverged or unreachable raises an alarm; one that is back clears it.
+    async fn alarm_on_replica_health(&self) {
+        for (health, what) in [
+            (
+                "diverged",
+                "its log and ours disagree; nothing is signed until a person looks",
+            ),
+            (
+                "unreachable",
+                "no signature can leave while the second machine does not answer",
+            ),
+        ] {
+            let key = format!("replica_{health}");
+            if self.replica.health() == health {
+                self.alarms
+                    .raise(&key, &format!("Replica {health}"), what)
+                    .await;
+            } else {
+                self.alarms.resolve(&key);
+            }
+        }
+    }
+
     /// Runs every due lifecycle step once.
     pub async fn tick(&self) {
         let _step = self.lifecycle.lock().await;
@@ -369,6 +392,21 @@ impl Operator {
         };
         if sync_due || self.replica.in_recovery() {
             let _ = self.restore_from_replica().await;
+            self.alarm_on_replica_health().await;
+        }
+        let purge_due = {
+            let mut at = self.purged_at.lock().unwrap_or_else(|e| e.into_inner());
+            let due = now >= *at + crate::operator::PURGE_EVERY_SECS;
+            if due {
+                *at = now;
+            }
+            due
+        };
+        if purge_due {
+            let _ = self
+                .store
+                .run(move |c| store::purge_old(c, now, crate::replog::RETENTION_SECS))
+                .await;
         }
         let balance_due = self.clock.now_ms().saturating_sub(self.balance_read_ms())
             >= self.config().balance_refresh_secs * 1000;
@@ -476,11 +514,17 @@ impl Operator {
             Err(_) if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS => None,
             Err(_) => return,
         };
-        let signed = self.minter.sign(UsageRecord {
-            lease_id: lease.lease_id.clone(),
-            cost_nano_usd: cost,
-            read_at: now,
-        });
+        let Ok(signed) = self
+            .minter
+            .sign(UsageRecord {
+                lease_id: lease.lease_id.clone(),
+                cost_nano_usd: cost,
+                read_at: now,
+            })
+            .await
+        else {
+            return;
+        };
         let (id, json) = (
             lease.lease_id.clone(),
             serde_json::to_string(&signed).expect("usage serialises"),
@@ -671,6 +715,25 @@ impl Operator {
                 Code::LeaseNotFound,
                 "the lease is not waiting for reconciliation",
             ));
+        }
+        // Counted only now: garbage and unknown leases must not use up the minute for real ones.
+        {
+            let now = self.clock.now_secs();
+            let mut recent = self.reconciles.lock().unwrap_or_else(|e| e.into_inner());
+            while recent.front().is_some_and(|t| *t + 60 <= now) {
+                recent.pop_front();
+            }
+            if recent.len() >= crate::operator::RECONCILES_PER_MINUTE {
+                let wait = recent
+                    .front()
+                    .map_or(1, |t| (*t + 60).saturating_sub(now).max(1));
+                return Err(ApiError::new(
+                    Code::OperatorCapacity,
+                    "too many reconcile calls this minute",
+                )
+                .retry_after(wait));
+            }
+            recent.push_back(now);
         }
         if !self.settle_at_bound(&lease, "reconciled").await {
             return Err(ApiError::new(Code::ReplicaUnreachable, "try again").retry_after(5));

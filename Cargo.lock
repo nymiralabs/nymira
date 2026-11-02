@@ -3428,7 +3428,11 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "http-body",
+ "hyper",
+ "hyper-util",
  "lettre",
+ "libc",
  "lru",
  "near-workspaces",
  "nymira-fake-near-ai",
@@ -3438,6 +3442,7 @@ dependencies = [
  "pbkdf2",
  "rand 0.8.8",
  "reqwest 0.12.28",
+ "rpassword",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3449,8 +3454,33 @@ dependencies = [
  "tokio-stream",
  "tower-http",
  "x25519-dalek",
+ "zeroize",
  "zkapi-client",
  "zkapi-core",
+ "zkapi-proof",
+ "zkapi-types",
+]
+
+[[package]]
+name = "nymira-operatord"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "ed25519-dalek",
+ "hex",
+ "libc",
+ "nymira-fake-near-ai",
+ "nymira-fake-near-rpc",
+ "nymira-near-codec",
+ "nymira-operator",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "zeroize",
  "zkapi-proof",
  "zkapi-types",
 ]
@@ -5235,10 +5265,12 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "pin-project-lite",
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
  "url",
 ]
 

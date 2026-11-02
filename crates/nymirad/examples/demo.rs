@@ -200,9 +200,9 @@ async fn main() {
         withdrawal_verifier: withdrawal,
         closer,
         store,
-        state_signer: CompactSigner::from_seed(&Felt252::from_u64(1)),
+        state_signer: Arc::new(CompactSigner::from_seed(&Felt252::from_u64(1))),
         signer: Arc::new(LocalSigner(signer)),
-        minter,
+        minter: Arc::new(minter),
         alarms,
     })
     .await
