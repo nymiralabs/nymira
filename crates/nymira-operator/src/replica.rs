@@ -61,11 +61,17 @@ pub struct FakeReplica {
     entries: Mutex<Vec<ReplicaEntry>>,
     records: Mutex<Vec<(String, String)>>,
     down: Mutex<bool>,
+    recovery: Mutex<bool>,
 }
 
 impl FakeReplica {
     pub fn set_down(&self, down: bool) {
         *self.down.lock().unwrap_or_else(|e| e.into_inner()) = down;
+    }
+
+    /// Makes the fake say the operator is restoring (its log is behind the replica's).
+    pub fn set_recovery(&self, on: bool) {
+        *self.recovery.lock().unwrap_or_else(|e| e.into_inner()) = on;
     }
 
     /// `(kind, key)` of every later fact recorded.
@@ -112,5 +118,9 @@ impl Replica for FakeReplica {
             records.push(fact);
         }
         Ok(())
+    }
+
+    fn in_recovery(&self) -> bool {
+        *self.recovery.lock().unwrap_or_else(|e| e.into_inner())
     }
 }

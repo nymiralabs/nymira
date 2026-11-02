@@ -326,6 +326,14 @@ impl Operator {
                 ),
                 settlement_deadline: None,
             },
+            // Settled at the bound while the second machine was away: nothing was signed, and
+            // nothing will be. The client leaves this note by exit.
+            None if row.status == "settled" => RecoveryResponseV2 {
+                status: "finalized".into(),
+                nullifier_status: "finalized".into(),
+                request_response: None,
+                settlement_deadline: None,
+            },
             None => RecoveryResponseV2 {
                 status: "pending".into(),
                 nullifier_status: "reserved".into(),
