@@ -111,6 +111,17 @@ CREATE TABLE IF NOT EXISTS signed_states(
   signed_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS exit_seen(nullifier TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS lease_spend(
+  lease_id TEXT PRIMARY KEY,
+  finished TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lease_chats(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lease_id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  UNIQUE(lease_id, chat_id)
+);
 CREATE TABLE IF NOT EXISTS watcher_status(
   id TEXT PRIMARY KEY,
   last_poll INTEGER NOT NULL
@@ -484,6 +495,9 @@ pub fn scrub_timers(conn: &Connection, lease_id: &str) -> rusqlite::Result<()> {
         "UPDATE signed_states SET signed_at = signed_at / 3600 * 3600 WHERE lease_id = ?1",
         [lease_id],
     )?;
+    // The spend book and the chat ids serve an open lease only.
+    conn.execute("DELETE FROM lease_spend WHERE lease_id = ?1", [lease_id])?;
+    conn.execute("DELETE FROM lease_chats WHERE lease_id = ?1", [lease_id])?;
     Ok(())
 }
 
@@ -514,6 +528,58 @@ pub fn lease_by_client_request_id(
         .query_map([id], lease_from)?
         .collect::<Result<_, _>>()?;
     Ok(if rows.len() == 1 { rows.pop() } else { None })
+}
+
+/// The estimated cost (micro-USD) of a lease's finished requests, kept so a restart does not
+/// start an open lease's worst-case check from zero.
+pub fn set_spend(conn: &Connection, lease_id: &str, finished: u128) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO lease_spend(lease_id, finished) VALUES (?1, ?2)",
+        params![lease_id, finished.to_string()],
+    )
+    .map(|_| ())
+}
+
+/// The finished spend of every lease that has not settled.
+pub fn open_spends(conn: &Connection) -> rusqlite::Result<Vec<(String, u128)>> {
+    let mut statement = conn.prepare(
+        "SELECT s.lease_id, s.finished FROM lease_spend s
+         JOIN leases l ON l.lease_id = s.lease_id WHERE l.status != 'settled'",
+    )?;
+    let rows = statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (lease, finished) = row?;
+        out.push((
+            lease,
+            finished
+                .parse()
+                .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        ));
+    }
+    Ok(out)
+}
+
+/// A chat the evidence fetch will need: its id and model, as the first reply bytes name them.
+pub fn add_chat(
+    conn: &Connection,
+    lease_id: &str,
+    chat_id: &str,
+    model: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO lease_chats(lease_id, chat_id, model) VALUES (?1, ?2, ?3)",
+        params![lease_id, chat_id, model],
+    )
+    .map(|_| ())
+}
+
+/// The lease's chats, oldest first.
+pub fn chats_of(conn: &Connection, lease_id: &str) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut statement =
+        conn.prepare("SELECT chat_id, model FROM lease_chats WHERE lease_id = ?1 ORDER BY id")?;
+    let rows = statement.query_map([lease_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
 }
 
 /// A watcher process records its last poll here, so the public API process can show it.

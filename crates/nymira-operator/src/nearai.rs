@@ -608,6 +608,8 @@ pub struct LeaseChat {
     http: reqwest::Client,
     base_url: String,
     chats: Arc<Mutex<HashMap<String, ChatLog>>>,
+    /// When set, chat ids are also kept in the database, so the evidence fetch survives a restart.
+    store: Option<crate::store::Store>,
 }
 
 impl LeaseChat {
@@ -616,7 +618,14 @@ impl LeaseChat {
             http,
             base_url: base_url.trim_end_matches('/').into(),
             chats: Arc::new(Mutex::new(HashMap::new())),
+            store: None,
         }
+    }
+
+    /// Keeps the chat ids of each lease in the database as well as in memory.
+    pub fn with_store(mut self, store: crate::store::Store) -> Self {
+        self.store = Some(store);
+        self
     }
 
     fn url(&self, path: &str) -> String {
@@ -661,6 +670,7 @@ impl LeaseChat {
                 reply,
                 lease_id: lease_id.into(),
                 chats: self.chats.clone(),
+                store: self.store.clone(),
                 head: Vec::new(),
                 noted: false,
             }),
@@ -675,13 +685,30 @@ impl LeaseChat {
         lease_id: &str,
         query: &EvidenceQuery,
     ) -> Result<Option<Value>, ProviderError> {
-        let chats: Vec<(String, String)> = {
+        let mut chats: Vec<(String, String)> = {
             let log = self.chats.lock().unwrap_or_else(|e| e.into_inner());
             match log.get(lease_id) {
                 Some(l) => l.0.iter().rev().take(EVIDENCE_CHATS).cloned().collect(),
-                None => return Ok(None),
+                None => Vec::new(),
             }
         };
+        // After a restart the memory is empty; the database still has the ids.
+        if chats.is_empty() {
+            if let Some(store) = &self.store {
+                let lease = lease_id.to_string();
+                chats = store
+                    .run(move |c| crate::store::chats_of(c, &lease))
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .rev()
+                    .take(EVIDENCE_CHATS)
+                    .collect();
+            }
+        }
+        if chats.is_empty() {
+            return Ok(None);
+        }
         let Some((_, model)) = chats.first().cloned() else {
             return Ok(None);
         };
@@ -745,14 +772,16 @@ struct UpstreamBody {
     reply: reqwest::Response,
     lease_id: String,
     chats: Arc<Mutex<HashMap<String, ChatLog>>>,
+    store: Option<crate::store::Store>,
     head: Vec<u8>,
     noted: bool,
 }
 
 impl UpstreamBody {
-    fn note(&mut self, chunk: &[u8]) {
+    /// Scans the first bytes; returns the chat's id and model the first time they are found.
+    fn note(&mut self, chunk: &[u8]) -> Option<(String, String)> {
         if self.noted {
-            return;
+            return None;
         }
         self.head.extend_from_slice(chunk);
         // Non-streamed: one JSON object. Streamed: the first `data:` line is one.
@@ -774,10 +803,12 @@ impl UpstreamBody {
                     .or_default()
                     .0
                     .push((id.into(), model.into()));
+                return Some((id.into(), model.into()));
             }
         } else if self.head.len() > 64 * 1024 {
             self.noted = true;
         }
+        None
     }
 }
 
@@ -786,7 +817,12 @@ impl ChatBody for UpstreamBody {
     async fn next_chunk(&mut self) -> Option<Result<Bytes, ProviderError>> {
         match self.reply.chunk().await {
             Ok(Some(chunk)) => {
-                self.note(&chunk);
+                if let (Some((id, model)), Some(store)) = (self.note(&chunk), &self.store) {
+                    let lease = self.lease_id.clone();
+                    let _ = store
+                        .run(move |c| crate::store::add_chat(c, &lease, &id, &model))
+                        .await;
+                }
                 Some(Ok(chunk))
             }
             Ok(None) => None,

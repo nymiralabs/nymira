@@ -1346,3 +1346,25 @@ async fn a_request_in_flight_holds_back_the_next_lease_until_it_ends() {
     let (s, v, _) = rig.lease(&rig.fresh(2)).await;
     assert_eq!(s, 201, "{v}");
 }
+
+// ---------------------------------------------------------------- the spend book survives a restart
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_finished_spend_of_an_open_lease_survives_a_restart() {
+    let mut rig = Rig::new(proxy_setup(|_| {})).await;
+    let l = open(&rig, 1).await;
+    let (s, _, _) = chat(&rig, &l, &body(Some(50), false)).await;
+    assert_eq!(s, 200);
+    settled(&rig).await;
+    // The write behind a finished request is a background task.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let before = rig.op.spent_estimate(&l.id);
+    assert!(before > 0);
+
+    rig.restart(proxy_setup(|_| {})).await;
+    assert_eq!(
+        rig.op.spent_estimate(&l.id),
+        before,
+        "the restarted operator counts what the lease already spent"
+    );
+}

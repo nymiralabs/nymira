@@ -424,6 +424,17 @@ impl Operator {
                 .record(crate::replog::kinds::ROLLED_BACK, &lease.lease_id, None)
                 .await;
         }
+        let spends = self
+            .store
+            .run(|c| store::open_spends(c))
+            .await
+            .map_err(|e| StartError::Store(e.to_string()))?;
+        {
+            let mut book = self.spend.lock().unwrap_or_else(|e| e.into_inner());
+            for (lease, finished) in spends {
+                book.restore(&lease, finished);
+            }
+        }
         let day_start =
             self.clock.now_secs() / crate::budget::SECS_PER_DAY * crate::budget::SECS_PER_DAY;
         let settled = self

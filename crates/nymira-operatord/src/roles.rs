@@ -165,7 +165,7 @@ pub async fn api(cfg: &Config) -> Result<(), Failure> {
         .map_err(|e| e.to_string())?;
     let remote = Arc::new(RemoteProvider::new(
         &cfg.socket("minter"),
-        LeaseChat::new(http, &cfg.near_ai.base_url),
+        LeaseChat::new(http, &cfg.near_ai.base_url).with_store(store.clone()),
     ));
     let replica = Arc::new(SocketReplica::new(&cfg.socket("replica")));
     replica
