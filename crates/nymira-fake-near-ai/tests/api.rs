@@ -171,7 +171,7 @@ async fn key_lifecycle_and_recording() {
         .await
         .unwrap();
     assert_eq!(list["total"], 1);
-    assert!(list["data"][0].get("key").is_none());
+    assert!(list["api_keys"][0].get("key").is_none());
 
     // Lower the limit, then deactivate: chat stops working, signature fetch too.
     let id = minted[0].id.clone();
@@ -376,7 +376,7 @@ async fn usage_balance_and_spend_limit() {
             .bearer_auth(SESSION_TOKEN)
             .send();
         async move {
-            r.await.unwrap().json::<Value>().await.unwrap()["balance"]["amount"]
+            r.await.unwrap().json::<Value>().await.unwrap()["remaining"]
                 .as_i64()
                 .unwrap()
         }
@@ -399,7 +399,7 @@ async fn usage_balance_and_spend_limit() {
     .json()
     .await
     .unwrap();
-    assert_eq!(export["data"][0]["cost_nano_usd"], 3740);
+    assert_eq!(export["data"][0]["total_cost_nano_usd"], 3740);
     assert_eq!(export["data"][0]["input_tokens"], 3);
     let other: Value = rpt("/v1/organizations/org/usage/export?api_key_id=key-99")
         .await
@@ -417,7 +417,10 @@ async fn usage_balance_and_spend_limit() {
     .await
     .unwrap();
     assert_eq!(
-        (sum["requests"].as_u64(), sum["output_tokens"].as_u64()),
+        (
+            sum["totals"]["request_count"].as_u64(),
+            sum["totals"]["output_tokens"].as_u64()
+        ),
         (Some(1), Some(7))
     );
     // A reporting token cannot read the balance.

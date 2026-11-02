@@ -36,6 +36,7 @@ pub fn router(h: Handle) -> Router {
         .route("/v1/organizations/{org}/usage/export", get(usage_export))
         .route("/v1/organizations/{org}/usage/summary", get(usage_summary))
         .route("/v1/organizations/{org}/usage/balance", get(balance))
+        .route("/v1/users/me/access-tokens", post(access_token))
         .layer(middleware::from_fn_with_state(h.clone(), inject));
     let control = Router::new()
         .route(
@@ -229,7 +230,7 @@ async fn list_keys(
         .map(|k| k.to_json(false))
         .collect();
     Ok(Json(
-        json!({"data": page, "total": live.len(), "limit": limit, "offset": offset}),
+        json!({"api_keys": page, "total": live.len(), "limit": limit, "offset": offset}),
     ))
 }
 
@@ -293,7 +294,9 @@ async fn usage_export(
         .iter()
         .filter(|r| q.get("api_key_id").is_none_or(|id| *id == r.api_key_id))
         .collect();
-    Ok(Json(json!({"data": rows, "count": rows.len()})))
+    Ok(Json(
+        json!({"data": rows, "count": rows.len(), "next_cursor": null}),
+    ))
 }
 
 async fn usage_summary(
@@ -309,21 +312,85 @@ async fn usage_summary(
         .iter()
         .filter(|r| q.get("api_key_id").is_none_or(|id| *id == r.api_key_id))
         .collect();
+    let input: u64 = rows.iter().map(|r| r.input_tokens).sum();
+    let output: u64 = rows.iter().map(|r| r.output_tokens).sum();
+    let cost: u64 = rows.iter().map(|r| r.cost_nano_usd).sum();
     Ok(Json(json!({
-        "api_key_id": q.get("api_key_id"),
-        "requests": rows.len(),
-        "input_tokens": rows.iter().map(|r| r.input_tokens).sum::<u64>(),
-        "output_tokens": rows.iter().map(|r| r.output_tokens).sum::<u64>(),
-        "cost_nano_usd": rows.iter().map(|r| r.cost_nano_usd).sum::<u64>(),
+        "totals": {
+            "request_count": rows.len(),
+            "service_usage_count": 0,
+            "input_tokens": input,
+            "output_tokens": output,
+            "cache_read_tokens": 0,
+            "total_tokens": input + output,
+            "inference_cost_nano_usd": cost,
+            "service_cost_nano_usd": 0,
+            "total_cost_nano_usd": cost,
+        },
     })))
 }
 
-async fn balance(State(h): State<Handle>, headers: HeaderMap, Path(_org): Path<String>) -> R {
+/// The real balance response: `remaining` is the credit left, in nano-USD.
+async fn balance(State(h): State<Handle>, headers: HeaderMap, Path(org): Path<String>) -> R {
     require_session(&headers)?;
-    let nano = h.lock().switches.balance_nano;
-    Ok(Json(
-        json!({"balance": {"amount": nano, "scale": 9, "currency": "USD"}}),
-    ))
+    let g = h.lock();
+    let spent: u64 = g.usage.iter().map(|r| r.cost_nano_usd).sum();
+    let tokens: u64 = g
+        .usage
+        .iter()
+        .map(|r| r.input_tokens + r.output_tokens)
+        .sum();
+    Ok(Json(json!({
+        "organization_id": org,
+        "remaining": g.switches.balance_nano,
+        "remaining_display": null,
+        "total_spent": spent,
+        "total_spent_display": "",
+        "total_requests": g.usage.len(),
+        "total_tokens": tokens,
+        "updated_at": "1970-01-01T00:00:00Z",
+        "credit_limits": [],
+    })))
+}
+
+/// Exchanges a refresh token for a session token and, unless switched off, a replacement
+/// refresh token. The old one stops working.
+async fn access_token(State(h): State<Handle>, headers: HeaderMap) -> R {
+    let mut g = h.lock();
+    let current = format!("rt-fake-{}", g.refresh_count);
+    if bearer(&headers) != Some(current.as_str()) {
+        return Err(err(401, "unauthorized", "refresh token not valid"));
+    }
+    if g.switches.rotate_refresh_tokens {
+        g.refresh_count += 1;
+    }
+    let ttl = g.switches.refresh_ttl_secs;
+    Ok(Json(json!({
+        "access_token": SESSION_TOKEN,
+        "refresh_token": format!("rt-fake-{}", g.refresh_count),
+        "refresh_token_expiration": rfc3339(now() + ttl),
+    })))
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ` for a Unix time (civil-from-days, proleptic Gregorian).
+pub fn rfc3339(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 // ---- chat ---------------------------------------------------------------

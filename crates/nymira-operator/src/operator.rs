@@ -60,6 +60,7 @@ pub struct Config {
     /// The one browser origin CORS admits.
     pub web_origin: String,
     pub budget: BudgetConfig,
+    pub credit: crate::budget::CreditConfig,
     pub proxy: crate::proxy::ProxyConfig,
     /// Team note ids, also published as a file in the repository.
     pub team_note_ids: Vec<u32>,
@@ -90,6 +91,7 @@ impl Config {
             host: "localhost".into(),
             web_origin: web_origin.into(),
             budget: BudgetConfig::default(),
+            credit: crate::budget::CreditConfig::default(),
             proxy: crate::proxy::ProxyConfig::default(),
             team_note_ids: Vec::new(),
             max_verifications: 4,
@@ -191,6 +193,9 @@ pub struct Operator {
     pub(crate) limiter: crate::proxy::Limiter,
     pub(crate) blocked_models: Mutex<HashSet<String>>,
     pub(crate) models_checked_ms: Mutex<u64>,
+    pub(crate) alarms: Arc<crate::alarm::Alarms>,
+    /// Why key minting is stopped, if it is.
+    pub(crate) stops: Mutex<crate::watch::Stops>,
 }
 
 pub struct Parts {
@@ -204,6 +209,7 @@ pub struct Parts {
     pub state_signer: CompactSigner,
     pub signer: Arc<dyn SignerApi>,
     pub minter: Minter,
+    pub alarms: Arc<crate::alarm::Alarms>,
 }
 
 /// `0x` and 64 lowercase hex digits, the vault's spelling of a word (`Felt252::to_hex` trims).
@@ -226,6 +232,7 @@ impl Operator {
             state_signer,
             signer,
             minter,
+            alarms,
         } = parts;
         if cfg.profile != Profile::Sandbox {
             return Err(StartError::NoReplication);
@@ -267,6 +274,8 @@ impl Operator {
             limiter: crate::proxy::Limiter::new(),
             blocked_models: Mutex::new(HashSet::new()),
             models_checked_ms: Mutex::new(0),
+            alarms,
+            stops: Mutex::new(crate::watch::Stops::default()),
         });
         operator
             .refresh_chain(true)
@@ -284,6 +293,7 @@ impl Operator {
             }
         }
         operator.recover().await?;
+        operator.judge_credit(credit, credit).await;
         operator.check_models().await;
         Ok(operator)
     }
@@ -401,13 +411,19 @@ impl Operator {
         let _ = self.refresh_chain(true).await;
     }
 
-    /// Reads the provider's balance and corrects the ledger.
+    /// Reads the provider's balance and corrects the ledger. A failed read keeps the old figure
+    /// and counts toward an alarm.
     pub async fn refresh_balance(&self) {
         let read =
             tokio::time::timeout(std::time::Duration::from_secs(5), self.provider.balance()).await;
-        if let Ok(Ok(balance)) = read {
-            self.ledger.set_balance(balance);
-            *self.balance_at_ms.lock().unwrap_or_else(|e| e.into_inner()) = self.clock.now_ms();
+        *self.balance_at_ms.lock().unwrap_or_else(|e| e.into_inner()) = self.clock.now_ms();
+        match read {
+            Ok(Ok(balance)) => {
+                let expected = self.ledger.live_credit();
+                self.ledger.set_balance(balance);
+                self.judge_credit(expected, balance).await;
+            }
+            _ => self.balance_unreadable().await,
         }
     }
 
@@ -776,6 +792,13 @@ impl Operator {
 
         let _admission = self.admission.lock().await;
         self.maybe_refresh_balance().await;
+        if self.minting_stop().is_some() {
+            return Err(ApiError::new(
+                Code::OperatorCapacity,
+                "the operator has paused new leases",
+            )
+            .retry_after(RETRY_HINT_SECS));
+        }
         let lease_id = token::random_hex(16);
         if let Err(refusal) = self.ledger.admit(&lease_id, bound, self.clock.now_ms()) {
             return Err(refusal_error(refusal, proof_ends, self.clock.now_secs()));
@@ -904,6 +927,10 @@ impl Operator {
         let id = lease_id.to_string();
         let _ = self.store.run(move |c| store::roll_back(c, &id)).await;
         self.ledger.release(lease_id);
+    }
+
+    pub(crate) fn balance_read_ms(&self) -> u64 {
+        *self.balance_at_ms.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     async fn maybe_refresh_balance(&self) {

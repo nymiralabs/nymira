@@ -368,6 +368,11 @@ impl SpendBook {
     pub fn finished(&self, lease: &str) -> u128 {
         self.leases.get(lease).map_or(0, |s| s.finished)
     }
+
+    /// Whether the book has seen the lease: after a restart it has not.
+    pub fn knows(&self, lease: &str) -> bool {
+        self.leases.contains_key(lease)
+    }
 }
 
 // ---------------------------------------------------------------- limiter
@@ -876,22 +881,36 @@ impl Operator {
     }
 
     /// Compares the pinned models with the provider's live list: a model that is missing, not
-    /// attested, or priced differently from its pin is blocked.
+    /// attested, or priced differently from its pin is blocked, and a price that differs also
+    /// stops key minting (see [`Operator::minting_stop`]).
     pub async fn check_models(&self) {
-        let Ok(Ok(Some(live))) =
-            tokio::time::timeout(Duration::from_secs(10), self.provider.models()).await
-        else {
-            return;
+        // Stamped before the call: a failing provider is asked again in five minutes, not every tick.
+        *self
+            .models_checked_ms
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = self.clock.now_ms();
+        let live = match tokio::time::timeout(Duration::from_secs(10), self.provider.models()).await
+        {
+            Ok(Ok(Some(live))) => live,
+            Ok(Ok(None)) => return,
+            _ => {
+                self.models_unreadable().await;
+                return;
+            }
         };
         let mut blocked = HashSet::new();
+        let mut priced = HashSet::new();
         for pinned in &self.config().proxy.models {
-            let ok = live.iter().any(|m| {
-                m.id == pinned.id
-                    && m.provider_type == "vllm"
-                    && m.attestation_supported
-                    && m.input_nano_per_token == pinned.input_nano_per_token
+            let listed = live.iter().find(|m| m.id == pinned.id);
+            let same_price = listed.is_some_and(|m| {
+                m.input_nano_per_token == pinned.input_nano_per_token
                     && m.output_nano_per_token == pinned.output_nano_per_token
             });
+            if listed.is_some() && !same_price {
+                priced.insert(pinned.id.clone());
+            }
+            let ok = same_price
+                && listed.is_some_and(|m| m.provider_type == "vllm" && m.attestation_supported);
             if !ok {
                 blocked.insert(pinned.id.clone());
             }
@@ -899,11 +918,8 @@ impl Operator {
         *self
             .blocked_models
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = blocked;
-        *self
-            .models_checked_ms
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = self.clock.now_ms();
+            .unwrap_or_else(|e| e.into_inner()) = blocked.clone();
+        self.judge_models(&blocked, priced).await;
     }
 
     pub fn blocked_models(&self) -> HashSet<String> {

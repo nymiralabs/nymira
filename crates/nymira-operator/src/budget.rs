@@ -63,6 +63,36 @@ impl BudgetConfig {
     }
 }
 
+/// Credit thresholds in micro-USD for the watcher: an alarm under `alarm_below`, no new leases
+/// under `stop_below`, and an alarm when a reading is `drift` under what the ledger expected.
+#[derive(Clone, Copy, Debug)]
+pub struct CreditConfig {
+    pub alarm_below: u128,
+    pub stop_below: u128,
+    pub drift: u128,
+}
+
+impl Default for CreditConfig {
+    fn default() -> Self {
+        Self {
+            alarm_below: 3_000_000,
+            stop_below: 1_000_000,
+            drift: 20_000,
+        }
+    }
+}
+
+impl CreditConfig {
+    /// The hackathon deployment (1 USD of credit in total): alarm at 0.50 USD, stop at 0.20 USD.
+    pub fn hackathon() -> Self {
+        Self {
+            alarm_below: 500_000,
+            stop_below: 200_000,
+            ..Self::default()
+        }
+    }
+}
+
 struct Inner {
     /// Provider balance at the last reading, less charges settled since.
     credit: u128,
