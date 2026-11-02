@@ -22,8 +22,11 @@ echo "$other" | grep -qi "^access-control-allow-origin" && { echo "FAIL: allowed
 echo "== status over the entry"
 curl -sS "$URL/v1/status" | head -c 300; echo
 
-echo "== streaming: chunks must arrive while the stream is open"
-echo "Run a streamed chat through nymirad against this URL and watch that events arrive one by one;"
-echo "a response that arrives all at once at the end means the entry buffers it (use non-streamed"
-echo "responses, or the Cloudflare Tunnel). This part needs a lease, so it is not scripted here."
+echo "== streaming: events must arrive one by one while the stream is open"
+echo "Serve a stream and read it through the entry. The example makes one (an event a second at /sse"
+echo "on 127.0.0.1:8081, next to a local operator stack on 8080):"
+echo "  cargo run -p nymira-operatord --features dev-setup --example local_stack"
+echo "  tailscale funnel --bg --https=8443 8081"
+echo "  curl -sN $URL:8443/sse | while read -r l; do echo \"\$(date +%S) \$l\"; done"
+echo "Timestamps one second apart mean the entry streams; all at the end means it buffers."
 exit $fail

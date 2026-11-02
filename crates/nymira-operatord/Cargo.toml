@@ -26,7 +26,12 @@ zeroize = "1"
 zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof" }
 zkapi-types = { workspace = true }
 
+[[example]]
+name = "local_stack"
+required-features = ["dev-setup"]
+
 [dev-dependencies]
+tokio-stream = "0.1"
 tempfile = "3"
 hex = "0.4"
 nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }

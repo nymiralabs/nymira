@@ -3479,6 +3479,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "zeroize",
  "zkapi-proof",
  "zkapi-types",
