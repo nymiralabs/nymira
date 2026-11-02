@@ -18,6 +18,7 @@ pub mod hardening;
 pub mod lease;
 pub mod mode;
 pub mod models;
+pub mod nearai;
 pub mod net;
 pub mod openai;
 pub mod pins;
