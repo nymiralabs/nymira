@@ -77,17 +77,43 @@ impl Rpc {
 
     /// A view call at the final block, decoded from JSON.
     pub async fn view(&self, account: &str, method: &str, args: Value) -> Result<Value, RpcError> {
+        self.view_at(json!({ "finality": "final" }), account, method, args)
+            .await
+    }
+
+    /// The hash and height of the latest final block, to read several views at one block.
+    pub async fn final_block(&self) -> Result<(String, u64), RpcError> {
+        let block = self.call("block", json!({ "finality": "final" })).await?;
+        match (
+            block["header"]["hash"].as_str(),
+            block["header"]["height"].as_u64(),
+        ) {
+            (Some(hash), Some(height)) => Ok((hash.into(), height)),
+            _ => Err(RpcError::Shape("block header".into())),
+        }
+    }
+
+    /// A view call at `block` (`{"finality": "final"}` or `{"block_id": "<hash>"}`).
+    pub async fn view_at(
+        &self,
+        block: Value,
+        account: &str,
+        method: &str,
+        args: Value,
+    ) -> Result<Value, RpcError> {
         use base64::Engine;
-        let result = self
-            .call(
-                "query",
-                json!({
-                    "request_type": "call_function", "finality": "final",
-                    "account_id": account, "method_name": method,
-                    "args_base64": base64::engine::general_purpose::STANDARD.encode(args.to_string()),
-                }),
-            )
-            .await?;
+        let mut params = json!({
+            "request_type": "call_function",
+            "account_id": account, "method_name": method,
+            "args_base64": base64::engine::general_purpose::STANDARD.encode(args.to_string()),
+        });
+        params.as_object_mut().expect("object").extend(
+            block
+                .as_object()
+                .expect("block selector is an object")
+                .clone(),
+        );
+        let result = self.call("query", params).await?;
         let bytes: Vec<u8> = result["result"]
             .as_array()
             .ok_or_else(|| RpcError::Shape(format!("no result for {method}: {result}")))?

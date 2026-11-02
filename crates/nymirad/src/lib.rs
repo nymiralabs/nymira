@@ -18,5 +18,6 @@ pub mod quotes;
 pub mod rpc;
 pub mod secrets;
 pub mod sizing;
+pub mod snapshot;
 pub mod status;
 pub mod token;

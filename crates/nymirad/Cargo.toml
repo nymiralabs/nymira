@@ -33,6 +33,7 @@ zeroize = "1"
 zkapi-core = { workspace = true }
 zkapi-types = { workspace = true }
 zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof" }
+zkapi-client = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-client" }
 
 [[example]]
 name = "demo"
