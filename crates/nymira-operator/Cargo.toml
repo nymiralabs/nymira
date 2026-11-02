@@ -41,6 +41,8 @@ zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof" }
 zkapi-types = { workspace = true }
 
 [dev-dependencies]
+hkdf = "0.12"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
 async-trait = "0.1"
 nymira-near-codec = { workspace = true }
 nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }
