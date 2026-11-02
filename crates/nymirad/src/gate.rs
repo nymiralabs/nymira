@@ -14,8 +14,9 @@ use zkapi_types::{Felt252, SchnorrSignature};
 /// A status nonce older than this is not used: the operator's slots are 5 seconds, its puzzle
 /// window 30.
 pub const MAX_STATUS_AGE_SECS: u64 = 30;
-/// A `request_time` on this grid would hide the exact client clock. Nothing uses it yet: the
-/// embedded wallet stamps requests with the local clock.
+/// `request_time` of a lease proof is the operator's signed time rounded down to this grid, so it
+/// does not show the client's clock. The operator accepts a time up to 330 s old; a proof is
+/// stamped at most 60 s plus its proving time before it is sent.
 pub const TIME_GRID_SECS: u64 = 60;
 
 /// The lease parameters of `config()` that `/v1/status` repeats.

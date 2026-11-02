@@ -32,7 +32,7 @@ use crate::lease::{self, Attempt, Lease, LeaseClient, LeaseError, Pinned};
 use crate::openai::ApiError;
 use crate::pins::{self, Pins, Tripwire};
 use crate::records::{LeaseRecord, Records};
-use crate::rpc::{client, send_error, Rpc, RpcError, Transport};
+use crate::rpc::{client, client_with_identity, send_error, Rpc, RpcError, Transport};
 use crate::secrets::{NoteEntry, NoteStatus, NoteStore};
 use crate::sizing;
 use crate::snapshot;
@@ -64,6 +64,10 @@ pub struct GatewayConfig {
     /// Percent of a lease's remaining bound one request may use: 90, or 70 if the first-day
     /// overspend rule triggers (it did not, see `docs/day-1-checks.md`).
     pub share_pct: u128,
+    /// A new lease waits a random time up to this many seconds before anything goes out, and
+    /// opens its Tor circuit meanwhile (`net::prewarm`), so lease timing does not follow the
+    /// moment the user asked. 0 turns both off; over a direct transport they are off anyway.
+    pub prewarm_max_secs: u64,
     pub backup: Option<(age::x25519::Recipient, Vec<PathBuf>)>,
 }
 
@@ -426,6 +430,27 @@ impl Gateway {
             .map_err(|e| unavailable("attestation_failed", e))
     }
 
+    /// The random delay, then an empty connection to the operator on the conversation's identity.
+    /// The connection is made while the proof is built; its result does not matter.
+    async fn prewarm(&self, identity: &str) {
+        let (Some(socks), true) = (self.transport.socks_addr(), self.cfg.prewarm_max_secs > 0)
+        else {
+            return;
+        };
+        let delay_ms = rand::random::<u64>() % (self.cfg.prewarm_max_secs * 1000 + 1);
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        let Ok(url) = reqwest::Url::parse(&self.cfg.operator_url) else {
+            return;
+        };
+        let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
+            return;
+        };
+        let (host, identity) = (host.to_string(), identity.to_string());
+        tokio::spawn(async move {
+            let _ = crate::net::prewarm(&socks, &identity, &host, port).await;
+        });
+    }
+
     /// Opens a lease on a free note.
     async fn open_session(
         &self,
@@ -448,7 +473,10 @@ impl Gateway {
             )
         })?;
         // A new conversation, a new circuit. With Tor not ready this fails before a note is touched.
-        let http = client(&self.transport).map_err(|e| net_error("operator_unreachable", e))?;
+        let identity = crate::net::identity();
+        let http = client_with_identity(&self.transport, &identity)
+            .map_err(|e| net_error("operator_unreachable", e))?;
+        self.prewarm(&identity).await;
         let lease_client = LeaseClient::new(http.clone(), &self.cfg.operator_url);
         let (entry, wallet) = self.pick_note(bound, &busy).await?;
         let (note_id, note_key) = (entry.note_id.expect("picked"), entry.commitment.clone());
@@ -462,7 +490,7 @@ impl Gateway {
             &lease_client,
             &pinned,
             || self.clock.now_secs(),
-            |attempt| {
+            |attempt, request_time| {
                 let (wallet, seen) = (&wallet, &seen);
                 async move {
                     let snap = snapshot::take(&self.rpc, &self.cfg.vault)
@@ -480,7 +508,13 @@ impl Gateway {
                     if attempt == Attempt::Rebuild {
                         lease::set_aside_stale(&w)?;
                     }
-                    lease::prepare(&mut w, snap.root, snap.tree.siblings(note_id).to_vec(), bound)
+                    lease::prepare(
+                        &mut w,
+                        snap.root,
+                        snap.tree.siblings(note_id).to_vec(),
+                        bound,
+                        request_time,
+                    )
                 }
             },
         )

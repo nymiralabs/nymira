@@ -42,7 +42,7 @@ async fn a_lease_opens_and_only_its_token_retires_it() {
     };
     let c = client(&rig.url);
     let now = T0;
-    let lease = open_lease(&c, &pinned, || now, |_| async { Ok(rig.fresh(1)) })
+    let lease = open_lease(&c, &pinned, || now, |_, _| async { Ok(rig.fresh(1)) })
         .await
         .unwrap();
     assert_eq!(lease.bound, 100_000);
@@ -71,7 +71,7 @@ async fn a_status_signed_by_another_key_builds_no_proof() {
             config: &cfg,
         },
         || T0,
-        |_| async {
+        |_, _| async {
             built.fetch_add(1, Ordering::SeqCst);
             Ok(rig.fresh(1))
         },
@@ -100,7 +100,7 @@ async fn different_lease_parameters_build_no_proof() {
             config: &cfg,
         },
         || T0,
-        |_| async {
+        |_, _| async {
             built.fetch_add(1, Ordering::SeqCst);
             Ok(rig.fresh(1))
         },
@@ -180,6 +180,7 @@ async fn scripted(answers: Vec<(u16, Value)>, difficulty: u64) -> (String, Scrip
 async fn run(url: &str) -> (Result<nymirad::lease::Lease, LeaseError>, Vec<Attempt>) {
     let (pk, cfg) = (pk_json(1), params());
     let attempts = Mutex::new(Vec::new());
+    let times = Mutex::new(Vec::new());
     let result = open_lease(
         &client(url),
         &Pinned {
@@ -187,13 +188,21 @@ async fn run(url: &str) -> (Result<nymirad::lease::Lease, LeaseError>, Vec<Attem
             config: &cfg,
         },
         || T0,
-        |a| {
+        |a, request_time| {
+            times.lock().unwrap().push(request_time);
             attempts.lock().unwrap().push(a);
             let r = variant(1, 100_000, T0, &root_hex());
             async move { Ok(r) }
         },
     )
     .await;
+    // Every proof is stamped with the operator's time on the grid, not the client's clock.
+    for t in times.into_inner().unwrap() {
+        assert_eq!(
+            t,
+            T0 / nymirad::gate::TIME_GRID_SECS * nymirad::gate::TIME_GRID_SECS
+        );
+    }
     (result, attempts.into_inner().unwrap())
 }
 
@@ -312,12 +321,18 @@ async fn the_unchanged_wallet_proves_the_lease_and_installs_the_next_state() {
             config: &cfg,
         },
         || now,
-        |attempt| {
+        |attempt, request_time| {
             let mut w = wallet.lock().unwrap();
             if attempt == Attempt::Rebuild {
                 nymirad::lease::set_aside_stale(&w).unwrap();
             }
-            let r = nymirad::lease::prepare(&mut w, tree().root(), siblings.clone(), 100_000);
+            let r = nymirad::lease::prepare(
+                &mut w,
+                tree().root(),
+                siblings.clone(),
+                100_000,
+                request_time,
+            );
             async move { r }
         },
     )

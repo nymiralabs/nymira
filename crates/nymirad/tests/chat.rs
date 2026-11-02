@@ -315,6 +315,7 @@ async fn stack_with(
         rounds: 10,
         idle_secs: 60,
         share_pct: 90,
+        prewarm_max_secs: 0,
         backup: None,
     };
     tune(&mut config);

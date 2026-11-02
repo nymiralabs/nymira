@@ -26,6 +26,15 @@ impl Transport {
         matches!(self, Self::Direct)
     }
 
+    /// The loopback SOCKS address, when there is one.
+    pub fn socks_addr(&self) -> Option<String> {
+        match self {
+            Self::Socks(addr) => Some(addr.clone()),
+            Self::Tor(tor) => Some(tor.socks_addr().to_string()),
+            Self::Direct => None,
+        }
+    }
+
     /// Fails when a managed Tor is no longer ready. A client built while Tor was up keeps its
     /// proxy address; call this before each send on it, so a Tor that died (and whose port
     /// something else may now hold) gets no more traffic.
@@ -75,12 +84,21 @@ pub struct Rpc {
 /// nothing else on that circuit. Keep the client for one conversation; build a new one for each
 /// other connection.
 pub fn client(transport: &Transport) -> Result<reqwest::Client, RpcError> {
+    client_with_identity(transport, &crate::net::identity())
+}
+
+/// [`client`] with the SOCKS identity chosen by the caller, so a connection opened by hand
+/// ([`crate::net::prewarm`]) lands on the same Tor circuit as this client's requests.
+pub fn client_with_identity(
+    transport: &Transport,
+    identity: &str,
+) -> Result<reqwest::Client, RpcError> {
     let builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .no_proxy();
     let socks = |addr: &str| -> Result<reqwest::Proxy, RpcError> {
-        reqwest::Proxy::all(format!("socks5h://{}:x@{addr}", crate::net::identity()))
+        reqwest::Proxy::all(format!("socks5h://{identity}:x@{addr}"))
             .map_err(|e| RpcError::Transport(e.to_string()))
     };
     let builder = match transport {

@@ -105,6 +105,9 @@ pub struct Wallet {
     ownership_marker_path: PathBuf,
     /// E0: the bound on each operator call while exiting.
     call_timeout: Option<std::time::Duration>,
+    /// Nymira patch: the `request_time` of the next request proof, when the caller sets it (a
+    /// coarse value from the operator's clock). `None` stamps the local clock, as upstream does.
+    request_time_override: Option<u64>,
 }
 
 impl Wallet {
@@ -132,7 +135,15 @@ impl Wallet {
             exit_lock_path: state_dir.join(EXIT_LOCK_FILE),
             ownership_marker_path: state_dir.join(OWNERSHIP_PROOF_MARKER_FILE),
             call_timeout: None,
+            request_time_override: None,
         })
+    }
+
+    /// Nymira patch: stamps the next request proofs with `time` instead of the local clock. Only
+    /// the request proof's `request_time` changes; exit locks, the near-expiry check and ownership
+    /// proofs keep using the local clock.
+    pub fn set_request_time(&mut self, time: Option<u64>) {
+        self.request_time_override = time;
     }
 
     /// Bound every later operator call (recovery and clearance) by `timeout`,
@@ -406,7 +417,7 @@ impl Wallet {
             active_root,
             state_signing_key_x: self.config.state_signing_key.x,
             state_signing_key_y: self.config.state_signing_key.y,
-            request_time: now_seconds(),
+            request_time: self.request_time_override.unwrap_or_else(now_seconds),
             solvency_bound,
             request_nullifier: nullifier,
             authorization_tag: core::authorization_tag(&nullifier, &request_context),
