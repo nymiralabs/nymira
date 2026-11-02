@@ -221,6 +221,7 @@ async fn a_pending_exit_blocks_the_nullifier_and_its_successor() {
             note_id: 0,
             nullifier: a.clone(),
             next_nullifier: b.clone(),
+            ..Default::default()
         }]
     });
     rig.clock.advance_secs(2);

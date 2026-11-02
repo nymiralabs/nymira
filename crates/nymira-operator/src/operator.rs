@@ -204,7 +204,13 @@ pub struct Operator {
     pub(crate) alarms: Arc<crate::alarm::Alarms>,
     /// Why key minting is stopped, if it is.
     pub(crate) stops: Mutex<crate::watch::Stops>,
+    /// Watchers whose last poll `/v1/status` shows.
+    watchers: Mutex<Vec<(String, Arc<crate::watcher::Watcher>)>>,
+    started_secs: u64,
 }
+
+/// Without a heartbeat for this long `/v1/status` says `degraded`.
+pub const DEGRADED_AFTER_SECS: u64 = 2 * 3_600;
 
 pub struct Parts {
     pub cfg: Config,
@@ -291,6 +297,8 @@ impl Operator {
             models_checked_ms: Mutex::new(0),
             alarms,
             stops: Mutex::new(crate::watch::Stops::default()),
+            watchers: Mutex::new(Vec::new()),
+            started_secs: now_ms / 1000,
         });
         operator
             .refresh_chain(true)
@@ -600,6 +608,25 @@ impl Operator {
         }
     }
 
+    /// Adds a watcher to `/v1/status`.
+    pub fn register_watcher(&self, id: impl Into<String>, watcher: Arc<crate::watcher::Watcher>) {
+        self.watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((id.into(), watcher));
+    }
+
+    /// Seconds since the last heartbeat the signer got onto the chain; `None` before the first.
+    async fn heartbeat_age(&self, now: u64) -> Option<u64> {
+        let at = self
+            .store
+            .run(|c| store::last_final_tx_at(c, "heartbeat"))
+            .await
+            .ok()
+            .flatten()?;
+        Some(now.saturating_sub(at))
+    }
+
     /// The `/v1/status` document.
     pub async fn status_json(&self) -> Value {
         let _ = self.refresh_chain(false).await;
@@ -608,6 +635,17 @@ impl Operator {
         let config = cache.config.clone().expect("loaded at start");
         let slot = self.status.current(now);
         let (limit, used, resets_ts) = self.ledger.daily(now);
+        let heartbeat_age = self.heartbeat_age(now).await;
+        // No heartbeat yet counts from the start of the process.
+        let degraded = heartbeat_age.unwrap_or_else(|| now.saturating_sub(self.started_secs))
+            >= DEGRADED_AFTER_SECS;
+        let watchers: Vec<Value> = self
+            .watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(id, w)| json!({ "id": id, "last_poll_ts": w.last_poll() }))
+            .collect();
         json!({
             "version": 1,
             "operator_pk": { "x": config.operator_pk.x, "y": config.operator_pk.y },
@@ -624,9 +662,9 @@ impl Operator {
             "team_note_ids": self.cfg.team_note_ids,
             "nonce": { "nonce": slot.nonce, "host": slot.host, "ts": slot.ts },
             "nonce_sig": slot.sig,
-            "heartbeat_age_secs": Value::Null,
-            "watchers": [],
-            "degraded": false,
+            "heartbeat_age_secs": heartbeat_age,
+            "watchers": watchers,
+            "degraded": degraded,
             "admission": {
                 "load_pct": self.load_pct(),
                 "retry_after_secs": RETRY_HINT_SECS,

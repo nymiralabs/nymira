@@ -63,6 +63,9 @@ pub struct VaultConfig {
     #[serde(deserialize_with = "dec")]
     pub min_charge: u128,
     pub slot_rate: u32,
+    /// Seconds an exit stays open; a note is claimable this long after its expiry.
+    #[serde(default)]
+    pub exit_delay_secs: u64,
 }
 
 /// A note as the vault records it: its status word (`Active`, `PendingExit` or `Closed`).
@@ -71,12 +74,31 @@ pub struct NoteInfo {
     pub status: String,
 }
 
-/// A pending exit: the nullifier it spent and the successor it published.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+/// A pending exit: the nullifier it spent, the successor it published, what it pays and when it
+/// can be finalized.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ExitEntry {
     pub note_id: u32,
     pub nullifier: String,
     pub next_nullifier: String,
+    #[serde(default, deserialize_with = "dec")]
+    pub final_balance: u128,
+    #[serde(default, deserialize_with = "dec")]
+    pub conceded: u128,
+    /// Block time in nanoseconds.
+    #[serde(default, deserialize_with = "dec")]
+    pub deadline: u128,
+}
+
+/// A note as `note_records` lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct NoteRecord {
+    pub note_id: u32,
+    #[serde(deserialize_with = "dec")]
+    pub deposit_amount: u128,
+    pub expiry: u64,
+    pub status: String,
+    pub leaf_retired: bool,
 }
 
 #[async_trait]
@@ -89,10 +111,25 @@ pub trait VaultView: Send + Sync {
     async fn exits(&self) -> Result<Vec<ExitEntry>, ChainError>;
     /// How many of the given notes are `Active`.
     async fn open_among(&self, note_ids: &[u32]) -> Result<u32, ChainError>;
+    /// Notes `from..from + limit` (at most 100), in id order.
+    async fn note_records(&self, from: u32, limit: u32) -> Result<Vec<NoteRecord>, ChainError>;
+    /// Leaves in the tree.
+    async fn leaf_count(&self) -> Result<u32, ChainError>;
+    /// Leaves `from..from + limit` (at most 100) as the tree holds them, retired ones as zero.
+    async fn leaves(&self, from: u32, limit: u32) -> Result<Vec<String>, ChainError>;
     /// The note's record, `None` for an id the vault never issued.
     async fn note(&self, note_id: u32) -> Result<Option<NoteInfo>, ChainError>;
     /// Whether the vault has spent the nullifier (`0x` and 64 hex digits).
     async fn nullifier_used(&self, nullifier: &str) -> Result<bool, ChainError>;
+    /// The block this provider answered at and the leaf count it showed there.
+    async fn head(&self) -> Result<Head, ChainError>;
+}
+
+/// What a provider showed at one block, for comparing providers with each other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Head {
+    pub height: u64,
+    pub leaf_count: u32,
 }
 
 pub struct RpcVault {
@@ -122,6 +159,15 @@ impl RpcVault {
         method: &str,
         args: Value,
     ) -> Result<T, ChainError> {
+        Ok(self.view_at(method, args).await?.0)
+    }
+
+    /// The decoded result and the height of the block it was read at.
+    async fn view_at<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        args: Value,
+    ) -> Result<(T, u64), ChainError> {
         let body = json!({
             "jsonrpc": "2.0", "id": "nymira", "method": "query",
             "params": {
@@ -149,7 +195,10 @@ impl RpcVault {
             .iter()
             .map(|b| b.as_u64().unwrap_or(0) as u8)
             .collect();
-        serde_json::from_slice(&bytes).map_err(|e| ChainError(format!("{method}: {e}")))
+        let height = reply["result"]["block_height"].as_u64().unwrap_or(0);
+        let value =
+            serde_json::from_slice(&bytes).map_err(|e| ChainError(format!("{method}: {e}")))?;
+        Ok((value, height))
     }
 }
 
@@ -206,6 +255,20 @@ impl VaultView for RpcVault {
         Ok(open)
     }
 
+    async fn note_records(&self, from: u32, limit: u32) -> Result<Vec<NoteRecord>, ChainError> {
+        self.view("note_records", json!({ "from": from, "limit": limit }))
+            .await
+    }
+
+    async fn leaf_count(&self) -> Result<u32, ChainError> {
+        self.view("leaf_count", json!({})).await
+    }
+
+    async fn leaves(&self, from: u32, limit: u32) -> Result<Vec<String>, ChainError> {
+        self.view("get_leaves", json!({ "from": from, "limit": limit }))
+            .await
+    }
+
     async fn note(&self, note_id: u32) -> Result<Option<NoteInfo>, ChainError> {
         let records: Vec<Value> = self
             .view("note_records", json!({ "from": note_id, "limit": 1 }))
@@ -221,6 +284,11 @@ impl VaultView for RpcVault {
         self.view("is_nullifier_used", json!({ "nullifier": nullifier }))
             .await
     }
+
+    async fn head(&self) -> Result<Head, ChainError> {
+        let (leaf_count, height) = self.view_at("leaf_count", json!({})).await?;
+        Ok(Head { height, leaf_count })
+    }
 }
 
 #[derive(Clone)]
@@ -233,6 +301,13 @@ pub struct FakeVaultState {
     pub exits: Vec<ExitEntry>,
     /// Note id -> status word. A note not listed does not exist.
     pub notes: std::collections::HashMap<u32, String>,
+    /// What `note_records` lists, by position (note id = index).
+    pub records: Vec<NoteRecord>,
+    /// What `get_leaves` lists.
+    pub leaves: Vec<String>,
+    pub leaf_count: u32,
+    /// The block height `head` reports.
+    pub height: u64,
     /// Spent nullifiers, lowercase.
     pub used: std::collections::HashSet<String>,
     pub failing: bool,
@@ -251,6 +326,10 @@ impl FakeVault {
             open_team_notes: 0,
             exits: Vec::new(),
             notes: Default::default(),
+            records: Vec::new(),
+            leaves: Vec::new(),
+            leaf_count: 0,
+            height: 0,
             used: Default::default(),
             failing: false,
         }))
@@ -295,15 +374,50 @@ impl VaultView for FakeVault {
         self.read(|s| s.open_team_notes)
     }
 
+    async fn note_records(&self, from: u32, limit: u32) -> Result<Vec<NoteRecord>, ChainError> {
+        self.read(|s| {
+            s.records
+                .iter()
+                .skip(from as usize)
+                .take(limit.min(100) as usize)
+                .cloned()
+                .collect()
+        })
+    }
+
+    async fn leaf_count(&self) -> Result<u32, ChainError> {
+        self.read(|s| s.leaf_count)
+    }
+
+    async fn leaves(&self, from: u32, limit: u32) -> Result<Vec<String>, ChainError> {
+        self.read(|s| {
+            s.leaves
+                .iter()
+                .skip(from as usize)
+                .take(limit.min(100) as usize)
+                .cloned()
+                .collect()
+        })
+    }
+
     async fn note(&self, note_id: u32) -> Result<Option<NoteInfo>, ChainError> {
         self.read(|s| {
-            s.notes.get(&note_id).map(|status| NoteInfo {
-                status: status.clone(),
-            })
+            s.records
+                .get(note_id as usize)
+                .map(|r| r.status.clone())
+                .or_else(|| s.notes.get(&note_id).cloned())
+                .map(|status| NoteInfo { status })
         })
     }
 
     async fn nullifier_used(&self, nullifier: &str) -> Result<bool, ChainError> {
         self.read(|s| s.used.contains(&nullifier.to_ascii_lowercase()))
+    }
+
+    async fn head(&self) -> Result<Head, ChainError> {
+        self.read(|s| Head {
+            height: s.height,
+            leaf_count: s.leaf_count,
+        })
     }
 }
