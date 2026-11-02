@@ -82,6 +82,8 @@ pub struct NearTx {
     store: Store,
     clock: Arc<dyn Clock>,
     cfg: TxConfig,
+    /// yoctoNEAR attached to every call this sender makes.
+    deposit: u128,
     /// Serialises nonce allocation.
     signing: tokio::sync::Mutex<()>,
 }
@@ -98,7 +100,7 @@ fn put_str(out: &mut Vec<u8>, s: &str) {
     out.extend(s.as_bytes());
 }
 
-/// The Borsh bytes of a transaction holding one function call.
+/// The Borsh bytes of a transaction holding one function call with no attached deposit.
 #[allow(clippy::too_many_arguments)]
 pub fn transaction_bytes(
     signer_id: &str,
@@ -109,6 +111,32 @@ pub fn transaction_bytes(
     method: &str,
     args: &[u8],
     gas: u64,
+) -> Vec<u8> {
+    transaction_bytes_with_deposit(
+        signer_id,
+        public_key,
+        nonce,
+        receiver_id,
+        block_hash,
+        method,
+        args,
+        gas,
+        0,
+    )
+}
+
+/// The same with `deposit` yoctoNEAR attached (`ft_transfer_call` wants exactly one).
+#[allow(clippy::too_many_arguments)]
+pub fn transaction_bytes_with_deposit(
+    signer_id: &str,
+    public_key: &[u8; 32],
+    nonce: u64,
+    receiver_id: &str,
+    block_hash: &[u8; 32],
+    method: &str,
+    args: &[u8],
+    gas: u64,
+    deposit: u128,
 ) -> Vec<u8> {
     let mut out = Vec::new();
     put_str(&mut out, signer_id);
@@ -123,7 +151,7 @@ pub fn transaction_bytes(
     out.extend((args.len() as u32).to_le_bytes());
     out.extend(args);
     out.extend(gas.to_le_bytes());
-    out.extend(0u128.to_le_bytes()); // no deposit
+    out.extend(deposit.to_le_bytes());
     out
 }
 
@@ -156,12 +184,19 @@ impl NearTx {
             store,
             clock,
             cfg: TxConfig::default(),
+            deposit: 0,
             signing: tokio::sync::Mutex::new(()),
         }
     }
 
     pub fn with_config(mut self, cfg: TxConfig) -> Self {
         self.cfg = cfg;
+        self
+    }
+
+    /// Attaches `yocto` to every call (a sender for `ft_transfer_call` uses 1).
+    pub fn with_deposit(mut self, yocto: u128) -> Self {
+        self.deposit = yocto;
         self
     }
 
@@ -311,7 +346,7 @@ impl NearTx {
             .and_then(|h| bs58::decode(h).into_vec().ok())
             .and_then(|b| b.try_into().ok())
             .ok_or_else(|| TxError::Rpc("the block hash is not readable".into()))?;
-        let tx = transaction_bytes(
+        let tx = transaction_bytes_with_deposit(
             &self.signer_id,
             self.key.verifying_key().as_bytes(),
             nonce,
@@ -320,6 +355,7 @@ impl NearTx {
             &row.method,
             &row.args,
             row.gas,
+            self.deposit,
         );
         let (signed, hash) = sign_transaction(&self.key, &tx);
         self.store

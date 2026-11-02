@@ -23,6 +23,9 @@ ignore = [
   "RUSTSEC-2026-0405",
   "RUSTSEC-2026-0397",
   "RUSTSEC-2026-0396",
+  # age (nymirad backups): unmaintained proc macros used for message catalogs at compile time.
+  "RUSTSEC-2026-0173",
+  "RUSTSEC-2026-0374",
 ]
 
 [licenses]
