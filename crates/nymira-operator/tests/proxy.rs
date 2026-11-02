@@ -1396,3 +1396,32 @@ async fn a_lease_billed_more_than_the_estimate_stops_minting_and_raises_an_alarm
         (429, Some("operator_capacity"))
     );
 }
+
+// ---------------------------------------------------------------- admission and reserved cost
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_in_flight_holds_back_the_next_lease_until_it_ends() {
+    // A budget under one request's worst case (2_049 micro-USD for an uncapped stream).
+    let rig = Rig::new(proxy_setup(|c| c.budget.daily_limit = 2_000)).await;
+    rig.provider.set_chat_script(ChatScript {
+        stream_events: 40,
+        chunk_delay: Duration::from_millis(50),
+        ..ChatScript::default()
+    });
+    let l = open(&rig, 1).await;
+    let held = post(&rig, &l, serde_json::to_vec(&body(None, true)).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(held.status(), 200);
+    assert_eq!(rig.status().await["daily_budget"]["used"], "2049");
+
+    let (s, v, _) = rig.lease(&rig.fresh(2)).await;
+    json_error(s, &v, 429, "operator_capacity");
+
+    // The request ends: its reservation falls to the estimate and the next lease is admitted.
+    drop(held);
+    settled(&rig).await;
+    let (s, v, _) = rig.lease(&rig.fresh(2)).await;
+    assert_eq!(s, 201, "{v}");
+}
