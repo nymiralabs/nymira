@@ -23,6 +23,7 @@ pub mod replica_http;
 pub mod replicator;
 pub mod replog;
 pub mod restore;
+pub mod serve;
 pub mod sealed;
 pub mod signer;
 pub mod status;

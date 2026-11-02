@@ -35,7 +35,11 @@ sha2 = "0.10"
 subtle = "2"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "catch-panic", "limit"] }
+http-body = "1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+libc = "0.2"
 tokio-stream = "0.1"
 zkapi-core = { workspace = true }
 zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof" }
