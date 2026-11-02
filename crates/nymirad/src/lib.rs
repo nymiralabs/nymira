@@ -22,6 +22,7 @@ pub mod net;
 pub mod openai;
 pub mod pins;
 pub mod quotes;
+pub mod ramdir;
 pub mod records;
 pub mod rpc;
 pub mod secrets;

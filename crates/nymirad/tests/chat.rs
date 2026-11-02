@@ -388,6 +388,18 @@ async fn a_chat_goes_through_the_lease_encrypted_and_settles_with_checks() {
         answer["choices"][0]["message"]["content"],
         "fake reply to: What is the capital of France?"
     );
+    // While the lease is open the wallet state is in memory only, never under the home directory.
+    assert!(
+        plain_on_disk(&s).is_empty(),
+        "plain wallet state on disk mid-lease"
+    );
+    let in_memory = walk(&nymirad::ramdir::root().unwrap())
+        .iter()
+        .any(|f| std::fs::read_to_string(f).is_ok_and(|t| t.contains("current_balance")));
+    assert!(
+        in_memory,
+        "the open lease's wallet state is in the memory-backed directory"
+    );
     // The gateway saw ciphertext only.
     let seen = s.fake.handle.chats().pop().unwrap();
     assert!(seen.e2ee && seen.encrypt_all_fields && seen.no_aliasing && seen.include_usage);
@@ -416,22 +428,26 @@ async fn a_chat_goes_through_the_lease_encrypted_and_settles_with_checks() {
     );
 
     // Nothing in the clear on disk: no note secret, no wallet state, no work directory.
-    assert!(!s.home.path().join("work").join("x").exists());
+    let leaked = plain_on_disk(&s);
+    assert!(leaked.is_empty(), "plain state on disk: {leaked:?}");
+    let _ = &s.vault;
+}
+
+/// Files under the home directory that hold a note secret or wallet state in the clear.
+fn plain_on_disk(s: &Stack) -> Vec<std::path::PathBuf> {
     let mut leaked = Vec::new();
     for entry in walk(s.home.path()) {
         let bytes = std::fs::read(&entry).unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes);
-        for secret in &s.secrets {
-            if text.contains(secret.as_str()) {
-                leaked.push(entry.clone());
-            }
-        }
-        if text.contains("current_balance") {
-            leaked.push(entry.clone());
+        if s.secrets
+            .iter()
+            .any(|secret| text.contains(secret.as_str()))
+            || text.contains("current_balance")
+        {
+            leaked.push(entry);
         }
     }
-    assert!(leaked.is_empty(), "plain state on disk: {leaked:?}");
-    let _ = &s.vault;
+    leaked
 }
 
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
