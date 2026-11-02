@@ -45,7 +45,14 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), headerPlugin(profile)],
     resolve: {
-      alias: { '@profile': resolve(__dirname, `src/profiles/${profileId}.ts`) },
+      alias: {
+        '@profile': resolve(__dirname, `src/profiles/${profileId}.ts`),
+        // The mock profile proves with the development setup; deployed profiles never do.
+        '@zkapi': resolve(
+          __dirname,
+          `src/wasm/${profileId === 'mock' ? 'zkapi-browser-dev' : 'zkapi-browser'}`,
+        ),
+      },
     },
     build: {
       target: 'es2022',

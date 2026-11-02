@@ -25,6 +25,10 @@ export function appCsp(p: Profile, extraConnect: string[] = []): string {
     "'self'",
     ...p.rpcUrls.map(origin),
     ...(p.operatorUrl ? [origin(p.operatorUrl)] : []),
+    // Chat: NEAR AI's gateway (attestation reports) and the PCCS that serves Intel's collateral.
+    // NVIDIA's attestation service is not listed: it refuses browser requests, so none is made.
+    origin(p.gatewayUrl),
+    origin(p.pccsUrl),
     ...(p.oneClick.dryQuotes || p.oneClick.intentsPaths ? [origin(p.oneClick.baseUrl)] : []),
     ...extraConnect,
   ]);

@@ -49,4 +49,9 @@ export const profile: Profile = {
     ],
   },
   pins: null,
+  gatewayUrl: 'https://cloud-api.near.ai',
+  pccsUrl: 'https://pccs.phala.network',
+  // Set with the published setup (the ceremony's `mpc-1` or Nymira's fallback key) and its hash.
+  provingKey: null,
+  testEvidence: false,
 };

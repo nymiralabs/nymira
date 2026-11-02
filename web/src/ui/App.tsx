@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { PROFILE } from '../profile';
+import { Chat } from './Chat';
 import { Fund } from './Fund';
 import { Landing } from './Landing';
 import { Notes } from './Notes';
 import { originOk, useVaultCheck } from './services';
 
-type Screen = 'landing' | 'fund' | 'notes';
+type Screen = 'landing' | 'fund' | 'chat' | 'notes';
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('landing');
@@ -36,6 +37,9 @@ export function App() {
           <button type="button" data-testid="nav-fund" onClick={() => setScreen('fund')}>
             Fund
           </button>
+          <button type="button" data-testid="nav-chat" onClick={() => setScreen('chat')}>
+            Chat
+          </button>
           <button type="button" data-testid="nav-notes" onClick={() => setScreen('notes')}>
             Notes
           </button>
@@ -49,6 +53,7 @@ export function App() {
       )}
       {screen === 'landing' && <Landing onOpen={() => setScreen('fund')} />}
       {screen === 'fund' && <Fund vault={check} recheck={recheck} />}
+      {screen === 'chat' && <Chat vault={check} />}
       {screen === 'notes' && <Notes />}
       <footer>
         <small data-testid="network-label">

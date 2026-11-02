@@ -248,8 +248,8 @@ export async function verifyEvidence(
     signingAddress: toHex(address),
     tcbStatus: facts.status,
     advisoryIds: facts.advisory_ids,
-    composeHash: runtime.composeHash,
-    osImageHash: runtime.osImageHash,
+    composeHash: runtime.composeHash!,
+    osImageHash: runtime.osImageHash!,
     gpu,
   };
 }

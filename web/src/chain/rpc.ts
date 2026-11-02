@@ -99,11 +99,25 @@ export class RpcClient {
     throw new NetworkError('no RPC endpoint answered', failures);
   }
 
-  /** A view call at the final block; the contract's JSON result. */
-  async view<T = unknown>(account: string, method: string, args: unknown = {}): Promise<T> {
+  /** The hash of the latest final block. */
+  async finalBlockHash(): Promise<string> {
+    const block = await this.call<{ header: { hash: string } }>('block', { finality: 'final' });
+    return block.header.hash;
+  }
+
+  /**
+   * A view call at the final block (or at `blockHash`, so several calls read one state); the
+   * contract's JSON result.
+   */
+  async view<T = unknown>(
+    account: string,
+    method: string,
+    args: unknown = {},
+    blockHash?: string,
+  ): Promise<T> {
     const result = await this.call<{ result?: number[]; error?: string }>('query', {
       request_type: 'call_function',
-      finality: 'final',
+      ...(blockHash ? { block_id: blockHash } : { finality: 'final' }),
       account_id: account,
       method_name: method,
       args_base64: btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(args)))),

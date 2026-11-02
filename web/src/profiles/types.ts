@@ -91,4 +91,15 @@ export interface Profile {
   };
   /** `null` until a vault is deployed and pinned: funding then stays disabled. */
   pins: VaultPins | null;
+  /** NEAR AI's gateway: attestation reports are read from it (chats go through the operator). */
+  gatewayUrl: string;
+  /** Where Intel quote collateral is fetched from (CORS-enabled; Intel's own service is not). */
+  pccsUrl: string;
+  /**
+   * The request proving key and its SHA-256. `null` until the setup this profile proves with is
+   * published: chat then stays off and says so.
+   */
+  provingKey: { url: string; sha256: string } | null;
+  /** The mock profile's reports carry test quotes (Playwright only, never in a deployed bundle). */
+  testEvidence: boolean;
 }

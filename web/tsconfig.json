@@ -19,6 +19,7 @@
     "types": ["vite/client", "node"],
     "paths": {
       "@profile": ["./src/profiles/mock.ts"],
+      "@zkapi/*": ["./src/wasm/zkapi-browser-dev/*"],
       "@testkit": ["../web-testkit/src/index.js"]
     }
   },

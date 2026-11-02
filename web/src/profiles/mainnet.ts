@@ -26,4 +26,8 @@ export const profile: Profile = {
     shortlist: [],
   },
   pins: null,
+  gatewayUrl: 'https://cloud-api.near.ai',
+  pccsUrl: 'https://pccs.phala.network',
+  provingKey: null,
+  testEvidence: false,
 };
