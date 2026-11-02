@@ -3462,6 +3462,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "nymira-operatord"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "ed25519-dalek",
+ "hex",
+ "libc",
+ "nymira-fake-near-ai",
+ "nymira-fake-near-rpc",
+ "nymira-near-codec",
+ "nymira-operator",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zeroize",
+ "zkapi-proof",
+ "zkapi-types",
+]
+
+[[package]]
 name = "nymira-testkit"
 version = "0.0.0"
 dependencies = [

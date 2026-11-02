@@ -111,6 +111,10 @@ CREATE TABLE IF NOT EXISTS signed_states(
   signed_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS exit_seen(nullifier TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS watcher_status(
+  id TEXT PRIMARY KEY,
+  last_poll INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS emergency(
   id INTEGER PRIMARY KEY CHECK (id = 1),
   notice TEXT NOT NULL,
@@ -493,6 +497,21 @@ pub fn lease_by_client_request_id(
         .query_map([id], lease_from)?
         .collect::<Result<_, _>>()?;
     Ok(if rows.len() == 1 { rows.pop() } else { None })
+}
+
+/// A watcher process records its last poll here, so the public API process can show it.
+pub fn set_watcher_poll(conn: &Connection, id: &str, ts: u64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO watcher_status(id, last_poll) VALUES (?1, ?2)",
+        params![id, ts],
+    )
+    .map(|_| ())
+}
+
+pub fn watcher_polls(conn: &Connection) -> rusqlite::Result<Vec<(String, u64)>> {
+    let mut statement = conn.prepare("SELECT id, last_poll FROM watcher_status ORDER BY id")?;
+    let rows = statement.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as u64)))?;
+    rows.collect()
 }
 
 /// The key-leak notice, if the operator is in emergency.

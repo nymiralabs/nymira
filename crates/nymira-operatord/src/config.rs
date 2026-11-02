@@ -1,0 +1,137 @@
+//! The operator's configuration: one JSON file that every process reads. It names files; it
+//! holds no secret. Each secret sits in its own 0400 file under `secrets_dir`.
+
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    /// `sandbox`, `testnet` or `mainnet`. Only the sandbox may run without a replica or with
+    /// development signing seeds.
+    pub profile: String,
+    /// `testnet` or `mainnet`: picks the chain id.
+    pub network: String,
+    pub vault_account: String,
+    /// The account of the `heartbeat`, `mutual_close` and upkeep keys.
+    pub operator_account: String,
+    /// The separate account of the exit-answer key.
+    pub answer_account: String,
+    /// The host name clients dial; the status nonce is signed for it.
+    pub host: String,
+    pub web_origin: String,
+    /// The one TCP listener: the public API.
+    pub listen: String,
+    pub run_dir: PathBuf,
+    pub data_dir: PathBuf,
+    pub secrets_dir: PathBuf,
+    /// Directory of the verifying keys.
+    pub setup_dir: PathBuf,
+    /// RPC endpoints. The watcher needs as many as its quorum (two).
+    pub rpc_urls: Vec<String>,
+    /// The key that signs usage records, as hex; its secret half is in the key minter's file.
+    pub usage_public_key: String,
+    pub team_note_ids_file: Option<PathBuf>,
+    /// `hackathon` (1 USD of credit in total) or `default`.
+    #[serde(default = "hackathon")]
+    pub budget: String,
+    pub near_ai: NearAiSection,
+    pub replica: Option<ReplicaSection>,
+    #[serde(default)]
+    pub alarms: AlarmSection,
+}
+
+fn hackathon() -> String {
+    "hackathon".into()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NearAiSection {
+    pub base_url: String,
+    pub org_id: String,
+    pub workspace_id: String,
+    /// Only for a first start: the refresh token goes in a 0400 file that is read once.
+    pub first_refresh_token_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplicaSection {
+    /// The replica's address on the tailnet.
+    pub url: String,
+    /// The replica's acknowledgement key, as hex.
+    pub public_key: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AlarmSection {
+    pub telegram: Option<TelegramSection>,
+    pub email: Option<EmailSection>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TelegramSection {
+    pub token_file: PathBuf,
+    pub chat_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmailSection {
+    pub host: String,
+    pub port: u16,
+    /// `tls` or `starttls`.
+    pub security: String,
+    pub username: Option<String>,
+    pub password_file: Option<PathBuf>,
+    pub from: String,
+    pub to: String,
+}
+
+impl Config {
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let config: Self = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        config.check()?;
+        Ok(config)
+    }
+
+    fn check(&self) -> Result<(), String> {
+        if !matches!(self.profile.as_str(), "sandbox" | "testnet" | "mainnet") {
+            return Err("profile is sandbox, testnet or mainnet".into());
+        }
+        if !matches!(self.network.as_str(), "testnet" | "mainnet") {
+            return Err("network is testnet or mainnet".into());
+        }
+        if self.rpc_urls.is_empty() {
+            return Err("rpc_urls is empty".into());
+        }
+        if self.profile != "sandbox" && self.replica.is_none() {
+            return Err("a testnet or mainnet operator needs a replica".into());
+        }
+        if self.profile == "mainnet" && self.network != "mainnet" {
+            return Err("the mainnet profile runs on the mainnet network".into());
+        }
+        Ok(())
+    }
+
+    pub fn socket(&self, name: &str) -> PathBuf {
+        self.run_dir.join(format!("{name}.sock"))
+    }
+
+    pub fn secret(&self, name: &str) -> PathBuf {
+        self.secrets_dir.join(name)
+    }
+
+    pub fn db(&self) -> PathBuf {
+        self.data_dir.join("operator.db")
+    }
+
+    pub fn sandbox(&self) -> bool {
+        self.profile == "sandbox"
+    }
+}

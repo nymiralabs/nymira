@@ -40,6 +40,11 @@ impl Minter {
         Self(SigningKey::from_bytes(&seed))
     }
 
+    /// The minting process's key, from its 32-byte seed file.
+    pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self(SigningKey::from_bytes(seed))
+    }
+
     pub fn public_key(&self) -> VerifyingKey {
         self.0.verifying_key()
     }

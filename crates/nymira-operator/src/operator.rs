@@ -753,13 +753,24 @@ impl Operator {
         // No heartbeat yet counts from the start of the process.
         let degraded = heartbeat_age.unwrap_or_else(|| now.saturating_sub(self.started_secs))
             >= DEGRADED_AFTER_SECS;
-        let watchers: Vec<Value> = self
+        let mut watchers: Vec<Value> = self
             .watchers
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .map(|(id, w)| json!({ "id": id, "last_poll_ts": w.last_poll() }))
             .collect();
+        // Watchers in other processes write their poll time to the shared database.
+        let polled = self
+            .store
+            .run(|c| store::watcher_polls(c))
+            .await
+            .unwrap_or_default();
+        for (id, ts) in polled {
+            if !watchers.iter().any(|w| w["id"] == id.as_str()) {
+                watchers.push(json!({ "id": id, "last_poll_ts": ts }));
+            }
+        }
         json!({
             "version": 1,
             "operator_pk": { "x": config.operator_pk.x, "y": config.operator_pk.y },

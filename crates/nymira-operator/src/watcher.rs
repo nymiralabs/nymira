@@ -246,6 +246,9 @@ pub struct Watcher {
     alarms: Arc<Alarms>,
     cfg: WatcherConfig,
     state: Mutex<State>,
+    /// The name under which the last poll is written to the database, when another process
+    /// (the public API) shows it.
+    id: Option<String>,
 }
 
 fn b64(bytes: &[u8]) -> String {
@@ -292,7 +295,13 @@ impl Watcher {
             alarms,
             cfg,
             state: Mutex::new(State::default()),
+            id: None,
         })
+    }
+
+    pub fn with_id(mut self, id: &str) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// The time of the last poll that reached enough providers, for `/v1/status`.
@@ -373,6 +382,9 @@ impl Watcher {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .last_poll = Some(now);
+            if let Some(id) = self.id.clone() {
+                let _ = self.store.run(move |c| store::set_watcher_poll(c, &id, now)).await;
+            }
             self.check_wave(exits).await;
             for exit in exits {
                 self.import(exit).await;
