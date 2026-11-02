@@ -368,6 +368,33 @@ mod tests {
     }
 
     #[test]
+    fn the_operators_own_parser_accepts_a_sealed_request_with_tools() {
+        use nymira_operator::proxy::{parse_chat, ProxyConfig};
+        let (_, pk) = model();
+        let request = json!({"model": "z-ai/glm-5.3-flash",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"type": "function", "function": {"name": "f", "description": "d",
+                "parameters": {"type": "object"}}}]});
+        let sealed = seal_request(&request, &pk, Some(100)).unwrap();
+        let parsed = parse_chat(
+            sealed.to_string().as_bytes(),
+            &ProxyConfig::default(),
+            &Default::default(),
+        )
+        .unwrap();
+        assert!(parsed.input_tokens > 0);
+        // The same request with a plaintext tool is what the operator refuses.
+        let mut plain = sealed.clone();
+        plain["tools"][0]["function"]["name"] = json!("f");
+        assert!(parse_chat(
+            plain.to_string().as_bytes(),
+            &ProxyConfig::default(),
+            &Default::default()
+        )
+        .is_err());
+    }
+
+    #[test]
     fn unknown_fields_and_array_content_are_refused_not_forwarded() {
         let (_, pk) = model();
         let bad = json!({"model": "m", "messages": [], "logit_bias": {"1": 5}});

@@ -611,3 +611,110 @@ async fn a_changed_vault_or_changed_lease_parameters_refuse_a_lease() {
         err.message
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_swapped_proving_key_is_refused_before_use() {
+    assert!(nymirad::gateway::check_proving_key(SETUP_DIR, &"00".repeat(32)).is_err());
+    use sha2::{Digest, Sha256};
+    let good = hex::encode(Sha256::digest(
+        std::fs::read(format!("{SETUP_DIR}/request.pk")).unwrap(),
+    ));
+    assert!(nymirad::gateway::check_proving_key(SETUP_DIR, &good).is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_live_model_list_is_compared_at_start() {
+    let s = stack(0, |_| {}).await;
+    assert!(s.gateway.check_models().await.is_empty());
+    s.fake
+        .handle
+        .update(|sw| sw.input_price_nano_per_token = 99);
+    let warnings = s.gateway.check_models().await;
+    assert!(
+        warnings.iter().any(|w| w.contains("price changed")),
+        "{warnings:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_backup_carries_the_lease_record_and_the_sealed_state() {
+    let places = tempfile::tempdir().unwrap();
+    let (private, public) = nymirad::backup::generate_identity();
+    let recipient = nymirad::backup::parse_recipient(&public).unwrap();
+    let place = places.path().to_path_buf();
+    let s = stack(1, move |c| c.backup = Some((recipient, vec![place]))).await;
+    json_chat(&s, "backed up?").await;
+    settle(&s).await;
+    let sealed = std::fs::read(places.path().join("state.age")).unwrap();
+    let plain = nymirad::backup::decrypt(private.as_str(), &sealed).unwrap();
+    let files: std::collections::BTreeMap<String, String> = serde_json::from_slice(&plain).unwrap();
+    assert!(files.contains_key("lease-records.jsonl"));
+    assert!(files.contains_key("notes.sealed"));
+    assert!(files.keys().any(|k| k.starts_with("wallets/")));
+    // Restoring needs only the private key: the sealed files inside open with the passphrase.
+    use base64::Engine;
+    let record = base64::engine::general_purpose::STANDARD
+        .decode(&files["lease-records.jsonl"])
+        .unwrap();
+    assert!(String::from_utf8(record).unwrap().contains("\"charge\""));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_tries_openai_shapes_over_http_and_errors_keep_their_shape() {
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let s = stack(1, |_| {}).await;
+    let token_path = s.home.path().join("owner.token");
+    let token = nymirad::token::OwnerToken::load_or_create(&token_path).unwrap();
+    let text = std::fs::read_to_string(&token_path).unwrap();
+    let app = nymirad::guard::router_with(Arc::new(token), Some(s.gateway.clone()));
+    let call = |body: Value| {
+        let mut r = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("host", "localhost:8788")
+            .header("authorization", format!("Bearer {text}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        r.extensions_mut().insert(ConnectInfo(
+            "127.0.0.1:5000".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        app.clone().oneshot(r)
+    };
+
+    // A tool definition and a tool-result turn go through encrypted; the operator accepts them.
+    let tools = json!({"model": MODEL, "messages": [{"role": "user", "content": "weather?"}],
+        "tools": [{"type": "function", "function": {"name": "get_weather",
+            "description": "Weather", "parameters": {"type": "object"}}}]});
+    let r = call(tools).await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(r.headers().contains_key("x-nymira-lease-id"));
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(r.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["choices"][0]["message"]["role"], "assistant");
+    assert!(body["usage"]["prompt_tokens"].is_u64());
+
+    // OpenAI's error shape for an unserved model and for malformed input.
+    for bad in [
+        json!({"model": "gpt-4", "messages": [{"role": "user", "content": "x"}]}),
+        json!({"model": MODEL, "messages": [{"role": "user", "content": "x"}], "logit_bias": {}}),
+    ] {
+        let r = call(bad).await.unwrap();
+        assert_eq!(r.status(), 400);
+        let e: Value = serde_json::from_slice(
+            &axum::body::to_bytes(r.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(e["error"]["message"].is_string() && e["error"]["type"].is_string());
+    }
+}

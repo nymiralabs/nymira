@@ -21,7 +21,21 @@ pub struct Config {
     pub backup_recipient: Option<String>,
     #[serde(default)]
     pub backup_places: Vec<PathBuf>,
+    /// NEAR AI's public gateway (attestation reports, model list). Default below.
+    #[serde(default)]
+    pub gateway_url: Option<String>,
+    /// Directory with the proving key and the other proof files.
+    #[serde(default)]
+    pub setup_dir: Option<String>,
+    /// Demo builds only: the proving key hash to expect. A release build uses the one compiled in.
+    #[serde(default)]
+    pub proving_key_sha256: Option<String>,
+    /// Seconds of silence after which a lease is retired. Default 120.
+    #[serde(default)]
+    pub idle_secs: Option<u64>,
 }
+
+pub const DEFAULT_GATEWAY: &str = "https://cloud-api.near.ai";
 
 impl Config {
     pub fn load(home: &Path) -> Result<Self, String> {
