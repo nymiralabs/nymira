@@ -3572,6 +3572,7 @@ dependencies = [
  "tokio",
  "tower",
  "zeroize",
+ "zkapi-client",
  "zkapi-core",
  "zkapi-proof",
  "zkapi-types",
