@@ -17,6 +17,12 @@ use crate::store::Store;
 
 pub const HOUR: u64 = 3_600;
 
+/// How long a payload is kept, counted from its entry's hour: a note lives 30 days, its exit
+/// window is 7 days and `claim_expired` waits another 7. Past that no request proof or signed
+/// state can matter to any note. (A proof cannot be tied to its note without undoing the
+/// anonymity the proofs exist for, so retention is by age and not by the note's closing.)
+pub const RETENTION_SECS: u64 = (30 + 7 + 7) * 86_400;
+
 /// What an entry says. The payload of `RESERVATION` is the lease record the watcher needs.
 pub mod kinds {
     pub const RESERVATION: &str = "reservation";
@@ -333,6 +339,21 @@ impl Log {
             .await?)
     }
 
+    /// Drops the payload of every entry older than [`RETENTION_SECS`] at `now_secs`. The hashes
+    /// stay, so the chain still checks. Returns how many payloads went.
+    pub async fn purge(&self, now_secs: u64) -> Result<usize, LogError> {
+        let cutoff = now_secs.saturating_sub(RETENTION_SECS) as i64;
+        Ok(self
+            .store
+            .run(move |c| {
+                c.execute(
+                    "UPDATE replog SET payload = NULL WHERE payload IS NOT NULL AND hour < ?1",
+                    [cutoff],
+                )
+            })
+            .await?)
+    }
+
     /// Walks the whole chain: numbering, links and every entry's own hash.
     pub async fn verify(&self) -> Result<(), LogError> {
         let entries = self.from(1, u32::MAX).await?;
@@ -446,6 +467,24 @@ impl ReplicaNode {
 
     pub async fn redact(&self, key: &str) -> Result<usize, LogError> {
         self.log.redact(key).await
+    }
+
+    /// Retention on this machine: log payloads past [`RETENTION_SECS`], and the request proofs
+    /// and signed states the log rebuilt into the database.
+    pub async fn purge(&self, now_secs: u64) -> Result<usize, LogError> {
+        let cutoff = now_secs.saturating_sub(RETENTION_SECS) as i64;
+        self.log
+            .store
+            .run(move |c| {
+                c.execute(
+                    "UPDATE leases SET request_json = '{}' WHERE reserved_at < ?1",
+                    [cutoff],
+                )?;
+                c.execute("DELETE FROM signed_states WHERE signed_at < ?1", [cutoff])?;
+                Ok(())
+            })
+            .await?;
+        self.log.purge(now_secs).await
     }
 
     pub async fn verify(&self) -> Result<(), LogError> {

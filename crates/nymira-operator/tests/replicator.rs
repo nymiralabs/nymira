@@ -267,3 +267,46 @@ async fn a_laptop_with_an_old_disk_is_in_recovery_until_it_has_restored_from_the
     reborn.append(&reservation(9)).await.unwrap();
     assert_eq!(r.replica.head().await.seq, 5);
 }
+
+#[tokio::test]
+async fn the_replica_speaks_http_and_the_laptop_checks_every_answer() {
+    use nymira_operator::replica_http::{router, HttpLink};
+    let replica = Arc::new(ReplicaNode::new(log(), key(1)));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let app = router(replica.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let laptop = Replicator::new(
+        log(),
+        Arc::new(HttpLink::new(&url).unwrap()),
+        key(1).verifying_key().to_bytes(),
+        Arc::new(ManualClock::new(7_200_000)),
+    );
+    for n in 1..=3 {
+        laptop.append(&reservation(n)).await.unwrap();
+    }
+    assert_eq!(replica.head().await.seq, 3);
+    // A replica that is lost and replaced by an empty one is filled over the same channel.
+    let again = Replicator::new(
+        log(),
+        Arc::new(HttpLink::new(&url).unwrap()),
+        key(1).verifying_key().to_bytes(),
+        Arc::new(ManualClock::new(7_200_000)),
+    );
+    assert!(again.append(&reservation(4)).await.is_err());
+    assert!(again.in_recovery());
+    assert_eq!(again.restore().await.unwrap().len(), 3);
+    again.append(&reservation(4)).await.unwrap();
+    assert_eq!(replica.head().await.seq, 4);
+    // A pinned key that is not the replica's makes every answer worthless.
+    let wrong = Replicator::new(
+        log(),
+        Arc::new(HttpLink::new(&url).unwrap()),
+        key(9).verifying_key().to_bytes(),
+        Arc::new(ManualClock::new(7_200_000)),
+    );
+    assert!(wrong.append(&reservation(5)).await.is_err());
+    server.abort();
+    // And with the server gone, nothing is released.
+    assert!(laptop.append(&reservation(6)).await.is_err());
+}

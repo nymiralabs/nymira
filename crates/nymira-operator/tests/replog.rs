@@ -207,3 +207,48 @@ async fn the_time_in_an_entry_is_rounded_to_the_hour() {
         .unwrap();
     assert_eq!(entry.hour, 3_600 * 5);
 }
+
+#[tokio::test]
+async fn payloads_older_than_the_retention_go_from_the_replica_and_its_database() {
+    use nymira_operator::replog::RETENTION_SECS;
+    let laptop = log();
+    let old = 3_600 * 10;
+    let fresh = old + RETENTION_SECS;
+    let payload = serde_json::json!({
+        "lease_id": "old", "nullifier": "0xaa", "bound": "1", "request_json": "{\"proof\":1}",
+        "reserved_at": old,
+    })
+    .to_string();
+    laptop
+        .append(kinds::RESERVATION, "old", old, Some(&payload), false)
+        .await
+        .unwrap();
+    laptop
+        .append(kinds::RESERVATION, "new", fresh, Some("{}"), false)
+        .await
+        .unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let replica = ReplicaNode::new(Log::new(store.clone()), key(1));
+    for e in laptop.from(1, 10).await.unwrap() {
+        replica.append(&e).await.unwrap();
+    }
+    let kept = store
+        .run(|c| nymira_operator::store::request_json(c, "old"))
+        .await
+        .unwrap();
+    assert_eq!(kept.as_deref(), Some("{\"proof\":1}"));
+    // One second short of the retention nothing goes; one second past, the old one does.
+    assert_eq!(replica.purge(old + RETENTION_SECS - 1).await.unwrap(), 0);
+    assert_eq!(
+        replica.purge(old + RETENTION_SECS + 3_600).await.unwrap(),
+        1
+    );
+    let entries = replica.from(1, 10).await.unwrap();
+    assert!(entries[0].payload.is_none() && entries[1].payload.is_some());
+    replica.verify().await.unwrap();
+    let gone = store
+        .run(|c| nymira_operator::store::request_json(c, "old"))
+        .await
+        .unwrap();
+    assert_eq!(gone.as_deref(), Some("{}"));
+}

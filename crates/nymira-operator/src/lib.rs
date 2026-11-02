@@ -19,6 +19,7 @@ pub mod provider;
 pub mod proxy;
 pub mod puzzle;
 pub mod replica;
+pub mod replica_http;
 pub mod replicator;
 pub mod replog;
 pub mod restore;
