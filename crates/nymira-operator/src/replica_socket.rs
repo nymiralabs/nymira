@@ -63,7 +63,9 @@ pub async fn serve(listener: tokio::net::UnixListener, replica: Arc<dyn Replica>
                     .map(|_| (None, vec![])),
                 Call::Recorded { kind, key } => Ok((replica.recorded(&kind, &key).await, vec![])),
                 Call::Sync => replica.sync().await.map(|_| (None, vec![])),
-                Call::Restore => replica.restore().await.map(|e| (None, e)),
+                // The owner writes the entries into the shared database; sending them back would only
+                // hit the line limit on a long log.
+                Call::Restore => replica.restore().await.map(|_| (None, vec![])),
                 Call::State => Ok((None, vec![])),
             };
             let (ok, error, payload, entries) = match result {

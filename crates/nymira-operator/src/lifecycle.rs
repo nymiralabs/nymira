@@ -685,24 +685,6 @@ impl Operator {
     /// request proof, and the lease is settled at its bound. No next state is signed; the client
     /// leaves the note by exit.
     pub async fn reconcile(&self, body: &[u8]) -> ApiResult<Value> {
-        {
-            let now = self.clock.now_secs();
-            let mut recent = self.reconciles.lock().unwrap_or_else(|e| e.into_inner());
-            while recent.front().is_some_and(|t| *t + 60 <= now) {
-                recent.pop_front();
-            }
-            if recent.len() >= crate::operator::RECONCILES_PER_MINUTE {
-                let wait = recent
-                    .front()
-                    .map_or(1, |t| (*t + 60).saturating_sub(now).max(1));
-                return Err(ApiError::new(
-                    Code::OperatorCapacity,
-                    "too many reconcile calls this minute",
-                )
-                .retry_after(wait));
-            }
-            recent.push_back(now);
-        }
         let value = crate::json::parse_strict(body)
             .map_err(|e| ApiError::new(Code::MalformedRequest, e.to_string()))?;
         let (Some(lease_id), request) = (value["lease_id"].as_str(), &value["request"]) else {
@@ -733,6 +715,25 @@ impl Operator {
                 Code::LeaseNotFound,
                 "the lease is not waiting for reconciliation",
             ));
+        }
+        // Counted only now: garbage and unknown leases must not use up the minute for real ones.
+        {
+            let now = self.clock.now_secs();
+            let mut recent = self.reconciles.lock().unwrap_or_else(|e| e.into_inner());
+            while recent.front().is_some_and(|t| *t + 60 <= now) {
+                recent.pop_front();
+            }
+            if recent.len() >= crate::operator::RECONCILES_PER_MINUTE {
+                let wait = recent
+                    .front()
+                    .map_or(1, |t| (*t + 60).saturating_sub(now).max(1));
+                return Err(ApiError::new(
+                    Code::OperatorCapacity,
+                    "too many reconcile calls this minute",
+                )
+                .retry_after(wait));
+            }
+            recent.push_back(now);
         }
         if !self.settle_at_bound(&lease, "reconciled").await {
             return Err(ApiError::new(Code::ReplicaUnreachable, "try again").retry_after(5));

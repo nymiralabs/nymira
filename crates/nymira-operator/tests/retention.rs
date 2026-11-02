@@ -128,17 +128,13 @@ async fn old_request_proofs_and_signed_states_are_purged_on_a_schedule() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn reconcile_is_limited_across_all_callers() {
+async fn garbage_reconcile_calls_do_not_use_up_the_limit() {
     let rig = Rig::new(Setup::default()).await;
-    for n in 0..30 {
+    // The limit counts calls about a restored lease only, so noise cannot lock real clients out.
+    for n in 0..60 {
         let (s, _) = rig.post_json("/v2/reconcile", b"{}".to_vec()).await;
         assert_eq!(s, 400, "call {n}");
     }
-    let (s, v) = rig.post_json("/v2/reconcile", b"{}".to_vec()).await;
-    json_error(s, &v, 429, "operator_capacity");
-    rig.clock.advance_secs(61);
-    let (s, _) = rig.post_json("/v2/reconcile", b"{}".to_vec()).await;
-    assert_eq!(s, 400);
 }
 
 struct Sick(&'static str);
