@@ -15,7 +15,8 @@ pub struct Config {
     /// The vault account; defaults to the pinned one.
     pub vault: Option<String>,
     /// `host:port` of a loopback SOCKS5 proxy someone else runs. Without it `nymirad` starts and
-    /// manages Tor itself (see `tor_backend`). Nothing goes out directly.
+    /// manages Tor itself (see `tor_backend`). Must be a loopback address. Only a demo build
+    /// with `direct` set goes out without Tor.
     pub socks: Option<String>,
     /// `tor` (the default) or `arti`.
     #[serde(default)]

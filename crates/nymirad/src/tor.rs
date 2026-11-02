@@ -133,6 +133,8 @@ fn verified_copy(cfg: &TorConfig) -> Result<PathBuf, TorError> {
     private_dir(&cfg.work_dir)
         .and_then(|()| private_dir(&bin_dir))
         .map_err(|e| package_error(e.to_string()))?;
+    std::fs::write(cfg.work_dir.join("empty.torrc"), b"")
+        .map_err(|e| package_error(e.to_string()))?;
     let copy = bin_dir.join(name);
     let _ = std::fs::remove_file(&copy);
     std::fs::write(&copy, &bytes).map_err(|e| package_error(e.to_string()))?;
@@ -155,9 +157,15 @@ fn free_port() -> std::io::Result<u16> {
 
 fn arguments(cfg: &TorConfig, port: u16) -> Vec<String> {
     let data = cfg.work_dir.join("data");
+    let empty = cfg.work_dir.join("empty.torrc").display().to_string();
     match cfg.backend {
+        // Both config files are ours and empty: a torrc in /etc/tor or the home directory is
+        // never read, so nothing on the machine changes the ports or the exit policy.
         Backend::CTor => vec![
-            "--ignore-missing-torrc".into(),
+            "-f".into(),
+            empty.clone(),
+            "--defaults-torrc".into(),
+            empty,
             "--ClientOnly".into(),
             "1".into(),
             "--SocksPort".into(),
@@ -316,6 +324,15 @@ impl Tor {
 
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    /// `Ok` only while the process is `Ready`; checked before every send on a held client.
+    pub fn ensure_ready(&self) -> Result<(), String> {
+        match self.state() {
+            TorState::Ready => Ok(()),
+            TorState::Starting(p) => Err(format!("still starting ({p}%)")),
+            TorState::Failed(why) => Err(why),
+        }
     }
 
     pub fn state(&self) -> TorState {

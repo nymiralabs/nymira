@@ -660,6 +660,9 @@ impl Gateway {
             s.last_used = self.clock.now_secs();
         }
 
+        self.transport
+            .ensure_ready()
+            .map_err(|e| net_error("operator_unreachable", e))?;
         let sent = http
             .post(format!("{}/v1/chat/completions", self.cfg.operator_url))
             .header("content-type", "application/json")
@@ -785,7 +788,12 @@ impl Gateway {
             (s.lease.clone(), s.http.clone())
         };
         let lease_client = LeaseClient::new(http, &self.cfg.operator_url);
-        if let Err(e) = lease_client.retire(&lease).await {
+        let retired = match self.transport.ensure_ready() {
+            Ok(()) => lease_client.retire(&lease).await,
+            Err(RpcError::TorDown(m)) => Err(LeaseError::TorDown(m)),
+            Err(other) => Err(LeaseError::Transport(other.to_string())),
+        };
+        if let Err(e) = retired {
             // Not retired: the next pass tries again.
             if let Some(s) = self.sessions.lock().await.get_mut(note_key) {
                 s.retiring = false;

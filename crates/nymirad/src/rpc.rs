@@ -25,6 +25,27 @@ impl Transport {
     pub fn is_direct(&self) -> bool {
         matches!(self, Self::Direct)
     }
+
+    /// Fails when a managed Tor is no longer ready. A client built while Tor was up keeps its
+    /// proxy address; call this before each send on it, so a Tor that died (and whose port
+    /// something else may now hold) gets no more traffic.
+    pub fn ensure_ready(&self) -> Result<(), RpcError> {
+        match self {
+            Self::Tor(tor) => tor.ensure_ready().map_err(RpcError::TorDown),
+            _ => Ok(()),
+        }
+    }
+
+    /// The Tor line of `nymirad status`.
+    pub fn status_line(&self) -> String {
+        match self {
+            Self::Tor(tor) => tor.status_line(),
+            Self::Socks(addr) => {
+                format!("Tor: external SOCKS proxy at {addr}, not managed or checked")
+            }
+            Self::Direct => "Tor: off (demo build, traffic is direct)".into(),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

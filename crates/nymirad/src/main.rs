@@ -85,6 +85,14 @@ fn funding_key(path: &str) -> SigningKey {
 /// in demo builds only, nothing. Waits `wait` for a managed Tor to finish its bootstrap.
 async fn connect(cfg: &Config, home: &std::path::Path, wait: std::time::Duration) -> Transport {
     if let Some(addr) = &cfg.socks {
+        // Only a proxy on this machine: anything else would carry the destination names and
+        // the identities to another host.
+        match addr.parse::<std::net::SocketAddr>() {
+            Ok(a) if a.ip().is_loopback() => {}
+            _ => die(format!(
+                "socks must be a loopback IP and port, like 127.0.0.1:9050, not {addr}"
+            )),
+        }
         return Transport::Socks(addr.clone());
     }
     if cfg.direct_allowed() {
@@ -99,17 +107,6 @@ async fn connect(cfg: &Config, home: &std::path::Path, wait: std::time::Duration
         Err(e) => eprintln!("warning: {e}"),
     }
     Transport::Tor(Arc::new(tor))
-}
-
-/// The line `nymirad status` prints for Tor.
-fn tor_line(transport: &Transport) -> String {
-    match transport {
-        Transport::Tor(tor) => tor.status_line(),
-        Transport::Socks(addr) => {
-            format!("Tor: external SOCKS proxy at {addr}, not managed or checked")
-        }
-        Transport::Direct => "Tor: off (demo build, traffic is direct)".into(),
-    }
 }
 
 const TOR_WAIT: std::time::Duration = std::time::Duration::from_secs(180);
@@ -331,7 +328,7 @@ async fn main() {
                 println!(
                     "{}",
                     status::render(
-                        &tor_line(&transport),
+                        &transport.status_line(),
                         operator.as_ref(),
                         &notes.list().unwrap_or_else(|e| die(e)),
                         &tripwire,
