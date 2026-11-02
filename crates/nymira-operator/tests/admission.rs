@@ -149,10 +149,13 @@ async fn an_oversize_body_is_refused_before_anything_else() {
         .body(vec![b' '; 64 * 1024 + 1])
         .send()
         .await;
-    if let Ok(response) = refused {
-        let status = response.status().as_u16();
-        let v: Value = response.json().await.unwrap();
-        json_error(status, &v, 413, "body_too_large");
+    match refused {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let v: Value = response.json().await.unwrap();
+            json_error(status, &v, 413, "body_too_large");
+        }
+        Err(e) => assert!(!e.is_timeout(), "a reset is fine, a hang is not: {e}"),
     }
     assert_eq!(calls.0.load(Ordering::SeqCst), 0);
     assert_eq!(rig.op.attempt_entries(), 0);

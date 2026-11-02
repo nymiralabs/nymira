@@ -108,7 +108,9 @@ async fn main() {
     let settings = env.map();
     let sealed = settings.get("NYMIRA_SEAL_PASSPHRASE").and_then(|pass| {
         let dir = format!("{}/.nymira-live", std::env::var("HOME").unwrap());
-        SealedFile::open(format!("{dir}/login.enc").as_ref(), pass, 600_000).ok()
+        SealedFile::open(format!("{dir}/login.enc").as_ref(), pass, 600_000)
+            .map_err(|e| println!("sealed login file not opened: {e}"))
+            .ok()
     });
     let stored: Option<Value> = sealed
         .as_ref()
@@ -183,7 +185,13 @@ async fn main() {
                 .map_or(0, |d| d.as_secs());
             let expires_at = body["refresh_token_expiration"]
                 .as_str()
-                .and_then(parse_rfc3339);
+                .and_then(parse_rfc3339)
+                .or_else(|| {
+                    stored
+                        .as_ref()
+                        .and_then(|l| l["expires_at"].as_u64())
+                        .filter(|_| !replacing && !rotated)
+                });
             let issued_at = match stored.as_ref().filter(|_| !replacing && !rotated) {
                 Some(l) => l["issued_at"].as_u64().unwrap_or(now),
                 None => now,

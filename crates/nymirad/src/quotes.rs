@@ -68,6 +68,7 @@ impl OneClick {
 
     /// Over a client the caller built, for a stub on loopback in tests. The shipped path is
     /// [`OneClick::new`].
+    #[doc(hidden)]
     pub fn over(http: reqwest::Client, base: &str) -> Self {
         Self {
             http,

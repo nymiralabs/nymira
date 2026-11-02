@@ -99,7 +99,7 @@ pub fn diff(pinned: &Pins, live: &Pins) -> Vec<String> {
 /// `params_applied` leaves behind, so it also says what to do about it.
 pub fn warnings(diffs: &[String]) -> Vec<String> {
     let mut out = vec![format!(
-        "the vault differs from the pins in this build: {}. Deposits and new leases are stopped.",
+        "the vault differs from the pins in this build: {}. Deposits are refused.",
         diffs.join(", ")
     )];
     const PARAMS: [&str; 4] = [
