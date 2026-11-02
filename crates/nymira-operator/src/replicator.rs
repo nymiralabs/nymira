@@ -5,6 +5,7 @@
 //! new is written, the backlog is pushed first, in order, so the replica's chain is always a
 //! prefix of ours. While that fails, nothing that needs a signature or a reservation goes out.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -43,6 +44,9 @@ pub struct Replicator {
     clock: Arc<dyn Clock>,
     gate: tokio::sync::Mutex<()>,
     state: Mutex<State>,
+    /// Set once this log has been compared with the replica. Before that nothing is written: a
+    /// disk that was lost would start a chain of its own beside the replica's.
+    based: AtomicBool,
 }
 
 fn down(e: impl std::fmt::Display) -> ReplicaError {
@@ -58,6 +62,7 @@ impl Replicator {
             clock,
             gate: tokio::sync::Mutex::new(()),
             state: Mutex::new(State::Ready),
+            based: AtomicBool::new(false),
         }
     }
 
@@ -100,6 +105,7 @@ impl Replicator {
         match found {
             Audit::Match => {
                 self.set(State::Ready);
+                self.based.store(true, Ordering::SeqCst);
                 Ok(())
             }
             Audit::Ahead { replica, local } => {
@@ -135,6 +141,7 @@ impl Replicator {
                     next = last + 1;
                 }
                 self.set(State::Ready);
+                self.based.store(true, Ordering::SeqCst);
                 Ok(())
             }
         }
@@ -156,7 +163,8 @@ impl Replicator {
         if self.log.has(kind, key).await.map_err(down)? {
             return self.sync_locked().await;
         }
-        let releases = matches!(kind, kinds::RESERVATION | kinds::SIGNED | kinds::CLEARANCE);
+        let releases = !self.based.load(Ordering::SeqCst)
+            || matches!(kind, kinds::RESERVATION | kinds::SIGNED | kinds::CLEARANCE);
         if releases {
             self.sync_locked().await?;
         }
@@ -193,6 +201,7 @@ impl Replicator {
             return Err(down("the heads do not match after the restore"));
         }
         self.set(State::Ready);
+        self.based.store(true, Ordering::SeqCst);
         Ok(restored)
     }
 }
@@ -224,5 +233,17 @@ impl Replica for Replicator {
 
     fn in_recovery(&self) -> bool {
         Replicator::in_recovery(self)
+    }
+
+    async fn sync(&self) -> Result<(), ReplicaError> {
+        Replicator::sync(self).await
+    }
+
+    async fn restore(&self) -> Result<Vec<Entry>, ReplicaError> {
+        Replicator::restore(self).await
+    }
+
+    fn is_real(&self) -> bool {
+        true
     }
 }

@@ -303,6 +303,11 @@ impl FakeProvider {
         self.state().keys.clone()
     }
 
+    /// True while the key of this lease is minted and not revoked.
+    pub fn is_live(&self, lease_id: &str) -> bool {
+        self.state().keys.get(lease_id).is_some_and(|k| !k.revoked)
+    }
+
     pub fn live_keys(&self) -> usize {
         self.state().keys.values().filter(|k| !k.revoked).count()
     }

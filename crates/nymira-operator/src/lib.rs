@@ -21,6 +21,7 @@ pub mod puzzle;
 pub mod replica;
 pub mod replicator;
 pub mod replog;
+pub mod restore;
 pub mod sealed;
 pub mod signer;
 pub mod status;

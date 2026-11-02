@@ -142,7 +142,7 @@ const COLUMNS: &str = "seq, prev, kind, key, hour, payload_hash, payload, hash";
 
 /// Appends `e` if it is the next entry, accepts it again if it is already there, refuses it
 /// otherwise.
-fn insert(conn: &mut Connection, e: &Entry, acked: bool) -> Result<(), LogError> {
+fn insert(conn: &mut Connection, e: &Entry, acked: bool, apply: bool) -> Result<(), LogError> {
     check(e)?;
     let tx = conn.transaction()?;
     let (head, head_hash) = head_of(&tx)?;
@@ -180,6 +180,9 @@ fn insert(conn: &mut Connection, e: &Entry, acked: bool) -> Result<(), LogError>
             acked as i64
         ],
     )?;
+    if apply {
+        crate::restore::apply(&tx, e)?;
+    }
     if e.kind == kinds::ROLLED_BACK {
         tx.execute(
             "UPDATE replog SET payload = NULL WHERE key = ?1 AND payload IS NOT NULL",
@@ -232,15 +235,18 @@ impl Log {
                     hash: String::new(),
                 };
                 e.hash = entry_hash(&e);
-                Ok(insert(c, &e, acked).map(|()| e))
+                Ok(insert(c, &e, acked, false).map(|()| e))
             })
             .await?
     }
 
-    /// Stores an entry that came from the other machine (already acknowledged by definition).
+    /// Stores an entry that came from the other machine (already acknowledged by definition)
+    /// and applies it to the database in the same transaction.
     pub async fn accept(&self, entry: &Entry) -> Result<(), LogError> {
         let e = entry.clone();
-        self.store.run(move |c| Ok(insert(c, &e, true))).await?
+        self.store
+            .run(move |c| Ok(insert(c, &e, true, true)))
+            .await?
     }
 
     /// True when an entry of this kind about this key is in the log.

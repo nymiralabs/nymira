@@ -270,6 +270,8 @@ pub struct Setup {
     pub credit: u128,
     pub tune: Box<dyn FnOnce(&mut Config)>,
     pub clock_secs: u64,
+    /// Builds the replica from the operator's own store: tests that run the real replicator.
+    pub replica: Option<Box<dyn FnOnce(Store) -> Arc<dyn nymira_operator::replica::Replica>>>,
 }
 
 impl Default for Setup {
@@ -280,6 +282,7 @@ impl Default for Setup {
             credit: 100_000_000,
             tune: Box::new(|_| {}),
             clock_secs: T0,
+            replica: None,
         }
     }
 }
@@ -330,6 +333,10 @@ async fn launch(
         contract(),
     ));
     let store = Store::open(&dir.join("operator.db")).unwrap();
+    let replica_dyn: Arc<dyn nymira_operator::replica::Replica> = match setup.replica {
+        Some(build) => build(store.clone()),
+        None => replica.clone(),
+    };
     // The signer has its own handle on the database, as a separate process would.
     let signer = Arc::new(
         Signer::new(
@@ -344,14 +351,14 @@ async fn launch(
             heartbeat.clone(),
         )
         .unwrap()
-        .with_replica(replica.clone()),
+        .with_replica(replica_dyn.clone()),
     );
     let op = Operator::start(Parts {
         cfg,
         clock: clock.clone(),
         vault: vault.clone(),
         provider: provider.clone(),
-        replica: replica.clone(),
+        replica: replica_dyn,
         verifier,
         withdrawal_verifier: withdrawal,
         closer,

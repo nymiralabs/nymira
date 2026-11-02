@@ -351,6 +351,19 @@ impl Operator {
     pub async fn tick(&self) {
         let _step = self.lifecycle.lock().await;
         let now = self.clock.now_secs();
+        // The replica is compared with every few seconds: this delivers the backlog of status
+        // facts and notices a disk that fell behind it.
+        let sync_due = {
+            let mut at = self.synced_at.lock().unwrap_or_else(|e| e.into_inner());
+            let due = now >= *at + crate::operator::SYNC_EVERY_SECS;
+            if due {
+                *at = now;
+            }
+            due
+        };
+        if sync_due || self.replica.in_recovery() {
+            let _ = self.restore_from_replica().await;
+        }
         let balance_due = self.clock.now_ms().saturating_sub(self.balance_read_ms())
             >= self.config().balance_refresh_secs * 1000;
         if balance_due {
@@ -373,6 +386,7 @@ impl Operator {
                 "retiring" => self.tick_retiring(&lease, now).await,
                 "revoked" => self.tick_revoked(&lease, now).await,
                 "retired" => self.settle(&lease, now).await,
+                crate::restore::RESTORED => self.settle_restored(&lease, now).await,
                 _ => {}
             }
         }
@@ -561,6 +575,87 @@ impl Operator {
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&lease.nullifier);
         }
+    }
+
+    /// A lease that came back from the replica has no key and no token: six hours after the
+    /// restore it is settled at its bound, with no next state. (An honest client settles it
+    /// sooner through `POST /v2/reconcile`.)
+    async fn settle_restored(&self, lease: &LeaseRow, now: u64) {
+        if self.replica.in_recovery()
+            || now < lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS
+        {
+            return;
+        }
+        let _ = self.settle_at_bound(lease, "recovered").await;
+    }
+
+    /// Settles a restored lease at its bound and tells the second machine.
+    pub(crate) async fn settle_at_bound(&self, lease: &LeaseRow, basis: &'static str) -> bool {
+        let (id, now) = (lease.lease_id.clone(), self.clock.now_secs());
+        let done = self
+            .store
+            .run(move |c| crate::restore::settle_restored(c, &id, basis, now))
+            .await
+            .unwrap_or(false);
+        if done {
+            self.ledger.settle(&lease.lease_id, lease.bound, now);
+            self.closing
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&lease.lease_id);
+            let fact = json!({ "charge": lease.bound.to_string(), "basis": basis }).to_string();
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::SETTLED, &lease.lease_id, Some(&fact))
+                .await;
+        }
+        done
+    }
+
+    /// `POST /v2/reconcile`: an honest client that lost a lease to a restore proves it holds the
+    /// request proof, and the lease is settled at its bound. No next state is signed; the client
+    /// leaves the note by exit.
+    pub async fn reconcile(&self, body: &[u8]) -> ApiResult<Value> {
+        let value = crate::json::parse_strict(body)
+            .map_err(|e| ApiError::new(Code::MalformedRequest, e.to_string()))?;
+        let (Some(lease_id), request) = (value["lease_id"].as_str(), &value["request"]) else {
+            return Err(ApiError::new(
+                Code::MalformedRequest,
+                "lease_id and request are required",
+            ));
+        };
+        let canonical = crate::operator::parse_request(request.to_string().as_bytes())?.1;
+        let id = lease_id.to_string();
+        let (lease, stored) = self
+            .store
+            .run(move |c| Ok((store::lease(c, &id)?, store::request_json(c, &id)?)))
+            .await
+            .map_err(db)?;
+        let (Some(lease), Some(stored)) = (lease, stored) else {
+            return Err(ApiError::new(Code::LeaseNotFound, "unknown lease"));
+        };
+        // The proof the client holds is the one on file: that is who it is.
+        if stored != canonical.to_string() {
+            return Err(ApiError::new(
+                Code::ProofInvalid,
+                "the request does not match the one on file",
+            ));
+        }
+        if lease.status != crate::restore::RESTORED {
+            return Err(ApiError::new(
+                Code::LeaseNotFound,
+                "the lease is not waiting for reconciliation",
+            ));
+        }
+        if !self.settle_at_bound(&lease, "reconciled").await {
+            return Err(ApiError::new(Code::ReplicaUnreachable, "try again").retry_after(5));
+        }
+        Ok(json!({
+            "status": "finalized",
+            "nullifier_status": "finalized",
+            "charge_applied": lease.bound.to_string(),
+            "next_state": Value::Null,
+        }))
     }
 
     /// Runs [`Operator::tick`] every second for as long as the process lives.

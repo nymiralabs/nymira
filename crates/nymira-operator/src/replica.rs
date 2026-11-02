@@ -43,6 +43,21 @@ pub trait Replica: Send + Sync {
     fn in_recovery(&self) -> bool {
         false
     }
+
+    /// Compares with the replica, brings it level, and notices when this machine is behind.
+    async fn sync(&self) -> Result<(), ReplicaError> {
+        Ok(())
+    }
+
+    /// Pulls what this machine lacks from the replica into the database and returns it.
+    async fn restore(&self) -> Result<Vec<crate::replog::Entry>, ReplicaError> {
+        Ok(Vec::new())
+    }
+
+    /// False for stand-ins that keep nothing: only the sandbox may start with one.
+    fn is_real(&self) -> bool {
+        false
+    }
 }
 
 /// Acknowledges at once and keeps nothing: for the sandbox profile only.
