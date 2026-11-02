@@ -129,6 +129,40 @@ test('the app refuses to run from any origin but its own', async ({ context, pag
   expect(requests.filter((u) => u.includes(':18545'))).toEqual([]);
 });
 
+test('the network, vault, RPC and operator cannot be changed by URL or storage', async ({
+  context,
+  page,
+}) => {
+  await newFundingWallet(context);
+  const hosts = new Set<string>();
+  page.on('request', (r) => hosts.add(new URL(r.url()).host));
+  await page.addInitScript(() => {
+    for (const key of [
+      'network',
+      'profile',
+      'mode',
+      'rpc',
+      'rpcUrl',
+      'operator',
+      'operatorUrl',
+      'vault',
+    ]) {
+      localStorage.setItem(key, key === 'network' ? 'mainnet' : 'https://evil.test');
+      sessionStorage.setItem(key, 'https://evil.test');
+    }
+  });
+  await page.goto(
+    '/?network=mainnet&mode=mainnet&rpc=https://evil.test&operator=https://evil.test&vault=evil.near&token=evil.near',
+  );
+  await page.getByTestId('open-app').click();
+  await expect(page.getByTestId('network-label')).toContainText('testnet');
+  await expect(page.getByTestId('vault-ok')).toBeVisible();
+  await page.getByTestId('quotes-toggle').check();
+  await expect(page.getByTestId('quote-row').first()).toBeVisible({ timeout: 20_000 });
+  expect([...hosts].filter((h) => /evil/.test(h))).toEqual([]);
+  expect([...hosts].sort()).toEqual(['127.0.0.1:18545', '127.0.0.1:18547', 'localhost:4173']);
+});
+
 test('a passkey with PRF wraps the notes and unlocks them after a reload', async ({
   context,
   page,

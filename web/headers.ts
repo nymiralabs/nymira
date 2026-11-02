@@ -11,6 +11,7 @@
 //    `allow-same-origin`: an opaque origin with no access to the app's storage or DOM) that has a
 //    relaxed policy of its own.
 import type { Profile } from './src/profiles/types';
+import { WALLET_HOSTS } from './wallet-hosts';
 
 const origin = (url: string): string => new URL(url).origin;
 
@@ -50,12 +51,16 @@ export function appCsp(p: Profile, extraConnect: string[] = []): string {
 
 /** The wallet frame's policy: relaxed inside an opaque-origin sandbox. */
 export function walletFrameCsp(p: Profile): string {
+  const needs = p.walletIds.map((id) => WALLET_HOSTS[id] ?? {});
+  const hosts = (pick: (n: (typeof needs)[number]) => string[] | undefined) =>
+    needs.flatMap((n) => pick(n) ?? []);
   // WebKit does not match 'self' for the opaque origin of a sandboxed frame, so the app's own
   // origin is named as well (the executors are fetched from it).
   const connect = unique([
     "'self'",
     origin(p.appOrigin),
     ...p.rpcUrls.map(origin),
+    ...hosts((n) => n.connect),
     ...p.walletConnectSrc,
   ]);
   return [
@@ -64,8 +69,10 @@ export function walletFrameCsp(p: Profile): string {
     "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
     "style-src 'unsafe-inline'",
     `connect-src ${connect.join(' ')}`,
-    'img-src data:',
-    "frame-src 'self' about: data:",
+    `img-src ${unique(['data:', ...hosts((n) => n.img)]).join(' ')}`,
+    // Meteor's interface embeds its fonts as data: URIs.
+    'font-src data:',
+    `frame-src ${unique(["'self'", 'about:', 'data:', ...hosts((n) => n.frame)]).join(' ')}`,
     "base-uri 'none'",
     "form-action 'none'",
     "object-src 'none'",

@@ -112,6 +112,16 @@ describe('profiles and headers', () => {
     expect(csp).toContain("frame-ancestors 'none'");
   });
 
+  it('the wallet frame policy names what each listed wallet needs, and no more', () => {
+    const csp = walletFrameCsp(testnet);
+    expect(csp).toContain("frame-src 'self' about: data: https://wallet.intear.tech");
+    expect(csp).toContain('https://mc.meteorwallet.app');
+    expect(csp).toContain('wss://mc.meteorwallet.app');
+    expect(csp).toContain('img-src data: https://meteorwallet.app');
+    expect(csp).not.toContain('google.com');
+    expect(walletFrameCsp({ ...testnet, walletIds: [] })).not.toContain('meteorwallet');
+  });
+
   it('only the wallet frame gets the relaxed policy, and it cannot be embedded elsewhere', () => {
     expect(walletFrameCsp(mock)).toContain("'unsafe-inline'");
     expect(walletFrameCsp(mock)).toContain("frame-ancestors 'self'");

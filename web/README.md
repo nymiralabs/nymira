@@ -83,6 +83,16 @@ A bundle is built for one profile (`vite build --mode <profile>`) and contains t
 
 Vendored executors are snapshots of third-party code (Meteor's is 2 MB). They can fall behind a wallet's own changes; update them on purpose, with a diff (`pins/executors.json` says how).
 
+## Wallet checks
+
+CI drives the sandbox path with a test executor and the injected test wallet. Two opt-in tests load the real, vendored executors and reach the wallets' servers:
+
+```sh
+PROBE_REAL_WALLETS=1 npx playwright test --project=chromium real-wallets
+```
+
+They show that Intear's connect chooser renders in the frame under the production policy, and that Meteor's dialog renders and its Meteor Web button opens the testnet login. Not tested here: signing in with a real account, `signMessage` and a transaction. Do that by hand with Meteor and Intear on testnet. The hosts each wallet needs are in `wallet-hosts.ts`; they came from the policy violations seen at load, so extend them from what the full flow reports. Meteor's interface also asks for two web fonts from third-party hosts. The frame's policy refuses them and the dialog falls back to a system font.
+
 ## What the app does not promise
 
 - It cannot hide the user's IP address from the operator, an RPC provider or 1Click. It says so on every screen and points to Tor Browser or `nymirad`.

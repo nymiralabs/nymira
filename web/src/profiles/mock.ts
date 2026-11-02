@@ -16,7 +16,7 @@ export const profile: Profile = {
   tokenDecimals: 6,
   explorerTxUrl: (hash) => `https://testnet.nearblocks.io/txns/${hash}`,
   faucetUrl: 'https://faucet.circle.com',
-  walletIds: ['fake-wallet'],
+  walletIds: ['fake-wallet', 'intear-wallet', 'meteor-wallet'],
   extraExecutors: testExecutors.wallets,
   walletConnectSrc: [],
   oneClick: {
