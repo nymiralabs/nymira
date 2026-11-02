@@ -4,16 +4,20 @@ use serde_json::Value;
 
 use crate::pins::Tripwire;
 use crate::quotes::{self, View};
-use crate::rpc::{client, RpcError, Transport};
+use crate::rpc::{client, send_error, RpcError, Transport};
 use crate::secrets::{NoteEntry, NoteStatus};
 
 /// The operator's `/v1/status` document. Fields this build does not know are ignored.
 pub async fn operator_status(base: &str, transport: &Transport) -> Result<Value, RpcError> {
-    client(transport)?
+    let reply = client(transport)?
         .get(format!("{}/v1/status", base.trim_end_matches('/')))
         .send()
         .await
-        .map_err(|e| RpcError::Transport(e.without_url().to_string()))?
+        .map_err(send_error)?;
+    if !transport.is_direct() && crate::net::refuses_tor(reply.status().as_u16()) {
+        return Err(RpcError::TorRefused(format!("status {}", reply.status())));
+    }
+    reply
         .json()
         .await
         .map_err(|e| RpcError::Shape(e.without_url().to_string()))
@@ -40,6 +44,7 @@ pub fn lease_line(r: &crate::records::LeaseRecord) -> String {
 
 /// The text `nymirad status` prints. Nothing in it comes from a secret.
 pub fn render(
+    tor_line: &str,
     operator: Result<&Value, &RpcError>,
     notes: &[NoteEntry],
     tripwire: &Tripwire,
@@ -47,7 +52,7 @@ pub fn render(
     now_secs: u64,
 ) -> String {
     let mut out = Vec::new();
-    out.push("Tor: not managed by this build".to_string());
+    out.push(tor_line.to_string());
     match operator {
         Ok(s) => {
             let heartbeat = s["heartbeat_age_secs"]

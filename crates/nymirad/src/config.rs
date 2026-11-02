@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::rpc::Transport;
+use crate::tor::{Backend, TorConfig};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -14,9 +14,21 @@ pub struct Config {
     pub account: String,
     /// The vault account; defaults to the pinned one.
     pub vault: Option<String>,
-    /// `host:port` of a loopback SOCKS5 proxy (Tor). Without it every call is direct, which the
-    /// CLI confirms with the user first.
+    /// `host:port` of a loopback SOCKS5 proxy someone else runs. Without it `nymirad` starts and
+    /// manages Tor itself (see `tor_backend`). Nothing goes out directly.
     pub socks: Option<String>,
+    /// `tor` (the default) or `arti`.
+    #[serde(default)]
+    pub tor_backend: Option<String>,
+    /// The package executable; defaults to `<home>/tor/package/<backend>`.
+    #[serde(default)]
+    pub tor_package: Option<PathBuf>,
+    /// Demo builds only: the package hash to expect. A release build uses the one compiled in.
+    #[serde(default)]
+    pub tor_sha256: Option<String>,
+    /// Demo builds only: talk to the sandbox without Tor. A release build ignores it.
+    #[serde(default)]
+    pub direct: bool,
     /// Age public key of the backup recipient and the places the copies go.
     pub backup_recipient: Option<String>,
     #[serde(default)]
@@ -57,10 +69,28 @@ impl Config {
         )
     }
 
-    pub fn transport(&self) -> Transport {
-        match &self.socks {
-            Some(addr) => Transport::Socks(addr.clone()),
-            None => Transport::Direct,
-        }
+    /// How to start the managed Tor.
+    pub fn tor_config(&self, home: &Path) -> Result<TorConfig, String> {
+        let name = self.tor_backend.as_deref().unwrap_or("tor");
+        let backend = Backend::parse(name)
+            .ok_or_else(|| format!("tor_backend must be tor or arti, not {name}"))?;
+        let sha256 = match (&self.tor_sha256, cfg!(feature = "mock")) {
+            (Some(h), true) => h.clone(),
+            _ => crate::tor::pinned_sha256(backend).to_string(),
+        };
+        Ok(TorConfig {
+            backend,
+            package: self
+                .tor_package
+                .clone()
+                .unwrap_or_else(|| home.join("tor/package").join(backend.name())),
+            sha256,
+            work_dir: home.join("tor/run"),
+        })
+    }
+
+    /// Demo builds may run without Tor; a release build never does.
+    pub fn direct_allowed(&self) -> bool {
+        self.direct && cfg!(feature = "mock")
     }
 }

@@ -57,6 +57,12 @@ pub enum LeaseError {
     Operator(#[from] OperatorError),
     #[error("could not reach the operator: {0}")]
     Transport(String),
+    /// Tor is not running or the proxy went away; nothing reached the operator.
+    #[error("Tor is down: {0}")]
+    TorDown(String),
+    /// Tor works and the operator, or the exit's path to it, refuses.
+    #[error("the other side refuses Tor: {0}")]
+    TorRefused(String),
     #[error("the operator's answer did not parse: {0}")]
     Shape(String),
     #[error(transparent)]
@@ -71,7 +77,11 @@ pub struct LeaseClient {
 }
 
 fn transport(e: reqwest::Error) -> LeaseError {
-    LeaseError::Transport(e.without_url().to_string())
+    match crate::net::classify(e) {
+        crate::net::Failure::TorDown(m) => LeaseError::TorDown(m),
+        crate::net::Failure::TorRefused(m) => LeaseError::TorRefused(m),
+        crate::net::Failure::Other(m) => LeaseError::Transport(m),
+    }
 }
 
 impl LeaseClient {

@@ -321,7 +321,7 @@ async fn stack_with(
     let gateway = Arc::new(
         Gateway::new(
             config,
-            reqwest::Client::new(),
+            Transport::Direct,
             rpc,
             pins,
             NoteStore::open(&home.path().join("notes.sealed"), PASS, 10).unwrap(),
