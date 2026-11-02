@@ -1,0 +1,49 @@
+[package]
+name = "nymirad"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Nymira local gateway: owner token, vault pins, deposit"
+
+[features]
+# Demo and test builds only: lets the daemon talk to a sandbox without Tor. A release build
+# has neither this nor any attestation-skipping switch.
+mock = []
+
+[dependencies]
+age = "0.11"
+async-trait = "0.1"
+axum = "0.8"
+base64 = "0.22"
+ed25519-dalek = "2"
+hex = "0.4"
+libc = "0.2"
+nymira-operator = { path = "../nymira-operator" }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "socks"] }
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "fs"] }
+zeroize = "1"
+zkapi-core = { workspace = true }
+zkapi-types = { workspace = true }
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof" }
+
+[[example]]
+name = "demo"
+required-features = ["mock"]
+
+[dev-dependencies]
+nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }
+nymira-near-codec = { workspace = true }
+near-workspaces = { workspace = true }
+nymira-testkit = { path = "../nymira-testkit" }
+bs58 = "0.5"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+nymirad = { path = ".", features = ["mock"] }

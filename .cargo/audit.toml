@@ -29,4 +29,6 @@ ignore = [
   "RUSTSEC-2026-0405", # zstd-safe 7.3.0
   "RUSTSEC-2026-0397", # zstd-safe 7.3.0
   "RUSTSEC-2026-0396", # zstd-safe 7.3.0
+  "RUSTSEC-2026-0173", # proc-macro-error2 unmaintained, compile-time macro of age (nymirad backups)
+  "RUSTSEC-2026-0374", # basic-toml unmaintained, compile-time dependency of age's i18n macros
 ]
