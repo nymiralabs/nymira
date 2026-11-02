@@ -101,6 +101,12 @@ async fn guard(
     next.run(request).await
 }
 
+async fn models() -> axum::Json<serde_json::Value> {
+    axum::Json(crate::openai::models(
+        &nymira_operator::proxy::ProxyConfig::default().models,
+    ))
+}
+
 async fn not_built() -> Response {
     refuse(
         StatusCode::NOT_IMPLEMENTED,
@@ -114,7 +120,7 @@ async fn not_built() -> Response {
 pub fn router(token: Arc<OwnerToken>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(not_built))
-        .route("/v1/models", get(not_built))
+        .route("/v1/models", get(models))
         .fallback(not_built)
         .layer(middleware::from_fn_with_state(token.clone(), guard))
         .with_state(token)
