@@ -89,7 +89,12 @@ async fn a_slow_header_client_is_cut_off() {
 
 #[tokio::test]
 async fn a_slow_body_client_is_cut_off_and_a_fast_one_is_not() {
-    let addr = start(quick()).await;
+    // A long header timeout: only the body rate can cut this client.
+    let addr = start(Limits {
+        header_timeout: Duration::from_secs(30),
+        ..quick()
+    })
+    .await;
     let mut slow = TcpStream::connect(addr).await.unwrap();
     slow.write_all(b"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\n\r\n")
         .await
@@ -110,8 +115,8 @@ async fn a_slow_body_client_is_cut_off_and_a_fast_one_is_not() {
     }
     assert!(started.elapsed() < Duration::from_secs(3), "not cut off");
     assert!(
-        String::from_utf8_lossy(&answer).contains("408") || answer.is_empty(),
-        "unexpected answer: {}",
+        String::from_utf8_lossy(&answer).contains("408"),
+        "the handler never saw the body fail: {}",
         String::from_utf8_lossy(&answer)
     );
 

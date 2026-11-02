@@ -640,9 +640,13 @@ pub async fn serve(listener: UnixListener, closer: Arc<dyn CloseApi>, allowed_ui
 async fn handle(stream: UnixStream, closer: Arc<dyn CloseApi>) -> std::io::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut line = String::new();
-    BufReader::new(read.take(2 * CLOSE_BODY_LIMIT as u64))
-        .read_line(&mut line)
-        .await?;
+    // A peer that connects and says nothing must not hold the task.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        BufReader::new(read.take(2 * CLOSE_BODY_LIMIT as u64)).read_line(&mut line),
+    )
+    .await
+    .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))??;
     let reply = match serde_json::from_str::<Call>(&line).ok().and_then(|c| {
         base64::engine::general_purpose::STANDARD
             .decode(c.body)

@@ -91,6 +91,9 @@ fn keygen(cfg: &Config, name: Option<&str>) -> Result<(), String> {
     rand::thread_rng().fill_bytes(&mut seed);
     secretfile::write(&cfg.secret(name), hex::encode(seed).as_bytes())
         .map_err(|e| e.to_string())?;
-    println!("{}", hex::encode(SigningKey::from_bytes(&seed).verifying_key().to_bytes()));
+    println!(
+        "{}",
+        hex::encode(SigningKey::from_bytes(&seed).verifying_key().to_bytes())
+    );
     Ok(())
 }

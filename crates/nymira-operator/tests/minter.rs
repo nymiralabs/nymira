@@ -53,7 +53,10 @@ async fn the_api_mints_reads_and_revokes_through_the_socket() {
     assert!(!key.key_id.is_empty());
     assert_eq!(r.remote.list().await.unwrap(), ["lease1"]);
     r.fake.set_usage("lease1", 42_000_000);
-    assert_eq!(r.remote.usage("lease1").await.unwrap().cost_nano_usd, 42_000_000);
+    assert_eq!(
+        r.remote.usage("lease1").await.unwrap().cost_nano_usd,
+        42_000_000
+    );
     r.remote.revoke("lease1").await.unwrap();
     assert!(!r.fake.is_live("lease1"));
     assert!(matches!(
@@ -79,9 +82,14 @@ async fn a_usage_record_is_signed_only_for_what_the_provider_reports() {
     // is readable, or date a record far from the minter's clock.
     assert!(r.remote.sign(record(Some("1"), now)).await.is_err());
     assert!(r.remote.sign(record(None, now)).await.is_err());
-    assert!(r.remote.sign(record(Some("7000"), now + 3_600)).await.is_err());
+    assert!(r
+        .remote
+        .sign(record(Some("7000"), now + 3_600))
+        .await
+        .is_err());
     // Unreadable usage can only be signed as unreadable.
-    r.fake.set_usage_error(Some(ProviderError::Unavailable("down".into())));
+    r.fake
+        .set_usage_error(Some(ProviderError::Unavailable("down".into())));
     assert!(r.remote.sign(record(Some("7000"), now)).await.is_err());
     assert!(r.remote.sign(record(None, now)).await.is_ok());
 }

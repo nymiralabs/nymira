@@ -383,7 +383,10 @@ impl Watcher {
                 .unwrap_or_else(|e| e.into_inner())
                 .last_poll = Some(now);
             if let Some(id) = self.id.clone() {
-                let _ = self.store.run(move |c| store::set_watcher_poll(c, &id, now)).await;
+                let _ = self
+                    .store
+                    .run(move |c| store::set_watcher_poll(c, &id, now))
+                    .await;
             }
             self.check_wave(exits).await;
             for exit in exits {

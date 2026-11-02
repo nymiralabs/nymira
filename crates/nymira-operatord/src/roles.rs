@@ -111,7 +111,13 @@ fn vault(cfg: &Config, rpc: &str) -> Arc<dyn VaultView> {
     Arc::new(RpcVault::new(rpc, cfg.vault_account.clone()))
 }
 
-fn tx(cfg: &Config, signer_id: &str, key: SigningKey, store: Store, clock: Arc<dyn Clock>) -> Arc<NearTx> {
+fn tx(
+    cfg: &Config,
+    signer_id: &str,
+    key: SigningKey,
+    store: Store,
+    clock: Arc<dyn Clock>,
+) -> Arc<NearTx> {
     Arc::new(NearTx::new(
         cfg.rpc_urls[0].clone(),
         signer_id,
@@ -198,7 +204,12 @@ pub async fn api(cfg: &Config) -> Result<(), Failure> {
     let listener = tokio::net::TcpListener::bind(&cfg.listen)
         .await
         .map_err(|e| format!("listen {}: {e}", cfg.listen))?;
-    serve::serve(listener, nymira_operator::http::router(op), Limits::default()).await;
+    serve::serve(
+        listener,
+        nymira_operator::http::router(op),
+        Limits::default(),
+    )
+    .await;
     never()
 }
 
@@ -208,12 +219,8 @@ pub async fn minter(cfg: &Config) -> Result<(), Failure> {
     let alarms = alarms(cfg, clock.clone())?;
     let passphrase = secretfile::passphrase("seal passphrase").map_err(|e| e.to_string())?;
     let open = |name: &str| {
-        SealedFile::open(
-            &cfg.data_dir.join(name),
-            &passphrase,
-            signer::KDF_ROUNDS,
-        )
-        .map_err(|e| e.to_string())
+        SealedFile::open(&cfg.data_dir.join(name), &passphrase, signer::KDF_ROUNDS)
+            .map_err(|e| e.to_string())
     };
     std::fs::create_dir_all(&cfg.data_dir).map_err(|e| e.to_string())?;
     let first = cfg
@@ -240,7 +247,14 @@ pub async fn minter(cfg: &Config) -> Result<(), Failure> {
     if hex::encode(usage_key.public_key().to_bytes()) != cfg.usage_public_key {
         return Err("the usage key does not match usage_public_key".into());
     }
-    minter_service::serve(bind(cfg, "minter")?, Arc::new(adapter), usage_key, clock, euid()).await;
+    minter_service::serve(
+        bind(cfg, "minter")?,
+        Arc::new(adapter),
+        usage_key,
+        clock,
+        euid(),
+    )
+    .await;
     never()
 }
 
@@ -317,7 +331,12 @@ pub async fn closer(cfg: &Config) -> Result<(), Failure> {
         chain_id(network(cfg)),
         Felt252(contract_address(&cfg.vault_account)),
     );
-    closer::serve(closer::bind_socket(&cfg.socket("closer")).map_err(|e| e.to_string())?, Arc::new(closer), euid()).await;
+    closer::serve(
+        closer::bind_socket(&cfg.socket("closer")).map_err(|e| e.to_string())?,
+        Arc::new(closer),
+        euid(),
+    )
+    .await;
     never()
 }
 
@@ -341,13 +360,28 @@ pub async fn watcher(cfg: &Config) -> Result<(), Failure> {
         }
         None => Arc::new(NoReplica),
     };
-    tokio::spawn(replica_socket::serve(bind(cfg, "replica")?, replica, euid()));
+    tokio::spawn(replica_socket::serve(
+        bind(cfg, "replica")?,
+        replica,
+        euid(),
+    ));
 
-    let providers: Vec<Arc<dyn VaultView>> =
-        cfg.rpc_urls.iter().map(|u| vault(cfg, u)).collect();
+    let providers: Vec<Arc<dyn VaultView>> = cfg.rpc_urls.iter().map(|u| vault(cfg, u)).collect();
     let calls = NearCalls {
-        answer: tx(cfg, &cfg.answer_account, near_key(cfg, "answer")?, store.clone(), clock.clone()),
-        upkeep: tx(cfg, &cfg.operator_account, near_key(cfg, "upkeep")?, store.clone(), clock.clone()),
+        answer: tx(
+            cfg,
+            &cfg.answer_account,
+            near_key(cfg, "answer")?,
+            store.clone(),
+            clock.clone(),
+        ),
+        upkeep: tx(
+            cfg,
+            &cfg.operator_account,
+            near_key(cfg, "upkeep")?,
+            store.clone(),
+            clock.clone(),
+        ),
     };
     let watcher = Arc::new(
         Watcher::new(

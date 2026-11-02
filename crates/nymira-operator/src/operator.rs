@@ -212,6 +212,9 @@ pub struct Operator {
     pub(crate) synced_at: Mutex<u64>,
     /// When retention last ran, in Unix seconds.
     pub(crate) purged_at: Mutex<u64>,
+    /// The emergency notice as last read, and when: a flag set by another process shows within
+    /// [`EMERGENCY_CACHE`].
+    emergency_cache: Mutex<Option<(std::time::Instant, Option<String>)>>,
     /// Seconds of the recent `POST /v2/reconcile` calls, for the global rate limit.
     pub(crate) reconciles: Mutex<std::collections::VecDeque<u64>>,
 }
@@ -219,6 +222,8 @@ pub struct Operator {
 /// `POST /v2/reconcile` takes this many calls a minute across all callers: it needs no identity
 /// and a restored lease needs one call.
 pub const RECONCILES_PER_MINUTE: usize = 30;
+/// A flag set by another process shows within this long.
+const EMERGENCY_CACHE: std::time::Duration = std::time::Duration::from_secs(1);
 /// Retention runs this often.
 pub const PURGE_EVERY_SECS: u64 = 3_600;
 
@@ -314,6 +319,7 @@ impl Operator {
             started_secs: now_ms / 1000,
             synced_at: Mutex::new(0),
             purged_at: Mutex::new(0),
+            emergency_cache: Mutex::new(None),
             reconciles: Mutex::new(std::collections::VecDeque::new()),
         });
         operator
@@ -473,10 +479,27 @@ impl Operator {
     /// The key-leak notice, if the operator is in emergency. It lives in the database, so a
     /// restart does not end it and the process that sets it can be another one.
     pub async fn emergency(&self) -> Option<String> {
-        self.store
+        {
+            let cache = self
+                .emergency_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some((at, notice)) = cache.as_ref() {
+                if at.elapsed() < EMERGENCY_CACHE {
+                    return notice.clone();
+                }
+            }
+        }
+        let notice = self
+            .store
             .run(|c| store::emergency(c))
             .await
-            .unwrap_or(None)
+            .unwrap_or(None);
+        *self
+            .emergency_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), notice.clone()));
+        notice
     }
 
     /// Stops new leases and clearances and shows `notice` on `/v1/status`.
@@ -485,14 +508,24 @@ impl Operator {
         self.store
             .run(move |c| store::set_emergency(c, &notice, now))
             .await
-            .map_err(db_error)
+            .map_err(db_error)?;
+        *self
+            .emergency_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        Ok(())
     }
 
     pub async fn clear_emergency(&self) -> Result<(), ApiError> {
         self.store
             .run(|c| store::clear_emergency(c))
             .await
-            .map_err(db_error)
+            .map_err(db_error)?;
+        *self
+            .emergency_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        Ok(())
     }
 
     pub(crate) async fn refuse_in_emergency(&self) -> Result<(), ApiError> {

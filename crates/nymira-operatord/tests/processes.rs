@@ -47,7 +47,11 @@ fn run(config: &Path, args: &[&str]) -> String {
         .args(args)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8(out.stdout).unwrap().trim().to_string()
 }
 
@@ -71,13 +75,18 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
 
     // The fakes.
     let rpc = FakeRpc::start().await;
-    let gateway = nymira_fake_near_ai::start("127.0.0.1:0".parse().unwrap()).await.unwrap();
+    let gateway = nymira_fake_near_ai::start("127.0.0.1:0".parse().unwrap())
+        .await
+        .unwrap();
     let token_file = base.join("first-token");
     std::fs::write(&token_file, nymira_fake_near_ai::FIRST_REFRESH_TOKEN).unwrap();
     std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o400)).unwrap();
 
     // Passphrases typed at start-up, and the keys they give: the vault must name them.
-    let (state_pass, clearance_pass) = ("state passphrase for the test", "clearance passphrase, other");
+    let (state_pass, clearance_pass) = (
+        "state passphrase for the test",
+        "clearance passphrase, other",
+    );
     let (s_seed, c_seed) = seeds_from_passphrases(state_pass, clearance_pass, KDF_ROUNDS).unwrap();
     let (state, clearance) = Signer::signers_from_seeds(&s_seed, &c_seed, true).unwrap();
     let (sp, cp) = (state.public_key(), clearance.public_key());
@@ -147,26 +156,41 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
             .arg("--config")
             .arg(conf(role))
             .arg(role)
-            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdin(if stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
         if let Some(text) = stdin {
-            child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(text.as_bytes())
+                .unwrap();
         }
         (role.to_string(), child)
     };
     let mut procs = Procs(vec![]);
     procs.0.push(spawn("minter", Some("seal passphrase\n")));
-    procs.0.push(spawn("signer", Some(&format!("{state_pass}\n{clearance_pass}\n"))));
+    procs.0.push(spawn(
+        "signer",
+        Some(&format!("{state_pass}\n{clearance_pass}\n")),
+    ));
     procs.0.push(spawn("closer", None));
     procs.0.push(spawn("watcher", None));
     for socket in ["minter", "signer", "closer", "replica"] {
         let path = run_dir.join(format!("{socket}.sock"));
         let started = Instant::now();
         while !path.exists() {
-            assert!(started.elapsed() < Duration::from_secs(60), "{socket} never came up");
+            assert!(
+                started.elapsed() < Duration::from_secs(60),
+                "{socket} never came up"
+            );
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
@@ -184,7 +208,10 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
         for (name, child) in &mut procs.0 {
             assert!(child.try_wait().unwrap().is_none(), "{name} exited early");
         }
-        assert!(started.elapsed() < Duration::from_secs(90), "the API never answered");
+        assert!(
+            started.elapsed() < Duration::from_secs(90),
+            "the API never answered"
+        );
         tokio::time::sleep(Duration::from_millis(250)).await;
     };
 
@@ -203,7 +230,10 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
 
     // Sockets are 0600; secret files are 0400; the API's directory holds nothing.
     for name in ["minter", "signer", "closer", "replica"] {
-        let mode = std::fs::metadata(run_dir.join(format!("{name}.sock"))).unwrap().permissions().mode();
+        let mode = std::fs::metadata(run_dir.join(format!("{name}.sock")))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600, "{name} socket");
     }
     for (role, d) in &dirs {
@@ -213,14 +243,34 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
         }
     }
     assert_eq!(std::fs::read_dir(dir("api")).unwrap().count(), 0);
-    assert_eq!(std::fs::read_dir(dir("minter")).unwrap().count(), 1, "the usage key");
-    assert_eq!(std::fs::read_dir(dir("signer")).unwrap().count(), 1, "the heartbeat key");
-    assert_eq!(std::fs::read_dir(dir("closer")).unwrap().count(), 1, "the mutual_close key");
+    assert_eq!(
+        std::fs::read_dir(dir("minter")).unwrap().count(),
+        1,
+        "the usage key"
+    );
+    assert_eq!(
+        std::fs::read_dir(dir("signer")).unwrap().count(),
+        1,
+        "the heartbeat key"
+    );
+    assert_eq!(
+        std::fs::read_dir(dir("closer")).unwrap().count(),
+        1,
+        "the mutual_close key"
+    );
 
     // No TCP listener except the API's.
     for (name, child) in &procs.0 {
         let out = Command::new("lsof")
-            .args(["-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-Fn", "-p", &child.id().to_string()])
+            .args([
+                "-nP",
+                "-a",
+                "-iTCP",
+                "-sTCP:LISTEN",
+                "-Fn",
+                "-p",
+                &child.id().to_string(),
+            ])
             .output()
             .unwrap();
         let names: Vec<String> = String::from_utf8_lossy(&out.stdout)
@@ -237,7 +287,14 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
 
     // The key-leak stop reaches the running API through the database.
     run(&conf("api"), &["emergency", "set", "test stop"]);
-    let status: Value = http.get(format!("{url}/v1/status")).send().await.unwrap().json().await.unwrap();
+    let status: Value = http
+        .get(format!("{url}/v1/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(status["emergency_notice"], "test stop");
     // Watchers write their poll time where the API shows it.
     assert!(status["watchers"].as_array().is_some());

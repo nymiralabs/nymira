@@ -45,7 +45,8 @@ impl SecretSource for NearAiAdapter {
 #[async_trait]
 impl SecretSource for crate::provider::FakeProvider {
     async fn secret(&self, lease_id: &str) -> Option<String> {
-        self.is_live(lease_id).then(|| format!("fake-secret-{lease_id}"))
+        self.is_live(lease_id)
+            .then(|| format!("fake-secret-{lease_id}"))
     }
 }
 
@@ -72,7 +73,9 @@ enum Reply {
         secret: Option<String>,
     },
     Secret(Option<String>),
-    Usage { cost_nano_usd: String },
+    Usage {
+        cost_nano_usd: String,
+    },
     Signed(SignedUsage),
     Leases(Vec<String>),
     Balance(String),
@@ -99,7 +102,9 @@ pub async fn serve(
         }
     };
     ipc::serve(listener, uid, handler, |why| {
-        Reply::Failed(ProviderError::Rejected(format!("not a typed request: {why}")))
+        Reply::Failed(ProviderError::Rejected(format!(
+            "not a typed request: {why}"
+        )))
     })
     .await;
 }

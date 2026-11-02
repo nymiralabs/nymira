@@ -36,20 +36,65 @@ fn corpus() -> Vec<(&'static str, String)> {
     let good = format!(r#"{{"model":"{MODEL}","max_tokens":1,{msg}}}"#);
     vec![
         ("plain", good.clone()),
-        ("duplicate model, pinned first", format!(r#"{{"model":"{MODEL}","model":"z-ai/glm-5","max_tokens":1,{msg}}}"#)),
-        ("duplicate model, pinned last", format!(r#"{{"model":"z-ai/glm-5","model":"{MODEL}","max_tokens":1,{msg}}}"#)),
-        ("model in upper case", good.replace(MODEL, &MODEL.to_uppercase())),
-        ("model with a trailing space", good.replace(MODEL, &format!("{MODEL} "))),
-        ("model with a leading space", good.replace(MODEL, &format!(" {MODEL}"))),
-        ("key spelled with an escape", good.replace("\"model\"", "\"mod\\u0065l\"")),
-        ("space before the colon", good.replace("\"model\":", "\"model\" :")),
-        ("both max_tokens fields", format!(r#"{{"model":"{MODEL}","max_tokens":1,"max_completion_tokens":1,{msg}}}"#)),
-        ("max_completion_tokens alone", format!(r#"{{"model":"{MODEL}","max_completion_tokens":1,{msg}}}"#)),
-        ("duplicate max_tokens", format!(r#"{{"model":"{MODEL}","max_tokens":1,"max_tokens":50,{msg}}}"#)),
-        ("n = 2", format!(r#"{{"model":"{MODEL}","max_tokens":1,"n":2,{msg}}}"#)),
-        ("extra_body with n", good.replace('}', r#","extra_body":{"n":3}}"#).replacen(",}", "}", 1)),
-        ("extra_body with model", format!(r#"{{"model":"{MODEL}","max_tokens":1,"extra_body":{{"model":"z-ai/glm-5"}},{msg}}}"#)),
-        ("unknown top-level field", format!(r#"{{"model":"{MODEL}","max_tokens":1,"plugins":[],{msg}}}"#)),
+        (
+            "duplicate model, pinned first",
+            format!(r#"{{"model":"{MODEL}","model":"z-ai/glm-5","max_tokens":1,{msg}}}"#),
+        ),
+        (
+            "duplicate model, pinned last",
+            format!(r#"{{"model":"z-ai/glm-5","model":"{MODEL}","max_tokens":1,{msg}}}"#),
+        ),
+        (
+            "model in upper case",
+            good.replace(MODEL, &MODEL.to_uppercase()),
+        ),
+        (
+            "model with a trailing space",
+            good.replace(MODEL, &format!("{MODEL} ")),
+        ),
+        (
+            "model with a leading space",
+            good.replace(MODEL, &format!(" {MODEL}")),
+        ),
+        (
+            "key spelled with an escape",
+            good.replace("\"model\"", "\"mod\\u0065l\""),
+        ),
+        (
+            "space before the colon",
+            good.replace("\"model\":", "\"model\" :"),
+        ),
+        (
+            "both max_tokens fields",
+            format!(r#"{{"model":"{MODEL}","max_tokens":1,"max_completion_tokens":1,{msg}}}"#),
+        ),
+        (
+            "max_completion_tokens alone",
+            format!(r#"{{"model":"{MODEL}","max_completion_tokens":1,{msg}}}"#),
+        ),
+        (
+            "duplicate max_tokens",
+            format!(r#"{{"model":"{MODEL}","max_tokens":1,"max_tokens":50,{msg}}}"#),
+        ),
+        (
+            "n = 2",
+            format!(r#"{{"model":"{MODEL}","max_tokens":1,"n":2,{msg}}}"#),
+        ),
+        (
+            "extra_body with n",
+            good.replace('}', r#","extra_body":{"n":3}}"#)
+                .replacen(",}", "}", 1),
+        ),
+        (
+            "extra_body with model",
+            format!(
+                r#"{{"model":"{MODEL}","max_tokens":1,"extra_body":{{"model":"z-ai/glm-5"}},{msg}}}"#
+            ),
+        ),
+        (
+            "unknown top-level field",
+            format!(r#"{{"model":"{MODEL}","max_tokens":1,"plugins":[],{msg}}}"#),
+        ),
         ("body twice", format!("{good}\n{good}")),
         ("leading whitespace", format!("  \n{good}")),
     ]
@@ -63,7 +108,8 @@ async fn main() {
     };
     let dir = format!("{}/.nymira-live", std::env::var("HOME").unwrap());
     let pass = get("NYMIRA_SEAL_PASSPHRASE");
-    let open = |name: &str| SealedFile::open(format!("{dir}/{name}").as_ref(), &pass, 600_000).unwrap();
+    let open =
+        |name: &str| SealedFile::open(format!("{dir}/{name}").as_ref(), &pass, 600_000).unwrap();
     let adapter = NearAiAdapter::new(
         NearAiConfig {
             user_agent: BROWSER_USER_AGENT.into(),
@@ -93,7 +139,13 @@ async fn main() {
             Err(e) => format!("refuses ({})", e.code.as_str()),
         };
         let outcome = match adapter
-            .chat(&lease, ChatRequest { body: body.clone().into(), headers: vec![] })
+            .chat(
+                &lease,
+                ChatRequest {
+                    body: body.clone().into(),
+                    headers: vec![],
+                },
+            )
             .await
         {
             Err(e) => format!("error: {e}"),

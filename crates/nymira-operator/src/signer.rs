@@ -565,9 +565,13 @@ pub async fn serve(listener: UnixListener, signer: Arc<Signer>, allowed_uid: u32
 async fn handle(stream: UnixStream, signer: Arc<Signer>) -> std::io::Result<()> {
     let (read, mut write) = stream.into_split();
     let mut line = String::new();
-    BufReader::new(read.take(MAX_REQUEST_BYTES))
-        .read_line(&mut line)
-        .await?;
+    // A peer that connects and says nothing must not hold the task.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        BufReader::new(read.take(MAX_REQUEST_BYTES)).read_line(&mut line),
+    )
+    .await
+    .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))??;
     let reply = match serde_json::from_str::<Call>(&line) {
         Err(e) => Reply::Refused(format!("not a typed request: {e}")),
         Ok(Call::Next(request)) => match signer.sign_next(request).await {

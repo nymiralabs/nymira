@@ -590,7 +590,9 @@ impl ProviderAdapter for NearAiAdapter {
         query: &EvidenceQuery,
     ) -> Result<Option<Value>, ProviderError> {
         let entry = self.live_entry(lease_id)?;
-        self.lease_chat.evidence(&entry.secret, lease_id, query).await
+        self.lease_chat
+            .evidence(&entry.secret, lease_id, query)
+            .await
     }
 }
 

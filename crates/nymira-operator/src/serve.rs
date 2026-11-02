@@ -123,7 +123,8 @@ async fn min_rate(request: Request<Body>, next: Next, limits: Limits) -> Respons
 /// at a time cannot hold a handler open.
 struct MinRate {
     inner: Body,
-    started: Instant,
+    /// Set at the first poll: time before the handler first reads the body is not the client's.
+    started: Option<Instant>,
     received: u64,
     limits: Limits,
     tick: Interval,
@@ -135,7 +136,7 @@ impl MinRate {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         Self {
             inner,
-            started: Instant::now(),
+            started: None,
             received: 0,
             limits,
             tick,
@@ -143,10 +144,10 @@ impl MinRate {
     }
 
     fn too_slow(&self) -> bool {
-        let late = self
-            .started
-            .elapsed()
-            .saturating_sub(self.limits.body_grace);
+        let Some(started) = self.started else {
+            return false;
+        };
+        let late = started.elapsed().saturating_sub(self.limits.body_grace);
         self.received < (late.as_secs_f64() * self.limits.body_min_rate as f64) as u64
     }
 }
@@ -170,6 +171,7 @@ impl http_body::Body for MinRate {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        self.started.get_or_insert_with(Instant::now);
         match Pin::new(&mut self.inner).poll_frame(cx) {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(data) = frame.data_ref() {
