@@ -146,9 +146,18 @@ pub async fn serve(
     gateway: Option<Arc<crate::gateway::Gateway>>,
 ) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", PORT)).await?;
+    let app = router_with(token, gateway.clone());
     axum::serve(
         listener,
-        router_with(token, gateway).into_make_service_with_connect_info::<SocketAddr>(),
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .await
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
+    // The conversation ends with the process: retire what is open so no slot fee runs on.
+    if let Some(gw) = gateway {
+        gw.reap(true).await;
+    }
+    Ok(())
 }

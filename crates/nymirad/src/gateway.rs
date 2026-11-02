@@ -61,6 +61,9 @@ pub struct GatewayConfig {
     pub rounds: u32,
     /// Seconds of silence after which a lease is retired.
     pub idle_secs: u64,
+    /// Percent of a lease's remaining bound one request may use: 90, or 70 if the first-day
+    /// overspend rule triggers (it did not, see `docs/day-1-checks.md`).
+    pub share_pct: u128,
     pub backup: Option<(age::x25519::Recipient, Vec<PathBuf>)>,
 }
 
@@ -91,6 +94,8 @@ struct Session {
     exchanges: Vec<Exchange>,
     record: LeaseRecord,
     retiring: bool,
+    /// An exchange failed after the operator may have billed it: usage is unknown.
+    incomplete: bool,
 }
 
 /// What a finished lease came to.
@@ -122,6 +127,8 @@ pub struct Gateway {
     clock: Arc<dyn Clock>,
     sessions: Mutex<HashMap<String, Session>>,
     identities: Mutex<HashMap<String, (ModelIdentity, u64)>>,
+    /// Notes whose lease is being settled: they stay busy until the wallet is sealed again.
+    settling: Mutex<std::collections::HashSet<String>>,
     open_lock: Mutex<()>,
 }
 
@@ -146,6 +153,12 @@ fn lease_error(e: LeaseError) -> ApiError {
         LeaseError::Gate(g) => unavailable("operator_untrusted", g.to_string()),
         other => unavailable("operator_unreachable", other.to_string()),
     }
+}
+
+/// Why a note was passed over: `Reason` goes into the 402, `Fatal` ends the request.
+enum Skip {
+    Reason(String),
+    Fatal(ApiError),
 }
 
 fn micro_ceil(nano: u128) -> u128 {
@@ -180,6 +193,7 @@ impl Gateway {
             clock,
             sessions: Mutex::new(HashMap::new()),
             identities: Mutex::new(HashMap::new()),
+            settling: Mutex::new(Default::default()),
             open_lock: Mutex::new(()),
             cfg,
         })
@@ -251,7 +265,11 @@ impl Gateway {
 
     /// A free note that can pay for a `bound` lease, its wallet unsealed. `Err` carries the
     /// reason, for the 402.
-    fn pick_note(&self, bound: u128, busy: &[String]) -> Result<(NoteEntry, Wallet), ApiError> {
+    async fn pick_note(
+        &self,
+        bound: u128,
+        busy: &[String],
+    ) -> Result<(NoteEntry, Wallet), ApiError> {
         let notes = self
             .notes
             .list()
@@ -280,35 +298,71 @@ impl Gateway {
                 reasons.push(format!("note {id} expires within 5 days"));
                 continue;
             }
-            let dir = self
-                .vault
-                .checkout(&entry.commitment)
-                .map_err(|e| unavailable("wallet_unreadable", e.to_string()))?;
-            let mut wallet = Wallet::new(self.wallet_config(&dir, bound)?)
-                .map_err(|e| unavailable("wallet_unreadable", e.to_string()))?;
-            if wallet.state().is_none() {
-                let secret = Felt252::from_hex(&entry.secret)
-                    .map_err(|e| unavailable("notes_unreadable", e))?;
-                let amount = entry
-                    .deposit_amount
-                    .as_deref()
-                    .and_then(|a| a.parse().ok())
-                    .unwrap_or(0);
-                wallet
-                    .confirm_deposit(secret, id, amount, expiry)
-                    .map_err(|e| unavailable("wallet_unreadable", e.to_string()))?;
+            match self.unsealed_wallet(&entry, bound).await {
+                Ok(wallet) => {
+                    let balance = wallet.state().map_or(0, |s| s.current_balance);
+                    if balance < bound {
+                        reasons.push(format!(
+                            "note {id} has {balance} micro-USD left, under the {bound} lease bound"
+                        ));
+                        drop(wallet);
+                        let _ = self.vault.checkin(&entry.commitment);
+                        continue;
+                    }
+                    return Ok((entry, wallet));
+                }
+                Err(Skip::Reason(r)) => {
+                    reasons.push(format!("note {id}: {r}"));
+                    let _ = self.vault.checkin(&entry.commitment);
+                }
+                Err(Skip::Fatal(e)) => {
+                    let _ = self.vault.checkin(&entry.commitment);
+                    return Err(e);
+                }
             }
-            let balance = wallet.state().map_or(0, |s| s.current_balance);
-            if balance < bound {
-                reasons.push(format!(
-                    "note {id} has {balance} micro-USD left, under the {bound} lease bound"
-                ));
-                let _ = self.vault.checkin(&entry.commitment);
-                continue;
-            }
-            return Ok((entry, wallet));
         }
         Err(ApiError::no_funds(reasons.join("; ")))
+    }
+
+    /// The note's wallet, unsealed. A request left pending by an earlier run (a crash, a lost
+    /// answer) is resolved first: if the operator has settled it the wallet installs the next
+    /// state, otherwise the note waits.
+    async fn unsealed_wallet(&self, entry: &NoteEntry, bound: u128) -> Result<Wallet, Skip> {
+        let fatal = |code: &str, m: String| Skip::Fatal(unavailable(code, m));
+        let dir = self
+            .vault
+            .checkout(&entry.commitment)
+            .map_err(|e| fatal("wallet_unreadable", e.to_string()))?;
+        let cfg = self.wallet_config(&dir, bound).map_err(Skip::Fatal)?;
+        let mut wallet = Wallet::new(cfg).map_err(|e| fatal("wallet_unreadable", e.to_string()))?;
+        if wallet.state().is_none() {
+            let secret =
+                Felt252::from_hex(&entry.secret).map_err(|e| fatal("notes_unreadable", e))?;
+            let amount = entry
+                .deposit_amount
+                .as_deref()
+                .and_then(|a| a.parse().ok())
+                .unwrap_or(0);
+            wallet
+                .confirm_deposit(
+                    secret,
+                    entry.note_id.expect("filtered"),
+                    amount,
+                    entry.expiry_ns.unwrap_or(0),
+                )
+                .map_err(|e| fatal("wallet_unreadable", e.to_string()))?;
+        }
+        if wallet.has_pending_request() {
+            match wallet.recover_pending().await {
+                Ok(Some(_)) if !wallet.has_pending_request() => {}
+                _ => {
+                    return Err(Skip::Reason(
+                        "an earlier lease is not settled yet; it is resolved when the operator finishes it".into(),
+                    ))
+                }
+            }
+        }
+        Ok(wallet)
     }
 
     /// The model's verified identity: from the cache, or from a fresh report with a new nonce.
@@ -363,6 +417,8 @@ impl Gateway {
                 format!("no new lease: {}", pins::warnings(&diffs).join(" ")),
             ));
         }
+        check_proving_key(&self.cfg.setup_dir, &self.cfg.proving_key_sha256)
+            .map_err(|e| unavailable("proving_key_changed", e))?;
         let classes = self.bound_classes();
         let bound = lease::choose_bound(&classes, opts.max_lease_usd).ok_or_else(|| {
             unavailable(
@@ -370,7 +426,7 @@ impl Gateway {
                 "the vault lists no 0.10 USDC lease class",
             )
         })?;
-        let (entry, wallet) = self.pick_note(bound, &busy)?;
+        let (entry, wallet) = self.pick_note(bound, &busy).await?;
         let (note_id, note_key) = (entry.note_id.expect("picked"), entry.commitment.clone());
         let wallet = Mutex::new(wallet);
         let seen: std::sync::Mutex<Option<(String, u32, u64)>> = std::sync::Mutex::new(None);
@@ -409,8 +465,11 @@ impl Gateway {
         let lease = match opened {
             Ok(l) => l,
             Err(e) => {
-                // The refused proof stays journaled in the wallet's archive; the state is sealed again.
-                if wallet.has_pending_request() {
+                // A refusal means the operator did not bind the nullifier: the proof is set aside
+                // and the state can prove again. Any other failure (a timeout, a lost answer)
+                // leaves the request journaled, so the next run resolves it with the operator
+                // instead of risking a second proof on a spent nullifier.
+                if matches!(&e, LeaseError::Operator(_)) && wallet.has_pending_request() {
                     let _ = lease::set_aside_stale(&wallet);
                 }
                 drop(wallet);
@@ -449,6 +508,7 @@ impl Gateway {
             warnings: vec![],
         };
         let _ = self.records.write(&record);
+        self.back_up();
         // Stop the wallet from using this state again before the lease settles.
         let _ = &mut wallet;
         Ok(Session {
@@ -463,21 +523,25 @@ impl Gateway {
             exchanges: Vec::new(),
             record,
             retiring: false,
+            incomplete: false,
         })
     }
 
     /// The note key of a session that can take this request, opening a lease if none can.
     async fn session_for(&self, opts: ChatOptions) -> Result<String, ApiError> {
         let _one_at_a_time = self.open_lock.lock().await;
+        let want = lease::choose_bound(&self.bound_classes(), opts.max_lease_usd);
         let busy: Vec<String> = {
             let sessions = self.sessions.lock().await;
             if let Some(s) = sessions.values().find(|s| {
                 let bound: u128 = s.record.bound_class.parse().unwrap_or(0);
-                !s.retiring && s.spent_micro + s.reserved_micro < bound / 2
+                !s.retiring && Some(bound) == want && s.spent_micro + s.reserved_micro < bound / 2
             }) {
                 return Ok(s.note_key.clone());
             }
-            sessions.keys().cloned().collect()
+            let mut keys: Vec<String> = sessions.keys().cloned().collect();
+            keys.extend(self.settling.lock().await.iter().cloned());
+            keys
         };
         let session = self.open_session(opts, busy).await?;
         let key = session.note_key.clone();
@@ -542,7 +606,7 @@ impl Gateway {
             &Default::default(),
         )
         .map_err(|e| ApiError::invalid_request(e.message))?;
-        let ours = sizing::max_tokens(remaining, sizing::BOUND_SHARE_PCT, &spec, u128::from(probe.input_tokens))
+        let ours = sizing::max_tokens(remaining, self.cfg.share_pct, &spec, u128::from(probe.input_tokens))
             .ok_or_else(|| ApiError::no_funds("the lease cannot pay for this prompt and an answer; start a new conversation or shorten it"))?;
         let max = caller_max.map_or(ours, |c| c.min(ours));
         let parsed = parse_chat(
@@ -554,11 +618,20 @@ impl Gateway {
         let body = parsed.body;
         let reserve = micro_ceil(sizing::cost_nano(&spec, parsed.input_tokens, max));
         {
+            // Checked and taken under one lock, so requests that run at once cannot each claim
+            // the same remaining bound.
             let mut sessions = self.sessions.lock().await;
-            if let Some(s) = sessions.get_mut(&key) {
-                s.reserved_micro += reserve;
-                s.last_used = self.clock.now_secs();
+            let Some(s) = sessions.get_mut(&key) else {
+                return Err(unavailable("lease_gone", "the lease ended"));
+            };
+            let bound: u128 = s.record.bound_class.parse().unwrap_or(0);
+            if s.spent_micro + s.reserved_micro + reserve > bound * self.cfg.share_pct / 100 {
+                return Err(ApiError::no_funds(
+                    "the lease is busy with other requests and cannot also pay for this one; retry in a moment",
+                ));
             }
+            s.reserved_micro += reserve;
+            s.last_used = self.clock.now_secs();
         }
 
         let sent = self
@@ -642,18 +715,35 @@ impl Gateway {
             let stream = futures_util::stream::unfold(state, next_chunk);
             return Ok(Outcome::Stream(Body::from_stream(stream), lease.id));
         }
-        let raw = response
-            .bytes()
-            .await
-            .map_err(|e| unavailable("operator_unreachable", e.without_url().to_string()))?;
-        let mut answer: Value = serde_json::from_slice(&raw)
-            .map_err(|_| unavailable("provider_error", "the answer is not JSON"))?;
-        e2ee::open_response(&keys, &mut answer)
-            .map_err(|e| unavailable("decrypt_failed", e.to_string()))?;
+        let raw = match response.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                ctx.failed().await;
+                return Err(unavailable(
+                    "operator_unreachable",
+                    e.without_url().to_string(),
+                ));
+            }
+        };
+        let mut answer: Value = match serde_json::from_slice(&raw) {
+            Ok(v) => v,
+            Err(_) => {
+                ctx.failed().await;
+                return Err(unavailable("provider_error", "the answer is not JSON"));
+            }
+        };
+        if let Err(e) = e2ee::open_response(&keys, &mut answer) {
+            ctx.failed().await;
+            return Err(unavailable("decrypt_failed", e.to_string()));
+        }
         let usage = (
             answer["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
             answer["usage"]["completion_tokens"].as_u64().unwrap_or(0),
         );
+        if answer["usage"].is_null() {
+            ctx.failed().await;
+            return Err(unavailable("provider_error", "the answer carries no usage"));
+        }
         let chat_id = answer["id"].as_str().map(String::from);
         ctx.done(raw.to_vec(), chat_id, usage).await;
         Ok(Outcome::Json(answer, lease.id))
@@ -672,7 +762,13 @@ impl Gateway {
             s.retiring = true;
             s.lease.clone()
         };
-        self.client.retire(&lease).await.map_err(lease_error)?;
+        if let Err(e) = self.client.retire(&lease).await {
+            // Not retired: the next pass tries again.
+            if let Some(s) = self.sessions.lock().await.get_mut(note_key) {
+                s.retiring = false;
+            }
+            return Err(lease_error(e));
+        }
         Ok(())
     }
 
@@ -710,6 +806,7 @@ impl Gateway {
             let Some(mut session) = self.sessions.lock().await.remove(&key) else {
                 continue;
             };
+            self.settling.lock().await.insert(key.clone());
             match self.finish_lease(&mut session).await {
                 Some(settled) => {
                     drop(session.wallet);
@@ -718,9 +815,10 @@ impl Gateway {
                     done.push(settled);
                 }
                 None => {
-                    self.sessions.lock().await.insert(key, session);
+                    self.sessions.lock().await.insert(key.clone(), session);
                 }
             }
+            self.settling.lock().await.remove(&key);
         }
         done
     }
@@ -780,21 +878,25 @@ impl Gateway {
                     .map(|m| sizing::cost_nano(m, x.prompt, x.completion))
             })
             .sum();
-        let operator_now = self
-            .client
-            .status()
-            .await
-            .ok()
-            .and_then(|v| v["nonce"]["ts"].as_u64())
-            .unwrap_or_else(|| self.clock.now_secs());
-        let held = operator_now.saturating_sub(s.lease.issued_at);
-        let expected = match self.charge_params() {
-            Some(p) => {
+        // The local clock, not a figure the operator reports: it was checked against the
+        // operator's within 30 s when the lease opened.
+        let held = self.clock.now_secs().saturating_sub(s.lease.issued_at);
+        let expected = match (self.charge_params(), s.incomplete) {
+            (Some(p), false) => {
                 let check = sizing::check_charge_cost(bound, cost, held, p, charge);
                 warnings.extend(check.warning);
                 check.expected
             }
-            None => 0,
+            (None, _) => {
+                warnings.push(
+                    "the pinned lease parameters are unreadable: the charge was not checked".into(),
+                );
+                0
+            }
+            (_, true) => {
+                warnings.push("an exchange failed after the operator may have billed it: the charge was not checked".into());
+                0
+            }
         };
 
         s.record.closed_at = Some(self.clock.now_secs());
@@ -901,6 +1003,16 @@ struct Finish {
 }
 
 impl Finish {
+    /// The exchange failed after the operator may have billed it: free the reservation and note
+    /// that the usage is unknown, so the charge is not judged against a partial picture.
+    async fn failed(self) {
+        let mut sessions = self.gw.sessions.lock().await;
+        if let Some(s) = sessions.get_mut(&self.key) {
+            s.reserved_micro = s.reserved_micro.saturating_sub(self.reserve);
+            s.incomplete = true;
+        }
+    }
+
     async fn done(self, mut raw: Vec<u8>, chat_id: Option<String>, usage: (u64, u64)) {
         raw.truncate(EXCHANGE_CAP);
         let actual = micro_ceil(sizing::cost_nano(&self.spec, usage.0, usage.1));
@@ -945,6 +1057,15 @@ struct StreamState {
     out: Vec<Bytes>,
 }
 
+impl Drop for StreamState {
+    fn drop(&mut self) {
+        // The client disconnected before the stream ended: the operator may still bill it.
+        if let Some(ctx) = self.ctx.take() {
+            tokio::spawn(async move { ctx.failed().await });
+        }
+    }
+}
+
 /// Decrypts a streamed answer line by line as it arrives.
 async fn next_chunk(mut st: StreamState) -> Option<(Result<Bytes, std::io::Error>, StreamState)> {
     loop {
@@ -983,24 +1104,29 @@ async fn next_chunk(mut st: StreamState) -> Option<(Result<Bytes, std::io::Error
                             st.pending.clear();
                             st.out.clear();
                             let err = std::io::Error::other(e.to_string());
-                            st.ctx = None;
+                            if let Some(ctx) = st.ctx.take() {
+                                ctx.failed().await;
+                            }
                             return Some((Err(err), st));
                         }
                     }
                 }
             }
             Some(Err(e)) => {
-                st.ctx = None;
+                if let Some(ctx) = st.ctx.take() {
+                    ctx.failed().await;
+                }
                 return Some((Err(std::io::Error::other(e.without_url().to_string())), st));
             }
             None => {
                 if let Some(ctx) = st.ctx.take() {
-                    ctx.done(
-                        std::mem::take(&mut st.raw),
-                        st.chat_id.take(),
-                        st.usage.unwrap_or((0, 0)),
-                    )
-                    .await;
+                    match st.usage {
+                        Some(usage) => {
+                            ctx.done(std::mem::take(&mut st.raw), st.chat_id.take(), usage)
+                                .await
+                        }
+                        None => ctx.failed().await,
+                    }
                 }
                 return None;
             }

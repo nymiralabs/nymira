@@ -284,7 +284,17 @@ pub fn open_response(keys: &ClientKeys, response: &mut Value) -> Result<(), E2ee
 /// One line of a streamed answer: `data: {chunk}` is opened, everything else is returned as is.
 pub fn open_sse_line(keys: &ClientKeys, line: &str) -> Result<String, E2eeError> {
     let Some(data) = line.strip_prefix("data:") else {
-        return Ok(line.to_string());
+        // Only lines that carry no answer text pass: blank lines, comments and SSE fields.
+        let harmless = line.is_empty()
+            || line.starts_with(':')
+            || ["event:", "id:", "retry:"]
+                .iter()
+                .any(|f| line.starts_with(f));
+        return if harmless {
+            Ok(line.to_string())
+        } else {
+            Err(E2eeError::Decrypt)
+        };
     };
     let data = data.trim();
     if data == "[DONE]" {

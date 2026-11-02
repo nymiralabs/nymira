@@ -172,10 +172,13 @@ async fn stack_with(
         secrets.push(deposit(&usdc, &alice, &vault, &notes, n, &clock).await);
     }
     if note_count > 0 {
-        let at = nymira_testkit::clock::now_seconds(&worker).await + 31;
-        nymira_testkit::clock::advance_to(&worker, at)
-            .await
-            .unwrap();
+        // The sandbox keeps producing blocks, so a target can already be behind: ask again.
+        for _ in 0..5 {
+            let at = nymira_testkit::clock::now_seconds(&worker).await + 40;
+            if nymira_testkit::clock::advance_to(&worker, at).await.is_ok() {
+                break;
+            }
+        }
         alice
             .call(vault.id(), "sync_root")
             .args_json(json!({ "max": 100 }))
@@ -311,6 +314,7 @@ async fn stack_with(
             .collect(),
         rounds: 10,
         idle_secs: 60,
+        share_pct: 90,
         backup: None,
     };
     tune(&mut config);
@@ -327,6 +331,13 @@ async fn stack_with(
         )
         .unwrap(),
     );
+    // Building the stack takes a while; the wallet stamps requests with the real clock, the
+    // operator reads the manual one. Bring them together before the first request.
+    let real = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    clock.advance_secs(real.saturating_sub(clock.now_secs()));
     Stack {
         _worker: worker,
         vault,

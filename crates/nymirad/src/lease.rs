@@ -216,6 +216,12 @@ where
     let mut request = build(Attempt::First).await.map_err(LeaseError::Build)?;
     let (mut retried_puzzle, mut rebuilt) = (false, false);
     loop {
+        // The proof may have taken a while; the puzzle is bound to the slot nonce, so it is
+        // solved again from a fresh status just before each POST.
+        if puzzle.is_some() || retried_puzzle {
+            let (status, nonce) = checked(client, pinned, now_secs()).await?;
+            puzzle = gate::puzzle_header(&status, &nonce);
+        }
         match client.open(&request, puzzle.as_deref()).await {
             Err(LeaseError::Operator(e)) if e.code == "puzzle_required" && !retried_puzzle => {
                 retried_puzzle = true;

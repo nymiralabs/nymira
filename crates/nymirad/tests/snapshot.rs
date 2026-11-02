@@ -82,10 +82,13 @@ async fn vault_with_notes(
     }
     if count > 0 {
         // sync_root waits 30 s after the last insert unless 16 leaves are waiting.
-        let waited = nymira_testkit::clock::now_seconds(&worker).await + 31;
-        nymira_testkit::clock::advance_to(&worker, waited)
-            .await
-            .unwrap();
+        // The sandbox keeps producing blocks, so a target can already be behind: ask again.
+        for _ in 0..5 {
+            let at = nymira_testkit::clock::now_seconds(&worker).await + 40;
+            if nymira_testkit::clock::advance_to(&worker, at).await.is_ok() {
+                break;
+            }
+        }
         sync(&alice, &vault).await;
     }
     (worker, vault)

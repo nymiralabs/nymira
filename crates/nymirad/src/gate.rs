@@ -34,7 +34,7 @@ pub enum Refusal {
     NoNonce,
     #[error("the nonce signature does not verify against the vault's state key")]
     BadSignature,
-    #[error("the nonce is stale ({0} s old)")]
+    #[error("the nonce is {0} s away from this machine's clock; check that the clock is right")]
     Stale(u64),
     #[error("the operator's status is malformed: {0}")]
     Malformed(&'static str),

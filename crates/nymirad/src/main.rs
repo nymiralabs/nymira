@@ -137,6 +137,7 @@ async fn build_gateway(
             models: nymira_operator::proxy::ProxyConfig::default().models,
             rounds: ROUNDS,
             idle_secs: cfg.idle_secs.unwrap_or(120),
+            share_pct: 90,
             backup: cfg.backup_recipient.as_deref().and_then(|r| {
                 backup::parse_recipient(r)
                     .ok()
