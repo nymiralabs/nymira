@@ -1,7 +1,8 @@
 //! The replica over HTTP: the second machine serves a [`ReplicaNode`], the laptop speaks to it
 //! through [`HttpLink`]. The channel is the tailnet; its ACL admits the laptop's tag only. There
-//! is no other authentication, and none is needed for safety: an entry is accepted only if it
-//! extends the chain, and the laptop trusts a reply only if the replica's key signed it.
+//! is no other authentication: the replica takes any entry that extends its chain, so a peer the
+//! ACL lets in could add a forged one (open item 70). The laptop trusts a reply only if the
+//! replica's key signed the head it leads to.
 
 use std::sync::Arc;
 

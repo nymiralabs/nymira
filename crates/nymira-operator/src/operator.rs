@@ -402,6 +402,10 @@ impl Operator {
                 .run(move |c| store::roll_back(c, &id))
                 .await
                 .map_err(|e| StartError::Store(e.to_string()))?;
+            let _ = self
+                .replica
+                .record(crate::replog::kinds::ROLLED_BACK, &lease.lease_id, None)
+                .await;
         }
         let day_start =
             self.clock.now_secs() / crate::budget::SECS_PER_DAY * crate::budget::SECS_PER_DAY;
@@ -723,6 +727,7 @@ impl Operator {
                 "resets_ts": resets_ts,
             },
             "recovery_mode": self.replica.in_recovery(),
+            "replica": self.replica.health(),
             "emergency_notice": Value::Null,
         })
     }

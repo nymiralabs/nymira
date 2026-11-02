@@ -89,6 +89,18 @@ pub fn apply(conn: &Connection, e: &Entry) -> rusqlite::Result<()> {
                     e.hour
                 ],
             )?;
+            // The state was signed, and may have been released: the lease is over at its charge.
+            // A later link-down settlement overrides this (see `SETTLED`).
+            conn.execute(
+                "UPDATE leases SET status = 'settled', charge = ?2, charge_basis = 'replicated',
+                        settled_at = ?3 WHERE lease_id = ?1 AND status = ?4",
+                params![e.key, charge.to_string(), e.hour, RESTORED],
+            )?;
+            conn.execute(
+                "UPDATE nullifiers SET state = 'finalized', updated_at = ?2
+                 WHERE lease_id = ?1 AND state = 'reserved'",
+                params![e.key, e.hour],
+            )?;
         }
         kinds::SETTLED => {
             let fact = e

@@ -366,40 +366,59 @@ impl SignerApi for Signer {
             serde_json::from_str(&request_json.ok_or_else(|| refused("no request proof"))?)
                 .map_err(|e| SignerError::Internal(e.to_string()))?;
         let inputs = &original.public_inputs;
-        let anonymous = zkapi_types::wire::CurvePointWire {
-            x: inputs.anonymous_commitment_x,
-            y: inputs.anonymous_commitment_y,
+        // A retry after a crash or a timeout signs the state the replica already holds, not
+        // another one with a fresh blind.
+        let held = self
+            .replica
+            .recorded(crate::replog::kinds::SIGNED, &lease_id)
+            .await;
+        let (response, json) = match held {
+            Some(json) => {
+                let response: RequestResponseV2 = serde_json::from_str(&json)
+                    .map_err(|e| SignerError::Internal(e.to_string()))?;
+                if response.charge_applied != expected {
+                    return Err(refused("a state with another charge is already signed"));
+                }
+                (response, json)
+            }
+            None => {
+                let anonymous = zkapi_types::wire::CurvePointWire {
+                    x: inputs.anonymous_commitment_x,
+                    y: inputs.anonymous_commitment_y,
+                };
+                let blind_delta = random_scalar();
+                let next_commitment = server_update(&anonymous, expected, &blind_delta)
+                    .map_err(|e| SignerError::Internal(e.to_string()))?;
+                let anchor = next_anchor(&inputs.request_nullifier);
+                let message = state_message(
+                    PROTOCOL_VERSION,
+                    self.chain_id,
+                    &self.contract,
+                    &next_commitment.x,
+                    &next_commitment.y,
+                    &anchor,
+                );
+                let payload = "{}".to_string();
+                let response = RequestResponseV2 {
+                    status: "finalized".into(),
+                    client_request_id: original.client_request_id.clone(),
+                    request_nullifier: inputs.request_nullifier,
+                    response_code: 200,
+                    response_hash: canonical_response_hash(payload.as_bytes()),
+                    response_payload: payload,
+                    charge_applied: expected,
+                    next_commitment,
+                    next_anchor: anchor,
+                    blind_delta_srv: blind_delta,
+                    next_state_signature: self.state.sign(&message),
+                    policy_reason_code: None,
+                    policy_evidence_hash: None,
+                };
+                let json = serde_json::to_string(&response)
+                    .map_err(|e| SignerError::Internal(e.to_string()))?;
+                (response, json)
+            }
         };
-        let blind_delta = random_scalar();
-        let next_commitment = server_update(&anonymous, expected, &blind_delta)
-            .map_err(|e| SignerError::Internal(e.to_string()))?;
-        let anchor = next_anchor(&inputs.request_nullifier);
-        let message = state_message(
-            PROTOCOL_VERSION,
-            self.chain_id,
-            &self.contract,
-            &next_commitment.x,
-            &next_commitment.y,
-            &anchor,
-        );
-        let payload = "{}".to_string();
-        let response = RequestResponseV2 {
-            status: "finalized".into(),
-            client_request_id: original.client_request_id.clone(),
-            request_nullifier: inputs.request_nullifier,
-            response_code: 200,
-            response_hash: canonical_response_hash(payload.as_bytes()),
-            response_payload: payload,
-            charge_applied: expected,
-            next_commitment,
-            next_anchor: anchor,
-            blind_delta_srv: blind_delta,
-            next_state_signature: self.state.sign(&message),
-            policy_reason_code: None,
-            policy_evidence_hash: None,
-        };
-        let json =
-            serde_json::to_string(&response).map_err(|e| SignerError::Internal(e.to_string()))?;
         let (id, n, cri, now) = (
             lease_id.clone(),
             nullifier,

@@ -39,6 +39,12 @@ pub trait Replica: Send + Sync {
         Ok(())
     }
 
+    /// The payload recorded earlier for this kind and key, if any: a retry of a signature reuses
+    /// the state the replica already holds instead of signing another.
+    async fn recorded(&self, _kind: &str, _key: &str) -> Option<String> {
+        None
+    }
+
     /// True while this machine's log is behind the replica's: no signature may go out.
     fn in_recovery(&self) -> bool {
         false
@@ -52,6 +58,11 @@ pub trait Replica: Send + Sync {
     /// Pulls what this machine lacks from the replica into the database and returns it.
     async fn restore(&self) -> Result<Vec<crate::replog::Entry>, ReplicaError> {
         Ok(Vec::new())
+    }
+
+    /// `ok`, or what is wrong with the link to the replica: shown in `/v1/status`.
+    fn health(&self) -> &'static str {
+        "ok"
     }
 
     /// False for stand-ins that keep nothing: only the sandbox may start with one.
@@ -75,6 +86,7 @@ impl Replica for NoReplica {
 pub struct FakeReplica {
     entries: Mutex<Vec<ReplicaEntry>>,
     records: Mutex<Vec<(String, String)>>,
+    payloads: Mutex<std::collections::HashMap<(String, String), String>>,
     down: Mutex<bool>,
     recovery: Mutex<bool>,
 }
@@ -122,10 +134,17 @@ impl Replica for FakeReplica {
         &self,
         kind: &str,
         key: &str,
-        _payload: Option<&str>,
+        payload: Option<&str>,
     ) -> Result<(), ReplicaError> {
         if *self.down.lock().unwrap_or_else(|e| e.into_inner()) {
             return Err(ReplicaError("down".into()));
+        }
+        if let Some(p) = payload {
+            self.payloads
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry((kind.to_string(), key.to_string()))
+                .or_insert_with(|| p.to_string());
         }
         let mut records = self.records.lock().unwrap_or_else(|e| e.into_inner());
         let fact = (kind.to_string(), key.to_string());
@@ -137,5 +156,13 @@ impl Replica for FakeReplica {
 
     fn in_recovery(&self) -> bool {
         *self.recovery.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    async fn recorded(&self, kind: &str, key: &str) -> Option<String> {
+        self.payloads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&(kind.to_string(), key.to_string()))
+            .cloned()
     }
 }

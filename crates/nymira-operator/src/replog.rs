@@ -108,7 +108,7 @@ fn entry_hash(e: &Entry) -> String {
 }
 
 /// The entry's own consistency: its hash and, while the payload is still there, the payload hash.
-fn check(e: &Entry) -> Result<(), LogError> {
+pub fn check_entry(e: &Entry) -> Result<(), LogError> {
     if let Some(p) = &e.payload {
         if payload_hash(Some(p)) != e.payload_hash {
             return Err(LogError::Bad("payload does not match its hash".into()));
@@ -149,7 +149,7 @@ const COLUMNS: &str = "seq, prev, kind, key, hour, payload_hash, payload, hash";
 /// Appends `e` if it is the next entry, accepts it again if it is already there, refuses it
 /// otherwise.
 fn insert(conn: &mut Connection, e: &Entry, acked: bool, apply: bool) -> Result<(), LogError> {
-    check(e)?;
+    check_entry(e)?;
     let tx = conn.transaction()?;
     let (head, head_hash) = head_of(&tx)?;
     if e.seq <= head {
@@ -253,6 +253,23 @@ impl Log {
         self.store
             .run(move |c| Ok(insert(c, &e, true, true)))
             .await?
+    }
+
+    /// The payload of the entry of this kind about this key, while it is kept.
+    pub async fn payload(&self, kind: &str, key: &str) -> Result<Option<String>, LogError> {
+        let (kind, key) = (kind.to_string(), key.to_string());
+        Ok(self
+            .store
+            .run(move |c| {
+                c.query_row(
+                    "SELECT payload FROM replog WHERE kind = ?1 AND key = ?2 LIMIT 1",
+                    [kind, key],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map(Option::flatten)
+            })
+            .await?)
     }
 
     /// True when an entry of this kind about this key is in the log.
@@ -359,7 +376,7 @@ impl Log {
         let entries = self.from(1, u32::MAX).await?;
         let mut prev = genesis();
         for (i, e) in entries.iter().enumerate() {
-            check(e)?;
+            check_entry(e)?;
             if e.seq != i as u64 + 1 || e.prev != prev {
                 return Err(LogError::Fork { seq: e.seq });
             }

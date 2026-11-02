@@ -22,6 +22,8 @@ fn key() -> SigningKey {
 struct Wire {
     node: Arc<ReplicaNode>,
     down: Mutex<bool>,
+    /// Alters the payload of the first entry a fetch returns.
+    tamper: Mutex<bool>,
 }
 
 impl Wire {
@@ -45,7 +47,13 @@ impl Link for Wire {
         Link::hashes(self.node()?, s).await
     }
     async fn fetch(&self, from: u64, limit: u32) -> Result<Vec<Entry>, LinkError> {
-        Link::fetch(self.node()?, from, limit).await
+        let mut entries = Link::fetch(self.node()?, from, limit).await?;
+        if *self.tamper.lock().unwrap() {
+            if let Some(first) = entries.first_mut() {
+                first.payload = Some("{\"lease_id\":\"forged\"}".into());
+            }
+        }
+        Ok(entries)
     }
 }
 
@@ -56,6 +64,7 @@ fn wire() -> Arc<Wire> {
             key(),
         )),
         down: Mutex::new(false),
+        tamper: Mutex::new(false),
     })
 }
 
@@ -259,4 +268,53 @@ async fn a_restored_lease_nobody_reconciles_settles_at_its_bound_after_six_hours
         ("settled", Some(100_000), Some("recovered"))
     );
     assert_eq!(nullifier(&rig, 1).await["nullifier_status"], "finalized");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tampered_fetch_changes_nothing_in_the_database() {
+    let wire = wire();
+    let mut rig = Rig::new(real(&wire, T0)).await;
+    let (open_id, _) = open(&rig, 1).await;
+    wipe(&rig);
+    *wire.tamper.lock().unwrap() = true;
+    rig.restart(real(&wire, T0 + 10)).await;
+    // Still restoring: the operator refuses to sign and the database holds nothing of it.
+    let (s, v, _) = rig.lease(&rig.fresh(5)).await;
+    assert_eq!(s, 503, "{v}");
+    let leases = rig.op.store().run(|c| store::all_leases(c)).await.unwrap();
+    assert!(leases.is_empty(), "{leases:?}");
+    *wire.tamper.lock().unwrap() = false;
+    rig.op.tick().await;
+    assert_eq!(lease(&rig, &open_id).await.status, "restored");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restore_that_stopped_before_stamping_the_lease_starts_its_clock_later() {
+    let wire = wire();
+    let mut rig = Rig::new(real(&wire, T0)).await;
+    let (open_id, _) = open(&rig, 1).await;
+    wipe(&rig);
+    rig.restart(real(&wire, T0 + 10)).await;
+    let id = open_id.clone();
+    rig.op
+        .store()
+        .run(move |c| {
+            c.execute(
+                "UPDATE leases SET retiring_at = NULL WHERE lease_id = ?1",
+                [id],
+            )
+            .map(|_| ())
+        })
+        .await
+        .unwrap();
+    rig.clock.advance_secs(UNREAD_SETTLES_AFTER_SECS + 5);
+    rig.op.tick().await;
+    assert_eq!(
+        lease(&rig, &open_id).await.status,
+        "restored",
+        "the clock starts now"
+    );
+    rig.clock.advance_secs(UNREAD_SETTLES_AFTER_SECS + 5);
+    rig.op.tick().await;
+    assert_eq!(lease(&rig, &open_id).await.status, "settled");
 }

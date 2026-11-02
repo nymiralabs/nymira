@@ -12,7 +12,9 @@ use async_trait::async_trait;
 
 use crate::clock::Clock;
 use crate::replica::{Replica, ReplicaEntry, ReplicaError};
-use crate::replog::{audit, kinds, verify_head, Audit, Entry, Link, LinkError, Log, SignedHead};
+use crate::replog::{
+    audit, check_entry, kinds, verify_head, Audit, Entry, Link, LinkError, Log, SignedHead,
+};
 
 /// Entries pushed or fetched per call.
 const BATCH: u32 = 100;
@@ -179,26 +181,34 @@ impl Replicator {
     /// oldest first, for the caller to apply to its database. The log is level afterwards.
     pub async fn restore(&self) -> Result<Vec<Entry>, ReplicaError> {
         let _gate = self.gate.lock().await;
-        let mut restored = Vec::new();
+        // Fetch and check the whole stretch before a byte of it reaches the database: every
+        // entry must hash right and chain onto the one before, and the last one must be the head
+        // the replica signed. A reply that fails any of that changes nothing.
+        let (mut seq, mut hash) = self.log.head().await.map_err(down)?;
+        let mut restored: Vec<Entry> = Vec::new();
         loop {
-            let (head, _) = self.log.head().await.map_err(down)?;
-            let batch = self.link.fetch(head + 1, BATCH).await.map_err(down)?;
+            let batch = self.link.fetch(seq + 1, BATCH).await.map_err(down)?;
             if batch.is_empty() {
                 break;
             }
             for entry in batch {
-                self.log.accept(&entry).await.map_err(down)?;
+                check_entry(&entry).map_err(down)?;
+                if entry.seq != seq + 1 || entry.prev != hash {
+                    return Err(down("the fetched entries do not chain onto the local log"));
+                }
+                (seq, hash) = (entry.seq, entry.hash.clone());
                 restored.push(entry);
             }
         }
-        // Level now only if the replica's signed head is the local head.
         let signed = self.link.head().await.map_err(down)?;
-        let (seq, hash) = self.log.head().await.map_err(down)?;
         if !verify_head(&self.pk, &signed) || signed.seq != seq || signed.head != hash {
             self.set(State::Unreachable(
                 "heads do not match after restore".into(),
             ));
             return Err(down("the heads do not match after the restore"));
+        }
+        for entry in &restored {
+            self.log.accept(entry).await.map_err(down)?;
         }
         self.set(State::Ready);
         self.based.store(true, Ordering::SeqCst);
@@ -231,6 +241,10 @@ impl Replica for Replicator {
         self.write(kind, key, payload).await
     }
 
+    async fn recorded(&self, kind: &str, key: &str) -> Option<String> {
+        self.log.payload(kind, key).await.ok().flatten()
+    }
+
     fn in_recovery(&self) -> bool {
         Replicator::in_recovery(self)
     }
@@ -245,5 +259,14 @@ impl Replica for Replicator {
 
     fn is_real(&self) -> bool {
         true
+    }
+
+    fn health(&self) -> &'static str {
+        match self.state() {
+            State::Ready => "ok",
+            State::Recovery { .. } => "recovery",
+            State::Diverged { .. } => "diverged",
+            State::Unreachable(_) => "unreachable",
+        }
     }
 }

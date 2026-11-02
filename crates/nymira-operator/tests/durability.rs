@@ -185,3 +185,64 @@ async fn a_restoring_operator_signs_no_clearance_no_lease_and_says_so_but_still_
     rig.replica.set_recovery(false);
     assert_eq!(rig.status().await["recovery_mode"], false);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_lease_is_recorded_as_rolled_back() {
+    let rig = Rig::new(Setup::default()).await;
+    let l = open(&rig, 1).await;
+    let response = rig
+        .http
+        .post(format!("{}/v2/openrouter/leases/{}/expire", rig.url, l.id))
+        .header("x-nymira-lease-token", &l.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    assert!(rig
+        .replica
+        .records()
+        .contains(&(kinds::ROLLED_BACK.into(), l.id)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_signature_asked_for_again_is_the_state_the_replica_already_holds() {
+    use nymira_operator::signer::{SignRequest, SignerApi};
+    use nymira_operator::usage::SignedUsage;
+    let rig = Rig::new(Setup::default()).await;
+    let l = open(&rig, 1).await;
+    rig.provider.set_usage(&l.id, 40_000_000);
+    retire(&rig, &l).await;
+    rig.op.tick().await;
+    rig.clock.advance_secs(11);
+    rig.op.tick().await;
+    let id = l.id.clone();
+    let usage: SignedUsage = serde_json::from_str(
+        &rig.op
+            .store()
+            .run(move |c| store::lease(c, &id))
+            .await
+            .unwrap()
+            .unwrap()
+            .usage_json
+            .unwrap(),
+    )
+    .unwrap();
+    let request = SignRequest {
+        lease_id: l.id.clone(),
+        charge: "42000".into(),
+        usage,
+    };
+    let first = rig.signer.sign_next(request.clone()).await.unwrap();
+    // The write to the local disk is lost (a crash or a timeout after the replica answered).
+    rig.op
+        .store()
+        .run(|c| c.execute("DELETE FROM signed_states", []).map(|_| ()))
+        .await
+        .unwrap();
+    let second = rig.signer.sign_next(request).await.unwrap();
+    assert_eq!(
+        serde_json::to_string(&first).unwrap(),
+        serde_json::to_string(&second).unwrap(),
+        "the same blind, the same signature"
+    );
+}

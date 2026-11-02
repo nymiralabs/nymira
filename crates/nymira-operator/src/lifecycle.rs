@@ -273,6 +273,12 @@ impl Operator {
             .run(move |c| store::roll_back(c, &id))
             .await
             .map_err(db)?;
+        // Without this the replica would bring the lease back after a restore and settle it at
+        // its bound, charging a user who cancelled.
+        let _ = self
+            .replica
+            .record(crate::replog::kinds::ROLLED_BACK, lease_id, None)
+            .await;
         self.ledger.release(lease_id);
         self.spend
             .lock()
@@ -537,7 +543,8 @@ impl Operator {
             Ok(Ok(signed)) if signed.charge_applied == amount => {}
             // The second machine has been away for six hours: the lease is settled at its bound
             // and no next state is signed. The user leaves this note by exit.
-            Ok(Err(SignerError::ReplicaUnreachable))
+            // A link that answers nothing times the call out; that is the same thing.
+            Ok(Err(SignerError::ReplicaUnreachable)) | Err(_)
                 if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS =>
             {
                 amount = lease.bound;
@@ -581,9 +588,27 @@ impl Operator {
     /// restore it is settled at its bound, with no next state. (An honest client settles it
     /// sooner through `POST /v2/reconcile`.)
     async fn settle_restored(&self, lease: &LeaseRow, now: u64) {
-        if self.replica.in_recovery()
-            || now < lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS
-        {
+        if self.replica.in_recovery() {
+            return;
+        }
+        // A lease with no stamp was restored by a start-up that stopped half way: the clock
+        // starts now, and its provider key (which nobody holds a record of) goes.
+        let Some(stamp) = lease.retiring_at else {
+            let id = lease.lease_id.clone();
+            let _ = self.provider.revoke(&id).await;
+            let _ = self
+                .store
+                .run(move |c| {
+                    c.execute(
+                        "UPDATE leases SET retiring_at = ?2 WHERE lease_id = ?1 AND retiring_at IS NULL",
+                        rusqlite::params![id, now],
+                    )
+                    .map(|_| ())
+                })
+                .await;
+            return;
+        };
+        if now < stamp + UNREAD_SETTLES_AFTER_SECS {
             return;
         }
         let _ = self.settle_at_bound(lease, "recovered").await;
