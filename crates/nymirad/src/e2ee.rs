@@ -1,6 +1,6 @@
 //! End-to-end encryption of a chat to the model's attested key, and the reading of its answer.
 //!
-//! The suite is the one the live gateway accepted (`docs/day-1-checks.md`): Ed25519 public keys on
+//! The suite is the one the live gateway accepted on 2026-11-01: Ed25519 public keys on
 //! the wire, X25519 through the Montgomery map, HKDF-SHA256 (no salt, info `ed25519_encryption`),
 //! XChaCha20-Poly1305, `[ephemeral key 32][nonce 24][ciphertext and tag]`, hex.
 //!

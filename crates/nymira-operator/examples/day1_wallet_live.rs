@@ -1,4 +1,4 @@
-//! Live first-day measurements that ticket #31 needed (`docs/day-1-checks.md`):
+//! Live first-day measurements for the gateway in `nymirad`:
 //!
 //! 1. Overspend from requests that run at the same time at the cap: three fresh keys capped at
 //!    $0.002, 24 requests at once on each.
