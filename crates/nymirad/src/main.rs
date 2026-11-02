@@ -236,9 +236,11 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
     let Some(signer) = signer else {
         return refuse("this build pins no attestation policy signer".into());
     };
+    // A policy in the state directory wins (a newer one, downloaded); otherwise the one signed
+    // and shipped with this build.
     let json = match std::fs::read(home.join("attestation-policy.json")) {
         Ok(j) => j,
-        Err(e) => return refuse(format!("attestation-policy.json: {e}")),
+        Err(_) => include_bytes!("../pins/attestation-policy.json").to_vec(),
     };
     match nymirad::attest::Policy::load(&json, &signer, MIN_POLICY_VERSION) {
         Ok(policy) if policy.deployments.is_empty() => {
