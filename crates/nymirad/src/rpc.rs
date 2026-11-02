@@ -124,12 +124,16 @@ impl Rpc {
         let body = json!({ "jsonrpc": "2.0", "id": "nymirad", "method": method, "params": params });
         // One connection, one identity: a read never shares a circuit with another read.
         let http = client(&self.transport)?;
-        let reply: Value = http
+        let reply = http
             .post(&self.url)
             .json(&body)
             .send()
             .await
-            .map_err(send_error)?
+            .map_err(send_error)?;
+        if !self.transport.is_direct() && crate::net::refuses_tor(reply.status().as_u16()) {
+            return Err(RpcError::TorRefused(format!("status {}", reply.status())));
+        }
+        let reply: Value = reply
             .json()
             .await
             .map_err(|e| RpcError::Transport(e.without_url().to_string()))?;

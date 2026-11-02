@@ -116,6 +116,11 @@ impl LeaseClient {
             return Ok(body);
         }
         let e = &body["error"];
+        // A 403 or 451 with no operator error body comes from something in front of it (a CDN
+        // or a funnel turning Tor exits away), not from the operator.
+        if crate::net::refuses_tor(status) && e["code"].as_str().unwrap_or("").is_empty() {
+            return Err(LeaseError::TorRefused(format!("status {status}")));
+        }
         Err(OperatorError {
             status,
             code: e["code"].as_str().unwrap_or("").to_string(),

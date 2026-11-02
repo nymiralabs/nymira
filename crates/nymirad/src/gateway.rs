@@ -699,6 +699,14 @@ impl Gateway {
                 .and_then(|v| v.parse().ok());
             let err: Value = response.json().await.unwrap_or(Value::Null);
             release(self).await;
+            if crate::net::refuses_tor(status)
+                && err["error"]["code"].as_str().unwrap_or("").is_empty()
+            {
+                return Err(net_error(
+                    "operator_unreachable",
+                    RpcError::TorRefused(format!("status {status}")),
+                ));
+            }
             return Err(ApiError::from_operator(
                 status,
                 err["error"]["code"].as_str().unwrap_or(""),

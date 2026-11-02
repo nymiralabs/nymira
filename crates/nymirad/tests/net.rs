@@ -132,7 +132,13 @@ async fn tor_down_and_a_refusing_other_side_are_reported_apart() {
     };
     assert!(m.contains("403"));
 
-    // Anything else stays an ordinary transport error.
+    // The same 403 on an RPC read.
+    let rpc = Rpc::new("http://rpc.mainnet.near.org/", &socks(&proxy)).unwrap();
+    assert!(matches!(
+        rpc.call("status", json!({})).await,
+        Err(RpcError::TorRefused(_))
+    ));
+
     // A connection error with no proxy in it is neither.
     let e = reqwest::Client::new()
         .get("http://127.0.0.1:1/")
