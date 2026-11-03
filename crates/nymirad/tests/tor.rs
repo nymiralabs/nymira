@@ -163,3 +163,65 @@ async fn a_slow_bootstrap_times_out_as_not_ready() {
     };
     assert!(why.contains("60%"));
 }
+
+/// Runs the real `tor` named by `NYMIRA_REAL_TOR` (its SHA-256 in `NYMIRA_REAL_TOR_SHA256`) through
+/// the manager and sends one request over it. Needs the network: `cargo test -p nymirad --test tor
+/// -- --ignored real_tor`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a real tor package and the network"]
+async fn real_tor_bootstraps_and_carries_a_request() {
+    let (Ok(package), Ok(sha256)) = (
+        std::env::var("NYMIRA_REAL_TOR"),
+        std::env::var("NYMIRA_REAL_TOR_SHA256"),
+    ) else {
+        panic!("set NYMIRA_REAL_TOR and NYMIRA_REAL_TOR_SHA256");
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let tor = Tor::start(&TorConfig {
+        backend: Backend::CTor,
+        package: package.into(),
+        sha256,
+        work_dir: dir.path().join("work"),
+    })
+    .await
+    .expect("the real tor starts");
+    tor.wait_ready(Duration::from_secs(180))
+        .await
+        .expect("the real tor bootstraps");
+    eprintln!("ready: {:?}, {}", tor.state(), tor.version());
+    let started = std::time::Instant::now();
+    // The transport owns the process: it must outlive the requests.
+    let transport = Transport::Tor(std::sync::Arc::new(tor));
+    let http = client(&transport).unwrap();
+    let mut last = None;
+    for _ in 0..8 {
+        match http.get("https://check.torproject.org/api/ip").send().await {
+            Ok(r) => {
+                eprintln!("ok after {:?}", started.elapsed());
+                last = Some(r.text().await.unwrap());
+                break;
+            }
+            Err(e) => {
+                eprintln!("try failed after {:?}: {e:?}", started.elapsed());
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
+    let body = last.expect("a request over tor");
+    assert!(body.contains("\"IsTor\":true"), "{body}");
+    drop(transport);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pin_file_with_several_hashes_accepts_any_of_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(dir.path(), FAKE_TOR);
+    cfg.sha256 = format!("{}\n{}\n", "ab".repeat(32), cfg.sha256);
+    let tor = Tor::start(&cfg).await.expect("the second hash matches");
+    drop(tor);
+    cfg.sha256 = format!("{}\n{}\n", "ab".repeat(32), "cd".repeat(32));
+    assert!(matches!(
+        Tor::start(&cfg).await,
+        Err(TorError::PackageHash { .. })
+    ));
+}
