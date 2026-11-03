@@ -122,10 +122,20 @@ fn verified_copy(cfg: &TorConfig) -> Result<PathBuf, TorError> {
     };
     let bytes = std::fs::read(&cfg.package).map_err(|e| package_error(e.to_string()))?;
     let found = hex::encode(Sha256::digest(&bytes));
-    if !found.eq_ignore_ascii_case(cfg.sha256.trim()) {
+    // The pin file holds one hash per platform build, separated by whitespace.
+    if !cfg
+        .sha256
+        .split_whitespace()
+        .any(|h| h.eq_ignore_ascii_case(&found))
+    {
         return Err(TorError::PackageHash {
             backend: name,
-            pinned: cfg.sha256.trim().to_lowercase(),
+            pinned: cfg
+                .sha256
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase(),
             found,
         });
     }
