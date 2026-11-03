@@ -42,6 +42,13 @@ if cargo tree -p nymirad --locked -e normal,build,features | grep -q 'nymirad fe
   exit 1
 fi
 
+# The development keys load only with zkapi-proof's `dev-setup`: a release graph must not switch
+# it on, or the binary would accept keys nobody ran a ceremony for.
+if cargo tree -p nymirad --locked -e normal,build,features | grep -q 'zkapi-proof feature "dev-setup"'; then
+  echo "the release feature graph of nymirad enables zkapi-proof's dev-setup" >&2
+  exit 1
+fi
+
 if [ -z "$bin" ]; then
   cargo build --release --locked -p nymirad --bin nymirad
   bin="$target/release/nymirad"

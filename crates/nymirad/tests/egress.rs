@@ -144,3 +144,47 @@ async fn the_attestor_fetches_the_report_through_the_proxy_by_name() {
         assert_eq!(s.user, identity);
     }
 }
+
+/// The funding transaction of `deposit` and `recover` leaves through the transport like every
+/// other request: its sender carries the transport's client, so the proxy sees the node's name.
+/// (It used to be built with the default client and went out from the user's own address, even
+/// with Tor down.)
+#[tokio::test]
+async fn the_funding_transaction_goes_through_the_proxy() {
+    let sink = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let sink_addr = sink.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let _ = sink.accept().await;
+        }
+    });
+    let proxy = FakeSocks::start(Behavior::Tunnel(sink_addr)).await;
+    let (tor, _state) = Tor::for_tests(proxy.addr, TorState::Ready);
+    let transport = Transport::Tor(Arc::new(tor));
+    let dir = tempfile::tempdir().unwrap();
+    let tx = nymirad::deposit::funding_tx(
+        "https://rpc.testnet.near.org",
+        "alice.testnet",
+        "usdc.testnet".into(),
+        ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]),
+        nymira_operator::store::Store::open(&dir.path().join("tx.db")).unwrap(),
+        Arc::new(nymira_operator::clock::ManualClock::new(1_900_000_000_000)),
+        &transport,
+    )
+    .unwrap();
+    let _ = tx
+        .send(nymira_operator::tx::TxRequest {
+            kind: "deposit",
+            method: "ft_transfer_call",
+            args: b"{}".to_vec(),
+            gas: 1,
+            idem_key: None,
+        })
+        .await;
+    let seen = proxy.seen();
+    assert!(
+        seen.iter()
+            .any(|s| s.host == "rpc.testnet.near.org" && s.atyp == 3),
+        "the transaction did not reach the proxy by name: {seen:?}"
+    );
+}

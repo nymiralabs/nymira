@@ -18,7 +18,7 @@ use sha2::Sha256;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 const INFO: &[u8] = b"ed25519_encryption";
-const FIELDS_TOP: [&str; 14] = [
+const FIELDS_TOP: [&str; 15] = [
     "model",
     "messages",
     "stream",
@@ -33,6 +33,7 @@ const FIELDS_TOP: [&str; 14] = [
     "seed",
     "stop",
     "tools",
+    "tool_choice",
 ];
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -468,6 +469,23 @@ mod tests {
         let extra =
             json!({"model": "m", "messages": [{"role": "user", "content": "x", "audio": 1}]});
         assert!(seal_request(&extra, &pk, None).is_err());
+    }
+
+    #[test]
+    fn tool_choice_stays_readable_and_passes_through() {
+        // The operator reads `tool_choice` (it stays in the clear, as the threat model says), so
+        // agent frameworks that send it with `tools` must not get a refusal.
+        let (_, pk) = model();
+        let r = json!({"model": "m", "messages": [{"role": "user", "content": "x"}],
+                       "tool_choice": "auto"});
+        let sealed = seal_request(&r, &pk, None).unwrap();
+        assert_eq!(sealed["tool_choice"], "auto");
+        let named = json!({"model": "m", "messages": [{"role": "user", "content": "x"}],
+                           "tool_choice": {"type": "function", "function": {"name": "f"}}});
+        assert_eq!(
+            seal_request(&named, &pk, None).unwrap()["tool_choice"]["function"]["name"],
+            "f"
+        );
     }
 
     #[test]

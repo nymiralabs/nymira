@@ -719,8 +719,16 @@ impl Gateway {
                 format!("finalize:{note_id}"),
             )
             .await?;
-        if !end.success && self.exit_request(&route.rpc, note_id).await?.is_some() {
-            return Err(Self::refused("finalize_exit", &end));
+        if !end.success {
+            // A failed transaction is a paid exit only if the vault shows the note closed (its
+            // payout leg failed after the note closed and a pending payout was booked). An exit
+            // that was defeated has no record either, and its note is `Active` again: believing
+            // the failure away would archive a wallet whose note still holds money.
+            if self.exit_request(&route.rpc, note_id).await?.is_some()
+                || !self.is_closed(&entry).await
+            {
+                return Err(Self::refused("finalize_exit", &end));
+            }
         }
         let hash = end.hash;
         // The wallet's state is done with: the exit lock goes with the archive.

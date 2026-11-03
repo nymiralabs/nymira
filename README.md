@@ -44,6 +44,23 @@ cargo check --target wasm32-unknown-unknown --locked -p nymira-vault -p nymira-n
 cargo test --workspace --locked
 ```
 
+`cargo test --workspace --locked` also runs the web interop tests, which need Node 24, `wasm-bindgen` 0.2.117 and the web dependencies first:
+
+```bash
+web/scripts/build-wasm.sh && (cd web && npm ci --ignore-scripts)
+```
+
+## Try it locally
+
+A local stack needs no keys and no money: a sandbox vault with a mock USDC token, the operator, and a fake NEAR AI gateway.
+
+```bash
+make golden   # a note is deposited, used, settled, closed and retired, asserted step by step
+make demo     # the stack stays up and prints the `nymirad` commands to try against it
+```
+
+Both need cargo-near 0.22.0. The `mock` build of `nymirad` that `make demo` uses talks to the sandbox without Tor and trusts a throwaway attestation policy; a release build has neither.
+
 ## License
 
 Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option. Code taken from other projects is listed in [NOTICE](NOTICE).

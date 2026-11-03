@@ -9,7 +9,7 @@ description = "Nymira local gateway: owner token, vault pins, deposit"
 [features]
 # Demo and test builds only: lets the daemon talk to a sandbox without Tor. A release build
 # has neither this nor any attestation-skipping switch.
-mock = []
+mock = ["zkapi-proof/dev-setup"]
 
 [dependencies]
 age = "0.11"

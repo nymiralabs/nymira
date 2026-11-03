@@ -8,7 +8,6 @@ use std::sync::Arc;
 use ed25519_dalek::SigningKey;
 use nymira_operator::clock::{Clock, SystemClock};
 use nymira_operator::store::Store;
-use nymira_operator::tx::NearTx;
 use nymirad::config::Config;
 use nymirad::deposit::{Confirm, Ctx, Summary};
 use nymirad::gateway::{Gateway, GatewayConfig};
@@ -212,6 +211,12 @@ async fn build_gateway(
 
 /// The proving key's SHA-256 pinned in this build. Demo builds may take it from `config.json`.
 fn compiled_proving_key_hash(cfg: &Config) -> String {
+    // The demo's setup directory holds the zkapi development keys, not the ceremony's.
+    #[cfg(feature = "mock")]
+    if let Some(hash) = &cfg.proving_key_sha256 {
+        return hash.clone();
+    }
+    #[cfg(not(feature = "mock"))]
     let _ = cfg;
     include_str!("../pins/proving-key.sha256")
         .trim()
@@ -271,7 +276,7 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
 }
 
 /// Policies older than this are refused.
-const MIN_POLICY_VERSION: u32 = 1;
+const MIN_POLICY_VERSION: u32 = 2;
 
 #[tokio::main]
 async fn main() {
@@ -435,6 +440,17 @@ async fn main() {
                         clock.now_secs()
                     )
                 );
+                // The last leases with the verdict on the signature and any overcharge warning:
+                // the answer reached the app before the signature could be read, so this is
+                // where a "not verified" shows.
+                for r in nymirad::records::Records::new(&home)
+                    .list()
+                    .iter()
+                    .rev()
+                    .take(5)
+                {
+                    println!("{}", status::lease_line(r));
+                }
                 for w in cfg.backup_warnings() {
                     println!("warning: {w}");
                 }
@@ -467,15 +483,16 @@ async fn main() {
                 pins,
                 tripwire,
                 notes,
-                tx: NearTx::new(
-                    cfg.rpc_url.clone(),
-                    cfg.account.clone(),
+                tx: nymirad::deposit::funding_tx(
+                    &cfg.rpc_url,
+                    &cfg.account,
                     token,
                     key,
                     tx_store.clone(),
                     clock.clone(),
+                    &transport,
                 )
-                .with_deposit(1),
+                .unwrap_or_else(|e| die(e)),
                 tx_store,
                 sender: cfg.account.clone(),
                 clock,
