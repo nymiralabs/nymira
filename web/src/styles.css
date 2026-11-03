@@ -189,6 +189,9 @@ ul.notes li {
   height: 100%;
   border: 0;
   background: transparent;
+  /* The frame's own page declares no colour scheme, so it is light. Without this line a dark app
+     makes the browser paint the frame on an opaque white canvas that covers the whole screen. */
+  color-scheme: normal;
   pointer-events: none;
   z-index: 10;
 }
