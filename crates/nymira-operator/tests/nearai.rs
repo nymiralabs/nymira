@@ -194,7 +194,7 @@ async fn a_refresh_token_with_a_quarter_of_its_life_left_raises_a_warning() {
 }
 
 #[tokio::test]
-async fn usage_comes_from_the_reporting_export_by_key_and_balance_is_in_micro_usd() {
+async fn usage_history_is_read_by_key_and_balance_is_in_micro_usd() {
     let rig = Rig::new().await;
     let adapter = rig.adapter(Some(FIRST_REFRESH_TOKEN)).unwrap();
     adapter.mint("a", 100_000).await.unwrap();

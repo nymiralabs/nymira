@@ -28,8 +28,12 @@ pub struct Config {
     pub secrets_dir: PathBuf,
     /// Directory of the verifying keys.
     pub setup_dir: PathBuf,
-    /// RPC endpoints. The watcher needs as many as its quorum (two).
+    /// RPC endpoints. The watcher needs at least as many as its quorum: 2 on testnet, 3 on mainnet.
     pub rpc_urls: Vec<String>,
+    /// Mainnet only: an archival endpoint, which the regular providers are not. The profile is
+    /// refused without one. Nothing polls it: it is for reading old receipts by hand (ceremony
+    /// beacon, disputed payouts) and the config keeps it beside the providers.
+    pub archival_rpc_url: Option<String>,
     /// The key that signs usage records, as hex; its secret half is in the key minter's file.
     pub usage_public_key: String,
     pub team_note_ids_file: Option<PathBuf>,
@@ -123,6 +127,17 @@ impl Config {
         if self.rpc_urls.is_empty() {
             return Err("rpc_urls is empty".into());
         }
+        if self.profile == "mainnet" {
+            if self.rpc_urls.len() < self.watcher_quorum() {
+                return Err(format!(
+                    "the mainnet profile needs at least {} rpc_urls, one per watcher provider",
+                    self.watcher_quorum()
+                ));
+            }
+            if self.archival_rpc_url.is_none() {
+                return Err("the mainnet profile needs an archival_rpc_url".into());
+            }
+        }
         if self.profile != "sandbox" && self.replica.is_none() && self.replica_node.is_none() {
             return Err("a testnet or mainnet operator needs a replica".into());
         }
@@ -130,6 +145,15 @@ impl Config {
             return Err("the mainnet profile runs on the mainnet network".into());
         }
         Ok(())
+    }
+
+    /// Providers that must report an exit before it counts: 3 on mainnet, 2 elsewhere.
+    pub fn watcher_quorum(&self) -> usize {
+        if self.profile == "mainnet" {
+            3
+        } else {
+            2
+        }
     }
 
     pub fn socket(&self, name: &str) -> PathBuf {
