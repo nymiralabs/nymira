@@ -25,9 +25,9 @@ use nymira_operator::store::Store;
 use nymira_operator::tx::TxConfig;
 use nymira_operator::usage::Minter;
 use nymira_operator::verify::{GrothVerifier, GrothWithdrawalVerifier};
-use nymira_testkit::build::contract_wasm_with_features;
 use nymira_testkit::mock_usdc::MockUsdc;
-use nymira_testkit::proofs::{canonical_verifying_key, signing_key, Kind};
+use nymira_testkit::proofs::signing_key;
+use nymira_testkit::vault::DevVault;
 use nymirad::attest::{Policy, TestEvidence};
 use nymirad::gateway::close::CloseOptions;
 use nymirad::gateway::{Gateway, GatewayConfig};
@@ -232,45 +232,9 @@ pub async fn build(transport: Transport, predeposit: bool) -> Stack {
     let operator_account = worker.dev_create_account().await.unwrap();
     let treasury = worker.dev_create_account().await.unwrap();
     let alice = worker.dev_create_account().await.unwrap();
-    let vault = worker
-        .root_account()
-        .unwrap()
-        .create_subaccount("vault")
-        .initial_balance(NearToken::from_near(50))
-        .transact()
-        .await
-        .unwrap()
-        .into_result()
-        .unwrap()
-        .deploy(&contract_wasm_with_features(
-            "contracts/vault",
-            &["dev-setup"],
-        ))
-        .await
-        .unwrap()
-        .into_result()
-        .unwrap();
-    vault
-        .call("new")
-        .args_json(json!({
-            "operator_pk": point(1), "clearance_pk": point(2), "token": usdc.contract.id(),
-            "denominations": [ONE.to_string()], "tvl_cap": "100000000",
-            "request_vk": b64(&canonical_verifying_key(Kind::Request)),
-            "withdrawal_vk": b64(&canonical_verifying_key(Kind::Withdrawal)),
-            "treasury": treasury.id(), "note_fee": FEE.to_string(),
-            "exit_delay_secs": 7 * 86_400, "note_ttl": 30 * 86_400,
-            "bound_classes": ["100000", "500000"], "charge_step": "1000", "min_charge": "2000",
-            "slot_rate": 1000, "owner": worker.root_account().unwrap().id(),
-            "operator_account": operator_account.id(),
-        }))
-        .max_gas()
-        .transact()
-        .await
-        .unwrap()
-        .into_result()
-        .unwrap();
-    usdc.register_id(vault.id()).await;
-    usdc.register(&treasury).await;
+    let vault = DevVault::default()
+        .deploy(&worker, &usdc, &operator_account, &treasury)
+        .await;
     usdc.register(&alice).await;
     usdc.mint(alice.id(), 20 * ONE).await;
 

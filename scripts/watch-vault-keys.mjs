@@ -19,6 +19,7 @@
 // A key that was added and removed between two polls shows up as a deletion event.
 // Limits: the first run (or `--expect`) judges the account as it is now and scans no history, so
 // something done and undone before it left no trace; `--no-events` sees only the state at each poll.
+//  - Owner proposals: `pending_tvl_cap` and `pending_params` are read at each poll; a proposal that appears, changes or goes is an `owner_proposal_changed` alert (a vault without the views reads "n/a" and is quiet).
 // More than 600 blocks since the last poll are scanned in several polls (`catching_up`).
 
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
@@ -57,15 +58,33 @@ function permissionKey(permission) {
   return JSON.stringify(permission, (k, v) => (k === "allowance" ? undefined : v));
 }
 
+// The vault's two proposal views, as JSON text; "n/a" when the contract has no such view.
+async function readProposal(rpcs, account, method) {
+  try {
+    const r = await rpc(rpcs, "query", {
+      request_type: "call_function",
+      finality: "final",
+      account_id: account,
+      method_name: method,
+      args_base64: "e30=", // {}
+    });
+    return Buffer.from(r.result).toString("utf8").trim();
+  } catch {
+    return "n/a";
+  }
+}
+
 async function readAccount(rpcs, account) {
-  const [block, acct, list] = await Promise.all([
+  const [block, acct, list, cap, params] = await Promise.all([
     rpc(rpcs, "block", { finality: "final" }),
     rpc(rpcs, "query", { request_type: "view_account", finality: "final", account_id: account }),
     rpc(rpcs, "query", { request_type: "view_access_key_list", finality: "final", account_id: account }),
+    readProposal(rpcs, account, "pending_tvl_cap"),
+    readProposal(rpcs, account, "pending_params"),
   ]);
   const keys = {};
   for (const k of list.keys) keys[k.public_key] = permissionKey(k.access_key.permission);
-  return { height: block.header.height, code_hash: acct.code_hash, keys };
+  return { height: block.header.height, code_hash: acct.code_hash, keys, proposals: { tvl_cap: cap, params } };
 }
 
 async function scanEvents(rpcs, account, from, to) {
@@ -104,6 +123,15 @@ function diff(base, now, eventAlerts) {
       out.push({ alert: "key_permission_changed", public_key: pk, from: base.keys[pk], to: perm });
     }
   }
+  // A proposal of the owner (TVL cap or lease parameters) waits 48 hours: say so when one appears,
+  // changes or is gone. States written before this check have no `proposals` and are skipped.
+  for (const kind of ["tvl_cap", "params"]) {
+    const was = base.proposals?.[kind];
+    const is = now.proposals?.[kind];
+    if (was !== undefined && is !== undefined && was !== is) {
+      out.push({ alert: "owner_proposal_changed", kind, from: was, to: is });
+    }
+  }
   for (const pk of Object.keys(base.keys)) {
     if (!(pk in now.keys) && !deleted.has(pk)) out.push({ alert: "delete_key", public_key: pk, source: "state" });
   }
@@ -132,7 +160,7 @@ export async function poll({ rpcs, account, statePath, events = true, failLimit 
     if (!state || state.baseline === false) {
       const base = expectPath ? load(expectPath) : null;
       const alerts = base ? diff(base, now, []) : [];
-      save(statePath, { code_hash: now.code_hash, keys: now.keys, height: now.height, fails: 0, down: false });
+      save(statePath, { code_hash: now.code_hash, keys: now.keys, proposals: now.proposals, height: now.height, fails: 0, down: false });
       return { alerts: alerts.map((a) => ({ account, ...a })), failed: false };
     }
     const from = state.height + 1;
@@ -148,7 +176,7 @@ export async function poll({ rpcs, account, statePath, events = true, failLimit 
       : [...ev, ...diff(state, now, seen)];
     const next = catching
       ? { ...state, height: to, carry: seen, fails: 0, down: false }
-      : { code_hash: now.code_hash, keys: now.keys, height: events ? to : now.height, fails: 0, down: false };
+      : { code_hash: now.code_hash, keys: now.keys, proposals: now.proposals, height: events ? to : now.height, fails: 0, down: false };
     save(statePath, next);
     return { alerts: alerts.map((a) => ({ account, ...a })), failed: false };
   } catch (e) {
