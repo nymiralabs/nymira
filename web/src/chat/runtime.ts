@@ -5,7 +5,10 @@ import initChecks, {
   fetch_collateral,
   status_signature_valid,
   verify_tdx_quote,
+  withdrawal_words,
 } from '../wasm/web-checks/nymira_web_wasm.js';
+import { walletClient } from '../wallet/client';
+import type { LeaveDeps } from '../leave/flow';
 import policyJson from '../../pins/attestation-policy.json';
 import signerPk from '../../pins/policy-signer.pub?raw';
 import { PROFILE } from '../profile';
@@ -51,6 +54,20 @@ export async function chatDeps(getKey: () => CryptoKey): Promise<Deps> {
   };
 }
 
+/** What the close and exit flows need: the same operator client and RPC, the user's wallet, the statement words. */
+export async function leaveDeps(getKey: () => CryptoKey): Promise<LeaveDeps> {
+  await checksReady();
+  return {
+    profile: PROFILE,
+    rpc,
+    operator: new OperatorClient(PROFILE.operatorUrl),
+    wallet: walletClient,
+    signatureCheck,
+    words: withdrawal_words,
+    getKey,
+  };
+}
+
 export type ProverState =
   | { status: 'off'; reason: string }
   | { status: 'loading' }
@@ -58,6 +75,32 @@ export type ProverState =
   | { status: 'failed'; reason: string };
 
 let prover: Promise<ProverState> | null = null;
+let withdrawalProver: Promise<ProverState> | null = null;
+
+/**
+ * Loads the withdrawal proving key (close and exit proofs) into the worker and checks its SHA-256;
+ * once per page, when the Close screen first needs it.
+ */
+export function warmWithdrawalProver(): Promise<ProverState> {
+  const key = PROFILE.withdrawalKey;
+  if (!key) {
+    return Promise.resolve({
+      status: 'off',
+      reason: 'The proving key for this deployment is not published yet.',
+    });
+  }
+  return (withdrawalProver ??= callWorker({
+    op: 'loadWithdrawalProver',
+    url: key.url,
+    sha256: key.sha256,
+  }).then(
+    (r): ProverState => ({ status: 'ready', bytes: r.bytes, ms: r.ms }),
+    (e: unknown): ProverState => ({
+      status: 'failed',
+      reason: e instanceof Error ? e.message : String(e),
+    }),
+  ));
+}
 
 /** Loads the request proving key into the worker and checks its SHA-256; once per page. */
 export function warmProver(): Promise<ProverState> {

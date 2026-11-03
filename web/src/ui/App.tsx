@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { warmProver } from '../chat/runtime';
 import { PROFILE } from '../profile';
 import { Chat } from './Chat';
+import { Close } from './Close';
 import { Fund } from './Fund';
 import { Landing } from './Landing';
 import { Notes } from './Notes';
 import { originOk, useVaultCheck } from './services';
+import { Watch } from './Watch';
 
-type Screen = 'landing' | 'fund' | 'chat' | 'notes';
+type Screen = 'landing' | 'fund' | 'chat' | 'close' | 'notes';
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('landing');
@@ -47,6 +49,9 @@ export function App() {
           <button type="button" data-testid="nav-chat" onClick={() => setScreen('chat')}>
             Chat
           </button>
+          <button type="button" data-testid="nav-close" onClick={() => setScreen('close')}>
+            Close
+          </button>
           <button type="button" data-testid="nav-notes" onClick={() => setScreen('notes')}>
             Notes
           </button>
@@ -58,9 +63,11 @@ export function App() {
           <code>nymirad</code> for that.
         </p>
       )}
+      {screen !== 'landing' && <Watch screen={screen} onClose={() => setScreen('close')} />}
       {screen === 'landing' && <Landing onOpen={() => setScreen('fund')} />}
       {screen === 'fund' && <Fund vault={check} recheck={recheck} />}
       {screen === 'chat' && <Chat vault={check} />}
+      {screen === 'close' && <Close />}
       {screen === 'notes' && <Notes />}
       <footer>
         <small data-testid="network-label">
