@@ -12,7 +12,7 @@ export const OLD_STATE_LIMIT =
 
 /** What closing puts on chain. */
 export const CLOSE_REVEALS =
-  'Closing shows your note ID, your total spend and your payout account on chain, next to the account that sends the close. Sending it from the account that funded the note links the two; a fresh account with a little NEAR does not.';
+  'Closing shows your note ID, your total spend and your payout account on chain, next to the account that sends the close. Sending it from the account that funded the note puts the two side by side; another account with a little NEAR keeps them apart on chain.';
 
 export const GAS_NOTE =
   '`request_exit` and `finalize_exit` need a little NEAR for gas. Any account can send them, and the payout still goes to your payout account. Connect an account that holds NEAR; it does not have to be the one that funded the note.';

@@ -30,3 +30,13 @@ The operator signs a state only after a second machine has the record on disk, s
 ## If a key leaks
 
 New leases and clearances stop at once (`emergency`) and `/v1/status` shows why; users are told to exit and a new vault is deployed. A leaked state key lets an attacker sign states, a leaked clearance key lets an attacker forge clearances, and a leaked provider credential lets an attacker spend the prepaid credit. None of these gives access to user funds held by the vault, whose rules are in the contract.
+
+## What closing and exiting show, from the web app
+
+A close, an exit request, a finalize and a payout name the note ID in the vault call. A close also shows the note's total spend and the payout account. The web app sends them from the wallet account the user connects, so that account is on chain next to the note ID; connecting an account other than the funding account keeps the two apart, and the app does not create one. `request_exit` and `finalize_exit` can come from any account with a little NEAR, and the payout still goes to the account fixed at deposit.
+
+The RPC provider sees the user's IP address with every read the app makes to leave: the sending account's balance, `exit_requests` (a page of the whole list, naming no note), `note_records` (names the note ID) and `pending_payout` (names the payout account). The browser cannot use Tor.
+
+A close asks the operator for a clearance, so the operator sees the ownership proof and the user's IP address and the time. `nymirad` waits a random one to twenty minutes first; the web app does not, so a close soon after a conversation is easier to tie to it. A close handed to the operator's intake shows the operator's account as the sender, and the operator keeps its close fee.
+
+An exit from an old state can be defeated: if the user loses the latest state (the browser's storage and the backup), the operator can answer the exit with a later request and keep what it charged, up to the whole remaining balance. The close screen says so next to the guarantee.
