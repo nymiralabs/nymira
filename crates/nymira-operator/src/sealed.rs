@@ -21,8 +21,16 @@ pub enum SealError {
     Damaged,
 }
 
+fn derive(passphrase: &str, salt: &[u8], rounds: u32) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    pbkdf2::pbkdf2_hmac::<sha2::Sha256>(passphrase.as_bytes(), salt, rounds, &mut key);
+    key
+}
+
 pub struct SealedFile {
     path: PathBuf,
+    passphrase: zeroize::Zeroizing<String>,
+    rounds: u32,
     salt: [u8; 16],
     key: [u8; 32],
 }
@@ -41,12 +49,12 @@ impl SealedFile {
             }
             Err(e) => return Err(e.into()),
         }
-        let mut key = [0u8; 32];
-        pbkdf2::pbkdf2_hmac::<sha2::Sha256>(passphrase.as_bytes(), &salt, rounds, &mut key);
         Ok(Self {
             path: path.to_path_buf(),
+            passphrase: passphrase.to_string().into(),
+            rounds,
             salt,
-            key,
+            key: derive(passphrase, &salt, rounds),
         })
     }
 
@@ -57,11 +65,17 @@ impl SealedFile {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        if bytes.len() < 8 + 16 + 24 || !bytes.starts_with(MAGIC) || bytes[8..24] != self.salt {
+        if bytes.len() < 8 + 16 + 24 || !bytes.starts_with(MAGIC) {
             return Err(SealError::Damaged);
         }
+        // Another opener may have created the file after this one opened it, with its own salt.
+        let key = if bytes[8..24] == self.salt {
+            self.key
+        } else {
+            derive(&self.passphrase, &bytes[8..24], self.rounds)
+        };
         let (nonce, ct) = bytes[24..].split_at(24);
-        XChaCha20Poly1305::new((&self.key).into())
+        XChaCha20Poly1305::new((&key).into())
             .decrypt(XNonce::from_slice(nonce), ct)
             .map(Some)
             .map_err(|_| SealError::Damaged)
@@ -110,5 +124,24 @@ mod tests {
         let wrong = SealedFile::open(&path, "other", 10).unwrap();
         assert!(matches!(wrong.read(), Err(SealError::Damaged)));
         assert!(!dir.path().join("s.enc.tmp").exists());
+    }
+
+    /// A long-running process opens the file before it exists; another process creates it with
+    /// its own salt (`nymirad deposit` on a fresh home while the daemon runs).
+    #[test]
+    fn a_file_created_by_another_opener_after_this_open_still_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.enc");
+        let early = SealedFile::open(&path, "pass", 10).unwrap();
+        SealedFile::open(&path, "pass", 10)
+            .unwrap()
+            .write(b"from the other process")
+            .unwrap();
+        assert_eq!(
+            early.read().unwrap().as_deref(),
+            Some(&b"from the other process"[..])
+        );
+        let wrong = SealedFile::open(&path, "other", 10).unwrap();
+        assert!(matches!(wrong.read(), Err(SealError::Damaged)));
     }
 }
