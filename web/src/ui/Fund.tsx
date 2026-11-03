@@ -271,6 +271,13 @@ export function Fund({ vault, recheck }: { vault: VaultCheck | null; recheck: ()
   return (
     <section data-testid="fund">
       <h2>Fund a note</h2>
+      <p className="hint" data-testid="terms-fund">
+        By funding a note you accept the{' '}
+        <a href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">
+          terms of use
+        </a>
+        .
+      </p>
       <Notices />
       <VaultBanner check={vault} onRecheck={recheck} />
 
