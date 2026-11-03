@@ -94,7 +94,7 @@ jobs:
           workspaces: vendor/zkapi/protocol/rust
       - name: Vendored zkapi tests
         working-directory: vendor/zkapi/protocol/rust
-        run: cargo test --locked -p zkapi-types -p zkapi-core -p zkapi-proof --lib
+        run: cargo test --locked -p zkapi-types -p zkapi-core -p zkapi-proof -p zkapi-browser -p zkapi-client --lib
 
   # The test wallet and the browser build of the NEAR codec (issue 86).
   web-testkit:

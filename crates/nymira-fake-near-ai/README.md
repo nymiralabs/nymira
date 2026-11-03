@@ -40,7 +40,7 @@ A key whose recorded spend has reached its `spendLimit`, or any request while th
 - Unknown model is 404. The reply is `fake reply to: <last user message>` unless `reply` is set. Tokens are `ceil(chars / 4)`, at least 1.
 - `stream: true` sends one SSE event per word, a stop chunk, a `usage` chunk when `stream_options.include_usage` is true, then `data: [DONE]`. The real gateway strips per-chunk usage; the fake keeps it so `nymirad` can check charges.
 - E2EE is on when `X-Client-Pub-Key` is present. `X-Model-Pub-Key` must be the key in the attestation report, and `X-Signing-Algo`, if sent, must be `ed25519`. `messages[].content` must then be encrypted to the model key; with `X-Encrypt-All-Fields: true`, `messages[].name` must be too. The answer's `content` (and each stream chunk's, independently) is encrypted to the client key. Hex on the wire. Other fields stay plain, as the guide says. The fake does not read `tools`.
-- The suite is X25519, HKDF-SHA256, XChaCha20-Poly1305, layout `[eph_pk 32][nonce 24][ct+tag]`. The guide gives no HKDF salt or info, so the fake uses no salt and `nymira-fake-near-ai/e2ee/v1`. It does not interoperate with the real gateway or SDK, only with `nymira_fake_near_ai::crypto` and the same scheme. The model's E2EE secret is public (`crypto::MODEL_E2EE_SECRET`) so tests can check what was decrypted.
+- The suite is X25519, HKDF-SHA256, XChaCha20-Poly1305, layout `[eph_pk 32][nonce 24][ct+tag]`. The guide gives no HKDF salt or info, so the fake uses no salt and the info string `ed25519_encryption`, the one `nymirad` and the operator use against the live gateway (recorded in the operator's `nearai_e2ee` example). Hex on the wire as for the real gateway. The model's E2EE secret is public (`crypto::MODEL_E2EE_SECRET`) so tests can check what was decrypted.
 - Every chat is recorded: key id, model, stream, E2EE flags, `x-no-aliasing`, `Accept-Encoding`, the exact request and response bytes (`Handle::chats()`, `GET /control/chats` without the bytes).
 
 ### Signatures
@@ -96,8 +96,8 @@ In process: `handle.update(|s| ...)` or `handle.patch(&json)`. Over HTTP: `GET /
 
 ## Choices
 
-- Chat, signature and attestation take the lease key; key management, balance and usage take the session token, as in 13b. The JWT is an opaque string without an `exp` claim; refresh-token rotation is a switch, because the real behaviour is a day-1 check.
-- Key list bodies and the model list price fields are the simplest shapes that fit 13b. Balance and usage history follow what the live gateway returned; the real API may still differ.
+- Chat, signature and attestation take the lease key; key management, balance and usage take the session token, as the gateway's guide describes. The JWT is an opaque string without an `exp` claim; refresh-token rotation is a switch, because the real behaviour is a day-1 check.
+- Key list bodies and the model list price fields are the simplest shapes that fit the gateway's guide. Balance and usage history follow what the live gateway returned; the real API may still differ.
 - The signature kind is fixed when the chat is answered. `bad_signature` and `unbound_key` apply when the signature is fetched.
 - No billing/costs, no tools, no `max_tokens` enforcement, no rate limits and no concurrency limit. Add them when a ticket needs them.
 

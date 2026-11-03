@@ -37,9 +37,14 @@ const NETWORK: Network = Network::Testnet;
 /// Layout version of the state struct.
 const STATE_VERSION: u32 = 1;
 /// Liquid NEAR under which a deposit is returned. It is the headroom for the vault's own NEAR costs
-/// (pending-payout records, payout-account registrations); it is checked at deposit time only and
-/// the vault does not hold it back afterwards.
+/// (pending-payout records, payout-account registrations); it is checked at deposit time, on the
+/// Intents branch too (under it the amount becomes a pending payout). Payouts that can fail check
+/// the smaller `PAYOUT_RESERVE` before they start.
 const RESERVE: u128 = 2_000_000_000_000_000_000_000_000;
+/// Liquid NEAR a close or an exit payout needs before it starts: a payout that fails writes a
+/// pending record, and the callback that writes it must not fail for lack of NEAR. A call under
+/// it is refused whole and can be repeated once the vault holds NEAR again.
+const PAYOUT_RESERVE: u128 = 100_000_000_000_000_000_000_000;
 /// 0.03 USDC.
 const CLOSE_FEE: u128 = 30_000;
 /// The account whose deposits take the Intents branch; a payout account may never be it. Sandbox
@@ -50,6 +55,8 @@ const INTENTS_ACCOUNT: &str = "intents.test.near";
 #[cfg(not(feature = "test-intents-account"))]
 const INTENTS_ACCOUNT: &str = "intents.near";
 const ONE_DAY_SECS: u64 = 86_400;
+/// Upper bound of the exit delay set in `new()`: a larger value would overflow the deadline sum.
+const MAX_EXIT_DELAY_SECS: u64 = 365 * ONE_DAY_SECS;
 /// `sync_root` inserts when this long has passed since the last insert...
 const SYNC_WAIT_NS: u64 = 30_000_000_000;
 /// ...or when this many leaves wait.
@@ -176,6 +183,15 @@ impl LeaseParams {
         require!(self.charge_step.0 > 0, "charge step is zero");
         require!(self.min_charge.0 > 0, "minimum charge is zero");
         require!(self.slot_rate <= MAX_SLOT_RATE, "slot rate above 100%");
+        require!(
+            self.bound_classes.len() <= 4,
+            "more than four bound classes"
+        );
+        let smallest = self.bound_classes.iter().map(|c| c.0).min().unwrap_or(0);
+        require!(
+            self.min_charge.0 <= smallest,
+            "minimum charge above the smallest bound class"
+        );
     }
 }
 
@@ -388,13 +404,22 @@ pub enum IntentsMsg {
 }
 
 /// Parses an Intents deposit message; total, it never panics. A payout account must be present
-/// and may not be the vault, the token or the Intents account.
+/// and may not be the vault, the token or the Intents account. The payout account and the
+/// commitment are read one by one, so a missing or undecodable commitment, or a field the vault
+/// does not know, still leaves the amount claimable by a valid payout account.
 pub fn intents_msg(msg: &str, vault: &AccountId, token: &AccountId) -> IntentsMsg {
-    let Ok(parsed) = near_sdk::serde_json::from_str::<DepositMsg>(msg) else {
+    use near_sdk::serde_json::{from_value, Value};
+    let Ok(Value::Object(fields)) = near_sdk::serde_json::from_str::<Value>(msg) else {
         return IntentsMsg::Bad { commitment: None };
     };
-    let commitment = word::decode32(&parsed.commitment);
-    match parsed.withdraw_to {
+    let commitment = fields
+        .get("commitment")
+        .and_then(Value::as_str)
+        .and_then(word::decode32);
+    let payout = fields
+        .get("withdraw_to")
+        .and_then(|v| from_value::<AccountId>(v.clone()).ok());
+    match payout {
         Some(payout)
             if payout != *vault && payout != *token && payout.as_str() != INTENTS_ACCOUNT =>
         {
@@ -446,6 +471,22 @@ pub struct NoteRecord {
     pub expiry: u64,
     pub status: Status,
     pub leaf_retired: bool,
+}
+
+/// A TVL cap proposal as `pending_tvl_cap` shows it. Times are block time in nanoseconds.
+#[near(serializers = [json])]
+pub struct PendingTvlCapView {
+    pub tvl_cap: U128,
+    pub effective_at: U64,
+    pub lapses_at: U64,
+}
+
+/// A lease-parameter proposal as `pending_params` shows it.
+#[near(serializers = [json])]
+pub struct PendingParamsView {
+    pub params: LeaseParams,
+    pub effective_at: U64,
+    pub lapses_at: U64,
 }
 
 /// A pending exit as `exit_requests` lists it.
@@ -502,6 +543,11 @@ impl Vault {
         }
         require!(note_fee.0 > 0, "note fee is zero");
         require!(exit_delay_secs >= ONE_DAY_SECS, "exit delay under one day");
+        require!(
+            exit_delay_secs <= MAX_EXIT_DELAY_SECS,
+            "exit delay over one year"
+        );
+        require!(tvl_cap.0 > 0, "TVL cap is zero");
         let lease = LeaseParams {
             bound_classes,
             charge_step,
@@ -647,6 +693,10 @@ impl Vault {
         require!(
             env::prepaid_gas() >= MIN_GAS_MUTUAL_CLOSE,
             "not enough gas for the close and its payout"
+        );
+        require!(
+            self.liquid_near().0 >= PAYOUT_RESERVE,
+            "the vault is short of NEAR for the payout"
         );
         let (words, scalars) = parse_inputs(&inputs, input::COUNT);
         let word = |index: usize| &words[index];
@@ -805,6 +855,10 @@ impl Vault {
         require!(
             env::prepaid_gas() >= MIN_GAS_CLAIM,
             "not enough gas for the payout"
+        );
+        require!(
+            self.liquid_near().0 >= PAYOUT_RESERVE,
+            "the vault is short of NEAR for the payout"
         );
         let record = self.pending_exit(note_id);
         require!(
@@ -1061,6 +1115,31 @@ impl Vault {
                 }
             })
             .collect()
+    }
+
+    /// The TVL cap proposal waiting for its 48 hours, if any. It stays visible until applied or
+    /// replaced; once `lapses_at` has passed it can no longer be applied.
+    pub fn pending_tvl_cap(&self) -> Option<PendingTvlCapView> {
+        self.pending_tvl_cap.as_ref().map(|p| {
+            let effective_at = p.proposed_at + PROPOSAL_DELAY_NS;
+            PendingTvlCapView {
+                tvl_cap: U128(p.value),
+                effective_at: U64(effective_at),
+                lapses_at: U64(effective_at.saturating_add(PROPOSAL_LAPSE_NS)),
+            }
+        })
+    }
+
+    /// The lease-parameter proposal waiting for its 48 hours, if any (same window as the cap).
+    pub fn pending_params(&self) -> Option<PendingParamsView> {
+        self.pending_params.as_ref().map(|p| {
+            let effective_at = p.proposed_at + PROPOSAL_DELAY_NS;
+            PendingParamsView {
+                params: p.value.clone(),
+                effective_at: U64(effective_at),
+                lapses_at: U64(effective_at.saturating_add(PROPOSAL_LAPSE_NS)),
+            }
+        })
     }
 
     /// NEAR the vault can spend: balance minus the storage it must keep covered.

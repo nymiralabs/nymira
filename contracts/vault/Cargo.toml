@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-# Accept zkapi development and rehearsal keys. Never in a mainnet or judge build.
+# Accept zkapi development keys (tests only). Never in a mainnet or judge build.
 dev-setup = []
 # Mainnet profile.
 mainnet = []

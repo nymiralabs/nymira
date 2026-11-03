@@ -127,27 +127,42 @@ async fn the_host_enforces_the_g2_subgroup_check() -> Result<(), Box<dyn std::er
         .chunks(32)
         .map(b64)
         .collect();
-    let worker = near_workspaces::sandbox().await?;
-    let contract = worker.dev_deploy(&build_wasm()).await?;
-    let outcome = contract
-        .call("verify")
-        .args_json(serde_json::json!({
-            "vk": b64(&canonical_vk("request.vk")),
-            "inputs": words,
-            "proof": b64(&proof),
-        }))
-        .max_gas()
-        .transact()
-        .await?;
-    let failure = format!("{:?}", outcome.failures());
-    println!(
-        "SANDBOX g2 subgroup: success={} {}",
-        outcome.is_success(),
-        &failure[..failure.len().min(300)]
-    );
-    assert!(
-        outcome.is_failure(),
-        "host accepted a G2 point outside the subgroup"
-    );
+    let wasm = build_wasm();
+    let valid = hex_bytes(&fixture["request"]["proof_hex"]);
+    // Mainnet's and testnet's nearcore releases (see `nymira_testkit::chain`): the decision not
+    // to multiply B by the group order rests on the host check at both.
+    for version in ["2.13.4", "2.14.0-rc.5"] {
+        let worker = near_workspaces::sandbox_with_version(version).await?;
+        let contract = worker.dev_deploy(&wasm).await?;
+        let call = |proof: &[u8]| {
+            contract
+                .call("verify")
+                .args_json(serde_json::json!({
+                    "vk": b64(&canonical_vk("request.vk")),
+                    "inputs": words,
+                    "proof": b64(proof),
+                }))
+                .max_gas()
+                .transact()
+        };
+        // Control: the same call with the real proof succeeds, so the failure below is the point.
+        assert!(call(&valid).await?.is_success(), "{version}: control");
+        let outcome = call(&proof).await?;
+        let failure = format!("{:?}", outcome.failures());
+        println!(
+            "SANDBOX g2 subgroup {version}: success={} {}",
+            outcome.is_success(),
+            &failure[..failure.len().min(300)]
+        );
+        assert!(
+            outcome.is_failure(),
+            "{version}: host accepted a G2 point outside the subgroup"
+        );
+        // A failed pairing returns `false`; only a host abort fails the call.
+        assert!(
+            failure.contains("AltBn128 invalid input: invalid g2"),
+            "{version}: failed, but not in the host: {failure}"
+        );
+    }
     Ok(())
 }

@@ -9,7 +9,7 @@ cargo test -p nymira-vault --lib      # unit tests, no sandbox
 cargo test -p nymira-vault --test sandbox -- --nocapture   # sandbox, prints gas
 ```
 
-The sandbox tests build the vault with `cargo near` (0.22.0) and run it next to the mock USDC token. The unit tests and the `dev-setup` sandbox build accept zkapi's development verifying keys. A build without `dev-setup` accepts none: its pins are zero until the ceremony publishes its key hashes.
+The sandbox tests build the vault with `cargo near` (0.22.0) and run it next to the mock USDC token. The unit tests and the `dev-setup` sandbox build accept zkapi's development verifying keys. A build without `dev-setup` accepts only the ceremony keys: today the hashes of the rehearsal ceremony, replaced by the final ceremony's hashes after its beacon (`scripts/check-pins.sh` checks that they equal the vendored ones). Its code hash depends on the commit it is built from (the contract embeds its source revision), so a published hash names the commit to rebuild.
 
 ## Gas, measured on the sandbox (2026-11-01)
 

@@ -965,8 +965,15 @@ mod close {
                 .transact()
                 .await?;
             assert!(outcome.is_failure(), "{method}");
+            // Without `#[private]` the call would still fail (no promise result), so the text of
+            // the refusal is what proves the attribute.
+            assert!(
+                format!("{:?}", outcome.failures()).contains("private"),
+                "{method}"
+            );
         }
-        // The vault itself, with too little gas for the callback: nothing is written.
+        // The vault itself with 2 Tgas and no promise result: nothing is written. (The callback's
+        // own gas is fixed in the contract, so real starvation cannot happen.)
         let starved = env
             .vault
             .as_account()
@@ -1389,7 +1396,7 @@ async fn owner_methods_need_one_yocto_and_the_heartbeat_the_operator() -> Result
     Ok(())
 }
 
-// Measurements (first-day gates of ticket 22)
+// Measurements (first-day measurements, issue #22)
 
 /// Bytes of account storage the vault holds.
 async fn storage_bytes(env: &Env) -> u64 {
@@ -1480,27 +1487,14 @@ async fn finalize_gas_after_a_one_day_exit_window() -> Result<()> {
         "measure finalize_exit least gas succeeded: {}",
         least.is_success()
     );
-    let paid = if least.is_success() {
-        least.into_result()?;
-        true
-    } else {
-        let full = env
-            .alice
-            .call(env.vault.id(), "finalize_exit")
-            .args_json(json!({ "note_id": 0 }))
-            .max_gas()
-            .transact()
-            .await?;
-        report("finalize_exit, 300 Tgas", &full);
-        println!(
-            "measure finalize_exit vault gas: {:.2} Tgas",
-            gas_on(&full, env.vault.id()) as f64 / TGAS as f64
-        );
-        full.into_result()?;
-        true
-    };
+    // `MIN_GAS_CLAIM` is a claim that 30 Tgas pays out; a payout that needs more must fail here.
+    assert!(
+        least.is_success(),
+        "finalize_exit needs more than the 30 Tgas the vault accepts: {:?}",
+        least.failures()
+    );
+    least.into_result()?;
     env.worker.fast_forward(5).await?;
-    assert!(paid);
     assert_eq!(
         env.usdc.balance_of(env.alice.id()).await,
         before + ONE - close::CHARGE

@@ -18,7 +18,7 @@ What this repository is built from, with the checks behind each choice. Re-check
 - Rust 1.99.1 exists (2026-10-15). It fixes a `wcslen` link error, an x86_64 FFI `bool` miscompile and a macOS `rust-lld` rpath problem, none of them on wasm. The workspace stays on 1.99.0 because zkapi's toolchain file and browser build script pin 1.99.0. On 2026-11-01 zkapi `main` still pins 1.99.0.
 - `near-sdk = "=5.29.1"` with default features off (the default `wee_alloc` is unmaintained). arkworks stays on 0.5.x, which zkapi uses. `near-workspaces = "=0.23.0"`. cargo-near 0.22.0.
 - Dependency builds use `opt-level = 3` in the dev profile.
-- The vault built with rustc 1.99.0 through cargo-near deploys and runs in the near-workspaces sandbox (`contracts/vault/tests/sandbox.rs`). The reproducible build also works: `scripts/reproducible-smoke.sh` builds the vault in `sourcescan/cargo-near:0.22.0-rust-1.99.0` (digest pinned in `contracts/vault/Cargo.toml`) and deploys the result on the sandbox. The 1.96 fallback is not needed, so the vault and the rest of the workspace use one compiler.
+- The vault built with rustc 1.99.0 through cargo-near deploys and runs in the near-workspaces sandbox (`contracts/vault/tests/sandbox.rs`). The reproducible build also works (it builds and deploys; the contract embeds its source revision, so a code hash is tied to the commit, and two builds of one commit were not yet compared): `scripts/reproducible-smoke.sh` builds the vault in `sourcescan/cargo-near:0.22.0-rust-1.99.0` (digest pinned in `contracts/vault/Cargo.toml`) and deploys the result on the sandbox. The 1.96 fallback is not needed, so the vault and the rest of the workspace use one compiler.
 
 ## NEAR AI SDK
 
@@ -28,6 +28,10 @@ What this repository is built from, with the checks behind each choice. Re-check
 
 - `intents.near` on mainnet has code hash `BtA1BEFNS619KkvXFsgcpQ21Tb5yMm32aaUkn7xNothk` (view call at block 222557547; the wasm is 1,297,551 bytes, SHA-256 `a1afab98916d9f213746544dcf8e4e6bdb22c0be6bc5dfbd8ea8814c9922b547`). It matches the value last seen, so nothing changed since.
 - The sandbox fixture is the open-source Verifier v0.4.2 (`near/intents`, tag `defuse/v0.4.2`, MIT): `crates/nymira-testkit/fixtures/verifier-v0.4.2.wasm`, SHA-256 `f67f9559b3b512c52dfa11723a28b9119bcf773ac01780370d6409e5f1fb20e5`, equal to the release's published digest. It differs from the deployed `intents.near` code. Text says "open-source Verifier v0.4.2", never "the mainnet contract".
+
+Newer stable releases exist: `near-sdk` 5.30.0 (2026-10-27) and `near-workspaces` 0.24.0 (2026-10-26). The pins stay because gas, the sandbox runs and the reproducible image were measured on `near-sdk` 5.29.1 and `near-workspaces` 0.23.0; moving means measuring again.
+
+`judge` is only a marker feature for the profile guard. The shipped vault uses no feature; the sandbox test `a_build_without_dev_setup_refuses_the_development_keys` shows that it refuses the development keys, and `scripts/check-pins.sh` checks that its pins equal the vendored ceremony hashes.
 
 ## USDC
 
