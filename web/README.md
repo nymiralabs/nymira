@@ -201,7 +201,7 @@ The full rules, byte by byte, are in [`INTEGRITY.md`](INTEGRITY.md). In short:
 - **Dependencies.** Lockfile installs with scripts off; `scripts/check-deps.mjs` and `npm audit signatures` run in a read-only CI job with no secrets and no cache. `check:bundle` refuses test-only content, the dev-setup wallet core and keys in the testnet and mainnet bundles. `scripts/check-release-binary.sh` (repository root) shows the release `nymirad` has no `mock` feature and no demo strings.
 - **Bundle hash.** Printed in each release's notes (`releases/RELEASE_NOTES_TEMPLATE.md`) and shown in the app footer from `/manifest.json`.
 
-No release is signed yet, so `pins/release-signing.pub` does not exist and the deploy workflow stops at its verify step. The signing key, the Cloudflare project and the places the fingerprint is published are human tasks (`INTEGRITY.md`).
+The release public key is pinned in `pins/release-signing.pub` (key ID `4d794df36a174c93`, SHA-256 `989781b59bd85e30fb99555ef7551b1a1c097d4eb4e2be0159d284a579dea1ff`) and compiled into `nymirad`. No release is signed yet. The Cloudflare project and the places the fingerprint is published are human tasks (`INTEGRITY.md`). The mainnet release gets its own key and a new pin.
 
 **What remains.** A compromised host could serve a different app. The signed manifest and `nymirad verify-web` let a user compare what the host serves with what the key signed, but only if the user runs it, and not if the host shows `verify-web` a clean copy. Reading the footer hash is no check.
 
