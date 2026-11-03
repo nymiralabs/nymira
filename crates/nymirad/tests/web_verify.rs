@@ -106,28 +106,51 @@ fn the_fixture_signature_verifies_and_any_change_is_refused() {
 
     let mut changed = msg.clone();
     changed[10] ^= 1;
-    assert!(verify_minisign(&changed, &sig, &key).is_err(), "a changed byte");
+    assert!(
+        verify_minisign(&changed, &sig, &key).is_err(),
+        "a changed byte"
+    );
 
     let tampered_comment = sig.replace("version=0.0.1-fixture", "version=9.9.9");
     assert!(verify_minisign(&msg, &tampered_comment, &key).is_err());
 
     // Another key: flip a bit of the public key bytes.
     let lines: Vec<&str> = key.split('\n').collect();
-    let mut pk = base64::engine::general_purpose::STANDARD.decode(lines[1]).unwrap();
+    let mut pk = base64::engine::general_purpose::STANDARD
+        .decode(lines[1])
+        .unwrap();
     pk[20] ^= 1;
-    let other = format!("{}\n{}\n", lines[0], base64::engine::general_purpose::STANDARD.encode(&pk));
+    let other = format!(
+        "{}\n{}\n",
+        lines[0],
+        base64::engine::general_purpose::STANDARD.encode(&pk)
+    );
     assert!(verify_minisign(&msg, &sig, &other).is_err());
     // Same key id, different key bytes is refused by the signature itself; a different id by the id.
     pk[20] ^= 1;
     pk[2] ^= 1;
-    let other_id = format!("{}\n{}\n", lines[0], base64::engine::general_purpose::STANDARD.encode(&pk));
-    assert!(verify_minisign(&msg, &sig, &other_id).unwrap_err().contains("another key"));
+    let other_id = format!(
+        "{}\n{}\n",
+        lines[0],
+        base64::engine::general_purpose::STANDARD.encode(&pk)
+    );
+    assert!(verify_minisign(&msg, &sig, &other_id)
+        .unwrap_err()
+        .contains("another key"));
 
     // A legacy `Ed` signature is refused.
     let sl: Vec<&str> = sig.split('\n').collect();
-    let mut raw = base64::engine::general_purpose::STANDARD.decode(sl[1]).unwrap();
+    let mut raw = base64::engine::general_purpose::STANDARD
+        .decode(sl[1])
+        .unwrap();
     raw[1] = b'd';
-    let legacy = format!("{}\n{}\n{}\n{}\n", sl[0], base64::engine::general_purpose::STANDARD.encode(&raw), sl[2], sl[3]);
+    let legacy = format!(
+        "{}\n{}\n{}\n{}\n",
+        sl[0],
+        base64::engine::general_purpose::STANDARD.encode(&raw),
+        sl[2],
+        sl[3]
+    );
     assert!(verify_minisign(&msg, &legacy, &key).is_err());
 
     assert!(verify_minisign(&msg, "", &key).is_err());
@@ -173,7 +196,10 @@ async fn serve(State(stub): State<Arc<Stub>>, uri: Uri) -> Response {
     }
     let mut resp = body.into_response();
     if stub.headers {
-        let set = parse_header_set(&std::fs::read_to_string(stub.dir.join("integrity/headers.txt")).unwrap()).unwrap();
+        let set = parse_header_set(
+            &std::fs::read_to_string(stub.dir.join("integrity/headers.txt")).unwrap(),
+        )
+        .unwrap();
         for (name, value) in &set[class] {
             if stub.drop_header != Some(name.as_str()) {
                 resp.headers_mut().insert(
@@ -237,7 +263,10 @@ async fn both_origins_over_both_routes_agree_with_the_manifest() {
     let report = verify(&plan(&key, &primary, &mirror), &transport, true).await;
     assert!(report.ok(), "{}", report.render());
     assert_eq!(report.runs.len(), 4);
-    assert!(report.runs.iter().all(|r| r.version.as_deref() == Some("0.0.1-fixture")));
+    assert!(report
+        .runs
+        .iter()
+        .all(|r| r.version.as_deref() == Some("0.0.1-fixture")));
     assert!(report.runs[0].headers_checked && !report.runs[1].headers_checked);
     assert!(!proxy.seen().is_empty(), "the Tor leg used the proxy");
     assert!(report.render().contains("cloaking"));
@@ -254,8 +283,14 @@ async fn a_changed_file_on_one_origin_fails_both_ways() {
     let key = text("minisign.pub");
     let report = verify(&plan(&key, &primary, &mirror), &transport, true).await;
     assert!(!report.ok());
-    assert!(report.runs[1].problems.iter().any(|p| p.contains("assets/app.js")));
-    assert!(report.disagreements.iter().any(|d| d.contains("assets/app.js differs between")));
+    assert!(report.runs[1]
+        .problems
+        .iter()
+        .any(|p| p.contains("assets/app.js")));
+    assert!(report
+        .disagreements
+        .iter()
+        .any(|d| d.contains("assets/app.js differs between")));
 }
 
 #[tokio::test]
@@ -270,7 +305,14 @@ async fn a_host_that_answers_differently_the_second_time_is_caught() {
     let key = text("minisign.pub");
     let report = verify(&plan(&key, &primary, &mirror), &transport, true).await;
     assert!(!report.ok());
-    assert!(report.disagreements.iter().any(|d| d.contains("assets/app.js")), "{}", report.render());
+    assert!(
+        report
+            .disagreements
+            .iter()
+            .any(|d| d.contains("assets/app.js")),
+        "{}",
+        report.render()
+    );
 }
 
 #[tokio::test]
@@ -284,7 +326,10 @@ async fn a_missing_signed_header_fails() {
     let key = text("minisign.pub");
     let report = verify(&plan(&key, &primary, &mirror), &transport, true).await;
     assert!(!report.ok());
-    assert!(report.runs[0].problems.iter().any(|p| p.contains("content-security-policy")));
+    assert!(report.runs[0]
+        .problems
+        .iter()
+        .any(|p| p.contains("content-security-policy")));
 }
 
 #[tokio::test]
@@ -302,7 +347,10 @@ async fn a_bad_signature_a_wrong_profile_and_a_failed_fetch_fail() {
     let report = verify(&plan(&key, &primary, &closed), &transport, true).await;
     assert!(!report.ok());
     assert!(!report.runs[1].problems.is_empty());
-    assert!(report.runs[0].problems.is_empty(), "the other origin is judged alone");
+    assert!(
+        report.runs[0].problems.is_empty(),
+        "the other origin is judged alone"
+    );
 
     // The profile in the trusted comment must be the one asked for.
     let (mirror, _) = host(stub(site.path(), "/nymira/", false)).await;
@@ -314,9 +362,15 @@ async fn a_bad_signature_a_wrong_profile_and_a_failed_fetch_fail() {
 
     // A key that did not sign the manifest.
     let lines: Vec<String> = key.split('\n').map(String::from).collect();
-    let mut pk = base64::engine::general_purpose::STANDARD.decode(&lines[1]).unwrap();
+    let mut pk = base64::engine::general_purpose::STANDARD
+        .decode(&lines[1])
+        .unwrap();
     pk[2] ^= 1;
-    let wrong = format!("{}\n{}\n", lines[0], base64::engine::general_purpose::STANDARD.encode(&pk));
+    let wrong = format!(
+        "{}\n{}\n",
+        lines[0],
+        base64::engine::general_purpose::STANDARD.encode(&pk)
+    );
     let report = verify(&plan(&wrong, &primary, &mirror), &transport, true).await;
     assert!(!report.ok());
     assert!(report.runs[0].problems[0].contains("another key"));
@@ -335,7 +389,10 @@ async fn nothing_goes_out_directly_without_a_confirmation_and_tor_down_is_no_fal
     let report = verify(&plan(&key, &primary, &mirror), &transport, false).await;
     assert!(!report.ok());
     assert_eq!(report.skipped.len(), 1);
-    assert_eq!(a.hits.load(Ordering::SeqCst) + b.hits.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        a.hits.load(Ordering::SeqCst) + b.hits.load(Ordering::SeqCst),
+        0
+    );
 
     // With the answer "yes" the direct fetch happens, and the report is still a failure because
     // the Tor leg failed.

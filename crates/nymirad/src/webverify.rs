@@ -57,7 +57,11 @@ pub struct Plan<'a> {
 
 /// The key and origins of this build, or why there are none.
 pub fn compiled() -> Result<(&'static str, Vec<&'static str>), String> {
-    let origins: Vec<&str> = ORIGINS.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let origins: Vec<&str> = ORIGINS
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     if MANIFEST_KEY.trim().is_empty() || origins.len() != 2 {
         return Err("this build pins no web manifest key or no web origins, so verify-web cannot run (a release build fills pins/web-manifest.pub and pins/web-origins.txt)".into());
     }
@@ -110,7 +114,9 @@ pub fn parse_header_set(text: &str) -> Result<HeaderSet, String> {
             let (name, value) = line
                 .split_once(": ")
                 .ok_or_else(|| format!("header set: bad line {line:?}"))?;
-            let class = current.as_ref().ok_or("header set: a header before any class")?;
+            let class = current
+                .as_ref()
+                .ok_or("header set: a header before any class")?;
             set.get_mut(class)
                 .expect("class was inserted")
                 .insert(name.to_string(), value.to_string());
@@ -151,7 +157,10 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
     if !is_hex64(&m.bundle_hash) || !is_hex64(&m.header_set_hash) {
         return Err("manifest: hashes must be 64 lowercase hex characters".into());
     }
-    let canonical = format!("{}\n", serde_json::to_string_pretty(&m).expect("serializes"));
+    let canonical = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&m).expect("serializes")
+    );
     if canonical.as_bytes() != bytes {
         return Err("manifest: not in the canonical form".into());
     }
@@ -164,7 +173,8 @@ fn safe_path(p: &str) -> bool {
     !p.is_empty()
         && !p.starts_with('/')
         && !p.ends_with('/')
-        && p.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/".contains(&b))
+        && p.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-/".contains(&b))
         && p.split('/').all(|s| !s.is_empty() && s != "." && s != "..")
 }
 
@@ -178,7 +188,10 @@ fn parse_listing(text: &str) -> Result<Vec<(String, String)>, String> {
             (Some(h), Some("  "), Some(p)) if is_hex64(h) && safe_path(p) => (h, p),
             _ => return Err(format!("integrity/files.txt: bad line {line:?}")),
         };
-        if out.last().is_some_and(|(_, last)| last.as_bytes() >= path.as_bytes()) {
+        if out
+            .last()
+            .is_some_and(|(_, last)| last.as_bytes() >= path.as_bytes())
+        {
             return Err("integrity/files.txt is not sorted or repeats a path".into());
         }
         out.push((hash.to_string(), path.to_string()));
@@ -359,7 +372,8 @@ async fn check_origin(
     // The manifest and its signature come first: nothing below is trusted before they verify.
     let manifest_bytes = need!(get_ok(client, &base, "manifest.json").await);
     let sig = need!(get_ok(client, &base, "manifest.json.minisig").await);
-    let sig = need!(String::from_utf8(sig).map_err(|_| "manifest.json.minisig: not UTF-8".to_string()));
+    let sig =
+        need!(String::from_utf8(sig).map_err(|_| "manifest.json.minisig: not UTF-8".to_string()));
     let comment = need!(verify_minisign(&manifest_bytes, &sig, plan.key));
     let manifest = need!(parse_manifest(&manifest_bytes));
     let want = format!(
@@ -389,7 +403,8 @@ async fn check_origin(
     if !run.problems.is_empty() {
         return run;
     }
-    let listing = need!(String::from_utf8(files_txt).map_err(|_| "files.txt: not UTF-8".to_string()));
+    let listing =
+        need!(String::from_utf8(files_txt).map_err(|_| "files.txt: not UTF-8".to_string()));
     let listing = need!(parse_listing(&listing));
     run.files = listing.len();
     for (hash, path) in &listing {
@@ -402,19 +417,32 @@ async fn check_origin(
             Ok(r) if r.status == status => {
                 let got = sha256_hex(&r.body);
                 if &got != hash {
-                    run.problems.push(format!("{path}: the served bytes differ from the listing"));
+                    run.problems
+                        .push(format!("{path}: the served bytes differ from the listing"));
                 }
                 run.seen.served.insert(path.clone(), got);
             }
-            Ok(r) => run.problems.push(format!("{path}: status {}, expected {status}", r.status)),
+            Ok(r) => run
+                .problems
+                .push(format!("{path}: status {}, expected {status}", r.status)),
             Err(e) => run.problems.push(e),
         }
     }
     if headers {
-        let text = need!(String::from_utf8(headers_txt).map_err(|_| "headers.txt: not UTF-8".to_string()));
+        let text =
+            need!(String::from_utf8(headers_txt).map_err(|_| "headers.txt: not UTF-8".to_string()));
         let set = need!(parse_header_set(&text));
-        let pick = |dir: &str| listing.iter().find(|(_, p)| p.starts_with(dir)).map(|(_, p)| format!("/{p}"));
-        let mut probes = vec!["/".to_string(), "/wallet-host.html".into(), "/wallet-host".into()];
+        let pick = |dir: &str| {
+            listing
+                .iter()
+                .find(|(_, p)| p.starts_with(dir))
+                .map(|(_, p)| format!("/{p}"))
+        };
+        let mut probes = vec![
+            "/".to_string(),
+            "/wallet-host.html".into(),
+            "/wallet-host".into(),
+        ];
         probes.extend(pick("assets/"));
         probes.extend(pick("executors/"));
         for probe in probes {
@@ -447,7 +475,11 @@ async fn check_origin(
 }
 
 fn join_values(h: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
-    let all: Vec<&str> = h.get_all(name).iter().filter_map(|v| v.to_str().ok()).collect();
+    let all: Vec<&str> = h
+        .get_all(name)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
     (!all.is_empty()).then(|| all.join(", "))
 }
 
@@ -505,7 +537,10 @@ impl Report {
 }
 
 fn compare(a: &Run, b: &Run, out: &mut Vec<String>) {
-    let who = format!("{} via {} and {} via {}", a.origin, a.route, b.origin, b.route);
+    let who = format!(
+        "{} via {} and {} via {}",
+        a.origin, a.route, b.origin, b.route
+    );
     let both = !a.seen.manifest.is_empty() && !b.seen.manifest.is_empty();
     if both && a.seen.manifest != b.seen.manifest {
         out.push(format!("manifest.json differs between {who}"));

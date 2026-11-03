@@ -37,6 +37,7 @@ commands:
   note-secret --note ID             shows a note's secret after a confirmation on the terminal
   serve                             the local gateway on 127.0.0.1:8788
   status
+  verify-web [--socks HOST:PORT]    checks the web hosts against the signed manifest, over Tor and (after a yes) directly
   deposit --key-file FILE --amount BASE_UNITS [--payout ACCOUNT]
   recover --key-file FILE           finds notes again after a crash
   close --note ID [--delay SECS] [--family NAME] [--via-operator]
@@ -333,6 +334,33 @@ async fn main() {
                 die("not confirmed; nothing shown");
             }
             println!("{}", entry.secret);
+        }
+        "verify-web" => {
+            let (key, origins) = nymirad::webverify::compiled().unwrap_or_else(|e| die(e));
+            let cfg = match flag(&mut args, "--socks") {
+                Some(socks) => Config {
+                    socks: Some(socks),
+                    ..Config::default()
+                },
+                None => Config::load(&home).unwrap_or_else(|e| die(e)),
+            };
+            let transport = connect(&cfg, &home, TOR_WAIT).await;
+            let direct =
+                Terminal.confirm_text(&format!("{}\n> ", nymirad::webverify::DIRECT_QUESTION));
+            let plan = nymirad::webverify::Plan {
+                key,
+                profile: match mode {
+                    Mode::Testnet => "testnet",
+                    Mode::Mainnet => "mainnet",
+                },
+                primary: origins[0],
+                mirror: origins[1],
+            };
+            let report = nymirad::webverify::verify(&plan, &transport, direct).await;
+            print!("{}", report.render());
+            if !report.ok() {
+                std::process::exit(1);
+            }
         }
         "serve" => {
             let token =
