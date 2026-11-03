@@ -208,10 +208,10 @@ async fn a_stream_arrives_chunk_by_chunk_and_its_usage_replaces_the_reservation(
     settled(&rig).await;
     // 10 prompt tokens x 80 + 20 completion tokens x 500 = 10_800 nano = 11 micro-USD.
     assert_eq!(rig.op.spent_estimate(&l.id), 11);
+    // Nothing is reserved any more: what the day sees is the finished request's estimate.
     assert_eq!(
         rig.status().await["daily_budget"]["used"],
-        "0",
-        "nothing is reserved any more"
+        rig.op.spent_estimate(&l.id).to_string()
     );
 }
 
@@ -1285,10 +1285,10 @@ async fn a_client_that_hangs_up_before_the_provider_answers_leaks_no_reservation
     .await;
     assert!(hung_up.is_err());
     tokio::time::sleep(Duration::from_millis(300)).await;
+    // Nothing stays reserved: the day sees the abandoned request's estimate only.
     assert_eq!(
         rig.status().await["daily_budget"]["used"],
-        "0",
-        "nothing stays reserved"
+        rig.op.spent_estimate(&l.id).to_string()
     );
     assert_eq!(rig.op.limiter_in_flight(&l.id), 0);
     // The provider may have generated something: the worst case counts as spent, not zero.
@@ -1329,7 +1329,10 @@ async fn retirement_aborts_a_request_the_provider_has_not_answered_yet() {
         "aborted, not left running on a deactivated key"
     );
     assert!(rig.provider.keys()[&l.id].revoked);
-    assert_eq!(rig.status().await["daily_budget"]["used"], "0");
+    assert_eq!(
+        rig.status().await["daily_budget"]["used"],
+        rig.op.spent_estimate(&l.id).to_string()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1417,11 +1420,17 @@ async fn a_request_in_flight_holds_back_the_next_lease_until_it_ends() {
     let (s, v, _) = rig.lease(&rig.fresh(2)).await;
     json_error(s, &v, 429, "operator_capacity");
 
-    // The request ends: its reservation falls to the estimate and the next lease is admitted.
+    // The request ends: its reservation falls to the estimate. A request the client dropped
+    // counts at its worst case (the provider may have generated it), which is over this tiny
+    // budget, so the day stays closed to new leases until it settles or midnight passes.
     drop(held);
     settled(&rig).await;
+    assert_eq!(
+        rig.status().await["daily_budget"]["used"],
+        rig.op.spent_estimate(&l.id).to_string()
+    );
     let (s, v, _) = rig.lease(&rig.fresh(2)).await;
-    assert_eq!(s, 201, "{v}");
+    json_error(s, &v, 429, "operator_capacity");
 }
 
 // ---------------------------------------------------------------- the spend book survives a restart
