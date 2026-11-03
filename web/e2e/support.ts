@@ -119,6 +119,8 @@ export class FundingWallet extends NearTestWallet {
   /** Transactions the app asked for, as the wallet saw the call. */
   calls: { receiverId: string; args: Record<string, unknown> }[] = [];
   lastHash = '';
+  /** The `deposit` event data the vault "emitted" last. */
+  lastDeposit: Record<string, unknown> = {};
 
   constructor() {
     super({ accountId: SENDER, rpcUrl: RPC, network: 'testnet' });
@@ -152,6 +154,7 @@ export class FundingWallet extends NearTestWallet {
         ...this.eventOverride,
       },
     };
+    this.lastDeposit = event.data;
     const logs = this.mode === 'refused' ? [] : [`EVENT_JSON:${JSON.stringify(event)}`];
     await control({
       cmd: 'set_tx_status',

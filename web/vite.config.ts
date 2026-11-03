@@ -31,6 +31,10 @@ function headerPlugin(profile: Profile): Plugin {
       mkdirSync(out, { recursive: true });
       const from = resolve(__dirname, 'test-fixtures/executors/fake-wallet.js');
       if (existsSync(from)) copyFileSync(from, resolve(out, 'fake-wallet.js'));
+      // The development setup's request key: the mock profile's `provingKey` names it.
+      const key = resolve(__dirname, '../vendor/zkapi/protocol/setup/v2-concession-dev/request.pk');
+      mkdirSync(resolve(__dirname, 'dist/setup'), { recursive: true });
+      copyFileSync(key, resolve(__dirname, 'dist/setup/request.pk'));
     },
   };
 }
