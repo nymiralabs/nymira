@@ -176,6 +176,27 @@ impl Policy {
         )
     }
 
+    /// The policy to use when a file in the state directory may be newer than the one compiled
+    /// into the build. A file that does not verify is an error: it is never silently replaced by
+    /// the compiled policy. A valid file older than the compiled policy loses, so an old signed
+    /// file cannot roll a newer build back.
+    pub fn choose(
+        file: Option<&[u8]>,
+        compiled: &[u8],
+        signer_pk: &[u8; 32],
+        min_version: u32,
+    ) -> Result<Self, PolicyError> {
+        let compiled = Self::load(compiled, signer_pk, min_version);
+        let Some(file) = file else {
+            return compiled;
+        };
+        let file = Self::load(file, signer_pk, min_version)?;
+        Ok(match compiled {
+            Ok(c) if c.version > file.version => c,
+            _ => file,
+        })
+    }
+
     /// Parses and checks `json` against the policy signer's key and the minimum version compiled
     /// into the binary.
     pub fn load(json: &[u8], signer_pk: &[u8; 32], min_version: u32) -> Result<Self, PolicyError> {
@@ -422,6 +443,61 @@ mod tests {
     fn a_signed_current_strict_policy_loads() {
         let json = serde_json::to_vec(&policy(3, &["UpToDate"])).unwrap();
         assert_eq!(Policy::load(&json, &pk(), 2).unwrap().version, 3);
+    }
+
+    fn json_of(version: u32) -> Vec<u8> {
+        serde_json::to_vec(&policy(version, &["UpToDate"])).unwrap()
+    }
+
+    #[test]
+    fn without_a_file_the_compiled_policy_is_used() {
+        let compiled = json_of(2);
+        assert_eq!(
+            Policy::choose(None, &compiled, &pk(), 1).unwrap().version,
+            2
+        );
+    }
+
+    #[test]
+    fn a_newer_signed_file_beats_the_compiled_policy() {
+        let (compiled, file) = (json_of(2), json_of(5));
+        assert_eq!(
+            Policy::choose(Some(&file), &compiled, &pk(), 1)
+                .unwrap()
+                .version,
+            5
+        );
+    }
+
+    #[test]
+    fn an_older_signed_file_cannot_roll_the_compiled_policy_back() {
+        let (compiled, file) = (json_of(5), json_of(2));
+        assert_eq!(
+            Policy::choose(Some(&file), &compiled, &pk(), 1)
+                .unwrap()
+                .version,
+            5
+        );
+    }
+
+    #[test]
+    fn a_file_of_the_same_version_is_used() {
+        let mut other = policy(4, &["UpToDate"]);
+        other.accepted_measurements = vec!["m2".into()];
+        let file = serde_json::to_vec(&other.sign(&signer())).unwrap();
+        let chosen = Policy::choose(Some(&file), &json_of(4), &pk(), 1).unwrap();
+        assert_eq!(chosen.accepted_measurements, vec!["m2".to_string()]);
+    }
+
+    #[test]
+    fn a_broken_file_is_refused_not_replaced_by_the_compiled_policy() {
+        let mut bad = policy(9, &["UpToDate"]);
+        bad.accepted_measurements.push("evil".into());
+        let file = serde_json::to_vec(&bad).unwrap();
+        assert_eq!(
+            Policy::choose(Some(&file), &json_of(2), &pk(), 1),
+            Err(PolicyError::Signature)
+        );
     }
 
     #[test]
