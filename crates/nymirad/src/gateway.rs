@@ -26,6 +26,9 @@ use zkapi_client::wallet::Wallet;
 use zkapi_types::wire::CurvePointWire;
 use zkapi_types::Felt252;
 
+pub mod close;
+pub mod watch;
+
 use crate::attest::{Attestor, ModelIdentity, ReportRequest, Trust};
 use crate::e2ee::{self, ClientKeys};
 use crate::lease::{self, Attempt, Lease, LeaseClient, LeaseError, Pinned};
@@ -36,6 +39,7 @@ use crate::rpc::{client, client_with_identity, send_error, Rpc, RpcError, Transp
 use crate::secrets::{NoteEntry, NoteStatus, NoteStore};
 use crate::sizing;
 use crate::snapshot;
+use crate::submitter::SubmitterStore;
 use crate::walletvault::WalletVault;
 
 pub const DAY_SECS: u64 = 86_400;
@@ -69,7 +73,8 @@ pub struct GatewayConfig {
     /// follow the moment the user asked. 0 turns both off; over a direct transport they are off
     /// anyway.
     pub prewarm_max_secs: u64,
-    pub backup: Option<(age::x25519::Recipient, Vec<PathBuf>)>,
+    /// Where the encrypted backup of the whole state goes after every retire.
+    pub backup: Option<crate::backup::Target>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -137,6 +142,22 @@ pub struct Gateway {
     /// Notes whose lease is being settled: they stay busy until the wallet is sealed again.
     settling: Mutex<std::collections::HashSet<String>>,
     open_lock: Mutex<()>,
+    /// Close and exit transactions: the submitters' keys, the sender's database and settings.
+    submitters: SubmitterStore,
+    tx_store: nymira_operator::store::Store,
+    tx_config: nymira_operator::tx::TxConfig,
+    /// What left, with the exit deadlines.
+    exits: crate::exits::ExitBook,
+    /// Holds whose release found the lock busy (see `close::Hold`).
+    stuck_holds: std::sync::Mutex<Vec<String>>,
+    /// When `finalize_exit` was last tried for a note (Unix seconds).
+    finalize_tried: std::sync::Mutex<HashMap<String, u64>>,
+    /// The expiry guard's switches and what it has tried (see `watch`).
+    guard: crate::expiry::GuardConfig,
+    guard_tries: std::sync::Mutex<HashMap<String, watch::Tries>>,
+    notices: crate::expiry::NoticeBook,
+    /// The operator's emergency notice as last read, and when it was read (Unix seconds).
+    emergency: std::sync::Mutex<(Option<String>, u64)>,
 }
 
 fn felt_point(v: &Value) -> Option<CurvePointWire> {
@@ -158,6 +179,10 @@ fn lease_error(e: LeaseError) -> ApiError {
             ApiError::from_operator(o.status, &o.code, &o.message, o.retry_after_secs)
         }
         LeaseError::Gate(g) => unavailable("operator_untrusted", g.to_string()),
+        LeaseError::Emergency(n) => unavailable(
+            "operator_emergency",
+            format!("the operator reports an emergency ({n}); no new lease is opened. Leave with `nymirad exit --note ID` for each note"),
+        ),
         LeaseError::TorDown(m) => unavailable("tor_down", format!("Tor is down: {m}")),
         LeaseError::TorRefused(m) => {
             unavailable("tor_refused", format!("the other side refuses Tor: {m}"))
@@ -202,7 +227,22 @@ impl Gateway {
         check_proving_key(&cfg.setup_dir, &cfg.proving_key_sha256)?;
         let vault = WalletVault::new(&cfg.home, passphrase, cfg.rounds);
         vault.seal_leftovers().map_err(|e| e.to_string())?;
+        let submitters =
+            SubmitterStore::open(&cfg.home.join("submitters.sealed"), passphrase, cfg.rounds)
+                .map_err(|e| e.to_string())?;
+        let tx_store = nymira_operator::store::Store::open(&cfg.home.join("tx.db"))
+            .map_err(|e| e.to_string())?;
         Ok(Self {
+            submitters,
+            tx_store,
+            tx_config: Default::default(),
+            exits: crate::exits::ExitBook::new(&cfg.home),
+            stuck_holds: Default::default(),
+            finalize_tried: Default::default(),
+            guard: Default::default(),
+            guard_tries: Default::default(),
+            notices: crate::expiry::NoticeBook::new(&cfg.home),
+            emergency: Default::default(),
             records: Records::new(&cfg.home),
             transport,
             rpc,
@@ -218,6 +258,21 @@ impl Gateway {
             open_lock: Mutex::new(()),
             cfg,
         })
+    }
+
+    /// Waits and retries of the close and exit transactions (tests shorten them).
+    pub fn with_tx_config(mut self, cfg: nymira_operator::tx::TxConfig) -> Self {
+        self.tx_config = cfg;
+        self
+    }
+
+    /// The submitter accounts, for the CLI that adds and lists them.
+    pub fn submitters(&self) -> &SubmitterStore {
+        &self.submitters
+    }
+
+    pub fn vault_account(&self) -> &str {
+        &self.cfg.vault
     }
 
     pub fn records(&self) -> Vec<LeaseRecord> {
@@ -319,12 +374,19 @@ impl Gateway {
                 reasons.push(format!("note {id} has an open lease (keep two notes so one can retire while the other serves)"));
                 continue;
             }
-            if expiry.saturating_sub(now) < 5 * DAY_SECS {
+            if self.guard.enabled && crate::expiry::lease_blocked(expiry, now) {
                 reasons.push(format!("note {id} expires within 5 days"));
                 continue;
             }
             match self.unsealed_wallet(&entry, bound).await {
                 Ok(wallet) => {
+                    // An exit lock means a close or exit began: no new request on this note.
+                    if wallet.exit_lock().ok().flatten().is_some() {
+                        reasons.push(format!("note {id} is closing or exiting"));
+                        drop(wallet);
+                        let _ = self.vault.checkin(&entry.commitment);
+                        continue;
+                    }
                     let balance = wallet.state().map_or(0, |s| s.current_balance);
                     if balance < bound {
                         reasons.push(format!(
@@ -353,6 +415,22 @@ impl Gateway {
     /// answer) is resolved first: if the operator has settled it the wallet installs the next
     /// state, otherwise the note waits.
     async fn unsealed_wallet(&self, entry: &NoteEntry, bound: u128) -> Result<Wallet, Skip> {
+        let mut wallet = self.open_wallet(entry, bound)?;
+        if wallet.has_pending_request() {
+            match wallet.recover_pending().await {
+                Ok(Some(_)) if !wallet.has_pending_request() => {}
+                _ => {
+                    return Err(Skip::Reason(
+                        "an earlier lease is not settled yet; it is resolved when the operator finishes it".into(),
+                    ))
+                }
+            }
+        }
+        Ok(wallet)
+    }
+
+    /// The note's wallet, unsealed, with its state in place and nothing resolved.
+    fn open_wallet(&self, entry: &NoteEntry, bound: u128) -> Result<Wallet, Skip> {
         let fatal = |code: &str, m: String| Skip::Fatal(unavailable(code, m));
         let dir = self
             .vault
@@ -376,16 +454,6 @@ impl Gateway {
                     entry.expiry_ns.unwrap_or(0),
                 )
                 .map_err(|e| fatal("wallet_unreadable", e.to_string()))?;
-        }
-        if wallet.has_pending_request() {
-            match wallet.recover_pending().await {
-                Ok(Some(_)) if !wallet.has_pending_request() => {}
-                _ => {
-                    return Err(Skip::Reason(
-                        "an earlier lease is not settled yet; it is resolved when the operator finishes it".into(),
-                    ))
-                }
-            }
         }
         Ok(wallet)
     }
@@ -628,6 +696,9 @@ impl Gateway {
             .as_u64()
             .or_else(|| request["max_completion_tokens"].as_u64());
 
+        if let Some(why) = self.emergency_refusal() {
+            return Err(why);
+        }
         // Attest the model before a lease is opened or anything is encrypted.
         let identity = self.attested(&model).await?;
         let key = self.session_for(opts).await?;
@@ -989,34 +1060,39 @@ impl Gateway {
         })
     }
 
-    /// The whole state, encrypted to the backup recipient: sealed notes and wallets, and the
-    /// lease records.
+    /// Writes the backup after a state change. A failure is a warning: the money and the state
+    /// are already where they were.
     fn back_up(&self) {
-        let Some((recipient, places)) = &self.cfg.backup else {
-            return;
-        };
-        let mut files = std::collections::BTreeMap::new();
-        let mut add = |rel: String, path: PathBuf| {
-            if let Ok(bytes) = std::fs::read(path) {
-                use base64::Engine;
-                files.insert(rel, base64::engine::general_purpose::STANDARD.encode(bytes));
-            }
-        };
-        add("notes.sealed".into(), self.cfg.home.join("notes.sealed"));
-        add(
-            crate::records::FILE.into(),
-            self.cfg.home.join(crate::records::FILE),
-        );
-        if let Ok(dir) = std::fs::read_dir(self.cfg.home.join("wallets")) {
-            for e in dir.flatten() {
-                add(
-                    format!("wallets/{}", e.file_name().to_string_lossy()),
-                    e.path(),
-                );
-            }
+        if let Err(e) = self.write_backup() {
+            eprintln!("warning: the backup was not written: {e}");
         }
-        let plain = serde_json::to_vec(&files).expect("files serialize");
-        let _ = crate::backup::write_backups(recipient, &plain, places, "state.age");
+    }
+
+    /// The whole state, encrypted to the backup recipient and written to every place: the notes
+    /// and wallets in the clear inside the encryption (a restore on a new machine has no sealing
+    /// passphrase to rely on), the submitters, the exit book and the lease records. Returns the
+    /// files written; empty when no backup is set up.
+    pub fn write_backup(&self) -> Result<Vec<PathBuf>, crate::backup::BackupError> {
+        use crate::backup::{BackupError, StateBackup, STATE_FILE, VERSION};
+        let Some(target) = &self.cfg.backup else {
+            return Ok(Vec::new());
+        };
+        let state_err = |e: &dyn std::fmt::Display| BackupError::State(e.to_string());
+        let mut state = StateBackup {
+            version: VERSION,
+            taken_at: self.clock.now_secs(),
+            notes: self.notes.list().map_err(|e| state_err(&e))?,
+            wallets: self.vault.export_all().map_err(|e| state_err(&e))?,
+            submitters: Some(
+                String::from_utf8_lossy(&self.submitters.export_json().map_err(|e| state_err(&e))?)
+                    .into_owned(),
+            ),
+            ..Default::default()
+        };
+        for name in [crate::exits::FILE, crate::records::FILE, "config.json"] {
+            state.add_file(&self.cfg.home, name);
+        }
+        crate::backup::write_backups(target, &state.to_bytes()?, STATE_FILE)
     }
 
     /// Background loop: retire idle leases and settle finished ones.
@@ -1027,6 +1103,15 @@ impl Gateway {
                 tokio::time::sleep(every).await;
                 gw.reap(false).await;
                 gw.settle().await;
+                for event in gw.guard_tick().await {
+                    eprintln!("{event}");
+                }
+                for (id, result) in gw.finalize_due().await {
+                    match result {
+                        Ok(p) => eprintln!("note {id}: exit finalized ({})", p.tx_hash),
+                        Err(e) => eprintln!("warning: finalize_exit for note {id} waits: {e}"),
+                    }
+                }
             }
         });
     }

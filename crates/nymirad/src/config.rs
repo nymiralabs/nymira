@@ -34,6 +34,16 @@ pub struct Config {
     pub backup_recipient: Option<String>,
     #[serde(default)]
     pub backup_places: Vec<PathBuf>,
+    /// Set when the backup key comes from a passphrase: the Argon2id parameters and salt (public).
+    #[serde(default)]
+    pub backup_kdf: Option<crate::backup::Kdf>,
+    /// The expiry guard; on unless this is `false`.
+    #[serde(default)]
+    pub expiry_guard: Option<bool>,
+    /// Close every open note when `nymirad serve` stops. Off by default: each close shows the
+    /// note ID and the total spend.
+    #[serde(default)]
+    pub close_at_session_end: bool,
     /// NEAR AI's public gateway (attestation reports, model list). Default below.
     #[serde(default)]
     pub gateway_url: Option<String>,
@@ -88,6 +98,34 @@ impl Config {
             sha256,
             work_dir: home.join("tor/run"),
         })
+    }
+
+    /// Where the backup goes, if it is set up.
+    pub fn backup_target(&self) -> Option<crate::backup::Target> {
+        crate::backup::Target::from_config(
+            self.backup_recipient.as_deref(),
+            &self.backup_places,
+            &self.backup_kdf,
+        )
+    }
+
+    /// What is wrong with the backup setup, for the user to see at start and in `status`.
+    pub fn backup_warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.backup_target().is_none() {
+            out.push("backups are OFF: without one, a lost machine means an exit the operator can defeat. Run `nymirad backup-setup`".into());
+        } else if self.backup_places.len() < 2 {
+            out.push("the backup has only one place: add a second one on another device with `nymirad backup-setup --place DIR`".into());
+        }
+        out
+    }
+
+    pub fn guard(&self) -> crate::expiry::GuardConfig {
+        crate::expiry::GuardConfig {
+            enabled: self.expiry_guard.unwrap_or(true),
+            close_at_session_end: self.close_at_session_end,
+            ..Default::default()
+        }
     }
 
     /// Demo builds may run without Tor; a release build never does.

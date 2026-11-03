@@ -65,7 +65,9 @@ pub fn render(
                 s["recovery_mode"]
             ));
             if let Some(notice) = s["emergency_notice"].as_str() {
-                out.push(format!("Operator notice: {notice}"));
+                out.push(format!(
+                    "Operator notice: {notice}\n  New leases are stopped. To get your money out, run `nymirad exit --note ID` for each open note."
+                ));
             }
         }
         Err(e) => out.push(format!("Operator: unreachable ({e})")),
@@ -82,12 +84,20 @@ pub fn render(
     }
     for n in notes {
         let line = match (n.status, n.note_id, n.expiry_ns) {
-            (NoteStatus::Accepted, Some(id), Some(exp)) => format!(
-                "Note {id}: {} deposited, expires {} ({} days left)",
-                usdc(n.deposit_amount.as_deref().unwrap_or("0")),
-                crate::calendar::stamp(exp),
-                exp.saturating_sub(now_secs) / 86_400
-            ),
+            (NoteStatus::Accepted, Some(id), Some(exp)) => {
+                let mut line = format!(
+                    "Note {id}: {} deposited, expires {} ({} days left)",
+                    usdc(n.deposit_amount.as_deref().unwrap_or("0")),
+                    crate::calendar::stamp(exp),
+                    exp.saturating_sub(now_secs) / 86_400
+                );
+                if crate::expiry::lease_blocked(exp, now_secs) {
+                    line.push_str("\n  warning: no new lease on this note (5 days or less left); close it or exit before it expires");
+                } else if let Some(level) = crate::expiry::notice_level(exp, now_secs) {
+                    line.push_str(&format!("\n  notice: {level} days or less left"));
+                }
+                line
+            }
             (NoteStatus::Pending, ..) => format!("Note {}: pending, run recover", n.commitment),
             _ => format!("Note {}: {:?}", n.commitment, n.status),
         };

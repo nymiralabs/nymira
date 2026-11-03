@@ -194,6 +194,12 @@ impl NearTx {
         self
     }
 
+    /// Sends through `http` instead of the default client (a client behind a SOCKS proxy).
+    pub fn with_http(mut self, http: reqwest::Client) -> Self {
+        self.http = http;
+        self
+    }
+
     /// Attaches `yocto` to every call (a sender for `ft_transfer_call` uses 1).
     pub fn with_deposit(mut self, yocto: u128) -> Self {
         self.deposit = yocto;

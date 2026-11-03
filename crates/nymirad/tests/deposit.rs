@@ -168,7 +168,7 @@ async fn build(e: &Env, mode: Mode, pins: Option<Pins>) -> Built {
             tx_store,
             sender: e.alice.id().to_string(),
             clock: e.clock.clone(),
-            backup: Some((
+            backup: Some(backup::Target::new(
                 backup::parse_recipient(&recipient).unwrap(),
                 vec![e.dir.path().join("b1"), e.dir.path().join("b2")],
             )),

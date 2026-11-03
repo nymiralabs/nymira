@@ -109,6 +109,12 @@ impl DirectClient {
         Ok((status, body))
     }
 
+    /// The underlying client, for a caller that builds its own requests (the NEAR transaction
+    /// sender). It keeps this client's rules: one resolvable host, no redirect, no proxy.
+    pub fn http(&self) -> reqwest::Client {
+        self.http.clone()
+    }
+
     /// Every host name this client was asked to resolve.
     pub fn names_asked(&self) -> Vec<String> {
         self.asked.lock().unwrap_or_else(|e| e.into_inner()).clone()
