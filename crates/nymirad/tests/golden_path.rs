@@ -119,7 +119,7 @@ async fn deposit_ctx(s: &Stack) -> Ctx {
         tx_store,
         sender: s.alice.id().to_string(),
         clock: s.clock.clone(),
-        backup: Some((
+        backup: Some(backup::Target::new(
             backup::parse_recipient(&recipient).unwrap(),
             vec![s.home.path().join("backup")],
         )),
