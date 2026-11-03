@@ -104,6 +104,25 @@ pub trait Confirm {
     fn confirm(&self, summary: &Summary) -> bool;
 }
 
+/// The funding transaction's sender. Its HTTP client is the transport's own (a fresh Tor identity
+/// in Tor mode), so the transaction and the polling of its status leave this machine the way
+/// every other request does: a sender with the default client would go out from the user's
+/// address even with Tor down.
+pub fn funding_tx(
+    rpc_url: &str,
+    account: &str,
+    token: String,
+    key: ed25519_dalek::SigningKey,
+    store: Store,
+    clock: Arc<dyn Clock>,
+    transport: &crate::rpc::Transport,
+) -> Result<NearTx, RpcError> {
+    let http = crate::rpc::client(transport)?;
+    Ok(NearTx::new(rpc_url, account, token, key, store, clock)
+        .with_deposit(1)
+        .with_http(http))
+}
+
 pub struct Ctx {
     pub mode: Mode,
     pub rpc: Rpc,

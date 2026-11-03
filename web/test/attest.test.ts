@@ -91,7 +91,7 @@ describe('the signed policy', () => {
     const changed = structuredClone(policyJson);
     changed.deployments[0]!.mr_td = '0'.repeat(96);
     expect(() => loadPolicy(changed, signerPk, 1)).toThrow(/signature/);
-    expect(() => loadPolicy(policyJson, signerPk, 2)).toThrow(/at least 2/);
+    expect(() => loadPolicy(policyJson, signerPk, 3)).toThrow(/at least 3/);
     const other = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(8)));
     expect(() => loadPolicy(policyJson, other, 1)).toThrow(PolicyError);
 

@@ -1110,7 +1110,11 @@ impl Gateway {
             loop {
                 tokio::time::sleep(every).await;
                 gw.reap(false).await;
-                gw.settle().await;
+                for settled in gw.settle().await {
+                    for line in settled_lines(&settled) {
+                        eprintln!("{line}");
+                    }
+                }
                 for event in gw.guard_tick().await {
                     eprintln!("{event}");
                 }
@@ -1123,6 +1127,26 @@ impl Gateway {
             }
         });
     }
+}
+
+/// What the user is told when a lease settles: whether the signature held (the answer has gone
+/// to the app long before the signature can be fetched, so this is where a "not verified" or an
+/// overcharge shows) and every warning.
+pub fn settled_lines(settled: &Settled) -> Vec<String> {
+    let mut lines = vec![format!(
+        "lease {}: {}, charged {} (expected {})",
+        settled.lease_id,
+        settled.trust.label(),
+        settled.charge,
+        settled.expected
+    )];
+    lines.extend(
+        settled
+            .warnings
+            .iter()
+            .map(|w| format!("warning: lease {}: {w}", settled.lease_id)),
+    );
+    lines
 }
 
 fn sampling_of(request: &Value) -> Value {
@@ -1338,4 +1362,27 @@ pub async fn chat_handler(
 
 pub async fn models_handler(State(gw): State<Arc<Gateway>>) -> axum::Json<Value> {
     axum::Json(gw.models_json())
+}
+
+#[cfg(test)]
+mod settled_tests {
+    use super::*;
+
+    #[test]
+    fn a_settled_lease_tells_the_trust_label_the_charge_and_each_warning() {
+        let lines = settled_lines(&Settled {
+            lease_id: "l1".into(),
+            charge: 5_000,
+            expected: 2_000,
+            trust: Trust::NotVerified("no signature".into()),
+            warnings: vec!["the operator charged more than one step over".into()],
+        });
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[0].contains("l1") && lines[0].contains("not-verified"),
+            "{lines:?}"
+        );
+        assert!(lines[0].contains("5000") && lines[0].contains("2000"));
+        assert!(lines[1].starts_with("warning: lease l1:"));
+    }
 }
