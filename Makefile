@@ -14,3 +14,8 @@ golden:
 quickstart:
 	cargo build -p nymirad --features mock --example demo --locked
 	$(MAKE) golden
+
+# `make watch-test`: the vault key watcher against a stub node (needs Node 20 or newer).
+.PHONY: watch-test
+watch-test:
+	node --test scripts/watch-vault-keys.test.mjs

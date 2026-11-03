@@ -13,7 +13,7 @@ ignore = [
   "RUSTSEC-2026-0382", # rustls-webpki 0.103.13
   "RUSTSEC-2026-0391", # zstd 0.13.3, via near-primitives
   "RUSTSEC-2024-0449", # unsafe-libyaml unmaintained, via near-parameters
-  "RUSTSEC-2025-0055", # tracing-subscriber 0.2.25, via ark-relations std (tests; check the vault wasm tree in the vault tickets)
+  "RUSTSEC-2025-0055", # tracing-subscriber 0.2.25, via ark-relations; it IS in the vault wasm tree (checked 2026-11-03 with cargo tree), but the advisory is ANSI escapes in formatted log output and a contract installs no subscriber, so there is no path to it
   "RUSTSEC-2024-0388", # derivative unmaintained, proc macro of ark-crypto-primitives (compile time)
   "RUSTSEC-2024-0436", # paste unmaintained, proc macro of ark-ff (compile time)
   "RUSTSEC-2026-0253", # lru 0.16.4, via near-vm-runner (unit-testing VM)

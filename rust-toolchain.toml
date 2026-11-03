@@ -1,5 +1,6 @@
 # Same toolchain as vendor/zkapi (its browser build refuses any other). Rust
-# 1.99.1 exists but is not used: see docs/build.md.
+# 1.99.1 exists (it fixes a wcslen link error, an x86_64 FFI bool miscompile and a macOS
+# rust-lld rpath problem, none of them on wasm) but is not used while zkapi pins 1.99.0.
 [toolchain]
 channel = "1.99.0"
 profile = "minimal"
