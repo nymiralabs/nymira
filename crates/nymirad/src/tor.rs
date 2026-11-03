@@ -178,6 +178,10 @@ fn arguments(cfg: &TorConfig, port: u16) -> Vec<String> {
             empty,
             "--ClientOnly".into(),
             "1".into(),
+            // Tor exits when this process does, also when it ends without running destructors
+            // (`process::exit`, a kill): no orphan keeps the data directory locked.
+            "--__OwningControllerProcess".into(),
+            std::process::id().to_string(),
             "--SocksPort".into(),
             format!("127.0.0.1:{port} IsolateSOCKSAuth KeepAliveIsolateSOCKSAuth"),
             "--DataDirectory".into(),
