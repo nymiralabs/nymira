@@ -234,7 +234,10 @@ async fn the_thirty_first_real_reconcile_call_in_a_minute_is_refused_with_429() 
     }
     let (s, v) = rig.post_json("/v2/reconcile", call(total)).await;
     json_error(s, &v, 429, "operator_capacity");
-    assert_eq!(lease(&rig, &ids[total as usize - 1]).await.status, "restored");
+    assert_eq!(
+        lease(&rig, &ids[total as usize - 1]).await.status,
+        "restored"
+    );
     // The minute passes and the same call goes through.
     rig.clock.advance_secs(61);
     let (s, v) = rig.post_json("/v2/reconcile", call(total)).await;
@@ -262,7 +265,8 @@ async fn the_scheduled_challenge_finds_a_replica_restored_from_an_old_snapshot_a
     *wire.node.lock().unwrap() = old.clone();
 
     // No write happens: the periodic comparison alone notices and pushes the missing entries.
-    rig.clock.advance_secs(nymira_operator::operator::SYNC_EVERY_SECS + 1);
+    rig.clock
+        .advance_secs(nymira_operator::operator::SYNC_EVERY_SECS + 1);
     rig.op.tick().await;
     assert_eq!(old.head().await.seq, head, "the replica was refilled");
     assert_eq!(rig.status().await["replica"], "ok");

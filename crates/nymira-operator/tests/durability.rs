@@ -101,7 +101,10 @@ async fn a_lease_open_when_the_link_breaks_is_retired_and_settled_when_it_return
     }
     let v = nullifier(&rig, &l).await;
     assert_eq!(v["nullifier_status"], "finalized");
-    assert!(v["request_response"].is_object(), "a signed next state exists");
+    assert!(
+        v["request_response"].is_object(),
+        "a signed next state exists"
+    );
     assert!(rig.replica.records().iter().any(|r| r.0 == kinds::SIGNED));
 }
 
