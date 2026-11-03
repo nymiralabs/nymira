@@ -204,6 +204,8 @@ jobs:
         run: scripts/check-vault-deps.sh
       - name: Unsafe profiles are refused
         run: scripts/check-profiles.sh
+      - name: The fuzz target builds
+        run: cargo check --locked --manifest-path contracts/vault/fuzz/Cargo.toml
 
   # nymirad in Tor mode: every connect() of the egress test stays on loopback (issue 32).
   egress:

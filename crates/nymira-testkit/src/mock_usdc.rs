@@ -29,6 +29,10 @@ pub struct MockUsdc {
     pub contract: Contract,
     /// Set when the contract is the real mainnet USDC wasm: the account that mints.
     minter: Option<Account>,
+    /// The real token's second role holder and its next multisig request id (pause and unpause
+    /// need two approvals).
+    real: Option<(Account, std::sync::atomic::AtomicU64)>,
+    blocked: std::sync::Mutex<Option<AccountId>>,
 }
 
 impl MockUsdc {
@@ -36,16 +40,21 @@ impl MockUsdc {
         Ok(Self {
             contract: worker.dev_deploy(usdc_wasm()).await?,
             minter: None,
+            real: None,
+            blocked: Default::default(),
         })
     }
 
-    /// The real mainnet USDC wasm behind the same helpers (needs mainnet RPC); the pause,
-    /// blocklist, panic and junk-return switches exist only on the mock.
+    /// The real mainnet USDC wasm behind the same helpers (needs mainnet RPC). Pause and
+    /// blocklist work on it too (pause through its two-approval request); the panic and
+    /// junk-return switches exist only on the mock.
     pub async fn deploy_real(worker: &Worker<Sandbox>) -> Result<Self> {
-        let (contract, minter) = crate::mainnet_usdc::deploy_minting(worker).await?;
+        let (contract, minter, second, next) = crate::mainnet_usdc::deploy_minting(worker).await?;
         Ok(Self {
             contract,
             minter: Some(minter),
+            real: Some((second, std::sync::atomic::AtomicU64::new(next))),
+            blocked: Default::default(),
         })
     }
 
@@ -227,16 +236,87 @@ impl MockUsdc {
     }
 
     pub async fn set_paused(&self, on: bool) {
-        self.switch("set_paused", serde_json::json!({ "paused": on }))
-            .await;
+        let Some((second, next)) = &self.real else {
+            self.switch("set_paused", serde_json::json!({ "paused": on }))
+                .await;
+            return;
+        };
+        let root = self.minter.as_ref().expect("the real token has a minter");
+        let id = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let action = if on { "Pause" } else { "Unpause" };
+        let call = |who: &Account, method: &str, args: serde_json::Value| {
+            who.call(self.contract.id(), method)
+                .args_json(args)
+                .max_gas()
+                .transact()
+        };
+        call(
+            root,
+            "create_multisig_request",
+            serde_json::json!({ "action": action }),
+        )
+        .await
+        .expect("request is sent")
+        .into_result()
+        .expect("request is created");
+        for who in [root, second] {
+            call(
+                who,
+                "approve_multisig_request",
+                serde_json::json!({ "request_id": id }),
+            )
+            .await
+            .expect("approval is sent")
+            .into_result()
+            .expect("approval succeeds");
+        }
+        call(
+            root,
+            "execute_multisig_request",
+            serde_json::json!({ "request_id": id }),
+        )
+        .await
+        .expect("execution is sent")
+        .into_result()
+        .expect("execution succeeds");
     }
 
     pub async fn set_blocked(&self, account_id: Option<&AccountId>) {
+        if let Some(root) = self.minter.as_ref() {
+            let previous = self.blocked.lock().unwrap().take();
+            let (method, target) = match (account_id, previous) {
+                (Some(id), _) => ("blocklist", Some(id.clone())),
+                (None, Some(id)) => ("unblocklist", Some(id)),
+                (None, None) => return,
+            };
+            let target = target.expect("a target");
+            root.call(self.contract.id(), method)
+                .args_json(serde_json::json!({ "account_id": target }))
+                .max_gas()
+                .transact()
+                .await
+                .expect("blocklist call is sent")
+                .into_result()
+                .expect("blocklist call succeeds");
+            if method == "blocklist" {
+                *self.blocked.lock().unwrap() = Some(target);
+            }
+            return;
+        }
         self.switch(
             "set_blocked",
             serde_json::json!({ "account_id": account_id }),
         )
         .await;
+    }
+
+    /// Makes every `ft_transfer` fail: a panic on the mock, a pause on the real token.
+    pub async fn fail_transfers(&self, on: bool) {
+        if self.is_real() {
+            self.set_paused(on).await;
+        } else {
+            self.set_panic_in_transfer(on).await;
+        }
     }
 
     pub async fn set_panic_in_transfer(&self, on: bool) {

@@ -6,7 +6,7 @@ use near_workspaces::result::ExecutionFinalResult;
 use near_workspaces::types::NearToken;
 use near_workspaces::{Account, AccountId, Contract, Worker};
 use nymira_testkit::build::contract_wasm_with_features;
-use nymira_testkit::clock::{advance_to, now_seconds};
+use nymira_testkit::clock::{advance_past, advance_to, now_seconds};
 use nymira_testkit::mock_usdc::MockUsdc;
 use nymira_testkit::proofs::{canonical_verifying_key, signing_key, Kind};
 use serde_json::{json, Value};
@@ -754,28 +754,25 @@ mod close {
     #[tokio::test]
     async fn a_failed_transfer_creates_one_pending_payout_and_anyone_can_claim_it() -> Result<()> {
         let env = setup(100 * ONE).await?;
-        if env.usdc.is_real() {
-            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
-            return Ok(());
-        }
         let note = deposit_note(&env, 42).await?;
         let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
-        env.usdc.set_panic_in_transfer(true).await;
         let before = env.usdc.balance_of(env.alice.id()).await;
+        env.usdc.fail_transfers(true).await;
         let outcome = mutual_close(&env, &env.alice, &bundle, tgas(300), json!({})).await?;
         report("mutual_close, transfer fails", &outcome);
         let logs = outcome.logs().join("\n");
         outcome.into_result()?;
         settled(&env).await;
         assert!(logs.contains(r#""event":"payout_pending""#), "{logs}");
-        assert_eq!(env.usdc.balance_of(env.alice.id()).await, before);
         assert_eq!(
             pending(&env, env.alice.id()).await,
             (ONE - CHARGE).to_string()
         );
 
-        // The token recovers; a stranger triggers the claim; only alice is paid.
-        env.usdc.set_panic_in_transfer(false).await;
+        // The token recovers (a paused real token also refuses balance views); nothing was paid
+        // meanwhile. A stranger triggers the claim; only alice is paid.
+        env.usdc.fail_transfers(false).await;
+        assert_eq!(env.usdc.balance_of(env.alice.id()).await, before);
         let stranger = env.worker.dev_create_account().await?;
         let claim = stranger
             .call(env.vault.id(), "claim_payout")
@@ -800,10 +797,6 @@ mod close {
     #[tokio::test]
     async fn a_paused_token_leaves_a_pending_payout_and_a_failed_claim_restores_it() -> Result<()> {
         let env = setup(100 * ONE).await?;
-        if env.usdc.is_real() {
-            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
-            return Ok(());
-        }
         let note = deposit_note(&env, 42).await?;
         let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
         env.usdc.set_paused(true).await;
@@ -846,13 +839,9 @@ mod close {
     #[tokio::test]
     async fn claim_treasury_pays_the_treasury_account_only_and_restores_on_failure() -> Result<()> {
         let env = setup(100 * ONE).await?;
-        if env.usdc.is_real() {
-            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
-            return Ok(());
-        }
         deposit_note(&env, 42).await?;
         let stranger = env.worker.dev_create_account().await?;
-        env.usdc.set_panic_in_transfer(true).await;
+        env.usdc.fail_transfers(true).await;
         let failed = stranger
             .call(env.vault.id(), "claim_treasury")
             .gas(tgas(300))
@@ -864,7 +853,7 @@ mod close {
         let balance: String = view(&env.vault, "treasury_balance", json!({})).await;
         assert_eq!(balance, NOTE_FEE.to_string());
 
-        env.usdc.set_panic_in_transfer(false).await;
+        env.usdc.fail_transfers(false).await;
         let paid = stranger
             .call(env.vault.id(), "claim_treasury")
             .gas(tgas(300))
@@ -928,6 +917,51 @@ mod close {
         exact.into_result()?;
         settled(&env).await;
         assert_eq!(env.usdc.balance_of(env.treasury.id()).await, NOTE_FEE);
+        Ok(())
+    }
+
+    /// `claim_payout` at its minimum gas: 29 Tgas is refused whole, 30 pays, and with the token
+    /// failing at 30 Tgas the callback (fixed gas) still restores the record.
+    #[tokio::test]
+    async fn claim_payout_with_the_least_gas_pays_and_its_failure_path_still_restores() -> Result<()>
+    {
+        let env = setup(100 * ONE).await?;
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        env.usdc.fail_transfers(true).await;
+        mutual_close(&env, &env.alice, &bundle, tgas(300), json!({}))
+            .await?
+            .into_result()?;
+        settled(&env).await;
+        let owed = (ONE - CHARGE).to_string();
+        assert_eq!(pending(&env, env.alice.id()).await, owed);
+        let claim = |gas| {
+            env.alice
+                .call(env.vault.id(), "claim_payout")
+                .args_json(json!({ "account_id": env.alice.id() }))
+                .gas(tgas(gas))
+                .transact()
+        };
+        assert!(claim(29).await?.is_failure());
+        assert_eq!(pending(&env, env.alice.id()).await, owed);
+        // The token still fails: the claim runs, the callback puts the amount back.
+        let failing = claim(30).await?;
+        report("claim_payout, least gas, token failing", &failing);
+        failing.into_result()?;
+        settled(&env).await;
+        assert_eq!(pending(&env, env.alice.id()).await, owed);
+        // The token recovers: 30 Tgas pays in full.
+        env.usdc.fail_transfers(false).await;
+        let before = env.usdc.balance_of(env.alice.id()).await;
+        let exact = claim(30).await?;
+        report("claim_payout, least gas (30 Tgas)", &exact);
+        exact.into_result()?;
+        settled(&env).await;
+        assert_eq!(
+            env.usdc.balance_of(env.alice.id()).await,
+            before + ONE - CHARGE
+        );
+        assert_eq!(pending(&env, env.alice.id()).await, "0");
         Ok(())
     }
 
@@ -1098,10 +1132,6 @@ mod close {
     async fn the_exit_calls_work_with_usdc_paused_and_stay_in_gas() -> Result<()> {
         use zkapi_proof::dev::tree_with;
         let env = setup(100 * ONE).await?;
-        if env.usdc.is_real() {
-            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
-            return Ok(());
-        }
         let note = deposit_note(&env, 42).await?;
         let valid_until = now_seconds(&env.worker).await + 3_600;
         let g = gen(env.vault.id());
@@ -1473,7 +1503,7 @@ async fn finalize_gas_after_a_one_day_exit_window() -> Result<()> {
         .transact()
         .await?;
     assert!(early.is_failure());
-    advance_to(&env.worker, deadline_ns / 1_000_000_000 + 1).await?;
+    advance_past(&env.worker, deadline_ns / 1_000_000_000 + 1).await?;
     let before = env.usdc.balance_of(env.alice.id()).await;
     let least = env
         .alice

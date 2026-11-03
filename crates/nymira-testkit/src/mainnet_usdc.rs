@@ -64,7 +64,12 @@ pub async fn deploy(worker: &Worker<Sandbox>) -> Result<Contract> {
 /// minter's allowance. Returns the contract and the minter account.
 pub async fn deploy_minting(
     worker: &Worker<Sandbox>,
-) -> Result<(Contract, near_workspaces::Account)> {
+) -> Result<(
+    Contract,
+    near_workspaces::Account,
+    near_workspaces::Account,
+    u64,
+)> {
     use serde_json::json;
 
     let contract = import_with_retry(worker).await?;
@@ -169,7 +174,8 @@ pub async fn deploy_minting(
         json!({"request_id": request_id}),
     )
     .await?;
-    Ok((contract, root.clone()))
+    // The three requests above used ids 0 to 2; the next free id is returned.
+    Ok((contract, root.clone(), second, request_id as u64 + 1))
 }
 
 /// The public mainnet RPC rate-limits parallel test runs, so the import backs off and retries.
