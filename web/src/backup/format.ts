@@ -37,6 +37,8 @@ export interface BackupNote {
   secret?: string;
   /** The wallet state (`kind: state`): zkapi's BrowserNoteState as JSON text. */
   state?: string;
+  /** The lease in progress and the finished lease records (`kind: state`), as JSON text. */
+  extra?: string;
 }
 
 export interface BackupPlain {

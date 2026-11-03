@@ -4069,6 +4069,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nymira-web-wasm"
+version = "0.0.0"
+dependencies = [
+ "dcap-qvl",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "zkapi-core",
+ "zkapi-proof",
+ "zkapi-types",
+]
+
+[[package]]
 name = "nymirad"
 version = "0.0.0"
 dependencies = [

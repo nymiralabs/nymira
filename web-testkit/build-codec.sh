@@ -21,5 +21,5 @@ fi
 cargo build --locked --release -p nymira-near-codec-wasm --target wasm32-unknown-unknown
 rm -rf web-testkit/codec-pkg
 wasm-bindgen --target web --out-dir web-testkit/codec-pkg \
-  target/wasm32-unknown-unknown/release/nymira_near_codec_wasm.wasm
+  "${CARGO_TARGET_DIR:-target}"/wasm32-unknown-unknown/release/nymira_near_codec_wasm.wasm
 echo "codec built: web-testkit/codec-pkg"

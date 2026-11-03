@@ -2,10 +2,15 @@
 // the passphrase (Argon2id), creates secrets with the zkapi wallet core, builds genesis states and
 // encrypts and decrypts backup files. Results leave as sealed bytes, public values or a
 // non-extractable CryptoKey.
+// `@zkapi` is the ceremony-setup build in a deployed profile and the dev-setup build in the mock
+// profile (vite.config.ts).
 import init, {
+  BrowserNoteTree,
+  BrowserRequestProver,
+  browser_complete_response,
   browser_confirm_deposit,
   browser_generate_deposit,
-} from '../wasm/zkapi-browser/zkapi_browser.js';
+} from '@zkapi/zkapi_browser.js';
 import initCodec, { contractAddress } from '../wasm/near-codec/nymira_near_codec_wasm.js';
 import { importAesKey } from '../crypto/aead';
 import { b64decode, toHex } from '../crypto/bytes';
@@ -18,13 +23,43 @@ import {
   testBackup,
   type NoteWasm,
 } from '../note/core';
-import type { WorkerRequest, WorkerResponse } from './protocol';
+import {
+  completeLease,
+  discardPending,
+  leaseOpened,
+  prepareLease,
+  readNote,
+  recordExchange,
+  type LeaseConfig,
+  type LeaseWasm,
+} from '../note/lease';
+import { solvePuzzle } from '../chat/puzzle';
+import { sha256Hex } from '../crypto/bytes';
+import type { LeaseConfigInput, WorkerRequest, WorkerResponse } from './protocol';
 
 const wasm: NoteWasm = {
   generateDeposit: browser_generate_deposit,
   confirmDeposit: browser_confirm_deposit,
 };
 const ready = Promise.all([init(), initCodec()]);
+
+// The request prover is loaded once, from the key the page names, after its SHA-256 matches.
+let prover: InstanceType<typeof BrowserRequestProver> | null = null;
+const leaseWasm: LeaseWasm = {
+  prepareRequest(config, state, args) {
+    if (!prover) throw new Error('the proving key is not loaded yet');
+    return prover.prepare_request(config, state, args);
+  },
+  treePath: (snapshot, noteId) => BrowserNoteTree.from_state(snapshot).path(noteId),
+  completeResponse: browser_complete_response,
+};
+
+const leaseConfig = (c: LeaseConfigInput): LeaseConfig => ({
+  chainId: c.chainId,
+  operatorPk: c.operatorPk,
+  clearancePk: c.clearancePk,
+  contractAddress: '0x' + toHex(contractAddress(c.vault)),
+});
 
 async function handle(request: WorkerRequest): Promise<unknown> {
   await ready;
@@ -58,6 +93,46 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       return testBackup(request.key, request.bytes, request.passphrase, request.record);
     case 'restoreBackup':
       return restoreBackup(request.key, request.bytes, request.passphrase, request.scope);
+    case 'loadProver': {
+      const started = performance.now();
+      const response = await fetch(request.url, { credentials: 'omit', cache: 'force-cache' });
+      if (!response.ok)
+        throw new Error(`the proving key could not be loaded (HTTP ${response.status})`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if ((await sha256Hex(bytes)) !== request.sha256) {
+        throw new Error(
+          'the proving key does not match the SHA-256 this build pins; it is refused',
+        );
+      }
+      prover = new BrowserRequestProver(bytes);
+      return { bytes: bytes.length, ms: Math.round(performance.now() - started) };
+    }
+    case 'prepareLease': {
+      const { input } = request;
+      return prepareLease(leaseWasm, request.key, request.aad, request.sealed, {
+        ...input,
+        config: leaseConfig(input.config),
+      });
+    }
+    case 'solvePuzzle':
+      return solvePuzzle(request.nonce, request.difficulty);
+    case 'leaseOpened':
+      return leaseOpened(request.key, request.aad, request.sealed, request.lease);
+    case 'recordExchange':
+      return recordExchange(request.key, request.aad, request.sealed, request.use);
+    case 'completeLease':
+      return completeLease(
+        leaseWasm,
+        request.key,
+        request.aad,
+        request.sealed,
+        leaseConfig(request.config),
+        request.settlement,
+      );
+    case 'discardPending':
+      return discardPending(request.key, request.aad, request.sealed);
+    case 'readNote':
+      return readNote(request.key, request.aad, request.sealed);
   }
 }
 

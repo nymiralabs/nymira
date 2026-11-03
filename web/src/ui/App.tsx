@@ -1,15 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { warmProver } from '../chat/runtime';
 import { PROFILE } from '../profile';
+import { Chat } from './Chat';
 import { Fund } from './Fund';
 import { Landing } from './Landing';
 import { Notes } from './Notes';
 import { originOk, useVaultCheck } from './services';
 
-type Screen = 'landing' | 'fund' | 'notes';
+type Screen = 'landing' | 'fund' | 'chat' | 'notes';
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('landing');
   const { check, recheck } = useVaultCheck();
+
+  // The proving key loads into the worker when the page opens, so the first lease does not wait
+  // for it. A copy served from another origin loads nothing.
+  useEffect(() => {
+    if (originOk) void warmProver();
+  }, []);
 
   if (!originOk) {
     return (
@@ -36,6 +44,9 @@ export function App() {
           <button type="button" data-testid="nav-fund" onClick={() => setScreen('fund')}>
             Fund
           </button>
+          <button type="button" data-testid="nav-chat" onClick={() => setScreen('chat')}>
+            Chat
+          </button>
           <button type="button" data-testid="nav-notes" onClick={() => setScreen('notes')}>
             Notes
           </button>
@@ -49,6 +60,7 @@ export function App() {
       )}
       {screen === 'landing' && <Landing onOpen={() => setScreen('fund')} />}
       {screen === 'fund' && <Fund vault={check} recheck={recheck} />}
+      {screen === 'chat' && <Chat vault={check} />}
       {screen === 'notes' && <Notes />}
       <footer>
         <small data-testid="network-label">

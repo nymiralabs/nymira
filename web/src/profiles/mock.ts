@@ -37,4 +37,12 @@ export const profile: Profile = {
     ],
   },
   pins: fixture.pins,
+  gatewayUrl: 'http://127.0.0.1:18548',
+  pccsUrl: 'http://127.0.0.1:18548',
+  // The development setup's request key, served by the mock build only (vite.config.ts).
+  provingKey: {
+    url: '/setup/request.pk',
+    sha256: 'fb5f0ec0908b29aa5a3ba75c5cefda70ca0bc1d68da031c4a21ef63c0806af87',
+  },
+  testEvidence: true,
 };

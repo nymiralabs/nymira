@@ -31,6 +31,10 @@ function headerPlugin(profile: Profile): Plugin {
       mkdirSync(out, { recursive: true });
       const from = resolve(__dirname, 'test-fixtures/executors/fake-wallet.js');
       if (existsSync(from)) copyFileSync(from, resolve(out, 'fake-wallet.js'));
+      // The development setup's request key: the mock profile's `provingKey` names it.
+      const key = resolve(__dirname, '../vendor/zkapi/protocol/setup/v2-concession-dev/request.pk');
+      mkdirSync(resolve(__dirname, 'dist/setup'), { recursive: true });
+      copyFileSync(key, resolve(__dirname, 'dist/setup/request.pk'));
     },
   };
 }
@@ -45,7 +49,14 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), headerPlugin(profile)],
     resolve: {
-      alias: { '@profile': resolve(__dirname, `src/profiles/${profileId}.ts`) },
+      alias: {
+        '@profile': resolve(__dirname, `src/profiles/${profileId}.ts`),
+        // The mock profile proves with the development setup; deployed profiles never do.
+        '@zkapi': resolve(
+          __dirname,
+          `src/wasm/${profileId === 'mock' ? 'zkapi-browser-dev' : 'zkapi-browser'}`,
+        ),
+      },
     },
     build: {
       target: 'es2022',

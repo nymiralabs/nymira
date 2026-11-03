@@ -13,12 +13,12 @@
     },
     "config": {
       "operator_pk": {
-        "x": "0x0f1c0d3c1b0e9a6a2f7d6b61a3b3a8f0c1d2e3f405162738495a6b7c8d9e0f10",
-        "y": "0x1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+        "x": "0x2b8cfd91b905cae31d41e7dedf4a927ee3bc429aad7e344d59d2810d82876c32",
+        "y": "0x2aaa6c24a758209e90aced1f10277b762a7c1115dbc0e16ac276fc2c671a861f"
       },
       "clearance_pk": {
-        "x": "0x2c1d0e9fa8b7c6d5e4f30211203f4e5d6c7b8a99887766554433221100ffeedd",
-        "y": "0x0b1a29384756657483920a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
+        "x": "0x1812b84c2101217b0939a2f542535075eeaa81d07dab701a899a55db26e85be4",
+        "y": "0xbe80d0f61a801533a94a03b12683474f86ca012941db1c568c53dc877b16fd6"
       },
       "operator_account": "operator.test",
       "token": "usdc.test",

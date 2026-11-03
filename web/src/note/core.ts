@@ -86,18 +86,28 @@ export async function confirmNote(
   return sealJson(key, { state }, aad);
 }
 
-function toBackupNote(record: NoteRecord, plain: { secret?: string; state?: string }): BackupNote {
+function toBackupNote(
+  record: NoteRecord,
+  plain: { secret?: string; state?: string; extra?: string },
+): BackupNote {
   const { sealed: _sealed, ...rest } = record;
   void _sealed;
   const note: BackupNote = { ...rest };
   if (record.kind === 'pending') note.secret = plain.secret;
-  else note.state = plain.state;
+  else {
+    note.state = plain.state;
+    if (plain.extra !== undefined) note.extra = plain.extra;
+  }
   return note;
 }
 
 async function unsealRecord(key: CryptoKey, record: NoteRecord): Promise<BackupNote> {
   const aad = noteAad(record.network, record.vault, record.id);
-  const plain = await openJson<{ secret?: string; state?: string }>(key, record.sealed, aad);
+  const plain = await openJson<{ secret?: string; state?: string; extra?: string }>(
+    key,
+    record.sealed,
+    aad,
+  );
   return toBackupNote(record, plain);
 }
 
@@ -142,7 +152,8 @@ export async function testBackup(
     found !== undefined &&
     found.kind === mine.kind &&
     found.secret === mine.secret &&
-    found.state === mine.state;
+    found.state === mine.state &&
+    found.extra === mine.extra;
   return { notes: plain.notes.length, matches };
 }
 
@@ -162,8 +173,9 @@ export async function restoreBackup(
       foreign += 1;
       continue;
     }
-    const { secret, state, ...meta } = note;
-    const payload = note.kind === 'pending' ? { secret } : { state };
+    const { secret, state, extra, ...meta } = note;
+    const payload =
+      note.kind === 'pending' ? { secret } : extra === undefined ? { state } : { state, extra };
     records.push({
       ...meta,
       sealed: await seal(key, payload, noteAad(note.network, note.vault, note.id)),

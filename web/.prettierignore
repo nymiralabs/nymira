@@ -6,3 +6,5 @@ test-results
 playwright-report
 package-lock.json
 test-fixtures/executors
+test-fixtures/near-ai-recorded
+pins/attestation-policy.json
