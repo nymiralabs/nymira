@@ -10,9 +10,10 @@ description = "Browser checks for the chat: the operator's signed status nonce a
 crate-type = ["cdylib", "rlib"]
 
 [features]
-# Test doubles for the browser tests: an operator's state key and the responses it signs. Never in
+# Test doubles for the browser tests: an operator's keys, the responses and clearances it signs, and the
+# development withdrawal verifying key (`dev-setup`). Never in
 # the app bundle (`web/scripts/check-bundle.mjs` looks for it).
-test-operator = []
+test-operator = ["zkapi-proof/dev-setup"]
 
 [dependencies]
 dcap-qvl = { path = "../../vendor/dcap-qvl", default-features = false, features = ["std", "report", "rustcrypto", "js"] }
