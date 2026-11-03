@@ -23,3 +23,26 @@ pub fn apply() -> std::io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    #[test]
+    fn apply_turns_core_files_off() {
+        super::apply().unwrap();
+        let mut now = libc::rlimit {
+            rlim_cur: 1,
+            rlim_max: 1,
+        };
+        // SAFETY: plain syscall with a valid pointer.
+        assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_CORE, &mut now) }, 0);
+        assert_eq!((now.rlim_cur, now.rlim_max), (0, 0));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn apply_makes_the_process_undumpable_on_linux() {
+        super::apply().unwrap();
+        // SAFETY: plain syscall with integer arguments.
+        assert_eq!(unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) }, 0);
+    }
+}

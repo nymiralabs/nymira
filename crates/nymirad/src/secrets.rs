@@ -193,3 +193,67 @@ impl PassphraseSource {
         Ok(Zeroizing::new(trimmed.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn file_with(mode: u32, text: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pass");
+        std::fs::write(&path, text).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn a_passphrase_file_others_can_read_is_refused() {
+        for mode in [0o644, 0o640, 0o604, 0o666] {
+            let (_dir, path) = file_with(mode, "hunter2hunter2\n");
+            match PassphraseSource::File(path).read() {
+                Err(PassphraseError::Mode(m)) => assert_eq!(m, mode),
+                other => panic!("mode {mode:o}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_private_passphrase_file_is_read_without_its_line_ending() {
+        for mode in [0o600, 0o400] {
+            let (_dir, path) = file_with(mode, "correct horse\r\n");
+            let pass = PassphraseSource::File(path).read().unwrap();
+            assert_eq!(pass.as_str(), "correct horse");
+        }
+        let (_dir, empty) = file_with(0o600, "\n");
+        assert!(matches!(
+            PassphraseSource::File(empty).read(),
+            Err(PassphraseError::Empty)
+        ));
+    }
+
+    #[test]
+    fn the_chain_label_and_the_entropy_both_change_the_secret() {
+        let entropy = [7u8; 32];
+        let testnet = derive_secret("near-testnet", &entropy);
+        assert_eq!(testnet, derive_secret("near-testnet", &entropy));
+        assert_ne!(testnet, derive_secret("near-mainnet", &entropy));
+        assert_ne!(testnet, derive_secret("near-testnet", &[8u8; 32]));
+        // The label is delimited: moving a byte between label and entropy changes the result.
+        let mut shifted = entropy;
+        shifted[0] = b'x';
+        assert_ne!(
+            derive_secret("near-testnet", &shifted),
+            derive_secret("near-testnetx", &entropy)
+        );
+        // A field element below the modulus: the top byte is zero.
+        assert_eq!(testnet.0[0], 0);
+    }
+
+    #[test]
+    fn a_new_secret_comes_with_its_registration_commitment() {
+        let (secret, commitment) = new_secret("near-testnet");
+        assert_eq!(commitment, zkapi_core::v2::registration_commitment(&secret));
+        assert_ne!(new_secret("near-testnet").0, secret);
+    }
+}
