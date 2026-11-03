@@ -96,7 +96,8 @@ export function decrypt(keys: ClientKeys, text: string): string {
 }
 
 type Obj = Record<string, unknown>;
-const unsupported = (why: string) => new E2eeError('unsupported', `the request cannot be sent end-to-end encrypted: ${why}`);
+const unsupported = (why: string) =>
+  new E2eeError('unsupported', `the request cannot be sent end-to-end encrypted: ${why}`);
 const enc = (v: unknown, key: Uint8Array, what: string): string => {
   if (typeof v !== 'string') throw unsupported(`${what} must be a string`);
   return encrypt(key, new TextEncoder().encode(v));
@@ -139,7 +140,8 @@ function sealTool(t: unknown, key: Uint8Array): Obj {
   const f = { ...(fn as Obj) };
   for (const field of ['name', 'description']) if (field in f) f[field] = enc(f[field], key, field);
   // The gateway reads an encrypted JSON string, not an object.
-  if ('parameters' in f) f.parameters = encrypt(key, new TextEncoder().encode(JSON.stringify(f.parameters)));
+  if ('parameters' in f)
+    f.parameters = encrypt(key, new TextEncoder().encode(JSON.stringify(f.parameters)));
   out.function = f;
   return out;
 }
@@ -181,7 +183,8 @@ function openMessage(keys: ClientKeys, m: Obj): void {
   for (const field of ['content', 'reasoning_content', 'reasoning']) openField(keys, m, field);
   if (Array.isArray(m.tool_calls)) {
     for (const call of m.tool_calls as Obj[]) {
-      if (call.function) for (const field of ['name', 'arguments']) openField(keys, call.function as Obj, field);
+      if (call.function)
+        for (const field of ['name', 'arguments']) openField(keys, call.function as Obj, field);
     }
   }
 }
@@ -200,7 +203,9 @@ export function openResponse(keys: ClientKeys, response: Obj): void {
 export function openSseLine(keys: ClientKeys, line: string): string {
   if (!line.startsWith('data:')) {
     const harmless =
-      line === '' || line.startsWith(':') || ['event:', 'id:', 'retry:'].some((f) => line.startsWith(f));
+      line === '' ||
+      line.startsWith(':') ||
+      ['event:', 'id:', 'retry:'].some((f) => line.startsWith(f));
     if (harmless) return line;
     throw new E2eeError('decrypt', 'an encrypted field of the answer did not decrypt');
   }

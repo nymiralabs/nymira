@@ -24,7 +24,14 @@ import {
   maxTokens,
   type ChargeParams,
 } from './charge';
-import { GateError, checkParams, puzzleDifficulty, requestTime, verifyStatus, type SignatureCheck } from './gate';
+import {
+  GateError,
+  checkParams,
+  puzzleDifficulty,
+  requestTime,
+  verifyStatus,
+  type SignatureCheck,
+} from './gate';
 import { DEFAULT_MODEL, chooseBound, modelById } from './models';
 import {
   OperatorClient,
@@ -33,7 +40,13 @@ import {
   describeOperatorError,
 } from './operator';
 import type { Policy } from './attest/policy';
-import { AttestationError, verifyReports, type Attested, type ModelReport, type QuoteVerifier } from './attest/verify';
+import {
+  AttestationError,
+  verifyReports,
+  type Attested,
+  type ModelReport,
+  type QuoteVerifier,
+} from './attest/verify';
 import { badgeLabel, verifyCompletionSignature, weakest, type Trust } from './attest/signature';
 
 export interface Message {
@@ -108,7 +121,11 @@ export function estimateInputTokens(messages: Message[]): bigint {
 export function chargeParams(profile: Profile): ChargeParams {
   const c = profile.pins?.config;
   if (!c) throw new ChatError('no_pins', 'This build has no vault pins.');
-  return { step: BigInt(c.charge_step), minCharge: BigInt(c.min_charge), slotRate: BigInt(c.slot_rate) };
+  return {
+    step: BigInt(c.charge_step),
+    minCharge: BigInt(c.min_charge),
+    slotRate: BigInt(c.slot_rate),
+  };
 }
 
 export class ChatSession {
@@ -161,7 +178,12 @@ export class ChatSession {
   }
 
   async view(): Promise<NoteView> {
-    return callWorker({ op: 'readNote', key: this.deps.getKey(), aad: this.aad, sealed: this.note.sealed });
+    return callWorker({
+      op: 'readNote',
+      key: this.deps.getKey(),
+      aad: this.aad,
+      sealed: this.note.sealed,
+    });
   }
 
   // ---- attestation ----
@@ -172,7 +194,11 @@ export class ChatSession {
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
     });
-    if (!r.ok) throw new ChatError('attestation_unreachable', `The attestation report could not be read (HTTP ${r.status}).`);
+    if (!r.ok)
+      throw new ChatError(
+        'attestation_unreachable',
+        `The attestation report could not be read (HTTP ${r.status}).`,
+      );
     return r.json();
   }
 
@@ -213,7 +239,10 @@ export class ChatSession {
       return value;
     } catch (e) {
       if (e instanceof AttestationError) {
-        throw new ChatError('attestation_failed', `The model’s attestation was refused (${e.code}): ${e.message}. Nothing was encrypted and no lease was opened.`);
+        throw new ChatError(
+          'attestation_failed',
+          `The model’s attestation was refused (${e.code}): ${e.message}. Nothing was encrypted and no lease was opened.`,
+        );
       }
       throw e;
     }
@@ -230,7 +259,12 @@ export class ChatSession {
       throw this.wrap(e);
     }
     try {
-      const nonce = verifyStatus(status, profile.pins!.config.operator_pk, this.nowSecs(), this.deps.signatureCheck);
+      const nonce = verifyStatus(
+        status,
+        profile.pins!.config.operator_pk,
+        this.nowSecs(),
+        this.deps.signatureCheck,
+      );
       checkParams(status, profile.pins!.config);
       return { status, nonce };
     } catch (e) {
@@ -241,7 +275,10 @@ export class ChatSession {
 
   private wrap(e: unknown): Error {
     if (e instanceof OperatorError || e instanceof OperatorUnreachable) {
-      return new ChatError(e instanceof OperatorError ? e.code || 'operator_error' : 'unreachable', describeOperatorError(e));
+      return new ChatError(
+        e instanceof OperatorError ? e.code || 'operator_error' : 'unreachable',
+        describeOperatorError(e),
+      );
     }
     return e instanceof Error ? e : new Error(String(e));
   }
@@ -252,26 +289,46 @@ export class ChatSession {
     const profile = this.deps.profile;
     const pins = profile.pins;
     if (!pins) throw new ChatError('no_pins', 'This build has no vault pins, so chat is off.');
-    if (!profile.provingKey) throw new ChatError('no_proving_key', 'The proving key for this deployment is not published yet, so chat is off.');
+    if (!profile.provingKey)
+      throw new ChatError(
+        'no_proving_key',
+        'The proving key for this deployment is not published yet, so chat is off.',
+      );
     const vault = await checkVault(this.deps.rpc, profile.vaultAccount, pins, this.now);
     if (vault.status !== 'ok') {
-      throw new ChatError('vault_changed', vault.status === 'mismatch' ? `The vault no longer matches this build (${vault.diffs.join(', ')}). No new lease.` : 'The vault could not be checked. No new lease.');
+      throw new ChatError(
+        'vault_changed',
+        vault.status === 'mismatch'
+          ? `The vault no longer matches this build (${vault.diffs.join(', ')}). No new lease.`
+          : 'The vault could not be checked. No new lease.',
+      );
     }
     const { status: first } = await this.checkedStatus();
     if (first.emergency_notice) {
-      throw new ChatError('emergency', `The operator posted an emergency notice: ${String(first.emergency_notice)}. No new lease; close your note or request an exit.`);
+      throw new ChatError(
+        'emergency',
+        `The operator posted an emergency notice: ${String(first.emergency_notice)}. No new lease; close your note or request an exit.`,
+      );
     }
     const bound = chooseBound(pins.config.bound_classes.map(BigInt), this.longJob);
-    if (bound === null) throw new ChatError('bound_class_missing', 'The vault lists no lease class of that size.');
+    if (bound === null)
+      throw new ChatError('bound_class_missing', 'The vault lists no lease class of that size.');
     const view = await this.view();
-    if (view.pending) throw new ChatError('lease_pending', 'An earlier lease on this note is not settled yet. Settle it first.');
+    if (view.pending)
+      throw new ChatError(
+        'lease_pending',
+        'An earlier lease on this note is not settled yet. Settle it first.',
+      );
 
     const build = async () => {
       const { status, nonce } = await this.checkedStatus();
       const tree = await readSnapshot(this.deps.rpc, profile.vaultAccount);
       const leaf = tree.leaves[view.noteId];
       if (leaf === undefined || /^0x0+$/.test(leaf)) {
-        throw new ChatError('leaf_missing', 'This note’s leaf is not in the tree yet (wait for the operator’s next root update) or was retired.');
+        throw new ChatError(
+          'leaf_missing',
+          'This note’s leaf is not in the tree yet (wait for the operator’s next root update) or was retired.',
+        );
       }
       const prepared = await callWorker({
         op: 'prepareLease',
@@ -300,7 +357,10 @@ export class ChatSession {
     for (;;) {
       const { status, nonce } = await this.checkedStatus();
       const difficulty = puzzleDifficulty(status);
-      const puzzle = difficulty > 0 ? await callWorker({ op: 'solvePuzzle', nonce: nonce.nonce, difficulty }) : undefined;
+      const puzzle =
+        difficulty > 0
+          ? await callWorker({ op: 'solvePuzzle', nonce: nonce.nonce, difficulty })
+          : undefined;
       try {
         const issued = await this.deps.operator.openLease(prepared.requestJson, puzzle);
         const sealed = await callWorker({
@@ -308,7 +368,12 @@ export class ChatSession {
           key: this.deps.getKey(),
           aad: this.aad,
           sealed: this.note.sealed,
-          lease: { leaseId: issued.leaseId, token: issued.token, issuedAt: issued.issuedAt, expiresAt: issued.expiresAt },
+          lease: {
+            leaseId: issued.leaseId,
+            token: issued.token,
+            issuedAt: issued.issuedAt,
+            expiresAt: issued.expiresAt,
+          },
         });
         await this.store(sealed);
         this.lease = (await this.view()).active ?? null;
@@ -324,22 +389,43 @@ export class ChatSession {
           // The operator refused the proof before binding its nullifier: set it aside, rebuild the
           // tree, prove again from the same state.
           await this.store(
-            await callWorker({ op: 'discardPending', key: this.deps.getKey(), aad: this.aad, sealed: this.note.sealed }),
+            await callWorker({
+              op: 'discardPending',
+              key: this.deps.getKey(),
+              aad: this.aad,
+              sealed: this.note.sealed,
+            }),
           );
           ({ prepared } = await build());
           continue;
         }
         if (e instanceof OperatorError && e.status < 500 && e.code !== 'operator_capacity') {
           // A refusal before the lease exists: nothing was spent; the pending proof is set aside.
-          if (e.code === 'root_stale' || e.code === 'proof_expired' || e.code === 'bound_class_invalid' || e.code === 'proof_invalid' || e.code === 'malformed_request') {
+          if (
+            e.code === 'root_stale' ||
+            e.code === 'proof_expired' ||
+            e.code === 'bound_class_invalid' ||
+            e.code === 'proof_invalid' ||
+            e.code === 'malformed_request'
+          ) {
             await this.store(
-              await callWorker({ op: 'discardPending', key: this.deps.getKey(), aad: this.aad, sealed: this.note.sealed }),
+              await callWorker({
+                op: 'discardPending',
+                key: this.deps.getKey(),
+                aad: this.aad,
+                sealed: this.note.sealed,
+              }),
             );
           }
         }
         if (e instanceof OperatorError && e.code === 'operator_capacity') {
           await this.store(
-            await callWorker({ op: 'discardPending', key: this.deps.getKey(), aad: this.aad, sealed: this.note.sealed }),
+            await callWorker({
+              op: 'discardPending',
+              key: this.deps.getKey(),
+              aad: this.aad,
+              sealed: this.note.sealed,
+            }),
           );
         }
         throw this.wrap(e);
@@ -355,11 +441,17 @@ export class ChatSession {
    */
   async send(
     messages: Message[],
-    opts: { model?: string; stream?: boolean; temperature?: number; onDelta?: (text: string) => void } = {},
+    opts: {
+      model?: string;
+      stream?: boolean;
+      temperature?: number;
+      onDelta?: (text: string) => void;
+    } = {},
   ): Promise<Answer> {
     const model = opts.model ?? DEFAULT_MODEL;
     const spec = modelById(model);
-    if (!spec) throw new ChatError('unknown_model', `The model ${model} is not on the pinned list.`);
+    if (!spec)
+      throw new ChatError('unknown_model', `The model ${model} is not on the pinned list.`);
     const attested = await this.attest(model);
     await this.openLease();
     const lease = this.lease;
@@ -369,7 +461,10 @@ export class ChatSession {
     const input = estimateInputTokens(messages);
     const max = maxTokens(remaining, BOUND_SHARE_PCT, spec, input);
     if (max === null) {
-      throw new ChatError('no_funds', 'This lease cannot pay for this prompt and an answer. Start a new conversation or shorten it.');
+      throw new ChatError(
+        'no_funds',
+        'This lease cannot pay for this prompt and an answer. Start a new conversation or shorten it.',
+      );
     }
     const stream = opts.stream === true;
     const modelPub = fromHex(attested.model.signingKey);
@@ -392,7 +487,13 @@ export class ChatSession {
     const body = JSON.stringify(sealed);
     let response: Response;
     try {
-      response = await this.deps.operator.chat(body, lease.record.leaseId, lease.token, this.keys.publicHex, attested.model.signingKey);
+      response = await this.deps.operator.chat(
+        body,
+        lease.record.leaseId,
+        lease.token,
+        this.keys.publicHex,
+        attested.model.signingKey,
+      );
     } catch (e) {
       throw this.wrap(e);
     }
@@ -460,13 +561,26 @@ export class ChatSession {
       if (e instanceof E2eeError) throw new ChatError('decrypt_failed', e.message);
       throw new ChatError('provider_error', 'The answer could not be read.');
     }
-    if (!usage) throw new ChatError('provider_error', 'The answer carries no usage, so its cost cannot be checked.');
+    if (!usage)
+      throw new ChatError(
+        'provider_error',
+        'The answer carries no usage, so its cost cannot be checked.',
+      );
     const prompt = usage.prompt_tokens ?? 0;
     const completion = usage.completion_tokens ?? 0;
     const cost = costNano(spec, BigInt(prompt), BigInt(completion));
     const usageMicro = Number((cost + 999n) / 1000n);
     this.spentMicro += BigInt(usageMicro);
-    const answer: Answer = { id, text, reasoning, promptTokens: prompt, completionTokens: completion, usageMicro, streamed: stream, chatId };
+    const answer: Answer = {
+      id,
+      text,
+      reasoning,
+      promptTokens: prompt,
+      completionTokens: completion,
+      usageMicro,
+      streamed: stream,
+      chatId,
+    };
     this.exchanges.push({ answer, model, request: utf8(body), response: rawBytes });
     await this.store(
       await callWorker({
@@ -476,7 +590,10 @@ export class ChatSession {
         sealed: this.note.sealed,
         use: {
           model,
-          sampling: { stream, ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}) },
+          sampling: {
+            stream,
+            ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+          },
           messageCount: messages.length,
           messageBytes: messages.reduce((n, m) => n + utf8(m.content).length, 0),
           promptTokens: prompt,
@@ -501,7 +618,8 @@ export class ChatSession {
       await operator.retire(lease.record.leaseId, lease.token);
     } catch (e) {
       // Already retired is fine: settlement is what matters.
-      if (!(e instanceof OperatorError && (e.code === 'lease_ended' || e.status === 410))) throw this.wrap(e);
+      if (!(e instanceof OperatorError && (e.code === 'lease_ended' || e.status === 410)))
+        throw this.wrap(e);
     }
     const poll = opts.pollMs ?? 1500;
     const deadline = this.now() + (opts.maxWaitMs ?? 120_000);
@@ -516,7 +634,10 @@ export class ChatSession {
       await new Promise((r) => setTimeout(r, poll));
     }
     if (!responseJson) {
-      throw new ChatError('settling', 'The operator has not settled this lease yet. Your note keeps the pending request; open the note again later to finish.');
+      throw new ChatError(
+        'settling',
+        'The operator has not settled this lease yet. Your note keeps the pending request; open the note again later to finish.',
+      );
     }
     return this.settle(responseJson);
   }
@@ -526,7 +647,13 @@ export class ChatSession {
     const { operator, profile } = this.deps;
     const signatures = await operator
       .leaseStatus(lease.record.leaseId, lease.token!)
-      .then((s) => ((s.provider_evidence as { signatures?: { chat_id?: string; signature?: unknown }[] } | undefined)?.signatures ?? []))
+      .then(
+        (s) =>
+          (
+            s.provider_evidence as
+              { signatures?: { chat_id?: string; signature?: unknown }[] } | undefined
+          )?.signatures ?? [],
+      )
       .catch(() => []);
     const trusts: Trust[] = [];
     for (const x of this.exchanges) {
@@ -536,7 +663,13 @@ export class ChatSession {
         ? { result: 'not_verified', reason: 'no verified attestation for this model' }
         : !x.answer.chatId
           ? { result: 'not_verified', reason: 'the answer has no chat id' }
-          : verifyCompletionSignature(attested, found?.signature as never, x.model, x.request, x.response);
+          : verifyCompletionSignature(
+              attested,
+              found?.signature as never,
+              x.model,
+              x.request,
+              x.response,
+            );
       x.answer.trust = trust;
       trusts.push(trust);
     }
@@ -554,10 +687,14 @@ export class ChatSession {
     // The local clock, not a figure the operator reports; the status nonce was checked against it.
     const held = BigInt(Math.max(0, this.nowSecs() - (lease.issuedAt ?? lease.record.openedAt)));
     const expected = chargeOf(bound, cost, held, params);
-    const reported = BigInt(String((JSON.parse(responseJson) as { charge_applied: number | string }).charge_applied));
+    const reported = BigInt(
+      String((JSON.parse(responseJson) as { charge_applied: number | string }).charge_applied),
+    );
     const overcharged = reported > expected + params.step;
     if (overcharged) {
-      warnings.push(`the operator charged ${reported} micro-USDC; the signed usage and the vault’s rules give ${expected} (more than one charge step of ${params.step} above)`);
+      warnings.push(
+        `the operator charged ${reported} micro-USDC; the signed usage and the vault’s rules give ${expected} (more than one charge step of ${params.step} above)`,
+      );
     }
     let completed;
     try {
@@ -576,12 +713,22 @@ export class ChatSession {
         },
       });
     } catch (e) {
-      throw new ChatError('invalid_successor', `The operator’s signed state failed the wallet checks (${e instanceof Error ? e.message : String(e)}). Your note keeps its pending request; do not open another lease and consider an exit.`);
+      throw new ChatError(
+        'invalid_successor',
+        `The operator’s signed state failed the wallet checks (${e instanceof Error ? e.message : String(e)}). Your note keeps its pending request; do not open another lease and consider an exit.`,
+      );
     }
     await this.store(completed.sealed);
     this.lease = null;
     const view = await this.view();
-    return { record: completed.record, trust, charge: reported, expected, overcharged, balance: view.balance };
+    return {
+      record: completed.record,
+      trust,
+      charge: reported,
+      expected,
+      overcharged,
+      balance: view.balance,
+    };
   }
 
   /** The answers so far, with their badges once the lease has ended. */

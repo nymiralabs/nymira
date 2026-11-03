@@ -81,11 +81,15 @@ export function loadPolicy(json: unknown, signerPkHex: string, minVersion: numbe
   }
   if (!ok) throw new PolicyError('the policy signature does not verify');
   if (policy.version < minVersion) {
-    throw new PolicyError(`the policy is version ${policy.version}; this build needs at least ${minVersion}`);
+    throw new PolicyError(
+      `the policy is version ${policy.version}; this build needs at least ${minVersion}`,
+    );
   }
   const lenient = policy.accepted_tcb_statuses.find((s) => s !== STRICT_TCB);
   if (lenient !== undefined) {
-    throw new PolicyError(`the policy accepts TCB status ${lenient}, which a strict policy never does`);
+    throw new PolicyError(
+      `the policy accepts TCB status ${lenient}, which a strict policy never does`,
+    );
   }
   if (
     (policy.accepted_measurements.length === 0 && deployments.length === 0) ||

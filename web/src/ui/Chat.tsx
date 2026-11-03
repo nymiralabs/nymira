@@ -9,13 +9,7 @@ import { callWorker } from '../worker/client';
 import { backupDue } from '../chat/backup-policy';
 import { DEFAULT_MODEL, MODELS } from '../chat/models';
 import { chatDeps, warmProver, type ProverState } from '../chat/runtime';
-import {
-  ChatError,
-  ChatSession,
-  type Answer,
-  type Message,
-  type Settled,
-} from '../chat/session';
+import { ChatError, ChatSession, type Answer, type Message, type Settled } from '../chat/session';
 import { badgeLabel } from '../chat/attest/signature';
 import type { NoteView } from '../note/lease';
 import { download, formatUnits } from './format';
@@ -37,14 +31,18 @@ const fsAccess = () => typeof (window as PickerWindow).showSaveFilePicker === 'f
 function Badge({ settled }: { settled: Settled }) {
   const t = settled.trust;
   return (
-    <div data-testid="badge" data-kind={t.result} className={t.result === 'not_verified' ? 'warning' : 'ok'}>
+    <div
+      data-testid="badge"
+      data-kind={t.result}
+      className={t.result === 'not_verified' ? 'warning' : 'ok'}
+    >
       <p>
         <strong data-testid="badge-text">{badgeLabel(t)}</strong>
         {t.result === 'not_verified' && <> ({t.reason})</>}
       </p>
       <p data-testid="encryption-line">
-        Encryption: your messages were end-to-end encrypted to the model’s attested key; the operator
-        saw the model, settings, message count and size, usage and timing.
+        Encryption: your messages were end-to-end encrypted to the model’s attested key; the
+        operator saw the model, settings, message count and size, usage and timing.
       </p>
       <p data-testid="tls-note">
         This browser cannot bind the gateway’s TLS certificate, so a gateway signature shows who
@@ -274,7 +272,11 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
           <div>
             <label>
               Model{' '}
-              <select data-testid="model-select" value={model} onChange={(e) => setModel(e.target.value)}>
+              <select
+                data-testid="model-select"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              >
                 {MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.id}
@@ -300,13 +302,22 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
             ))}
           </ol>
           {answers.map((a) => (
-            <p key={a.id} className="hint" data-testid="answer" data-trust={a.trust?.result ?? 'pending'}>
+            <p
+              key={a.id}
+              className="hint"
+              data-testid="answer"
+              data-trust={a.trust?.result ?? 'pending'}
+            >
               Answer {a.id}: {a.promptTokens} in, {a.completionTokens} out tokens, about{' '}
               {units(String(a.usageMicro))} of usage ·{' '}
               {a.trust ? badgeLabel(a.trust) : 'signature check pending until the lease ends'}
             </p>
           ))}
-          {attestation && <p data-testid="attestation-line" className="hint">{attestation}</p>}
+          {attestation && (
+            <p data-testid="attestation-line" className="hint">
+              {attestation}
+            </p>
+          )}
           {!settled && (
             <>
               <textarea
@@ -317,7 +328,12 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
                 aria-label="Message"
               />
               <p>
-                <button type="button" data-testid="chat-send" disabled={Boolean(busy)} onClick={send}>
+                <button
+                  type="button"
+                  data-testid="chat-send"
+                  disabled={Boolean(busy)}
+                  onClick={send}
+                >
                   Send
                 </button>{' '}
                 <button
@@ -414,7 +430,12 @@ function BackupPrompt(p: {
           Choose backup file
         </button>
       ) : (
-        <button type="button" data-testid="backup-download" disabled={!p.pass12} onClick={p.onDownload}>
+        <button
+          type="button"
+          data-testid="backup-download"
+          disabled={!p.pass12}
+          onClick={p.onDownload}
+        >
           Download backup
         </button>
       )}

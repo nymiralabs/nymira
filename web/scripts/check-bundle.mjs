@@ -3,7 +3,8 @@
 // The mock profile (loopback RPC, test wallet, mock vault) exists for Playwright only. A testnet or
 // mainnet bundle must hold none of it, and must not contain the test-only executor. The vendored
 // wallet executors are third-party code and are checked by their hashes instead.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const [dist = 'dist', profile = 'testnet'] = process.argv.slice(2);
@@ -15,6 +16,9 @@ const forbidden = [
   'usdc.test',
   'mock-vault',
   'nymira-test-wallet',
+  // Chat test doubles: the test quote verifier and the test operator's signing exports.
+  'nymira-test-quote',
+  'test_operator_',
 ];
 const textFile = /\.(js|html|css|json|map)$/;
 let bad = 0;
@@ -48,6 +52,27 @@ try {
   bad += 1;
 } catch {
   // Absent, as it should be.
+}
+// The development-setup wallet core and its keys are for the mock profile only: a deployed bundle
+// carries the ceremony-setup build and no setup directory.
+if (existsSync(join(dist, 'setup'))) {
+  console.error('setup/ (development proving keys) is in the bundle');
+  bad += 1;
+}
+const devWasm = new URL('../src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', import.meta.url);
+if (existsSync(devWasm)) {
+  const devHash = createHash('sha256').update(readFileSync(devWasm)).digest('hex');
+  const assets = join(dist, 'assets');
+  for (const name of existsSync(assets) ? readdirSync(assets) : []) {
+    if (!name.endsWith('.wasm')) continue;
+    const hash = createHash('sha256')
+      .update(readFileSync(join(assets, name)))
+      .digest('hex');
+    if (hash === devHash) {
+      console.error(`assets/${name} is the dev-setup wallet core`);
+      bad += 1;
+    }
+  }
 }
 if (bad > 0) process.exit(1);
 console.log(`${profile} bundle: no test-only content`);

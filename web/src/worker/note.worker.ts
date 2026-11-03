@@ -96,10 +96,13 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case 'loadProver': {
       const started = performance.now();
       const response = await fetch(request.url, { credentials: 'omit', cache: 'force-cache' });
-      if (!response.ok) throw new Error(`the proving key could not be loaded (HTTP ${response.status})`);
+      if (!response.ok)
+        throw new Error(`the proving key could not be loaded (HTTP ${response.status})`);
       const bytes = new Uint8Array(await response.arrayBuffer());
       if ((await sha256Hex(bytes)) !== request.sha256) {
-        throw new Error('the proving key does not match the SHA-256 this build pins; it is refused');
+        throw new Error(
+          'the proving key does not match the SHA-256 this build pins; it is refused',
+        );
       }
       prover = new BrowserRequestProver(bytes);
       return { bytes: bytes.length, ms: Math.round(performance.now() - started) };

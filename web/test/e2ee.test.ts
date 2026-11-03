@@ -33,7 +33,9 @@ describe('e2ee', () => {
         stream: false,
         temperature: 0.5,
         max_tokens: 1,
-        tools: [{ type: 'function', function: { name: 'f', description: 'd', parameters: { a: 1 } } }],
+        tools: [
+          { type: 'function', function: { name: 'f', description: 'd', parameters: { a: 1 } } },
+        ],
       },
       modelPub,
       123,

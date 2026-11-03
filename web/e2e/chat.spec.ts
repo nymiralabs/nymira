@@ -92,7 +92,9 @@ test('chat end to end: attested, encrypted, both signature kinds, token, cost, b
   // The proof's time sits on the 60 s grid of the operator's signed time.
   expect(stack.requestTimes).toHaveLength(1);
   expect(stack.requestTimes[0]! % 60).toBe(0);
-  expect(stack.statusTimes.some((t) => Math.floor(t / 60) * 60 === stack.requestTimes[0])).toBe(true);
+  expect(stack.statusTimes.some((t) => Math.floor(t / 60) * 60 === stack.requestTimes[0])).toBe(
+    true,
+  );
 
   // The backup prompt (a file picker exists here): choose once, later retires write by themselves.
   await expect(page.getByTestId('backup-prompt')).toBeVisible();

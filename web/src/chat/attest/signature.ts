@@ -44,14 +44,22 @@ export function verifyCompletionSignature(
     : `${model}:${hash(request)}:${hash(response)}`;
   if (sig.text !== text) return no('the signed text does not match the exchanged bytes');
   const signer = gateway ? attested.gateway : attested.model;
-  if (sig.signing_algo !== 'ed25519' || (sig.signing_address ?? '').toLowerCase() !== signer.signingAddress) {
+  if (
+    sig.signing_algo !== 'ed25519' ||
+    (sig.signing_address ?? '').toLowerCase() !== signer.signingAddress
+  ) {
     return no('the signer is not the attested key');
   }
   let ok = false;
   try {
-    ok = ed25519.verify(fromHex(sig.signature ?? ''), new TextEncoder().encode(text), fromHex(signer.signingAddress), {
-      zip215: false,
-    });
+    ok = ed25519.verify(
+      fromHex(sig.signature ?? ''),
+      new TextEncoder().encode(text),
+      fromHex(signer.signingAddress),
+      {
+        zip215: false,
+      },
+    );
   } catch {
     ok = false;
   }

@@ -37,19 +37,21 @@ const signerPk = readFileSync(new URL('../pins/policy-signer.pub', import.meta.u
 
 beforeAll(() => {
   initSync({
-    module: readFileSync(new URL('../src/wasm/web-checks/nymira_web_wasm_bg.wasm', import.meta.url)),
+    module: readFileSync(
+      new URL('../src/wasm/web-checks/nymira_web_wasm_bg.wasm', import.meta.url),
+    ),
   });
 });
 
 const wasm = { verify_tdx_quote, fetch_collateral: async () => '' };
 // The two reports were recorded at slightly different moments; one collateral each.
-const quoteFor = (file: string) =>
-  recordedQuoteVerifier(wasm, read(file), meta.recorded_at_secs);
+const quoteFor = (file: string) => recordedQuoteVerifier(wasm, read(file), meta.recorded_at_secs);
 
 async function attest(report = modelReport): Promise<Attested> {
   const policy = loadPolicy(policyJson, signerPk, 1);
   // The model quote and the gateway quote have their own collateral: route by quote.
-  const gatewayQuote = (gatewayReport.gateway_attestation ?? ({} as { intel_quote: string })).intel_quote;
+  const gatewayQuote = (gatewayReport.gateway_attestation ?? ({} as { intel_quote: string }))
+    .intel_quote;
   const model = quoteFor('collateral-model.json');
   const gateway = quoteFor('collateral-gateway.json');
   return verifyReports(
@@ -75,8 +77,13 @@ describe('the signed policy', () => {
       new URL('../../crates/nymirad/pins/attestation-policy.json', import.meta.url),
       'utf8',
     );
-    expect(readFileSync(new URL('../pins/attestation-policy.json', import.meta.url), 'utf8')).toBe(shipped);
-    const key = readFileSync(new URL('../../crates/nymirad/pins/policy-signer.pub', import.meta.url), 'utf8');
+    expect(readFileSync(new URL('../pins/attestation-policy.json', import.meta.url), 'utf8')).toBe(
+      shipped,
+    );
+    const key = readFileSync(
+      new URL('../../crates/nymirad/pins/policy-signer.pub', import.meta.url),
+      'utf8',
+    );
     expect(signerPk).toBe(key.trim());
   });
 
@@ -90,9 +97,14 @@ describe('the signed policy', () => {
 
     // A policy that is signed but lenient: sign with a test key and load under that key.
     const seed = new Uint8Array(32).fill(9);
-    const lenient: Policy = { ...structuredClone(policyJson), accepted_tcb_statuses: ['UpToDate', 'OutOfDate'] };
+    const lenient: Policy = {
+      ...structuredClone(policyJson),
+      accepted_tcb_statuses: ['UpToDate', 'OutOfDate'],
+    };
     lenient.signature = toHex(ed25519.sign(new TextEncoder().encode(signedText(lenient)), seed));
-    expect(() => loadPolicy(lenient, toHex(ed25519.getPublicKey(seed)), 1)).toThrow(/strict policy/);
+    expect(() => loadPolicy(lenient, toHex(ed25519.getPublicKey(seed)), 1)).toThrow(
+      /strict policy/,
+    );
   });
 });
 
@@ -133,16 +145,25 @@ describe('recorded evidence', () => {
     p.signature = toHex(ed25519.sign(new TextEncoder().encode(signedText(p)), seed));
     const policy = loadPolicy(p, toHex(ed25519.getPublicKey(seed)), 1);
     await expect(
-      verifyReports(meta.model, modelReport, meta.nonce_model, gatewayReport, meta.nonce_gateway, policy, {
-        verify: (q) => quoteFor('collateral-model.json').verify(q),
-      }),
+      verifyReports(
+        meta.model,
+        modelReport,
+        meta.nonce_model,
+        gatewayReport,
+        meta.nonce_gateway,
+        policy,
+        {
+          verify: (q) => quoteFor('collateral-model.json').verify(q),
+        },
+      ),
     ).rejects.toMatchObject({ code: 'measurement_not_accepted' });
   });
 
   it('refuses a quote that is not signed by Intel (a flipped byte)', async () => {
     const bad = structuredClone(modelReport);
     const q = bad.model_attestations![0]!.intel_quote;
-    bad.model_attestations![0]!.intel_quote = q.slice(0, 2000) + (q[2000] === 'a' ? 'b' : 'a') + q.slice(2001);
+    bad.model_attestations![0]!.intel_quote =
+      q.slice(0, 2000) + (q[2000] === 'a' ? 'b' : 'a') + q.slice(2001);
     await expect(attest(bad)).rejects.toMatchObject({ code: 'quote_invalid' });
   });
 
@@ -166,20 +187,36 @@ describe('response signatures', () => {
     });
     // Other bytes, or a bare signature without its kind, are judged the same way.
     expect(
-      verifyCompletionSignature(a, signature, meta.model, request, new TextEncoder().encode('other')).result,
+      verifyCompletionSignature(
+        a,
+        signature,
+        meta.model,
+        request,
+        new TextEncoder().encode('other'),
+      ).result,
     ).toBe('not_verified');
     const { signature_kind: _kind, ...bare } = signature;
     void _kind;
-    expect(verifyCompletionSignature(a, bare, meta.model, request, response).result).toBe('model_signed');
+    expect(verifyCompletionSignature(a, bare, meta.model, request, response).result).toBe(
+      'model_signed',
+    );
   });
 
   it('every mismatch is not verified, with a reason, and the weakest result counts', async () => {
     const a = await attest();
     const none = verifyCompletionSignature(a, null, meta.model, request, response);
     expect(badgeLabel(none)).toBe('not verified');
-    const kind = verifyCompletionSignature(a, { ...signature, signature_kind: 'other' }, meta.model, request, response);
+    const kind = verifyCompletionSignature(
+      a,
+      { ...signature, signature_kind: 'other' },
+      meta.model,
+      request,
+      response,
+    );
     expect(kind.result).toBe('not_verified');
-    expect(weakest([{ result: 'model_signed' }, { result: 'gateway_signed' }]).result).toBe('gateway_signed');
+    expect(weakest([{ result: 'model_signed' }, { result: 'gateway_signed' }]).result).toBe(
+      'gateway_signed',
+    );
     expect(weakest([{ result: 'model_signed' }, none]).result).toBe('not_verified');
     expect(badgeLabel({ result: 'model_signed' })).toBe('model-signed response');
     expect(badgeLabel({ result: 'gateway_signed' })).toBe('gateway-signed response');
@@ -188,8 +225,6 @@ describe('response signatures', () => {
 
 describe('web-checks', () => {
   it('a status signature that is not the operator’s is refused without throwing', () => {
-    expect(() =>
-      status_signature_valid('0x1', '0x2', 'aabb', 'op.test', 1n, '{"r":1}'),
-    ).toThrow();
+    expect(() => status_signature_valid('0x1', '0x2', 'aabb', 'op.test', 1n, '{"r":1}')).toThrow();
   });
 });

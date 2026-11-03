@@ -169,7 +169,8 @@ export async function prepareLease(
     wasm.prepareRequest(walletConfigJson(input.config, input.bound), state, args),
   );
   const { request, journal, state: next } = prepared;
-  if (!request || !journal || !next) throw new Error('the wallet core returned an unexpected shape');
+  if (!request || !journal || !next)
+    throw new Error('the wallet core returned an unexpected shape');
   const record: LeaseRecord = {
     leaseId: '',
     root: path.active_root,
@@ -291,11 +292,7 @@ export async function completeLease(
 }
 
 /** Sets a refused request aside (`root_stale`: the operator refused it before binding the nullifier). */
-export async function discardPending(
-  key: CryptoKey,
-  aad: string,
-  sealed: Sealed,
-): Promise<Sealed> {
+export async function discardPending(key: CryptoKey, aad: string, sealed: Sealed): Promise<Sealed> {
   const { state, extra } = await open(key, aad, sealed);
   const { journal: _journal, active: _active, ...rest } = extra;
   void _journal;

@@ -61,9 +61,9 @@ describe('hashcash', () => {
     const value = solvePuzzle('aabb', 10);
     const [nonce, counter] = value.split(':');
     expect(nonce).toBe('aabb');
-    expect(leadingZeroBits(sha256(new TextEncoder().encode(`aabb:${counter}`)))).toBeGreaterThanOrEqual(
-      10,
-    );
+    expect(
+      leadingZeroBits(sha256(new TextEncoder().encode(`aabb:${counter}`))),
+    ).toBeGreaterThanOrEqual(10);
     expect(leadingZeroBits(new Uint8Array([0, 0b0010_0000]))).toBe(10);
   });
 });

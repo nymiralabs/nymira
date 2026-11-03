@@ -90,7 +90,10 @@ export class OperatorClient {
   async openLease(requestJson: string, puzzle?: string): Promise<IssuedLease> {
     const r = await this.send('/v2/openrouter/leases', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(puzzle ? { [PUZZLE_HEADER]: puzzle } : {}) },
+      headers: {
+        'content-type': 'application/json',
+        ...(puzzle ? { [PUZZLE_HEADER]: puzzle } : {}),
+      },
       body: requestJson,
     });
     if (!r.ok) return OperatorClient.fail(r);
@@ -105,7 +108,14 @@ export class OperatorClient {
     if (!leaseId || !token || !bound || issuedAt === undefined || expiresAt === undefined) {
       throw new OperatorUnreachable('the operator’s lease answer is incomplete');
     }
-    return { leaseId, token, clientRequestId: text('client_request_id') ?? '', bound, issuedAt, expiresAt };
+    return {
+      leaseId,
+      token,
+      clientRequestId: text('client_request_id') ?? '',
+      bound,
+      issuedAt,
+      expiresAt,
+    };
   }
 
   /** `POST /v2/openrouter/leases/{id}`: ends the lease so the operator settles it. */

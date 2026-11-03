@@ -39,7 +39,6 @@ let key: CryptoKey;
 let operatorPk: { x: string; y: string };
 let config: LeaseConfig;
 
-
 const wasm: LeaseWasm = {
   prepareRequest: (c, s, a) => prover.prepare_request(c, s, a),
   treePath: (snapshot, noteId) => BrowserNoteTree.from_state(snapshot).path(noteId),
@@ -52,10 +51,14 @@ const noteWasm: NoteWasm = {
 
 beforeAll(async () => {
   initSync({
-    module: readFileSync(new URL('../src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', import.meta.url)),
+    module: readFileSync(
+      new URL('../src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', import.meta.url),
+    ),
   });
   op.initSync({
-    module: readFileSync(new URL('../src/wasm/web-checks-test/nymira_web_wasm_bg.wasm', import.meta.url)),
+    module: readFileSync(
+      new URL('../src/wasm/web-checks-test/nymira_web_wasm_bg.wasm', import.meta.url),
+    ),
   });
   operatorPk = JSON.parse(op.test_operator_public_key(1n)) as { x: string; y: string };
   config = { chainId: CHAIN_ID, contractAddress: CONTRACT, operatorPk, clearancePk: operatorPk };
@@ -75,8 +78,19 @@ async function fundedNote() {
 }
 
 describe('lease path', () => {
-  it('uses the dev setup', () => {
+  it('uses the dev setup here, and the deployed build does not', () => {
     expect(browser_setup_id()).toBe('dev');
+    const deployed = readFileSync(
+      new URL('../src/wasm/zkapi-browser/zkapi_browser_bg.wasm', import.meta.url),
+    );
+    // A second instance of the ceremony-setup build: it loads no development key.
+    expect(
+      deployed.equals(
+        readFileSync(
+          new URL('../src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', import.meta.url),
+        ),
+      ),
+    ).toBe(false);
   });
 
   it('proves a lease, installs the signed successor and keeps the record', async () => {
@@ -137,7 +151,13 @@ describe('lease path', () => {
     });
     expect((await readNote(key, aad, sealed)).active?.token).toBe('token-1');
 
-    const response = op.test_operator_respond(1n, prepared.requestJson, BigInt(CHAIN_ID), CONTRACT, 2_000n);
+    const response = op.test_operator_respond(
+      1n,
+      prepared.requestJson,
+      BigInt(CHAIN_ID),
+      CONTRACT,
+      2_000n,
+    );
     const done = await completeLease(wasm, key, aad, sealed, config, {
       responseJson: response,
       closedAt: 1_800_000_100,
@@ -168,9 +188,13 @@ describe('lease path', () => {
 
   it('refuses a response signed by another key (S6) and keeps the journal', async () => {
     const funded = await fundedNote();
-    const payload = await (await import('../src/crypto/aead')).openJson<{ state: string }>(key, funded, aad);
+    const payload = await (
+      await import('../src/crypto/aead')
+    ).openJson<{ state: string }>(key, funded, aad);
     const leaf = JSON.parse(browser_note_leaf(payload.state)) as string;
-    const path = JSON.parse(browser_tree_path_from_leaves(JSON.stringify([leaf]), 0)) as { active_root: string };
+    const path = JSON.parse(browser_tree_path_from_leaves(JSON.stringify([leaf]), 0)) as {
+      active_root: string;
+    };
     const prepared = await prepareLease(wasm, key, aad, funded, {
       config,
       noteId: 0,
@@ -181,7 +205,13 @@ describe('lease path', () => {
       createdAtMs: 1,
       openedAt: 1,
     });
-    const forged = op.test_operator_respond(2n, prepared.requestJson, BigInt(CHAIN_ID), CONTRACT, 2_000n);
+    const forged = op.test_operator_respond(
+      2n,
+      prepared.requestJson,
+      BigInt(CHAIN_ID),
+      CONTRACT,
+      2_000n,
+    );
     await expect(
       completeLease(wasm, key, aad, prepared.sealed, config, {
         responseJson: forged,

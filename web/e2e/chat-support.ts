@@ -26,7 +26,9 @@ let wasmReady = false;
 function zk() {
   if (wasmReady) return;
   initSync({
-    module: readFileSync(new URL('../src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', import.meta.url)),
+    module: readFileSync(
+      new URL('../src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', import.meta.url),
+    ),
   });
   wasmReady = true;
 }

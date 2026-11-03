@@ -18,9 +18,15 @@ import { modelById } from '../src/chat/models';
 import { fromHex, toHex } from '../src/crypto/bytes';
 import { leadingZeroBits } from '../src/chat/puzzle';
 import { splitObject } from '../src/note/rawjson';
-import { initSync as initZk, browser_verify_request } from '../src/wasm/zkapi-browser-dev/zkapi_browser.js';
+import {
+  initSync as initZk,
+  browser_verify_request,
+} from '../src/wasm/zkapi-browser-dev/zkapi_browser.js';
 import * as op from '../src/wasm/web-checks-test/nymira_web_wasm.js';
-import { contractAddress, initSync as initCodec } from '../src/wasm/near-codec/nymira_near_codec_wasm.js';
+import {
+  contractAddress,
+  initSync as initCodec,
+} from '../src/wasm/near-codec/nymira_near_codec_wasm.js';
 
 export const OPERATOR_PORT = 18546;
 export const GATEWAY_PORT = 18548;
@@ -28,21 +34,37 @@ export const APP_ORIGIN = 'http://localhost:4173';
 
 const root = new URL('../', import.meta.url);
 const policy = JSON.parse(readFileSync(new URL('pins/attestation-policy.json', root), 'utf8')) as {
-  deployments: { role: string; compose_hashes: string[]; os_image_hash: string; mr_td: string; rtmr0: string; rtmr1: string; rtmr2: string }[];
+  deployments: {
+    role: string;
+    compose_hashes: string[];
+    os_image_hash: string;
+    mr_td: string;
+    rtmr0: string;
+    rtmr1: string;
+    rtmr2: string;
+  }[];
 };
 const vault = JSON.parse(readFileSync(new URL('test-fixtures/mock-vault.json', root), 'utf8')) as {
   vaultAccount: string;
   pins: { config: Record<string, unknown> };
 };
-const requestVk = readFileSync(new URL('../vendor/zkapi/protocol/setup/v2-concession-dev/request.vk', root));
+const requestVk = readFileSync(
+  new URL('../vendor/zkapi/protocol/setup/v2-concession-dev/request.vk', root),
+);
 const CHAIN_ID = BigInt(vault.pins.config.chain_id as string);
 
 let ready = false;
 function initWasm() {
   if (ready) return;
-  initZk({ module: readFileSync(new URL('src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', root)) });
-  op.initSync({ module: readFileSync(new URL('src/wasm/web-checks-test/nymira_web_wasm_bg.wasm', root)) });
-  initCodec({ module: readFileSync(new URL('src/wasm/near-codec/nymira_near_codec_wasm_bg.wasm', root)) });
+  initZk({
+    module: readFileSync(new URL('src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', root)),
+  });
+  op.initSync({
+    module: readFileSync(new URL('src/wasm/web-checks-test/nymira_web_wasm_bg.wasm', root)),
+  });
+  initCodec({
+    module: readFileSync(new URL('src/wasm/near-codec/nymira_near_codec_wasm_bg.wasm', root)),
+  });
   ready = true;
 }
 
@@ -90,7 +112,15 @@ export interface Lease {
   bound: bigint;
   issuedAt: number;
   retired: boolean;
-  chats: { chatId: string; request: Uint8Array; response: Uint8Array; model: string; prompt: number; completion: number; stream: boolean }[];
+  chats: {
+    chatId: string;
+    request: Uint8Array;
+    response: Uint8Array;
+    model: string;
+    prompt: number;
+    completion: number;
+    stream: boolean;
+  }[];
 }
 
 export interface Seen {
@@ -155,7 +185,10 @@ export class MockStack {
     if (req.headers.origin === APP_ORIGIN) {
       res.setHeader('access-control-allow-origin', APP_ORIGIN);
       res.setHeader('vary', 'origin');
-      res.setHeader('access-control-allow-headers', req.headers['access-control-request-headers'] ?? '*');
+      res.setHeader(
+        'access-control-allow-headers',
+        req.headers['access-control-request-headers'] ?? '*',
+      );
       res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
       res.setHeader('access-control-expose-headers', 'Retry-After');
     }
@@ -173,7 +206,9 @@ export class MockStack {
   }
 
   private error(res: ServerResponse, status: number, code: string, message = code, retry?: number) {
-    this.json(res, status, { error: { code, message, ...(retry ? { retry_after_secs: retry } : {}) } });
+    this.json(res, status, {
+      error: { code, message, ...(retry ? { retry_after_secs: retry } : {}) },
+    });
   }
 
   // ---- the operator ----
@@ -204,7 +239,9 @@ export class MockStack {
       slot_rate: c.slot_rate,
       ...s.params,
       nonce: slot,
-      nonce_sig: JSON.parse(op.test_operator_sign_status(seed, slot.nonce, slot.host, BigInt(slot.ts))),
+      nonce_sig: JSON.parse(
+        op.test_operator_sign_status(seed, slot.nonce, slot.host, BigInt(slot.ts)),
+      ),
       admission: { load_pct: 0, retry_after_secs: 0, puzzle_difficulty: s.puzzleDifficulty },
       emergency_notice: s.emergency || null,
       future_field: { ignored: true },
@@ -213,10 +250,18 @@ export class MockStack {
 
   private params(): ChargeParams {
     const c = vault.pins.config;
-    return { step: BigInt(c.charge_step as string), minCharge: BigInt(c.min_charge as string), slotRate: BigInt(c.slot_rate as number) };
+    return {
+      step: BigInt(c.charge_step as string),
+      minCharge: BigInt(c.min_charge as string),
+      slotRate: BigInt(c.slot_rate as number),
+    };
   }
 
-  private authorize(req: IncomingMessage, res: ServerResponse, lease: Lease | undefined): lease is Lease {
+  private authorize(
+    req: IncomingMessage,
+    res: ServerResponse,
+    lease: Lease | undefined,
+  ): lease is Lease {
     if (!lease) {
       this.error(res, 404, 'lease_not_found');
       return false;
@@ -233,20 +278,35 @@ export class MockStack {
     if (req.method === 'OPTIONS') return void res.writeHead(204).end();
     const url = new URL(req.url ?? '/', 'http://x');
     const body = req.method === 'POST' ? await this.body(req) : '';
-    this.seen.push({ method: req.method ?? '', path: url.pathname, headers: { ...req.headers }, body: url.pathname === '/v1/chat/completions' || url.pathname === '/v2/openrouter/leases' ? body : undefined });
+    this.seen.push({
+      method: req.method ?? '',
+      path: url.pathname,
+      headers: { ...req.headers },
+      body:
+        url.pathname === '/v1/chat/completions' || url.pathname === '/v2/openrouter/leases'
+          ? body
+          : undefined,
+    });
     const s = this.scenario;
     try {
-      if (req.method === 'GET' && url.pathname === '/v1/status') return this.json(res, 200, this.status());
+      if (req.method === 'GET' && url.pathname === '/v1/status')
+        return this.json(res, 200, this.status());
 
       if (req.method === 'POST' && url.pathname === '/v2/openrouter/leases') {
-        this.requestTimes.push(Number(JSON.parse(splitObject(splitObject(body).public_inputs!).request_time!)));
-        if (s.leaseLimit === 'operator') return this.error(res, 429, 'operator_capacity', 'credit', 30);
+        this.requestTimes.push(
+          Number(JSON.parse(splitObject(splitObject(body).public_inputs!).request_time!)),
+        );
+        if (s.leaseLimit === 'operator')
+          return this.error(res, 429, 'operator_capacity', 'credit', 30);
         if (s.puzzleDifficulty > 0) {
           const header = String(req.headers['x-nymira-puzzle'] ?? '');
           const [nonce, counter] = header.split(':');
           const ok =
-            nonce !== undefined && counter !== undefined && this.nonces.includes(nonce) &&
-            leadingZeroBits(sha256(new TextEncoder().encode(`${nonce}:${counter}`))) >= s.puzzleDifficulty;
+            nonce !== undefined &&
+            counter !== undefined &&
+            this.nonces.includes(nonce) &&
+            leadingZeroBits(sha256(new TextEncoder().encode(`${nonce}:${counter}`))) >=
+              s.puzzleDifficulty;
           if (!ok) return this.error(res, 429, 'puzzle_required');
         }
         if (s.rootStale > 0) {
@@ -254,7 +314,11 @@ export class MockStack {
           return this.error(res, 409, 'root_stale');
         }
         const parts = splitObject(body);
-        const verified = browser_verify_request(parts.public_inputs!, (JSON.parse(parts.proof!) as { proof: string }).proof, requestVk);
+        const verified = browser_verify_request(
+          parts.public_inputs!,
+          (JSON.parse(parts.proof!) as { proof: string }).proof,
+          requestVk,
+        );
         if (!verified) return this.error(res, 422, 'proof_invalid');
         const inputs = splitObject(parts.public_inputs!);
         const bound = BigInt(JSON.parse(inputs.solvency_bound!) as number | string);
@@ -279,7 +343,8 @@ export class MockStack {
         });
       }
 
-      if (req.method === 'POST' && url.pathname === '/v1/chat/completions') return this.chat(req, res, body);
+      if (req.method === 'POST' && url.pathname === '/v1/chat/completions')
+        return this.chat(req, res, body);
 
       const leasePath = /^\/v2\/openrouter\/leases\/([^/]+)$/.exec(url.pathname);
       if (leasePath) {
@@ -289,16 +354,25 @@ export class MockStack {
           lease.retired = true;
           return this.json(res, 200, { status: 'retiring' });
         }
-        return this.json(res, 200, { status: lease.retired ? 'settled' : 'active', provider_evidence: { signatures: this.signatures(lease) } });
+        return this.json(res, 200, {
+          status: lease.retired ? 'settled' : 'active',
+          provider_evidence: { signatures: this.signatures(lease) },
+        });
       }
 
       const recovery = /^\/v2\/requests\/([^/]+)$/.exec(url.pathname);
       if (recovery) {
         const lease = [...this.leases.values()].find((l) => l.clientRequestId === recovery[1]);
         if (!lease) return this.error(res, 404, 'lease_not_found');
-        if (!lease.retired) return this.json(res, 200, { status: 'pending', nullifier_status: 'reserved' });
+        if (!lease.retired)
+          return this.json(res, 200, { status: 'pending', nullifier_status: 'reserved' });
         const response = this.respond(lease);
-        return this.json(res, 200, null, `{"status":"finalized","nullifier_status":"finalized","request_response":${response}}`);
+        return this.json(
+          res,
+          200,
+          null,
+          `{"status":"finalized","nullifier_status":"finalized","request_response":${response}}`,
+        );
       }
       this.error(res, 404, 'not_found');
     } catch (e) {
@@ -308,7 +382,10 @@ export class MockStack {
 
   /** What the lease costs: the operator's formula over the usage it metered, plus any inflation. */
   charge(lease: Lease): bigint {
-    const cost = lease.chats.reduce((n, c) => n + costNano(modelById(c.model)!, BigInt(c.prompt), BigInt(c.completion)), 0n);
+    const cost = lease.chats.reduce(
+      (n, c) => n + costNano(modelById(c.model)!, BigInt(c.prompt), BigInt(c.completion)),
+      0n,
+    );
     const held = BigInt(Math.max(0, Math.floor(Date.now() / 1000) - lease.issuedAt));
     const base = chargeOf(lease.bound, cost, held, this.params());
     const inflated = base + BigInt(this.scenario.inflate);
@@ -316,7 +393,13 @@ export class MockStack {
   }
 
   private respond(lease: Lease): string {
-    return op.test_operator_respond(1n, lease.requestJson, CHAIN_ID, contractHex(), this.charge(lease));
+    return op.test_operator_respond(
+      1n,
+      lease.requestJson,
+      CHAIN_ID,
+      contractHex(),
+      this.charge(lease),
+    );
   }
 
   // ---- chat ----
@@ -326,7 +409,8 @@ export class MockStack {
     const lease = this.leases.get(String(req.headers['x-nymira-lease-id'] ?? ''));
     if (!this.authorize(req, res, lease)) return;
     if (s.chatLimit === 'operator') return this.error(res, 429, 'operator_capacity', 'slots', 5);
-    if (s.chatLimit === 'provider') return this.error(res, 429, 'provider_rate_limit', 'upstream', 7);
+    if (s.chatLimit === 'provider')
+      return this.error(res, 429, 'provider_rate_limit', 'upstream', 7);
     const request = JSON.parse(body) as {
       model: string;
       stream?: boolean;
@@ -336,7 +420,10 @@ export class MockStack {
     };
     this.wire.push(body);
     const modelKeys = new ClientKeys(MODEL_SEED);
-    const plain = request.messages.map((m) => ({ role: m.role, content: decrypt(modelKeys, m.content) }));
+    const plain = request.messages.map((m) => ({
+      role: m.role,
+      content: decrypt(modelKeys, m.content),
+    }));
     const clientPub = fromHex(String(req.headers['x-client-pub-key']));
     const last = plain[plain.length - 1]?.content ?? '';
     const reply = `echo: ${last}`;
@@ -344,7 +431,11 @@ export class MockStack {
     const completion = reply.split(/\s+/).length;
     const chatId = `chatcmpl-${lease.id}-${lease.chats.length + 1}`;
     const seal = (text: string) => encrypt(clientPub, new TextEncoder().encode(text));
-    const usage = { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
+    const usage = {
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: prompt + completion,
+    };
     let raw: string;
     if (request.stream) {
       const chunk = (delta: unknown, extra: Record<string, unknown> = {}) =>
@@ -362,7 +453,9 @@ export class MockStack {
         id: chatId,
         object: 'chat.completion',
         model: request.model,
-        choices: [{ index: 0, message: { role: 'assistant', content: seal(reply) }, finish_reason: 'stop' }],
+        choices: [
+          { index: 0, message: { role: 'assistant', content: seal(reply) }, finish_reason: 'stop' },
+        ],
         usage,
       });
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -384,13 +477,22 @@ export class MockStack {
     const hash = (b: Uint8Array) => toHex(sha256(b));
     return lease.chats.flatMap((c) => {
       const kind =
-        s.signature === 'auto' ? (c.stream ? 'gateway' : 'provider_tee') : s.signature === 'bad' ? 'provider_tee' : s.signature;
+        s.signature === 'auto'
+          ? c.stream
+            ? 'gateway'
+            : 'provider_tee'
+          : s.signature === 'bad'
+            ? 'provider_tee'
+            : s.signature;
       if (kind === 'none') return [];
       const gateway = kind === 'gateway';
-      const text = gateway ? `${hash(c.request)}:${hash(c.response)}` : `${c.model}:${hash(c.request)}:${hash(c.response)}`;
+      const text = gateway
+        ? `${hash(c.request)}:${hash(c.response)}`
+        : `${c.model}:${hash(c.request)}:${hash(c.response)}`;
       const seed = gateway ? GATEWAY_SEED : MODEL_SEED;
       let signature = toHex(ed25519.sign(new TextEncoder().encode(text), seed));
-      if (s.signature === 'bad') signature = signature.replace(/^../, (b) => (b === '00' ? '01' : '00'));
+      if (s.signature === 'bad')
+        signature = signature.replace(/^../, (b) => (b === '00' ? '01' : '00'));
       return [
         {
           chat_id: c.chatId,
@@ -419,7 +521,15 @@ export class MockStack {
     ].map((e) => {
       const head = new Uint8Array(4);
       new DataView(head.buffer).setUint32(0, e.event_type, true);
-      const digest = sha384(new Uint8Array([...head, 0x3a, ...new TextEncoder().encode(e.event), 0x3a, ...hex(e.event_payload)]));
+      const digest = sha384(
+        new Uint8Array([
+          ...head,
+          0x3a,
+          ...new TextEncoder().encode(e.event),
+          0x3a,
+          ...hex(e.event_payload),
+        ]),
+      );
       return { ...e, digest: toHex(digest) };
     });
     let rtmr3 = new Uint8Array(48);

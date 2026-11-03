@@ -103,7 +103,11 @@ function toBackupNote(
 
 async function unsealRecord(key: CryptoKey, record: NoteRecord): Promise<BackupNote> {
   const aad = noteAad(record.network, record.vault, record.id);
-  const plain = await openJson<{ secret?: string; state?: string; extra?: string }>(key, record.sealed, aad);
+  const plain = await openJson<{ secret?: string; state?: string; extra?: string }>(
+    key,
+    record.sealed,
+    aad,
+  );
   return toBackupNote(record, plain);
 }
 
@@ -170,7 +174,8 @@ export async function restoreBackup(
       continue;
     }
     const { secret, state, extra, ...meta } = note;
-    const payload = note.kind === 'pending' ? { secret } : extra === undefined ? { state } : { state, extra };
+    const payload =
+      note.kind === 'pending' ? { secret } : extra === undefined ? { state } : { state, extra };
     records.push({
       ...meta,
       sealed: await seal(key, payload, noteAad(note.network, note.vault, note.id)),

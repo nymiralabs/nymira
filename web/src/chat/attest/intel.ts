@@ -34,7 +34,10 @@ export function liveQuoteVerifier(
       try {
         collateral = await wasm.fetch_collateral(pccsUrl, quote);
       } catch (e) {
-        throw new AttestationError('collateral_unavailable', `the quote’s collateral could not be fetched: ${String(e)}`);
+        throw new AttestationError(
+          'collateral_unavailable',
+          `the quote’s collateral could not be fetched: ${String(e)}`,
+        );
       }
       return checked(wasm, quote, collateral, nowSecs());
     },

@@ -184,7 +184,8 @@ export async function verifyEvidence(
   if (!equalBytes(hexBytes(evidence.request_nonce, 32, 'the report nonce'), expected)) {
     fail('nonce_mismatch', 'the report answers another nonce');
   }
-  if (evidence.signing_algo !== 'ed25519') fail('unsupported_algo', 'only Ed25519 signers are accepted');
+  if (evidence.signing_algo !== 'ed25519')
+    fail('unsupported_algo', 'only Ed25519 signers are accepted');
   const address = hexBytes(evidence.signing_address, 32, 'the signing address');
   const facts = await quote.verify(evidence.intel_quote);
 
@@ -208,7 +209,8 @@ export async function verifyEvidence(
   const compose = evidence.info?.tcb_info?.app_compose;
   if (typeof compose !== 'string') fail('compose_missing', 'the report has no app compose file');
   const cfg = fromHex(facts.mr_config_id);
-  if (cfg.length < 33 || cfg[0] !== 1) fail('mr_config_id', 'the quote’s config id is not a compose hash');
+  if (cfg.length < 33 || cfg[0] !== 1)
+    fail('mr_config_id', 'the quote’s config id is not a compose hash');
   if (!equalBytes(cfg.subarray(1, 33), sha256(new TextEncoder().encode(compose as string)))) {
     fail('compose_mismatch', 'the compose file does not hash to the quote’s config id');
   }
@@ -220,20 +222,29 @@ export async function verifyEvidence(
   if (matched.length === 0) {
     fail('measurement_not_accepted', 'the measured deployment is not in the signed policy');
   }
-  if (!matched.some((d) => d.compose_hashes.includes(runtime.composeHash!) && d.os_image_hash === runtime.osImageHash)) {
+  if (
+    !matched.some(
+      (d) =>
+        d.compose_hashes.includes(runtime.composeHash!) && d.os_image_hash === runtime.osImageHash,
+    )
+  ) {
     fail('deployment_rejected', 'the compose or OS image hash is not in the signed policy');
   }
 
   let gpu: Verified['gpu'] = 'none';
   if (role === 'model') {
-    if (evidence.nvidia_payload === undefined) fail('gpu_required', 'the model report has no GPU evidence');
+    if (evidence.nvidia_payload === undefined)
+      fail('gpu_required', 'the model report has no GPU evidence');
     let parsed: { nonce?: unknown };
     try {
       parsed = JSON.parse(evidence.nvidia_payload as string) as { nonce?: unknown };
     } catch {
       return fail('gpu_payload_invalid', 'the GPU payload is not JSON');
     }
-    if (typeof parsed.nonce !== 'string' || !equalBytes(hexBytes(parsed.nonce, 32, 'the GPU nonce'), expected)) {
+    if (
+      typeof parsed.nonce !== 'string' ||
+      !equalBytes(hexBytes(parsed.nonce, 32, 'the GPU nonce'), expected)
+    ) {
       fail('nonce_mismatch', 'the GPU payload answers another nonce');
     }
     gpu = 'nonce_only';
@@ -293,11 +304,20 @@ export async function verifyReports(
     }
   }
   if (!model) {
-    throw last ?? new AttestationError('no_model_attestation', 'the report holds no attestation for the model');
+    throw (
+      last ??
+      new AttestationError('no_model_attestation', 'the report holds no attestation for the model')
+    );
   }
   if (!gatewayReport.gateway_attestation) {
     fail('no_gateway_attestation', 'the gateway report has no gateway attestation');
   }
-  const gateway = await verifyEvidence('gateway', gatewayReport.gateway_attestation!, gatewayNonce, policy, quote);
+  const gateway = await verifyEvidence(
+    'gateway',
+    gatewayReport.gateway_attestation!,
+    gatewayNonce,
+    policy,
+    quote,
+  );
   return { model, gateway };
 }
