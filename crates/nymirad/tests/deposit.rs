@@ -210,6 +210,22 @@ async fn a_deposit_is_confirmed_from_its_own_receipt_and_leaves_no_plain_secret(
     );
     let secret = notes[0].secret.clone();
     assert_eq!(notes[0].expiry_ns, Some(accepted.expiry_secs));
+    // What the CLI prints: the note, its expiry, the calendar file and the wait hint, in that order.
+    let report = accepted.report();
+    let lines: Vec<&str> = report.lines().collect();
+    assert_eq!(lines.len(), 3, "{report}");
+    assert_eq!(
+        lines[0],
+        format!(
+            "Note 0 accepted. Expires at Unix time {}.",
+            accepted.expiry_secs
+        )
+    );
+    assert_eq!(
+        lines[1],
+        format!("Calendar file: {}", accepted.calendar.display())
+    );
+    assert_eq!(lines[2], nymirad::deposit::WAIT_HINT);
 
     // The calendar file carries the vault's expiry.
     let ics = std::fs::read_to_string(&accepted.calendar).unwrap();

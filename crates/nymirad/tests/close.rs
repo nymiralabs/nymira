@@ -333,12 +333,13 @@ async fn a_dead_tor_sends_nothing_unless_the_user_says_yes() {
     assert_eq!(exit.conceded, 0);
     assert_eq!(yes.asked.lock().unwrap().len(), 1);
     assert_eq!(status_of(&s, &commitment).await, "PendingExit");
-    // The clearance and the operator's close never go direct, whatever the user says.
+    // A note that already left cannot be closed, and nothing is asked on the way: the clearance
+    // and the operator's close never go direct, whatever the user says. (`tests/leave_gaps.rs`
+    // covers a close on a note that is still open.)
     let close = s.gateway.close_note(0, no_delay(), Some(&yes)).await;
-    assert!(
-        close.is_err(),
-        "a note that already left cannot be closed: {close:?}"
-    );
+    assert!(matches!(close, Err(LeaveError::NoNote(0))), "{close:?}");
+    assert_eq!(yes.asked.lock().unwrap().len(), 1, "no new question");
+    assert!(s.closes.sent().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

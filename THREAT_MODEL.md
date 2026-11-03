@@ -63,6 +63,8 @@ After every retire, and after each lease open, close and deposit, `nymirad` writ
 
 Inside the encryption the notes and wallet states are in the clear, so whoever holds a backup and its key or passphrase can spend your notes. Keep the key away from the machine and from the backup. The place that stores the file sees an encrypted blob, its size and its write times.
 
+On the machine the wallet state is sealed under the passphrase. While a wallet is open for a lease, a close or an exit, its plain files sit in a memory-backed directory (tmpfs on Linux, a RAM disk on macOS), never on the disk, and `nymirad` refuses to open the wallet if it cannot make one. A crash leaves the files in memory until the next start seals them. The operating system may still write memory to swap: macOS encrypts swap by default, Linux does not unless the machine is set up for it.
+
 Restoring with the key or passphrase continues on the same note from the state the backup held. If a lease was served after that backup, the operator is ahead of the restored state, and the way out is an exit, which the operator can defeat by showing a later state; the balance then goes to the treasury at expiry. Restoring from the note secret alone gives an exit from the deposit state with concession 0, with the same risk.
 
 On the operator's emergency notice `nymirad` stops opening leases and suggests an exit for each open note. It does not exit by itself because of the notice. It reads the notice from `/v1/status` before each lease and every few minutes while it runs, so a notice can reach it late.

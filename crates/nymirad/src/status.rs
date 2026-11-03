@@ -99,7 +99,13 @@ pub fn render(
                 line
             }
             (NoteStatus::Pending, ..) => format!("Note {}: pending, run recover", n.commitment),
-            _ => format!("Note {}: {:?}", n.commitment, n.status),
+            // A note with an ID is named by it: that is what `finalize --note` takes.
+            _ => format!(
+                "Note {}: {:?}",
+                n.note_id
+                    .map_or_else(|| n.commitment.clone(), |id| id.to_string()),
+                n.status
+            ),
         };
         out.push(line);
     }
@@ -117,4 +123,122 @@ pub fn render(
         }
     }
     out.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const NOW: u64 = 1_900_000_000;
+    const DAY: u64 = 86_400;
+    const SECRET: &str = "00aabbccddeeff00112233445566778899aabbccddeeff00112233445566778";
+
+    fn note(id: u32, status: NoteStatus, expiry: Option<u64>) -> NoteEntry {
+        NoteEntry {
+            chain_label: "near-testnet".into(),
+            secret: SECRET.into(),
+            commitment: format!("0xc0ffee{id}"),
+            denomination: "1000000".into(),
+            payout: "alice.test".into(),
+            status,
+            note_id: Some(id),
+            expiry_ns: expiry,
+            deposit_amount: Some("1250000".into()),
+            tx_hash: None,
+            created_at: NOW,
+        }
+    }
+
+    fn pending_without_id() -> NoteEntry {
+        let mut n = note(4, NoteStatus::Pending, None);
+        n.note_id = None;
+        n
+    }
+
+    fn render(operator: Result<&Value, &RpcError>, notes: &[NoteEntry], q: &View) -> String {
+        super::render("Tor: ready", operator, notes, &Tripwire::default(), q, NOW)
+    }
+
+    #[test]
+    fn notes_show_their_balance_expiry_and_the_warnings_that_follow_from_it() {
+        let notes = [
+            note(1, NoteStatus::Accepted, Some(NOW + 30 * DAY)),
+            note(2, NoteStatus::Accepted, Some(NOW + 10 * DAY)),
+            note(3, NoteStatus::Accepted, Some(NOW + 4 * DAY)),
+            pending_without_id(),
+            note(5, NoteStatus::Exiting, Some(NOW + 4 * DAY)),
+        ];
+        let ok = json!({"vault": "vault.test", "degraded": false, "recovery_mode": false});
+        let text = render(Ok(&ok), &notes, &View::Lines(vec![]));
+        assert!(text.starts_with("Tor: ready\n"), "{text}");
+        assert!(text.contains(
+            "Operator: vault.test (heartbeat none yet, degraded: false, recovery mode: false)"
+        ));
+        assert!(text.contains("Vault: matches the pins"));
+        let line = |id: u32| {
+            let at = text
+                .find(&format!("Note {id}:"))
+                .unwrap_or_else(|| panic!("{text}"));
+            let rest = &text[at..];
+            rest.split("\nNote ").next().unwrap().to_string()
+        };
+        let one = line(1);
+        assert!(one.contains("1.250000 USDC deposited"), "{one}");
+        assert!(one.contains(&format!(
+            "expires {}",
+            crate::calendar::stamp(NOW + 30 * DAY)
+        )));
+        assert!(one.contains("(30 days left)"));
+        assert!(!one.contains("warning") && !one.contains("notice"), "{one}");
+        let two = line(2);
+        assert!(two.contains("(10 days left)") && two.contains("notice: 14 days or less left"));
+        let three = line(3);
+        assert!(three.contains("warning: no new lease on this note (5 days or less left)"));
+        assert!(
+            text.contains("Note 0xc0ffee4: pending, run recover"),
+            "{text}"
+        );
+        assert!(line(5).contains("Exiting"), "{}", line(5));
+        // Nothing in the status comes from a secret.
+        assert!(!text.contains(SECRET));
+    }
+
+    #[test]
+    fn no_notes_and_no_operator_are_said_plainly() {
+        let down = RpcError::Transport("refused".into());
+        let text = render(Err(&down), &[], &View::Off("not a testnet build"));
+        assert!(text.contains("Notes: none"));
+        assert!(text.contains("Operator: unreachable ("), "{text}");
+        assert!(text.contains("Quotes: off (not a testnet build)"));
+    }
+
+    #[test]
+    fn a_quote_is_labelled_quote_only() {
+        let lines = View::Lines(vec![quotes::Line {
+            label: "ETH",
+            text: "0.0003 ETH".into(),
+            at: NOW,
+        }]);
+        let text = render(Ok(&json!({})), &[], &lines);
+        assert!(
+            text.contains("Quote ETH: 1 USDC buys 0.0003 ETH (quote only)"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn an_operator_emergency_tells_the_user_how_to_exit() {
+        let emergency = json!({"vault": "v", "emergency_notice": "the operator is stopping"});
+        let text = render(Ok(&emergency), &[], &View::Lines(vec![]));
+        assert!(
+            text.contains("Operator notice: the operator is stopping"),
+            "{text}"
+        );
+        assert!(text.contains("New leases are stopped."));
+        assert!(text.contains("run `nymirad exit --note ID` for each open note"));
+        // Without a notice the advice is not shown.
+        let calm = render(Ok(&json!({"vault": "v"})), &[], &View::Lines(vec![]));
+        assert!(!calm.contains("nymirad exit"), "{calm}");
+    }
 }
