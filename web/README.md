@@ -78,7 +78,7 @@ A bundle is built for one profile (`vite build --mode <profile>`) and contains t
 
 | Profile   | Use                                                                | Vault pins                                                                         |
 | --------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `testnet` | The hackathon deployment (ADR-0019).                               | `null` until the judge vault exists. The Fund screen then says it is switched off. |
+| `testnet` | The hackathon deployment.                               | `null` until the judge vault exists. The Fund screen then says it is switched off. |
 | `mainnet` | The later launch.                                                  | `null`. No public mainnet vault during the hackathon.                              |
 | `mock`    | Playwright only. Loopback RPC, mock vault, a test wallet executor. | Fixture.                                                                           |
 

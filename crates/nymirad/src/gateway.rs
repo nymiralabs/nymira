@@ -66,7 +66,7 @@ pub struct GatewayConfig {
     /// Seconds of silence after which a lease is retired.
     pub idle_secs: u64,
     /// Percent of a lease's remaining bound one request may use: 90, or 70 if the first-day
-    /// overspend rule triggers (it did not, see `docs/day-1-checks.md`).
+    /// overspend rule triggers (it did not in the first-day checks).
     pub share_pct: u128,
     /// A new lease waits a random time up to this many seconds before anything goes out, then
     /// opens its Tor circuit while the proof is built (`net::prewarm`), so lease timing does not

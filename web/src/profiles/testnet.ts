@@ -1,4 +1,4 @@
-// The hackathon deployment (ADR-0019): NEAR testnet, Circle's testnet USDC, test funds only.
+// The hackathon deployment: NEAR testnet, Circle's testnet USDC, test funds only.
 //
 // `pins` stays null until the judge vault is deployed. Fill it with
 // `npm run pin-vault -- --network testnet --vault <account>`, review the diff and commit it; until
