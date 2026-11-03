@@ -133,6 +133,18 @@ pub struct Accepted {
     pub warnings: Vec<String>,
 }
 
+impl Accepted {
+    /// What `nymirad deposit` prints on stdout once the note is accepted.
+    pub fn report(&self) -> String {
+        format!(
+            "Note {} accepted. Expires at Unix time {}.\nCalendar file: {}\n{WAIT_HINT}",
+            self.note_id,
+            self.expiry_secs,
+            self.calendar.display()
+        )
+    }
+}
+
 fn amount(v: &Value) -> u128 {
     v.as_str().and_then(|s| s.parse().ok()).unwrap_or(0)
 }

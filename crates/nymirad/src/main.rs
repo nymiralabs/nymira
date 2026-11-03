@@ -497,15 +497,10 @@ async fn main() {
             let payout = flag(&mut args, "--payout");
             match ctx.deposit(amount, payout.as_deref(), &Terminal).await {
                 Ok(a) => {
-                    println!(
-                        "Note {} accepted. Expires at Unix time {}.",
-                        a.note_id, a.expiry_secs
-                    );
-                    println!("Calendar file: {}", a.calendar.display());
                     for w in &a.warnings {
                         eprintln!("warning: {w}");
                     }
-                    println!("{}", nymirad::deposit::WAIT_HINT);
+                    println!("{}", a.report());
                 }
                 Err(e) => die(e),
             }

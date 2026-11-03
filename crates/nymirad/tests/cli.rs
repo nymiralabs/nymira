@@ -1,0 +1,143 @@
+//! The `nymirad` binary as a user runs it: what it prints and refuses before it touches a chain.
+
+use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, Output, Stdio};
+
+use nymirad::backup::SECRET_ONLY_NOTICE;
+
+fn private_file(dir: &std::path::Path, name: &str, text: &str, mode: u32) -> std::path::PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, text).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+    path
+}
+
+/// Runs the binary with `stdin` and no controlling terminal (the confirmation then reads stdin
+/// in this build, and never blocks on the developer's own terminal).
+fn run(home: &std::path::Path, stdin: &str, args: &[&str]) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_nymirad"));
+    cmd.arg("--home").arg(home).args(args);
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // SAFETY: setsid is async-signal-safe and has no preconditions here.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn initialized() -> tempfile::TempDir {
+    let home = tempfile::tempdir().unwrap();
+    let out = run(
+        home.path(),
+        "",
+        &[
+            "init",
+            "--rpc",
+            "http://127.0.0.1:1",
+            "--operator",
+            "http://127.0.0.1:1",
+            "--account",
+            "alice.test",
+            "--no-backup",
+        ],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    home
+}
+
+#[test]
+fn restoring_from_a_secret_alone_prints_the_notice_and_writes_nothing_without_a_yes() {
+    let home = initialized();
+    let secret = private_file(home.path(), "secret", "00aabb\n", 0o600);
+    let pass = private_file(home.path(), "pass", "correct horse battery\n", 0o600);
+    let args = [
+        "--passphrase-file",
+        pass.to_str().unwrap(),
+        "restore-secret",
+        "--note",
+        "0",
+        "--secret-file",
+        secret.to_str().unwrap(),
+    ];
+
+    for answer in ["no\n", "\n", ""] {
+        let out = run(home.path(), answer, &args);
+        assert!(!out.status.success(), "{answer:?} must not continue");
+        let said = text(&out.stdout);
+        assert!(said.contains(SECRET_ONLY_NOTICE), "{said}");
+        assert!(
+            said.contains("Payout account: alice.test."),
+            "the payout default is shown: {said}"
+        );
+        assert!(text(&out.stderr).contains("not confirmed; nothing written"));
+        assert!(!home.path().join("notes.sealed").exists());
+    }
+}
+
+#[test]
+fn a_secret_file_others_can_read_is_refused_before_the_notice() {
+    let home = initialized();
+    let secret = private_file(home.path(), "secret", "00aabb\n", 0o644);
+    let pass = private_file(home.path(), "pass", "correct horse battery\n", 0o600);
+    let out = run(
+        home.path(),
+        "yes\n",
+        &[
+            "--passphrase-file",
+            pass.to_str().unwrap(),
+            "restore-secret",
+            "--note",
+            "0",
+            "--secret-file",
+            secret.to_str().unwrap(),
+        ],
+    );
+    assert!(!out.status.success());
+    assert!(
+        text(&out.stderr).contains("readable by others (mode 644)"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(!text(&out.stdout).contains(SECRET_ONLY_NOTICE));
+}
+
+#[test]
+fn a_passphrase_file_others_can_read_stops_note_secret() {
+    let home = initialized();
+    let pass = private_file(home.path(), "pass", "correct horse battery\n", 0o640);
+    let out = run(
+        home.path(),
+        "yes\n",
+        &[
+            "--passphrase-file",
+            pass.to_str().unwrap(),
+            "note-secret",
+            "--note",
+            "0",
+        ],
+    );
+    assert!(!out.status.success());
+    assert!(
+        text(&out.stderr).contains("readable by others (mode 640)"),
+        "{}",
+        text(&out.stderr)
+    );
+}
