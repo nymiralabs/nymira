@@ -23,9 +23,15 @@ The operator runs as five processes under one dedicated macOS user: the public A
 
 The processes share one macOS user, so code execution in any one of them as that user can read every file that user can read, including the sealed login file once its passphrase is known. The separation limits what a bug in the web-facing process can reach in memory and which keys it holds; it does not stop an attacker who gets a shell as the service user. The developer tools and browsers installed on the laptop stay readable by every user on macOS.
 
+Usage figures come from NEAR AI's `usage/history` for a lease's key, read with the session login of the key minter, because the read-only reporting routes answer 404. Reading usage therefore uses the same login that can mint keys, and it stays inside the minter process.
+
 ## The second machine
 
 The operator signs a state only after a second machine has the record on disk, so a lost laptop disk does not let a user spend a state twice. The second machine sits in the same home as the laptop: it covers a lost disk or a dead laptop, not a power or network failure of the house, and it does not protect against someone who takes both machines. It holds the log, a watcher and its own exit-answer key, and no signing key and no provider token. The operator signs each log entry it sends, and the second machine can pin that key. Its volume snapshots keep the shortest retention the host allows.
+
+## If the operator is offline
+
+A user leaves with `request_exit` and `finalize_exit` after the 7-day window, and the vault does not need the operator for that. If the operator and every watcher are offline for the whole window, nobody can answer an exit from an old state, so the user leaves with an older, higher balance than the real one. The loss falls on the operator, and the cap on open deposits bounds it.
 
 ## If a key leaks
 
@@ -63,15 +69,15 @@ On the operator's emergency notice `nymirad` stops opening leases and suggests a
 
 ## What the other parties see
 
-- **The web hosts (Cloudflare Pages and the GitHub Pages mirror).** They see each visitor's IP address and which files were asked for, and they decide which code a visitor gets. A compromised host could serve a different app. `nymirad verify-web` compares both hosts with a signed manifest over Tor and directly. It catches a change only if the user runs it, and not a host that serves different content to different clients.
+- **The web hosts (Cloudflare Pages and the GitHub Pages mirror).** They see each visitor's IP address and which files were asked for, and they decide which code a visitor gets. A compromised host could serve a different app. `nymirad verify-web` is built to compare both hosts with a signed manifest over Tor and directly. It cannot run until a release is signed and its key and the host names are compiled in. Even then it catches a change only if the user runs it, and not a host that serves different content to different clients.
 - **RPC providers.** They see the IP address of whoever reads or sends, and with a deposit transaction the account, the transaction hash (so the note ID, the commitment and the payout account) and the time. The web app cannot use Tor. `nymirad` sends through Tor and asks first before any direct send.
-- **Attestation and collateral services (NEAR AI's attestation endpoint, PCCS, NVIDIA's NRAS).** They see the address that asks and the time. `nymirad` asks through Tor; the web app asks directly. Intel's own collateral service sends no CORS headers, so the web app reads collateral from Phala's PCCS.
+- **Attestation and collateral services (NEAR AI's attestation endpoint, PCCS, NVIDIA's NRAS).** They see the address that asks and the time. `nymirad` asks through Tor; the web app asks NEAR AI and Phala's PCCS directly (Intel's own collateral service sends no CORS headers). The web app does not ask NRAS, which refuses cross-origin requests, so it cannot check NVIDIA GPU evidence: it checks the Intel TDX quote, the policy and the key binding, and says so.
 - **1Click.** It sees the IP address of whoever asks for a quote, and the asset pair. The web app asks only after the user turns it on, and sends no note data. Quotes on testnet are labelled "quote only"; no cross-chain payment is run there.
 - **Faucet.** Circle's faucet sees the account that asks for test USDC.
 
 ## What an encrypted request hides
 
-`nymirad` and the web app encrypt every field the model reads to the model's attested key: message `content` and `name`, tool-call names and arguments, and tool names, descriptions and parameters. These stay in the clear because the operator and the gateway need them: the model name, `max_tokens`, `stream`, `stop`, each message's `role`, `tool_call_id`, the `tools` key, the length of the `tools` array and each tool's `type`, and the sizes and timing of everything. The operator refuses a request with an unknown field instead of forwarding it. The browser cannot bind the gateway's TLS session, so the web app says "encrypted" on its own line and "model-signed" only when the signature checks.
+`nymirad` and the web app encrypt every field the model reads to the model's attested key: message `content` and `name`, tool-call names and arguments, and tool names, descriptions and parameters. These stay in the clear because the operator and the gateway need them: the model name, `max_tokens` and `max_completion_tokens`, `stream` and `stream_options`, `n`, `temperature`, `top_p`, the two penalties, `seed`, `stop`, `tool_choice`, each message's `role`, `tool_call_id`, the `tools` key, the length of the `tools` array and each tool's `type`, and the sizes and timing of everything. The operator refuses a request with an unknown field instead of forwarding it. The browser cannot bind the gateway's TLS session, so the web app says "encrypted" on its own line and "model-signed" only when the signature checks.
 
 ## Trust in USDC
 

@@ -37,4 +37,4 @@ The sandbox parity fixture copies the mainnet USDC contract (`17208628f84f5d6ad3
 
 - `scripts/check-vault-deps.sh`: the vault depends only on `near-sdk`, `zkapi-core`, `nymira-near-codec` and `nymira-verifier`.
 - `scripts/check-profiles.sh`: a mainnet build with `dev-setup`, a `judge` build (public testnet bundle and judge vault) with `dev-setup`, and a mainnet build with `test-intents-account` must fail to compile.
-- `cargo audit` and `cargo deny` run in CI. The ignored advisories are all in host-side test tooling (see `.cargo/audit.toml`).
+- `cargo audit` and `cargo deny` run in CI. The ignored advisories are in host-side test tooling, in compile-time macro crates, in `nymirad`'s attestation verification (`rsa`, Marvin attack, no fix; used to verify signatures only) and in one crate that is also in the vault's wasm dependency tree (`tracing-subscriber` 0.2.25 through `ark-relations`; the advisory concerns formatted log output, and a contract installs no log subscriber). Each has its reason in `.cargo/audit.toml` and `deny.toml`.
