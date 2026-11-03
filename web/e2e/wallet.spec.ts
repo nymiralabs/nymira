@@ -40,7 +40,7 @@ test('testnet quotes: off by default, quote only, dummy refund, no note data, ca
   expect(sent[1]!.at - sent[0]!.at).toBeGreaterThanOrEqual(4900);
   for (const { body } of sent) {
     expect(body).toMatchObject({ dry: true, amount: '1050000' });
-    expect(String(body.refundTo)).toMatch(/^0x0{39}1$|^1{32}$/);
+    expect(String(body.refundTo)).toMatch(/^0x0{39}1$|^1nc1nerator1{32}$/);
     expect(JSON.stringify(body)).not.toMatch(/commitment|alice|vault|usdc\.test/);
   }
   // Turning it off and on again within a minute is answered from the cache.
