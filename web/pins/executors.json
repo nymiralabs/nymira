@@ -1,0 +1,23 @@
+{
+  "_note": "NEAR Connect executors served from this origin (public/executors/). The app refuses an executor whose SHA-256 differs, and `npm run check:executors` fails when a file or this table changes alone. To update one: download it again, review the diff, change the hash and the retrieval date here in the same commit.",
+  "wallets": {
+    "meteor-wallet": {
+      "name": "Meteor Wallet",
+      "file": "meteor-wallet.js",
+      "sha256": "e527150a5cc190826d6f5076098baebb9d666e5d39d30d36b7dcb54ce649df3a",
+      "bytes": 2002734,
+      "source": "https://raw.githubusercontent.com/Meteor-Wallet/meteor_wallet_sdk/data-storage/storage/meteor-near-connect-latest.js",
+      "manifestVersion": "1.1.1",
+      "retrieved": "2026-11-02"
+    },
+    "intear-wallet": {
+      "name": "Intear Wallet",
+      "file": "intear-wallet.js",
+      "sha256": "6decc283352af197feff4988628899d19e05f4168a4277fe699bd8a0d6178e34",
+      "bytes": 13817,
+      "source": "https://wallet.intear.tech/near-selector.js",
+      "manifestVersion": "1.0.0",
+      "retrieved": "2026-11-02"
+    }
+  }
+}

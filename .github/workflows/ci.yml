@@ -83,6 +83,63 @@ jobs:
         working-directory: web-testkit
         run: npm test
 
+  # The web app (issue 36): build, unit tests, and Playwright against the fake NEAR RPC and the
+  # test wallet, on Chromium and WebKit. Installs run with --ignore-scripts and the lockfile.
+  web:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - name: Free disk space (preinstalled toolchains the job does not use)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            .
+            vendor/zkapi/protocol/rust
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: wasm-bindgen@0.2.117
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Build the WASM modules (zkapi wallet core, NEAR codec)
+        run: web/scripts/build-wasm.sh
+      - name: Install dependencies and the browsers
+        run: |
+          (cd web-testkit && npm ci --ignore-scripts)
+          cd web
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium webkit
+      - name: Typecheck, format, executor pins
+        working-directory: web
+        run: |
+          npm run typecheck
+          npm run format:check
+          npm run check:executors
+      - name: Unit tests
+        working-directory: web
+        run: npm run test:unit
+      - name: Deployable bundles hold no test-only content
+        working-directory: web
+        run: |
+          npm run build
+          npm run check:bundle -- dist testnet
+          npm run build:mainnet
+          npm run check:bundle -- dist mainnet
+      - name: Playwright (builds the mock bundle itself)
+        working-directory: web
+        run: npm run test:e2e
+      - name: Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-results
+          path: web/test-results
+          retention-days: 7
+
   policy:
     runs-on: ubuntu-24.04
     steps:

@@ -8,4 +8,7 @@ dist/
 
 !crates/nymira-testkit/fixtures/*.wasm
 web-testkit/codec-pkg/
+web/src/wasm/
+web/test-results/
+web/playwright-report/
 web-testkit/test-results/

@@ -7,8 +7,9 @@ pub use state::*;
 
 use axum::{
     body::Bytes,
-    extract::State,
-    http::{header, StatusCode},
+    extract::{Request, State},
+    http::{header, HeaderValue, Method, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -80,6 +81,7 @@ impl FakeRpc {
                 "/control/requests",
                 get(|State(s): State<Shared>| async move { Json(lock(&s).requests.clone()) }),
             )
+            .layer(middleware::from_fn(cors))
             .with_state(chain.clone());
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
@@ -189,6 +191,30 @@ impl FakeRpc {
     pub fn reset(&self) {
         self.apply(Command::Reset);
     }
+}
+
+/// Public NEAR RPC endpoints answer browsers with CORS headers, so the fake does too: a web page
+/// on another origin can call it, and its preflight is answered here.
+async fn cors(request: Request, next: Next) -> Response {
+    let mut response = if request.method() == Method::OPTIONS {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        next.run(request).await
+    };
+    let headers = response.headers_mut();
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("content-type"),
+    );
+    response
 }
 
 fn json_response(status: StatusCode, body: String) -> Response {

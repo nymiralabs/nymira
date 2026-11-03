@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": false,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["vite/client", "node"],
+    "paths": {
+      "@profile": ["./src/profiles/mock.ts"],
+      "@testkit": ["../web-testkit/src/index.js"]
+    }
+  },
+  "include": [
+    "src",
+    "e2e",
+    "test",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "headers.ts",
+    "scripts"
+  ],
+  "exclude": ["src/wasm/**/*.js"]
+}
