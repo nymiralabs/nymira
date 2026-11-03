@@ -412,6 +412,75 @@ fn differential_against_native_arkworks() {
     }
 }
 
+/// The edges the bit flips do not reach: public inputs at r-1 (valid, the largest scalar) and at
+/// r (refused), and a G2 point on the twist outside the order-r subgroup. Ours and native
+/// arkworks must agree on each, and none may verify.
+#[test]
+fn differential_at_the_scalar_and_subgroup_edges() {
+    let mut r_minus_one = SCALAR_MODULUS_BE;
+    r_minus_one[31] -= 1; // r ends in an odd byte, so no borrow
+    assert!(r_minus_one < SCALAR_MODULUS_BE);
+    let mut at_edges = 0;
+    for case in cases() {
+        let vk = near_vk(case.kind);
+        let good = Proof::from_zkapi_wire(&case.proof).unwrap();
+        for index in 0..case.inputs.len() {
+            for edge in [r_minus_one, SCALAR_MODULUS_BE] {
+                let mut words = case.inputs.clone();
+                words[index] = edge;
+                let ours = match words
+                    .iter()
+                    .map(|w| public_input_from_wire(w))
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(inputs) => host_accepts(&vk, &inputs, &good),
+                    Err(_) => false,
+                };
+                assert_eq!(
+                    ours,
+                    native_accepts(case.kind, &words, &case.proof),
+                    "{} input {index}",
+                    case.name
+                );
+                assert!(!ours, "{} input {index} was changed to an edge", case.name);
+                at_edges += 1;
+            }
+        }
+        // A B outside the subgroup, in zkapi wire order (big-endian words x.c0, x.c1, y.c0, y.c1).
+        let bad = (1u64..200)
+            .filter_map(|i| {
+                G2Affine::get_point_from_x_unchecked(Fq2::new(Fq::from(i), Fq::from(1u64)), false)
+            })
+            .find(|p| p.is_on_curve() && !p.is_in_correct_subgroup_assuming_on_curve())
+            .expect("a twist point outside the subgroup");
+        let be = |f: &Fq| {
+            let mut v = ark_ff::BigInteger::to_bytes_be(&f.into_bigint());
+            v.resize(32, 0);
+            v
+        };
+        let mut wire = case.proof.clone();
+        wire[64..192].copy_from_slice(
+            &[be(&bad.x.c0), be(&bad.x.c1), be(&bad.y.c0), be(&bad.y.c1)].concat(),
+        );
+        let ours = match Proof::from_zkapi_wire(&wire) {
+            Ok(proof) => host_accepts(&vk, &near_inputs(&case.inputs), &proof),
+            Err(_) => false,
+        };
+        assert!(
+            !ours,
+            "{} accepted a G2 point outside the subgroup",
+            case.name
+        );
+        assert!(
+            !native_accepts(case.kind, &case.inputs, &wire),
+            "{}",
+            case.name
+        );
+        at_edges += 1;
+    }
+    assert!(at_edges > 100);
+}
+
 /// Real proofs whose public inputs carry the codec's NEAR mappings verify
 /// through the host functions, and the inputs hold exactly the mapped values.
 #[test]
