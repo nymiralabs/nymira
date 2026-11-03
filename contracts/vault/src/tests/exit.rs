@@ -792,12 +792,26 @@ fn a_retirement_works_after_finalize_and_an_exit_before_sync_gives_a_zero_leaf()
 
 #[test]
 fn a_missed_heartbeat_opens_no_exit() {
-    // Nothing the vault does, however much time passes, moves a note out of `Active`.
+    // The operator sends no heartbeat from deployment on, and time runs to the last second before
+    // the note's claim date. Every permissionless call that could act on silence runs; none moves
+    // the note, opens an exit or sweeps it. The vault only ever reads time for the claim rule, so
+    // the check is that the claim rule alone decides: one second later the same call succeeds.
     let mut v = funded();
-    testing_env!(ctx("anyone.test", (T0 + 400 * DAY) * NS).build());
-    assert_eq!(v.sync_root(10), 1);
+    let claim_date = note().expiry + 7 * DAY;
+    testing_env!(ctx("anyone.test", (claim_date - 1) * NS).build());
+    v.sync_root(10);
+    assert!(v.claim_expired_batch(0, 10).is_empty());
+    assert_refused(refusal(|| v.claim_expired(0)), "cannot be claimed yet");
     assert_eq!(v.note_status(commitment_of_note()), Some(Status::Active));
     assert!(v.exit_requests(0, 10).is_empty());
+    assert_eq!(v.open_notes(), 1);
+    // A late heartbeat does not change what silence did not do.
+    testing_env!(ctx(OPERATOR, (claim_date - 1) * NS).build());
+    v.heartbeat();
+    assert_eq!(v.note_status(commitment_of_note()), Some(Status::Active));
+    // And the check is live: at the claim date the same silence is what the claim rule sweeps.
+    testing_env!(ctx("anyone.test", claim_date * NS).build());
+    assert_eq!(v.claim_expired_batch(0, 10), vec![0]);
 }
 
 #[test]
@@ -852,27 +866,50 @@ fn step(v: &mut Vault, choice: u64, amount: u128, now: u64) -> Option<&'static s
         }
         5 => {
             testing_env!(ctx("anyone.test", now).build());
-            v.sync_root(10);
+            // A sync with nothing waiting is not a step: it inserts nothing and changes nothing.
+            assert!(v.sync_root(10) > 0, "nothing waiting");
             "sync_root"
         }
         6 => {
             testing_env!(ctx("anyone.test", now).build());
-            v.claim_expired(0);
+            v.claim_expired(pick(2) as u32);
             "claim_expired"
         }
         _ => {
-            let siblings = siblings_of(v, 0);
+            let id = pick(2) as u32;
+            let siblings = siblings_of(v, id);
             testing_env!(ctx("anyone.test", now).build());
-            v.retire_closed_leaf(0, siblings);
+            v.retire_closed_leaf(id, siblings);
             "retire_closed_leaf"
         }
     }));
     run.ok()
 }
 
+/// Whether the model allows `call` on note `id` in this state, from the rules alone.
+fn legal(v: &Vault, call: &str, id: u32, now: u64) -> bool {
+    let note = v.notes.get(id).unwrap();
+    let exit = v.exit_requests(0, 1).first().map(|e| e.deadline.0);
+    let claim_at = note
+        .expiry
+        .max(note.last_exit_ns / NS)
+        .saturating_add(7 * DAY);
+    match call {
+        "request_exit" | "mutual_close" => note.status == Status::Active,
+        "defeat_exit" | "raise_concession" => {
+            note.status == Status::PendingExit && exit.is_some_and(|d| now < d)
+        }
+        "finalize_exit" => note.status == Status::PendingExit && exit.is_some_and(|d| now >= d),
+        "claim_expired" => note.status == Status::Active && now / NS >= claim_at,
+        "retire_closed_leaf" => note.status == Status::Closed && !note.leaf_retired,
+        _ => true,
+    }
+}
+
 #[test]
 fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
     let mut accepted = std::collections::BTreeMap::<&str, u32>::new();
+    let mut rejected = std::collections::BTreeMap::<&str, u32>::new();
     let mut seed = 0x2545_f491_4f6c_dd1du64;
     let mut random = move |bound: u64| {
         seed = seed
@@ -880,11 +917,14 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
             .wrapping_add(1_442_695_040_888_963_407);
         (seed >> 33) % bound
     };
-    for _ in 0..60 {
+    for _ in 0..120 {
         let mut v = funded();
+        // A second plain note: the sweep and the leaf retirement reach more than one note.
+        at(T0);
+        assert_eq!(deposit(&mut v, ALICE, ONE + NOTE_FEE, &msg(2)), 0);
         let mut now = EXIT_AT * NS;
         // What the vault holds in USDC under this model: deposits in, payouts out.
-        let mut usdc = ONE + NOTE_FEE;
+        let mut usdc = 2 * (ONE + NOTE_FEE);
         for _ in 0..14 {
             now += match random(10) {
                 0..=6 => random(300) * NS,
@@ -893,14 +933,42 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
                 _ => 40 * DAY * NS,
             };
             let before = v.exit_requests(0, 1).first().map(|e| e.final_balance.0);
-            let status = v.notes.get(0).unwrap().status;
+            let statuses: Vec<_> = (0..2).map(|i| v.notes.get(i).unwrap().status).collect();
             let treasury = v.treasury_balance().0;
-            let Some(done) = step(&mut v, random(1 << 20), u128::from(random(150_000)), now) else {
+            let leaves = v.leaf_count;
+            let (choice, amount) = (random(1 << 20), u128::from(random(150_000)));
+            // The target note of the step: the choice picks note 0 or 1 for claims and retirements.
+            let id = (choice / 8 % 2) as u32;
+            let call = [
+                "request_exit",
+                "defeat_exit",
+                "raise_concession",
+                "finalize_exit",
+                "mutual_close",
+                "sync_root",
+                "claim_expired",
+                "retire_closed_leaf",
+            ][(choice % 8) as usize];
+            let id = if matches!(call, "claim_expired" | "retire_closed_leaf") {
+                id
+            } else {
+                0
+            };
+            let allowed = legal(&v, call, id, now);
+            let Some(done) = step(&mut v, choice, amount, now) else {
                 // A refused call changes nothing.
-                assert_eq!(v.notes.get(0).unwrap().status, status);
+                *rejected.entry(call).or_default() += 1;
+                let after: Vec<_> = (0..2).map(|i| v.notes.get(i).unwrap().status).collect();
+                assert_eq!(after, statuses);
                 assert_eq!(v.treasury_balance().0, treasury);
+                assert_eq!(v.leaf_count, leaves);
                 continue;
             };
+            assert_eq!(done, call);
+            assert!(
+                allowed,
+                "{done} on note {id} was accepted where the rules forbid it"
+            );
             *accepted.entry(done).or_default() += 1;
             let delta = v.treasury_balance().0 - treasury;
             match done {
@@ -929,13 +997,13 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
                 "claim_expired" => assert_eq!(delta, ONE, "the whole denomination is swept"),
                 _ => assert_eq!(delta, 0, "{done} moves no money"),
             }
-            // Solvency: what the vault owes never exceeds what it holds.
+            // Solvency, exactly: what the vault holds is what its notes and the treasury book.
             let held: u128 = (0..v.notes.len())
                 .map(|id| v.notes.get(id).unwrap())
                 .filter(|n| n.status != Status::Closed)
                 .map(|n| n.deposit_amount)
                 .sum();
-            assert!(held + v.treasury_balance().0 <= usdc);
+            assert_eq!(held + v.treasury_balance().0, usdc);
             assert_counters(&v);
             let pending = v.notes.get(0).unwrap().status == Status::PendingExit;
             assert_eq!(!v.exit_requests(0, 10).is_empty(), pending);
@@ -944,18 +1012,24 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
             }
         }
     }
-    // The walk reached every kind of step and every outcome.
+    // The walk reached every kind of step, and the rules refused each of them somewhere.
     for call in [
         "request_exit",
         "defeat_exit",
         "raise_concession",
         "finalize_exit",
         "mutual_close",
+        "sync_root",
         "claim_expired",
+        "retire_closed_leaf",
     ] {
         assert!(
             accepted.get(call).copied().unwrap_or(0) > 0,
-            "{call}: {accepted:?}"
+            "{call} never accepted: {accepted:?}"
+        );
+        assert!(
+            rejected.get(call).copied().unwrap_or(0) > 0,
+            "{call} never refused: {rejected:?}"
         );
     }
 }

@@ -274,6 +274,9 @@ pub struct Setup {
     pub clock_secs: u64,
     /// Builds the replica from the operator's own store: tests that run the real replicator.
     pub replica: Option<ReplicaFactory>,
+    /// Replaces the scripted provider the operator talks to (the real adapter over the fake
+    /// gateway); `Rig::provider` stays the unused scripted one.
+    pub provider: Option<Arc<dyn nymira_operator::provider::ProviderAdapter>>,
 }
 
 impl Default for Setup {
@@ -285,6 +288,7 @@ impl Default for Setup {
             tune: Box::new(|_| {}),
             clock_secs: T0,
             replica: None,
+            provider: None,
         }
     }
 }
@@ -309,6 +313,10 @@ async fn launch(
 ) {
     let mut cfg = config();
     (setup.tune)(&mut cfg);
+    let provider_dyn: Arc<dyn nymira_operator::provider::ProviderAdapter> = match setup.provider {
+        Some(p) => p,
+        None => provider.clone(),
+    };
     let real = matches!(setup.verifier, Verifier::Real);
     let verifier: Arc<dyn ProofVerifier> = match setup.verifier {
         Verifier::Real => Arc::new(GrothVerifier::load(std::path::Path::new(SETUP_DIR)).unwrap()),
@@ -360,7 +368,7 @@ async fn launch(
         cfg,
         clock: clock.clone(),
         vault: vault.clone(),
-        provider: provider.clone(),
+        provider: provider_dyn,
         replica: replica_dyn,
         verifier,
         withdrawal_verifier: withdrawal,

@@ -19,9 +19,9 @@ const NOTE_FEE: u128 = 50_000;
 const TGAS: u64 = 1_000_000_000_000;
 
 /// `NYMIRA_VAULT_WASM` points a test at a prebuilt wasm (the reproducible build) for the plain
-/// `dev-setup` build; a build with other features is always compiled.
+/// build with no features, the ceremony-pinned one; a build with features is always compiled.
 fn vault_wasm(features: &[&str]) -> Vec<u8> {
-    if let (Ok(path), ["dev-setup"]) = (std::env::var("NYMIRA_VAULT_WASM"), features) {
+    if let (Ok(path), []) = (std::env::var("NYMIRA_VAULT_WASM"), features) {
         return std::fs::read(path).expect("NYMIRA_VAULT_WASM is readable");
     }
     contract_wasm_with_features("contracts/vault", features)
@@ -440,6 +440,16 @@ async fn a_build_without_dev_setup_refuses_the_development_keys() -> Result<()> 
     let worker = near_workspaces::sandbox().await?;
     let usdc = MockUsdc::deploy(&worker).await?;
     let vault = worker.dev_deploy(&vault_wasm(&[])).await?;
+    // The reproducible smoke script names the hash of the file it built: the chain must hold
+    // exactly those bytes.
+    if let Ok(expected) = std::env::var("NYMIRA_VAULT_WASM_SHA256") {
+        let near_workspaces::ContractState::LocalHash(deployed) =
+            vault.view_account().await?.contract_state
+        else {
+            panic!("the vault holds no local code");
+        };
+        assert_eq!(hex::encode(deployed.0), expected.trim().to_lowercase());
+    }
     let init = vault
         .call("new")
         .args_json(new_args(

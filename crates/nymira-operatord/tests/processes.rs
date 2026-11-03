@@ -309,4 +309,78 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
     };
     // Watchers write their poll time where the API shows it.
     assert!(status["watchers"].as_array().is_some());
+
+    // The signer has no TCP entry: a typed signer request sent to the one TCP port that exists
+    // gets nothing a signer would say.
+    {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        tcp.write_all(b"{\"op\":\"state_key\"}\n").await.unwrap();
+        let mut answer = Vec::new();
+        let _ = tokio::time::timeout(Duration::from_secs(3), tcp.read_to_end(&mut answer)).await;
+        let answer = String::from_utf8_lossy(&answer);
+        assert!(
+            !answer.contains("state_key") && !answer.contains("refused"),
+            "{answer}"
+        );
+    }
+
+    // Kill the signer and start it again: the API shows no signed nonce while it is down, and a
+    // nonce that verifies under the same state key once it is back.
+    let at = procs.0.iter().position(|(n, _)| n == "signer").unwrap();
+    procs.0[at].1.kill().unwrap();
+    procs.0[at].1.wait().unwrap();
+    let started = Instant::now();
+    loop {
+        let s: Value = http
+            .get(format!("{url}/v1/status"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if s["nonce"].is_null() || s["nonce_sig"].is_null() {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "a dead signer still signs: {s}"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    procs.0[at] = spawn("signer", Some(&format!("{state_pass}\n{clearance_pass}\n")));
+    let started = Instant::now();
+    loop {
+        let s: Value = http
+            .get(format!("{url}/v1/status"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if let (Some(nonce), Some(ts)) = (s["nonce"]["nonce"].as_str(), s["nonce"]["ts"].as_u64()) {
+            if let Ok(sig) =
+                serde_json::from_value::<zkapi_types::SchnorrSignature>(s["nonce_sig"].clone())
+            {
+                if zkapi_proof::compact::verify_signature(
+                    &sp,
+                    &nymira_operator::status::status_message(nonce, "operator.test", ts),
+                    &sig,
+                )
+                .unwrap()
+                {
+                    break;
+                }
+            }
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(90),
+            "the restarted signer never signed again"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
 }

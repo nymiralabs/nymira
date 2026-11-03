@@ -399,7 +399,10 @@ pub async fn watcher(cfg: &Config) -> Result<(), Failure> {
             store,
             clock,
             alarms,
-            WatcherConfig::default(),
+            WatcherConfig {
+                quorum: cfg.watcher_quorum(),
+                ..WatcherConfig::default()
+            },
         )?
         .with_id("laptop"),
     );

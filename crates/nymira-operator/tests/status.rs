@@ -141,17 +141,28 @@ async fn a_client_ignores_a_field_it_does_not_know() {
 #[tokio::test(flavor = "multi_thread")]
 async fn quote_and_attestation_answer() {
     let rig = Rig::new(Setup::default()).await;
-    for path in ["/v2/billing/quote", "/v1/attestation"] {
-        let r = rig
-            .http
-            .get(format!("{}{path}", rig.url))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(r.status(), 200, "{path}");
-        let v: serde_json::Value = r.json().await.unwrap();
-        assert_eq!(v["status"], "ok");
-    }
+    let get = |path: &'static str| {
+        let rig = &rig;
+        async move {
+            let r = rig
+                .http
+                .get(format!("{}{path}", rig.url))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 200, "{path}");
+            r.json::<serde_json::Value>().await.unwrap()
+        }
+    };
+    // Exact documents: a client reads these fields, so a change must show here.
+    assert_eq!(
+        get("/v2/billing/quote").await,
+        json!({ "status": "ok", "pricing": "usdc_1_to_1", "units_per_usd": "1000000", "quote": null })
+    );
+    assert_eq!(
+        get("/v1/attestation").await,
+        json!({ "status": "ok", "attestation": null, "mode": "none", "version": 1 })
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

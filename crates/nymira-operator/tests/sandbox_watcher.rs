@@ -53,6 +53,10 @@ struct Env {
 }
 
 async fn setup() -> Env {
+    setup_with(7 * 86_400, 30 * 86_400).await
+}
+
+async fn setup_with(exit_delay_secs: u64, note_ttl: u64) -> Env {
     let worker = near_workspaces::sandbox().await.unwrap();
     let usdc = MockUsdc::deploy(&worker).await.unwrap();
     let operator = worker.dev_create_account().await.unwrap();
@@ -84,7 +88,7 @@ async fn setup() -> Env {
             "request_vk": b64(&canonical_verifying_key(Kind::Request)),
             "withdrawal_vk": b64(&canonical_verifying_key(Kind::Withdrawal)),
             "treasury": treasury.id(), "note_fee": NOTE_FEE.to_string(),
-            "exit_delay_secs": 7 * 86_400, "note_ttl": 30 * 86_400,
+            "exit_delay_secs": exit_delay_secs, "note_ttl": note_ttl,
             "bound_classes": ["100000"], "charge_step": "1000", "min_charge": "2000",
             "slot_rate": 1000, "owner": alice.id(), "operator_account": operator.id(),
         }))
@@ -427,4 +431,135 @@ async fn a_closed_leaf_is_retired_by_the_watcher_with_its_own_siblings() {
         root
     );
     let _: Option<AccountId> = None;
+}
+
+/// `finalize_exit` and `claim_expired_batch` sent by the watcher's own keys, and the gas of a
+/// full batch. Both wait for the vault's real windows: the shortest exit delay `new()` takes is
+/// one day, which is about 290,000 sandbox blocks, so this runs for one to two hours and is
+/// ignored by default:
+/// `cargo test -p nymira-operator --test sandbox_watcher claim_and_finalize -- --ignored --nocapture`.
+///
+/// The measured gas of 50 swept notes is printed as `measure claim_expired_batch`; the
+/// assertion is that the call succeeds with the 299 Tgas the watcher attaches.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "one to two hours of sandbox time"]
+async fn claim_and_finalize_are_sent_by_the_watcher_and_a_full_batch_fits_in_its_gas() {
+    use nymira_operator::watcher::GAS_CLAIM_BATCH;
+    const FULL_BATCH: u32 = 50;
+    let env = setup_with(86_400, 1).await;
+    let gen = ProofGen::new(Network::Testnet, env.vault.id().as_str()).unwrap();
+    // Note 0 leaves by exit; notes 1..=50 are swept by a direct call that measures the gas;
+    // notes 51..=53 are swept by the watcher.
+    let mut notes = Vec::new();
+    for secret in 0..=FULL_BATCH + 3 {
+        notes.push(note(&env, 100 + u64::from(secret)).await);
+    }
+    let chain_now = now_seconds(&env.worker).await;
+    let s0 = notes[0].genesis(Felt252::from_u64(7));
+    let escape = gen
+        .withdrawal(
+            &s0,
+            WithdrawalKindId::Escape,
+            env.alice.id().as_str(),
+            0,
+            chain_now + 3_600,
+        )
+        .unwrap();
+    env.alice
+        .call(env.vault.id(), "request_exit")
+        .args_json(json!({ "proof": escape.proof_base64(), "inputs": escape.inputs_base64() }))
+        .max_gas()
+        .transact()
+        .await
+        .unwrap()
+        .into_result()
+        .unwrap();
+    let exits: Vec<Value> = view(
+        &env.vault,
+        "exit_requests",
+        json!({"from_note_id": 0, "limit": 1}),
+    )
+    .await;
+    let deadline = exits[0]["deadline"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap()
+        / 1_000_000_000;
+    let records: Vec<Value> =
+        view(&env.vault, "note_records", json!({"from": 0, "limit": 100})).await;
+    let claimable = records
+        .iter()
+        .map(|r| r["expiry"].as_u64().unwrap() + 86_400)
+        .max()
+        .unwrap();
+    let target = deadline.max(claimable) + 1;
+    eprintln!(
+        "advancing the chain {} s to {target}",
+        target - now_seconds(&env.worker).await
+    );
+    nymira_testkit::clock::advance_to(&env.worker, target)
+        .await
+        .unwrap();
+
+    // The measured call: a full batch with the attached gas the watcher uses.
+    let swept = env
+        .alice
+        .call(env.vault.id(), "claim_expired_batch")
+        .args_json(json!({ "from": 1, "limit": FULL_BATCH }))
+        .gas(near_workspaces::types::Gas::from_gas(GAS_CLAIM_BATCH))
+        .transact()
+        .await
+        .unwrap();
+    println!(
+        "measure claim_expired_batch ({FULL_BATCH} notes): {} Tgas burnt of {} Tgas attached",
+        swept.total_gas_burnt.as_gas() as f64 / 1e12,
+        GAS_CLAIM_BATCH as f64 / 1e12
+    );
+    let ids: Vec<u32> = swept.into_result().unwrap().json().unwrap();
+    assert_eq!(ids, (1..=FULL_BATCH).collect::<Vec<u32>>());
+
+    // The watcher: keys that list `finalize_exit` and `claim_expired_batch` but not the single
+    // `claim_expired`, so a fallback to single calls cannot hide a failed batch.
+    let (_, answer, _) = keyed(&env, 41, &["defeat_exit", "raise_concession"]).await;
+    let (_, upkeep, store) = keyed(
+        &env,
+        42,
+        &["sync_root", "finalize_exit", "claim_expired_batch"],
+    )
+    .await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    env.worker.fast_forward(10).await.unwrap();
+    let clock = Arc::new(ManualClock::new(
+        (now_seconds(&env.worker).await + 60) * 1_000,
+    ));
+    let before = env.usdc.balance_of(env.alice.id()).await;
+    watcher(&env, answer, upkeep, store, clock)
+        .await
+        .poll()
+        .await;
+
+    let mut records: Vec<Value> = Vec::new();
+    for _ in 0..60 {
+        records = view(&env.vault, "note_records", json!({"from": 0, "limit": 100})).await;
+        if records.iter().all(|r| r["status"] == "Closed") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert!(
+        records.iter().all(|r| r["status"] == "Closed"),
+        "note 0 finalized, 51..=53 swept by the batch: {records:?}"
+    );
+    let exits: Vec<Value> = view(
+        &env.vault,
+        "exit_requests",
+        json!({"from_note_id": 0, "limit": 100}),
+    )
+    .await;
+    assert!(exits.is_empty(), "{exits:?}");
+    assert!(
+        env.usdc.balance_of(env.alice.id()).await > before,
+        "the exit's payout reached its account"
+    );
 }
