@@ -105,7 +105,9 @@ export class WalletClient {
       params: { walletId, message: SIGN_IN_MESSAGE, recipient, nonce },
     });
     if (!isAccountId(result.accountId) || !result.publicKey.startsWith('ed25519:')) {
-      throw new Error('the wallet returned an account the app cannot use');
+      throw new Error(
+        `the wallet returned an account the app cannot use (account "${result.accountId}", key "${String(result.publicKey).slice(0, 12)}")`,
+      );
     }
     const signed = result.signedMessage;
     if (!signed || signed.accountId !== result.accountId || signed.publicKey !== result.publicKey) {
