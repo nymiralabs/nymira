@@ -73,6 +73,7 @@ async fn starts_a_hashed_copy_and_reaches_ready() {
         tor.socks_addr().port()
     )));
     assert!(args.contains("--ClientOnly 1"));
+    assert!(args.contains(&format!("--__OwningControllerProcess {}", std::process::id())));
     use std::os::unix::fs::PermissionsExt;
     let mode = std::fs::metadata(cfg.work_dir.join("bin/tor"))
         .unwrap()
