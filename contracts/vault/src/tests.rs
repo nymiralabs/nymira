@@ -333,6 +333,10 @@ fn storage_prefixes_are_pinned() {
     assert_eq!(StorageKey::KnownRoots.into_storage_key(), vec![2]);
     assert_eq!(StorageKey::RequestVk.into_storage_key(), vec![3]);
     assert_eq!(StorageKey::WithdrawalVk.into_storage_key(), vec![4]);
+    assert_eq!(StorageKey::Nullifiers.into_storage_key(), vec![5]);
+    assert_eq!(StorageKey::PendingPayouts.into_storage_key(), vec![6]);
+    assert_eq!(StorageKey::Exits.into_storage_key(), vec![7]);
+    assert_eq!(StorageKey::Flagged.into_storage_key(), vec![8]);
 }
 
 #[test]
@@ -654,6 +658,44 @@ fn a_deposit_below_the_near_reserve_is_returned() {
         );
     }
     assert_counters(&v);
+}
+
+/// What the RESERVE comment rests on: a failed payout callback writes a pending record, and the
+/// storage of that record is paid from the vault's own NEAR, not by the user. The mock chain does
+/// not meter collection writes, so the size is computed from the real serialized key and value
+/// plus the protocol's 40 bytes of record overhead. One record for the longest account id costs a
+/// small part of RESERVE, which is held back at deposit time only: it covers that many records in
+/// flight at once and nothing more.
+#[test]
+fn a_pending_record_costs_a_small_part_of_the_reserve() {
+    use near_sdk::borsh;
+    use near_sdk::IntoStorageKey;
+    let long = account_id_of(&format!("{}.test", "a".repeat(59)));
+    assert_eq!(long.as_str().len(), 64);
+    let key = [
+        StorageKey::PendingPayouts.into_storage_key(),
+        borsh::to_vec(&long).unwrap(),
+    ]
+    .concat();
+    let value = borsh::to_vec(&NOTE_FEE).unwrap();
+    assert_eq!(value.len(), 16);
+    let bytes = (key.len() + value.len() + 40) as u128;
+    let cost = bytes * env::storage_byte_cost().as_yoctonear();
+    assert!(cost > 0);
+    assert!(
+        RESERVE / cost >= 1_000,
+        "RESERVE covers {} records",
+        RESERVE / cost
+    );
+    // The record is what the vault writes: a failed payout of at least the note fee.
+    let mut v = vault();
+    at(T0);
+    v.credit_pending(long.clone(), NOTE_FEE, "transfer_failed", None);
+    assert_eq!(v.pending_payout(long).0, NOTE_FEE);
+}
+
+fn account_id_of(name: &str) -> AccountId {
+    name.parse().unwrap()
 }
 
 #[test]
@@ -1457,6 +1499,16 @@ mod close {
         assert_eq!(v.treasury_balance().0, NOTE_FEE + ONE);
     }
 
+    /// The panic message of a caught call; fails when the call did not panic.
+    fn panic_text(result: std::thread::Result<()>) -> String {
+        let error = result.expect_err("the call must panic");
+        error
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| error.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
     fn assert_close_refused(message: &str, edit: impl FnOnce(&mut Vault) -> Bundle) {
         let mut v = funded();
         let b = edit(&mut v);
@@ -1464,12 +1516,7 @@ mod close {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = close(&mut v, ALICE, &b);
         }));
-        let error = result.expect_err("the close must panic");
-        let text = error
-            .downcast_ref::<String>()
-            .cloned()
-            .or_else(|| error.downcast_ref::<&str>().map(|s| s.to_string()))
-            .unwrap_or_default();
+        let text = panic_text(result);
         assert!(text.contains(message), "expected {message:?}, got {text:?}");
         // A refused close changes nothing.
         assert_eq!(v.note_status(commitment_of_note()), status);
@@ -1687,7 +1734,7 @@ mod close {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = call(&mut v, ALICE, VALID_UNTIL + 1, bundle());
         }));
-        assert!(result.is_err());
+        assert!(panic_text(result).contains("proof expired"));
         assert_eq!(v.note_status(commitment_of_note()), Some(Status::Active));
     }
 
@@ -1744,7 +1791,7 @@ mod close {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = close(&mut v, ALICE, &again);
         }));
-        assert!(result.is_err());
+        assert!(panic_text(result).contains("nullifier already used"));
         assert!(v.is_nullifier_used(word::encode32(&again.inputs_wire[w::WITHDRAWAL_NULLIFIER])));
     }
 
