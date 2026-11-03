@@ -30,6 +30,7 @@ The first sentence holds while you keep your latest state; see the first point b
 - If the operator is offline for a whole 7-day exit window, a user can leave with an older, higher balance than the real one. The loss falls on the operator, and the 100 USDC cap on open deposits bounds it.
 - Closing shows your note ID, total spend and payout account on chain, next to the account that sends the close.
 - The web app cannot use Tor, so the operator and the RPC provider see your IP address. Use Tor Browser or `nymirad` for IP protection.
+- A compromised host could serve a different web app. `nymirad verify-web` catches that only if you run it and the host does not cloak, so it does not replace trusting the host you load the app from.
 - Everything the other parties see is in [THREAT_MODEL.md](THREAT_MODEL.md).
 
 Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum/zkapi) (`ethereum/zkapi`), vendored at a pinned commit in `vendor/zkapi/`. `NOTICE` lists the exact commit and every patch we apply. `PINS.md` records the pins and the toolchain.
