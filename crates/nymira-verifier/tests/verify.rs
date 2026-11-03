@@ -541,3 +541,97 @@ fn near_mapped_fixture_verifies() {
     }
     assert_eq!(count, 5);
 }
+
+/// Corrupted verifying keys: the codec accepts exactly the keys arkworks accepts (the vault
+/// builds its key with `from_canonical`), except the point at infinity, which only the codec
+/// refuses. Where both accept a mutated key, verification of the fixture proof agrees too.
+#[test]
+fn differential_on_corrupted_verifying_keys() {
+    let mut both_ok = 0;
+    let mut refused_by_both = 0;
+    for (kind, name) in [
+        (KeyKind::Request, "request"),
+        (KeyKind::Withdrawal, "withdrawal"),
+    ] {
+        let canonical = canonical_vk(kind);
+        let case = cases().into_iter().find(|c| c.name == name).unwrap();
+        for byte in (0..canonical.len()).step_by(3) {
+            let mut bytes = canonical.clone();
+            bytes[byte] ^= 1 << (byte % 8);
+            // arkworks itself panics on a corrupted list length; the codec must not, so only the
+            // reference side is guarded.
+            let ark = catch_unwind(|| ArkVk::<Bn254>::deserialize_compressed(&bytes[..]))
+                .unwrap_or(Err(ark_serialize::SerializationError::InvalidData));
+            let ours = VerifyingKey::from_canonical(&bytes);
+            match (&ark, &ours) {
+                (Ok(_), Ok(vk)) => {
+                    both_ok += 1;
+                    let proof = Proof::from_zkapi_wire(&case.proof).unwrap();
+                    let ark_vk = ark.as_ref().unwrap();
+                    let scalars: Vec<_> = case
+                        .inputs
+                        .iter()
+                        .map(|w| ark_bn254::Fr::from_be_bytes_mod_order(w))
+                        .collect();
+                    let native = Groth16::<Bn254>::verify(
+                        ark_vk,
+                        &scalars,
+                        &ArkProof {
+                            a: G1Affine::new_unchecked(
+                                fq(&case.proof[0..32]),
+                                fq(&case.proof[32..64]),
+                            ),
+                            b: G2Affine::new_unchecked(
+                                Fq2::new(fq(&case.proof[64..96]), fq(&case.proof[96..128])),
+                                Fq2::new(fq(&case.proof[128..160]), fq(&case.proof[160..192])),
+                            ),
+                            c: G1Affine::new_unchecked(
+                                fq(&case.proof[192..224]),
+                                fq(&case.proof[224..256]),
+                            ),
+                        },
+                    )
+                    .unwrap_or(false);
+                    assert_eq!(
+                        host_accepts(vk, &near_inputs(&case.inputs), &proof),
+                        native,
+                        "{name} key byte {byte}"
+                    );
+                }
+                (Err(_), Err(_)) => refused_by_both += 1,
+                (Ok(ark_vk), Err(e)) => {
+                    // Only the point at infinity is refused by the codec alone.
+                    assert_eq!(*e, CodecError::Infinity, "{name} key byte {byte}");
+                    let any_zero = ark_vk.alpha_g1.is_zero()
+                        || ark_vk.beta_g2.is_zero()
+                        || ark_vk.gamma_g2.is_zero()
+                        || ark_vk.delta_g2.is_zero()
+                        || ark_vk.gamma_abc_g1.iter().any(|p| p.is_zero());
+                    assert!(any_zero, "{name} key byte {byte}: refused without infinity");
+                }
+                (Err(_), Ok(_)) => {
+                    panic!("{name} key byte {byte}: codec accepts, arkworks refuses")
+                }
+            }
+        }
+    }
+    assert!(refused_by_both > 100, "{refused_by_both} mutations refused");
+    let _ = both_ok;
+}
+
+/// A trailing byte and a truncated key are refused, as is an all-zero (infinity) encoding.
+#[test]
+fn a_key_with_a_trailing_byte_or_cut_short_is_refused() {
+    for kind in [KeyKind::Request, KeyKind::Withdrawal] {
+        let mut bytes = canonical_vk(kind);
+        let mut longer = bytes.clone();
+        longer.push(0);
+        assert_eq!(
+            VerifyingKey::from_canonical(&longer).err(),
+            Some(CodecError::Malformed)
+        );
+        bytes.pop();
+        assert!(VerifyingKey::from_canonical(&bytes).is_err());
+        assert!(VerifyingKey::from_canonical(&[]).is_err());
+    }
+}

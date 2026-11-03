@@ -12,8 +12,8 @@ use nymira_testkit::proofs::{withdrawal_index as w, Bundle, WithdrawalKindId};
 use zkapi_proof::dev::{tree_with, DevRequest, DevState};
 
 use super::close::{
-    account_id, bundle as close_bundle, commitment_of_note, funded, gen, note, receipts, ALICE,
-    CHARGE, OPERATOR, VALID_UNTIL,
+    account_id, bundle as close_bundle, callback_env, commitment_of_note, funded, gen, note,
+    receipts, ALICE, CHARGE, OPERATOR, VALID_UNTIL,
 };
 use super::*;
 
@@ -913,6 +913,60 @@ fn step(v: &mut Vault, choice: u64, amount: u128, now: u64) -> Option<&'static s
     run.ok()
 }
 
+/// One settlement action of the property walk, chosen by `pick`: the token confirms or fails the
+/// oldest transfer in flight, or somebody claims a pending payout or the treasury. Callbacks run
+/// with a promise result, as the chain delivers them.
+fn settle(
+    v: &mut Vault,
+    in_flight: &mut Vec<(u8, u128)>,
+    usdc: &mut u128,
+    now: u64,
+    pick: u64,
+    accepted: &mut std::collections::BTreeMap<&'static str, u32>,
+) {
+    match pick {
+        0 | 1 if !in_flight.is_empty() => {
+            // Confirmed: the USDC left the vault.
+            let (kind, amount) = in_flight.remove(0);
+            callback_env(VAULT, PromiseResult::Successful(vec![]));
+            call_back(v, kind, amount);
+            *usdc -= amount;
+            *accepted.entry("payout_settled").or_default() += 1;
+        }
+        2 | 3 if !in_flight.is_empty() => {
+            // Failed: the amount comes back as a pending payout or to the treasury balance.
+            let (kind, amount) = in_flight.remove(0);
+            callback_env(VAULT, PromiseResult::Failed);
+            call_back(v, kind, amount);
+            *accepted.entry("payout_failed").or_default() += 1;
+        }
+        4 if v.pending_payout(account(ALICE)).0 > 0 => {
+            testing_env!(ctx("anyone.test", now).build());
+            let amount = v.pending_payout(account(ALICE)).0;
+            drop(v.claim_payout(account(ALICE)));
+            in_flight.push((1, amount));
+            *accepted.entry("claim_payout").or_default() += 1;
+        }
+        5 if v.treasury_balance().0 > 0 => {
+            testing_env!(ctx("anyone.test", now).build());
+            let amount = v.treasury_balance().0;
+            drop(v.claim_treasury());
+            in_flight.push((2, amount));
+            *accepted.entry("claim_treasury").or_default() += 1;
+        }
+        _ => {}
+    }
+}
+
+/// The callback that belongs to a transfer of this kind.
+fn call_back(v: &mut Vault, kind: u8, amount: u128) {
+    match kind {
+        0 => v.on_close_payout(account(ALICE), U128(amount), 0, commitment_of_note()),
+        1 => v.on_claim_payout(account(ALICE), U128(amount)),
+        _ => v.on_claim_treasury(U128(amount)),
+    }
+}
+
 /// Whether the model allows `call` on note `id` in this state, from the rules alone.
 fn legal(v: &Vault, call: &str, id: u32, now: u64) -> bool {
     let note = v.notes.get(id).unwrap();
@@ -950,8 +1004,11 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
         at(T0);
         assert_eq!(deposit(&mut v, ALICE, ONE + NOTE_FEE, &msg(2)), 0);
         let mut now = EXIT_AT * NS;
-        // What the vault holds in USDC under this model: deposits in, payouts out.
+        // What the vault accounts for in USDC under this model: deposits in, transfers that the
+        // token confirmed out. A payout or claim in flight is still the vault's until settled.
         let mut usdc = 2 * (ONE + NOTE_FEE);
+        // Transfers sent and not yet settled: (kind, amount); 0 close payout, 1 claim, 2 treasury.
+        let mut in_flight: Vec<(u8, u128)> = Vec::new();
         for _ in 0..14 {
             now += match random(10) {
                 0..=6 => random(300) * NS,
@@ -1006,7 +1063,7 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
                         ONE,
                         "payout plus treasury share is the deposit"
                     );
-                    usdc -= paid;
+                    in_flight.push((0, paid));
                 }
                 "mutual_close" => {
                     let fee = if get_logs()
@@ -1019,7 +1076,7 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
                     };
                     let paid = BALANCE_1 - fee;
                     assert_eq!(paid + delta, ONE, "payout plus close fee plus share");
-                    usdc -= paid;
+                    in_flight.push((0, paid));
                 }
                 "claim_expired" => assert_eq!(delta, ONE, "the whole denomination is swept"),
                 _ => assert_eq!(delta, 0, "{done} moves no money"),
@@ -1030,14 +1087,49 @@ fn random_orderings_keep_the_accounting_and_reject_the_illegal_ones() {
                 .filter(|n| n.status != Status::Closed)
                 .map(|n| n.deposit_amount)
                 .sum();
-            assert_eq!(held + v.treasury_balance().0, usdc);
+            let pending = v.pending_payout(account(ALICE)).0;
+            let flying: u128 = in_flight.iter().map(|(_, a)| a).sum();
+            assert_eq!(held + v.treasury_balance().0 + pending + flying, usdc);
             assert_counters(&v);
             let pending = v.notes.get(0).unwrap().status == Status::PendingExit;
             assert_eq!(!v.exit_requests(0, 10).is_empty(), pending);
             if let Some(exit) = v.exit_requests(0, 1).first() {
                 assert!(exit.final_balance.0 + exit.conceded.0 <= ONE);
             }
+            settle(
+                &mut v,
+                &mut in_flight,
+                &mut usdc,
+                now,
+                random(7),
+                &mut accepted,
+            );
         }
+        // Whatever is still in flight settles as a success; the books must balance at the end.
+        while let Some((_, amount)) = in_flight.pop() {
+            usdc -= amount;
+        }
+        let held: u128 = (0..v.notes.len())
+            .map(|id| v.notes.get(id).unwrap())
+            .filter(|n| n.status != Status::Closed)
+            .map(|n| n.deposit_amount)
+            .sum();
+        assert_eq!(
+            held + v.treasury_balance().0 + v.pending_payout(account(ALICE)).0,
+            usdc
+        );
+    }
+    // The settlement side ran too: confirmed and failed payouts, and both kinds of claim.
+    for call in [
+        "payout_settled",
+        "payout_failed",
+        "claim_payout",
+        "claim_treasury",
+    ] {
+        assert!(
+            accepted.get(call).copied().unwrap_or(0) > 0,
+            "{call} never ran: {accepted:?}"
+        );
     }
     // The walk reached every kind of step, and the rules refused each of them somewhere.
     for call in [

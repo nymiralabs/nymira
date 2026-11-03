@@ -931,6 +931,55 @@ mod close {
         Ok(())
     }
 
+    /// `claim_payout` at its minimum gas: 29 Tgas is refused whole, 30 pays, and with the token
+    /// failing at 30 Tgas the callback (fixed gas) still restores the record.
+    #[tokio::test]
+    async fn claim_payout_with_the_least_gas_pays_and_its_failure_path_still_restores() -> Result<()>
+    {
+        let env = setup(100 * ONE).await?;
+        if env.usdc.is_real() {
+            println!("sandbox-only: needs a mock-token switch, skipped on the real token");
+            return Ok(());
+        }
+        let note = deposit_note(&env, 42).await?;
+        let bundle = close_bundle(&env, &note, env.alice.id().as_str()).await?;
+        env.usdc.set_panic_in_transfer(true).await;
+        mutual_close(&env, &env.alice, &bundle, tgas(300), json!({}))
+            .await?
+            .into_result()?;
+        settled(&env).await;
+        let owed = (ONE - CHARGE).to_string();
+        assert_eq!(pending(&env, env.alice.id()).await, owed);
+        let claim = |gas| {
+            env.alice
+                .call(env.vault.id(), "claim_payout")
+                .args_json(json!({ "account_id": env.alice.id() }))
+                .gas(tgas(gas))
+                .transact()
+        };
+        assert!(claim(29).await?.is_failure());
+        assert_eq!(pending(&env, env.alice.id()).await, owed);
+        // The token still fails: the claim runs, the callback puts the amount back.
+        let failing = claim(30).await?;
+        report("claim_payout, least gas, token failing", &failing);
+        failing.into_result()?;
+        settled(&env).await;
+        assert_eq!(pending(&env, env.alice.id()).await, owed);
+        // The token recovers: 30 Tgas pays in full.
+        env.usdc.set_panic_in_transfer(false).await;
+        let before = env.usdc.balance_of(env.alice.id()).await;
+        let exact = claim(30).await?;
+        report("claim_payout, least gas (30 Tgas)", &exact);
+        exact.into_result()?;
+        settled(&env).await;
+        assert_eq!(
+            env.usdc.balance_of(env.alice.id()).await,
+            before + ONE - CHARGE
+        );
+        assert_eq!(pending(&env, env.alice.id()).await, "0");
+        Ok(())
+    }
+
     #[tokio::test]
     async fn callbacks_cannot_be_called_from_outside_or_starved() -> Result<()> {
         let env = setup(100 * ONE).await?;

@@ -194,6 +194,19 @@ impl VerifyingKey {
     /// vault builds a key.
     pub fn from_canonical(bytes: &[u8]) -> Result<Self, CodecError> {
         use ark_serialize::CanonicalDeserialize;
+        // Fixed part: alpha (G1, 32), then beta, gamma and delta (G2, 64 each), then the length of
+        // the IC list (u64, little-endian) and one 32-byte G1 per entry. arkworks allocates the
+        // list from that length before it reads the entries, so a corrupted length is checked
+        // against the byte count first: this function never panics.
+        const FIXED: usize = 32 + 3 * 64;
+        let count = bytes
+            .get(FIXED..FIXED + 8)
+            .map(|b| u64::from_le_bytes(b.try_into().expect("eight bytes")))
+            .ok_or(CodecError::Malformed)?;
+        let expected = u64::try_from(bytes.len() - FIXED - 8).expect("fits");
+        if count.checked_mul(32) != Some(expected) {
+            return Err(CodecError::Malformed);
+        }
         let mut reader = bytes;
         let vk = ark_groth16::VerifyingKey::<ark_bn254::Bn254>::deserialize_compressed(&mut reader)
             .map_err(|_| CodecError::Malformed)?;

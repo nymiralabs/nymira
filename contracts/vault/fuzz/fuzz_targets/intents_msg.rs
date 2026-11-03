@@ -1,5 +1,6 @@
 //! The Intents deposit message parser takes any bytes without panicking.
-//! Run with `cargo +nightly fuzz run intents_msg` from `contracts/vault`.
+//! Run with `cargo +nightly fuzz run intents_msg fuzz/seeds/intents_msg` from `contracts/vault`
+//! (the seeds are a small committed corpus; found inputs go to the ignored `corpus/`).
 
 #![no_main]
 
