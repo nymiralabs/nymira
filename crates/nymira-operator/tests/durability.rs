@@ -78,6 +78,34 @@ async fn a_signed_state_is_on_the_replica_before_a_client_can_read_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_lease_open_when_the_link_breaks_is_retired_and_settled_when_it_returns() {
+    let rig = Rig::new(Setup::default()).await;
+    let l = open(&rig, 1).await;
+    rig.provider.set_usage(&l.id, 40_000_000);
+    rig.replica.set_down(true);
+    // The client ends the lease while the replica is away; the operator accepts the retire.
+    retire(&rig, &l).await;
+    rig.op.tick().await;
+    rig.clock.advance_secs(11);
+    for _ in 0..3 {
+        rig.op.tick().await;
+    }
+    let v = nullifier(&rig, &l).await;
+    assert_eq!(v["nullifier_status"], "reserved");
+    assert!(v.get("request_response").is_none());
+    assert!(!rig.replica.records().iter().any(|r| r.0 == kinds::SIGNED));
+
+    rig.replica.set_down(false);
+    for _ in 0..3 {
+        rig.op.tick().await;
+    }
+    let v = nullifier(&rig, &l).await;
+    assert_eq!(v["nullifier_status"], "finalized");
+    assert!(v["request_response"].is_object(), "a signed next state exists");
+    assert!(rig.replica.records().iter().any(|r| r.0 == kinds::SIGNED));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn after_six_hours_without_the_replica_a_lease_settles_at_its_bound_and_no_state_is_signed() {
     let rig = Rig::new(Setup::default()).await;
     let l = open(&rig, 1).await;
