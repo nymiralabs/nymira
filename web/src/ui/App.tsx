@@ -76,6 +76,17 @@ export function App() {
           {PROFILE.id === 'mock' ? 'test build' : 'vault ' + PROFILE.vaultAccount}
         </small>
         <br />
+        <small>
+          <a
+            href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="terms-link"
+          >
+            Terms of use
+          </a>
+        </small>
+        <br />
         <BundleHash />
       </footer>
     </main>
