@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { warmProver } from '../chat/runtime';
 import { PROFILE } from '../profile';
 import { Chat } from './Chat';
 import { Fund } from './Fund';
@@ -11,6 +12,12 @@ type Screen = 'landing' | 'fund' | 'chat' | 'notes';
 export function App() {
   const [screen, setScreen] = useState<Screen>('landing');
   const { check, recheck } = useVaultCheck();
+
+  // The proving key loads into the worker when the page opens, so the first lease does not wait
+  // for it. A copy served from another origin loads nothing.
+  useEffect(() => {
+    if (originOk) void warmProver();
+  }, []);
 
   if (!originOk) {
     return (

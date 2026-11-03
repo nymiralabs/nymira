@@ -98,11 +98,19 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
     if (unlocked) void refresh();
   }, [unlocked, refresh]);
 
+  // Closing the tab cannot wait for the settlement, but it can end the lease.
+  useEffect(() => {
+    const hide = () => session.current?.retireOnPageHide();
+    window.addEventListener('pagehide', hide);
+    return () => window.removeEventListener('pagehide', hide);
+  }, []);
+
   // Leaving the conversation retires the lease, so no slot fee is paid for idle time.
   useEffect(
     () => () => {
       const s = session.current;
       if (s?.lease?.token) void s.end().catch(() => undefined);
+      else void s?.abandon();
     },
     [],
   );
@@ -129,6 +137,8 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
     try {
       const deps = await chatDeps(requireKey);
       session.current = new ChatSession(deps, record, longJob);
+      // The first proof is made while the user types.
+      session.current.prepareAhead();
       setSelected(record.id);
     } catch (e) {
       fail(e);
@@ -219,6 +229,31 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
     }
   };
 
+  const settleOpen = async (record: NoteRecord) => {
+    setError('');
+    setBusy('Settling the lease this note has open…');
+    try {
+      const deps = await chatDeps(requireKey);
+      const s = new ChatSession(deps, record, longJob);
+      session.current = s;
+      const result = await s.resume({ pollMs: 500 });
+      if (result === 'set_aside') {
+        setError(
+          'The operator never received that request, so it was set aside. The note is free again.',
+        );
+        session.current = null;
+      } else {
+        setSelected(record.id);
+        setSettled(result);
+      }
+      await refresh();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy('');
+    }
+  };
+
   const open = selected ? session.current : null;
   const leaseOpen = Boolean(open?.lease?.token);
   const pass12 = passphraseLength(passphrase) >= MIN_PASSPHRASE_LENGTH;
@@ -245,14 +280,24 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
               <li key={record.id} data-testid="chat-note">
                 {units(view.balance)} · note #{view.noteId}{' '}
                 {view.pending && <em data-testid="note-pending">(a lease is not settled)</em>}
-                <button
-                  type="button"
-                  data-testid="chat-use-note"
-                  disabled={prover.status !== 'ready'}
-                  onClick={() => start(record)}
-                >
-                  Chat with this note
-                </button>
+                {view.pending ? (
+                  <button
+                    type="button"
+                    data-testid="chat-settle"
+                    onClick={() => settleOpen(record)}
+                  >
+                    Settle the open lease
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="chat-use-note"
+                    disabled={prover.status !== 'ready'}
+                    onClick={() => start(record)}
+                  >
+                    Chat with this note
+                  </button>
+                )}
               </li>
             ))}
           </ul>

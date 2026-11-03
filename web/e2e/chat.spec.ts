@@ -10,7 +10,15 @@ import {
   startConversation,
   test,
 } from './chat-support';
-import { BACKUP_PASSPHRASE, expectNoSecret, pageSurfaces, watch, workdir } from './support';
+import {
+  BACKUP_PASSPHRASE,
+  WRAP_PASSPHRASE,
+  expectNoSecret,
+  pageSurfaces,
+  rpcRequests,
+  watch,
+  workdir,
+} from './support';
 import type { Page } from '@playwright/test';
 
 test.describe.configure({ timeout: 300_000 });
@@ -60,6 +68,13 @@ test('chat end to end: attested, encrypted, both signature kinds, token, cost, b
   void backupFile;
   await openChat(page);
   await startConversation(page);
+  // The first proof is made while the user types: the tree was read and the nonce checked before
+  // any message was sent, and nothing reached the operator's lease route yet.
+  await expect
+    .poll(async () => JSON.stringify(await rpcRequests()), { timeout: 60_000 })
+    .toContain('get_leaves');
+  expect(stack.seen.some((r) => r.path === '/v1/status')).toBe(true);
+  expect(stack.seen.some((r) => r.method === 'POST')).toBe(false);
   await say(page, 'What is two plus two? my secret question');
 
   // The answer came back decrypted; the badge waits for the lease to end.
@@ -275,4 +290,35 @@ test('@webkit chat on WebKit: model-signed badge and the backup download', async
   await expect(page.getByTestId('backup-prompt')).toContainText(
     picker ? 'Choose a file once' : 'nymirad or a Chromium browser',
   );
+});
+
+test('a lease left open by a closed or reloaded page is settled on the next visit', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await fundNote(page, context);
+  await openChat(page);
+  await startConversation(page);
+  await say(page, 'left open on purpose');
+  const lease = [...stack.leases.values()][0]!;
+
+  // The page goes away without ending the conversation: it still asks the operator to end it.
+  await page.reload();
+  await expect.poll(() => lease.retired).toBe(true);
+
+  await page.getByTestId('open-app').click();
+  await page.getByTestId('nav-chat').click();
+  await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
+  await page.getByTestId('unlock-submit').click();
+  await expect(page.getByTestId('note-pending')).toBeVisible();
+  await expect(page.getByTestId('chat-use-note')).toHaveCount(0);
+  await page.getByTestId('chat-settle').click();
+  await expect(page.getByTestId('settled')).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByTestId('badge-text')).toHaveText('not verified');
+  await expect(page.getByTestId('badge')).toContainText('was not open in this page');
+  await expect(page.getByTestId('cost-line')).toContainText('Lease cost');
+  // The charge was recomputed from the stored usage: no false overcharge warning.
+  await expect(page.getByTestId('charge-warning')).toHaveCount(0);
 });

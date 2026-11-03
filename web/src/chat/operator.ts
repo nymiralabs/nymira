@@ -119,10 +119,11 @@ export class OperatorClient {
   }
 
   /** `POST /v2/openrouter/leases/{id}`: ends the lease so the operator settles it. */
-  async retire(leaseId: string, token: string): Promise<void> {
+  async retire(leaseId: string, token: string, keepalive = false): Promise<void> {
     const r = await this.send(`/v2/openrouter/leases/${encodeURIComponent(leaseId)}`, {
       method: 'POST',
       headers: { [TOKEN_HEADER]: token },
+      keepalive,
     });
     if (!r.ok) return OperatorClient.fail(r);
   }

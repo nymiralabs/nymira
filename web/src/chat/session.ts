@@ -14,7 +14,7 @@ import type { LeaseConfigInput } from '../worker/protocol';
 import { callWorker } from '../worker/client';
 import { noteAad, type NoteRecord } from '../store/types';
 import { putNote } from '../store/db';
-import type { ActiveLease, LeaseRecord, NoteView } from '../note/lease';
+import type { ActiveLease, LeaseRecord, NoteView, PreparedLease } from '../note/lease';
 import { ClientKeys, E2eeError, openResponse, openSseLine, sealRequest } from './e2ee';
 import { fromHex, toHex } from '../crypto/bytes';
 import {
@@ -111,6 +111,8 @@ export interface Settled {
 }
 
 const ATTEST_TTL_MS = 300_000;
+/** How long a proof made ahead may wait for the first message. */
+const AHEAD_MAX_MS = 120_000;
 const utf8 = (s: string) => new TextEncoder().encode(s);
 
 export function estimateInputTokens(messages: Message[]): bigint {
@@ -136,6 +138,7 @@ export class ChatSession {
   private exchanges: Exchange[] = [];
   private counter = 0;
   private spentMicro = 0n;
+  private ahead: { at: number; promise: Promise<PreparedLease> } | null = null;
   /** The current record of the note (its sealed payload moves on after every step). */
   private note: NoteRecord;
   lease: ActiveLease | null = null;
@@ -283,9 +286,8 @@ export class ChatSession {
     return e instanceof Error ? e : new Error(String(e));
   }
 
-  /** Opens a lease on this note. Throws `ChatError` with a user-facing message. */
-  async openLease(): Promise<void> {
-    if (this.lease?.token) return;
+  /** The checks that come before any proof: vault pins, emergency notice, bound class, no pending lease. */
+  private async plan(allowPending: boolean) {
     const profile = this.deps.profile;
     const pins = profile.pins;
     if (!pins) throw new ChatError('no_pins', 'This build has no vault pins, so chat is off.');
@@ -314,44 +316,96 @@ export class ChatSession {
     if (bound === null)
       throw new ChatError('bound_class_missing', 'The vault lists no lease class of that size.');
     const view = await this.view();
-    if (view.pending)
+    if (view.pending && !allowPending)
       throw new ChatError(
         'lease_pending',
         'An earlier lease on this note is not settled yet. Settle it first.',
       );
+    return { bound, view };
+  }
 
-    const build = async () => {
-      const { status, nonce } = await this.checkedStatus();
-      const tree = await readSnapshot(this.deps.rpc, profile.vaultAccount);
-      const leaf = tree.leaves[view.noteId];
-      if (leaf === undefined || /^0x0+$/.test(leaf)) {
-        throw new ChatError(
-          'leaf_missing',
-          'This note’s leaf is not in the tree yet (wait for the operator’s next root update) or was retired.',
-        );
-      }
-      const prepared = await callWorker({
-        op: 'prepareLease',
+  /** One request proof: a verified status nonce, the tree at one final block, the worker's proof. */
+  private async build(plan: { bound: bigint; view: NoteView }) {
+    const { bound, view } = plan;
+    const { nonce } = await this.checkedStatus();
+    const tree = await readSnapshot(this.deps.rpc, this.deps.profile.vaultAccount);
+    const leaf = tree.leaves[view.noteId];
+    if (leaf === undefined || /^0x0+$/.test(leaf)) {
+      throw new ChatError(
+        'leaf_missing',
+        'This note’s leaf is not in the tree yet (wait for the operator’s next root update) or was retired.',
+      );
+    }
+    const prepared = await callWorker({
+      op: 'prepareLease',
+      key: this.deps.getKey(),
+      aad: this.aad,
+      sealed: this.note.sealed,
+      input: {
+        config: this.config(),
+        noteId: view.noteId,
+        bound: bound.toString(),
+        tree,
+        requestTime: requestTime(nonce),
+        clientRequestId: this.deps.random?.() ?? crypto.randomUUID(),
+        createdAtMs: this.now(),
+        openedAt: this.nowSecs(),
+      },
+    });
+    // The bound for this state is stored before the proof leaves this page.
+    await this.store(prepared.sealed);
+    return prepared;
+  }
+
+  private async discard(): Promise<void> {
+    await this.store(
+      await callWorker({
+        op: 'discardPending',
         key: this.deps.getKey(),
         aad: this.aad,
         sealed: this.note.sealed,
-        input: {
-          config: this.config(),
-          noteId: view.noteId,
-          bound: bound.toString(),
-          tree,
-          requestTime: requestTime(nonce),
-          clientRequestId: this.deps.random?.() ?? crypto.randomUUID(),
-          createdAtMs: this.now(),
-          openedAt: this.nowSecs(),
-        },
-      });
-      // The bound for this state is stored before the proof leaves this page.
-      await this.store(prepared.sealed);
-      return { prepared, status, nonce };
-    };
+      }),
+    );
+  }
 
-    let { prepared } = await build();
+  /**
+   * Makes the proof for the first lease while the user is still typing, so the key load and the
+   * proof do not delay the first message. Nothing is sent. The proof waits at most `AHEAD_MAX_MS`;
+   * an older one is set aside and made again (the operator accepts a proof up to 330 s old).
+   */
+  prepareAhead(): void {
+    if (this.ahead || this.lease?.token) return;
+    const promise = (async () => this.build(await this.plan(false)))();
+    promise.catch(() => undefined);
+    this.ahead = { at: this.now(), promise };
+  }
+
+  /** Leaving before the first message: the unsent proof is set aside, so no state stays pending. */
+  async abandon(): Promise<void> {
+    const ahead = this.ahead;
+    this.ahead = null;
+    if (!ahead || this.lease?.token) return;
+    await ahead.promise.then(() => this.discard()).catch(() => undefined);
+  }
+
+  /** Opens a lease on this note. Throws `ChatError` with a user-facing message. */
+  async openLease(): Promise<void> {
+    if (this.lease?.token) return;
+    const ahead = this.ahead;
+    this.ahead = null;
+    let prepared: PreparedLease | undefined;
+    if (ahead) {
+      try {
+        const made = await ahead.promise;
+        if (this.now() - ahead.at <= AHEAD_MAX_MS) prepared = made;
+        else await this.discard();
+      } catch {
+        // The proof could not be made ahead; the checks run again below and say why.
+      }
+    }
+    const plan = await this.plan(prepared !== undefined);
+    const build = async () => ({ prepared: await this.build(plan) });
+    prepared ??= (await build()).prepared;
     let rebuilt = false;
     let puzzled = false;
     for (;;) {
@@ -642,11 +696,53 @@ export class ChatSession {
     return this.settle(responseJson);
   }
 
+  /**
+   * Finishes a lease request that this page did not finish (the tab was closed or reloaded). The
+   * operator's recovery route needs no token: a request it never saw is set aside, a finalized
+   * one is installed, a pending one is retired and waited for.
+   */
+  async resume(opts: { pollMs?: number; maxWaitMs?: number } = {}): Promise<Settled | 'set_aside'> {
+    const view = await this.view();
+    if (!view.pending || !view.active)
+      throw new ChatError('nothing_pending', 'No lease is waiting on this note.');
+    this.lease = view.active;
+    let recovery;
+    try {
+      recovery = await this.deps.operator.recover(view.active.clientRequestId);
+    } catch (e) {
+      throw this.wrap(e);
+    }
+    if (recovery.status === 'unknown') {
+      // The operator never saw this request: the nullifier is unbound and the state can prove again.
+      await this.discard();
+      this.lease = null;
+      return 'set_aside';
+    }
+    if (recovery.responseJson) return this.settle(recovery.responseJson);
+    if (!view.active.token) {
+      throw new ChatError(
+        'settling',
+        'The operator has this request but has not settled it, and this device has no lease token to end it. Try again later.',
+      );
+    }
+    return this.end(opts);
+  }
+
+  /** Best effort on leaving the page: asks the operator to end the lease; settlement waits for the next visit. */
+  retireOnPageHide(): void {
+    const lease = this.lease;
+    if (!lease?.token) return;
+    void this.deps.operator.retire(lease.record.leaseId, lease.token, true).catch(() => undefined);
+  }
+
   private async settle(responseJson: string): Promise<Settled> {
     const lease = this.lease!;
     const { operator, profile } = this.deps;
-    const signatures = await operator
-      .leaseStatus(lease.record.leaseId, lease.token!)
+    const signatures = await (
+      lease.token
+        ? operator.leaseStatus(lease.record.leaseId, lease.token)
+        : Promise.reject(new Error('no lease token'))
+    )
       .then(
         (s) =>
           (
@@ -673,17 +769,31 @@ export class ChatSession {
       x.answer.trust = trust;
       trusts.push(trust);
     }
-    const trust = weakest(trusts);
+    const trust: Trust =
+      this.exchanges.length === 0 && lease.record.requests > 0
+        ? {
+            result: 'not_verified',
+            reason:
+              'the conversation was not open in this page, so its answers and signatures were not checked',
+          }
+        : weakest(trusts);
     const warnings: string[] = [];
     if (trust.result === 'not_verified') warnings.push(`not verified: ${trust.reason}`);
 
     // The charge, recomputed with the operator's formula from the usage the answers reported.
     const params = chargeParams(profile);
     const bound = BigInt(lease.record.boundClass);
-    const cost = this.exchanges.reduce((n, x) => {
-      const spec = modelById(x.model)!;
-      return n + costNano(spec, BigInt(x.answer.promptTokens), BigInt(x.answer.completionTokens));
-    }, 0n);
+    // A resumed lease has no exchanges in memory: its usage comes from the stored record.
+    const spec = modelById(lease.record.model);
+    const cost =
+      this.exchanges.length === 0 && spec
+        ? costNano(spec, BigInt(lease.record.promptTokens), BigInt(lease.record.completionTokens))
+        : this.exchanges.reduce((n, x) => {
+            const s = modelById(x.model)!;
+            return (
+              n + costNano(s, BigInt(x.answer.promptTokens), BigInt(x.answer.completionTokens))
+            );
+          }, 0n);
     // The local clock, not a figure the operator reports; the status nonce was checked against it.
     const held = BigInt(Math.max(0, this.nowSecs() - (lease.issuedAt ?? lease.record.openedAt)));
     const expected = chargeOf(bound, cost, held, params);
