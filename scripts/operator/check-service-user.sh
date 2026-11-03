@@ -22,5 +22,5 @@ check "no secret file is readable by others" "[ -z \"\$(find $HOME_DIR/secrets -
 check "no sockets with a loose mode" "[ -z \"\$(find $HOME_DIR/run -type s \\( -perm -g=rw -o -perm -o=rw \\))\" ]"
 check "no Homebrew, Cargo or Rust files in its home" "[ ! -e $HOME_DIR/.cargo ] && [ ! -e $HOME_DIR/.rustup ] && [ ! -e $HOME_DIR/Library/Application\\ Support/Google ]"
 echo
-echo "Not checked here: the tools in /usr/bin and the apps in /Applications are readable by every user on macOS. The service user has no shell and no home tools, but system-wide developer tools and browsers stay installed (docs/open-items.md)."
+echo "Not checked here: the tools in /usr/bin and the apps in /Applications are readable by every user on macOS. The service user has no shell and no home tools, but system-wide developer tools and browsers stay installed (see THREAT_MODEL.md)."
 exit $fail
