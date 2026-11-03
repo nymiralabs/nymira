@@ -9,21 +9,36 @@ pub fn request(
     server: &str,
     method: reqwest::Method,
     target: String,
+    http: Option<&reqwest::Client>,
 ) -> Result<reqwest::RequestBuilder, ClientError> {
     let password = if chain_id == 11155111 {
         std::env::var("OA_ZKAPI_TESTNET_PASSWORD").ok()
     } else {
         None
     };
-    build_request(chain_id, server, method, target, password.as_deref())
+    build_request_with(chain_id, server, method, target, password.as_deref(), http)
 }
 
+#[cfg(test)]
 fn build_request(
     chain_id: u64,
     server: &str,
     method: reqwest::Method,
     target: String,
     password: Option<&str>,
+) -> Result<reqwest::RequestBuilder, ClientError> {
+    build_request_with(chain_id, server, method, target, password, None)
+}
+
+/// Nymira patch: `http` is the caller's client (nymirad passes one that goes through Tor); `None`
+/// builds the upstream client.
+fn build_request_with(
+    chain_id: u64,
+    server: &str,
+    method: reqwest::Method,
+    target: String,
+    password: Option<&str>,
+    http: Option<&reqwest::Client>,
 ) -> Result<reqwest::RequestBuilder, ClientError> {
     let invalid = || ClientError::ServerError("invalid testnet authentication transport".into());
     let base = reqwest::Url::parse(server).map_err(|_| invalid())?;
@@ -36,11 +51,18 @@ fn build_request(
     {
         return Err(invalid());
     }
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| invalid())?;
+    let built;
+    let http = match http {
+        Some(h) => h,
+        None => {
+            built = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(180))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|_| invalid())?;
+            &built
+        }
+    };
     let mut request = http.request(method, url.clone());
     if chain_id == 11155111 {
         if let Some(password) = password.filter(|value| !value.is_empty()) {
