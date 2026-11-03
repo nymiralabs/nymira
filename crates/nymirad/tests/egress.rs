@@ -21,6 +21,8 @@ const EXPECTED: &[(&str, u16)] = &[
     ("operator.nymira.example", 443),
     ("cloud-api.near.ai", 443),
     ("1click.chaindefuser.com", 443),
+    ("nymira.pages.dev", 443),
+    ("nymiralabs.github.io", 443),
 ];
 
 #[tokio::test]
@@ -62,6 +64,17 @@ async fn every_client_goes_out_by_name_through_the_proxy() {
         .unwrap()
         .quote(&SHORTLIST[0])
         .await;
+
+    // verify-web without the user's yes: both origins by name through the proxy, and no direct
+    // request (the strace half of the check sees no connect() that leaves loopback).
+    let plan = nymirad::webverify::Plan {
+        key: "",
+        profile: "testnet",
+        primary: "https://nymira.pages.dev",
+        mirror: "https://nymiralabs.github.io/nymira",
+    };
+    let report = nymirad::webverify::verify(&plan, &transport, false).await;
+    assert!(!report.ok() && report.skipped.len() == 1);
 
     let seen = proxy.seen();
     assert!(!seen.is_empty());

@@ -40,3 +40,4 @@ pub mod submitter;
 pub mod token;
 pub mod tor;
 pub mod walletvault;
+pub mod webverify;
