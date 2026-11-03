@@ -1,0 +1,24 @@
+{
+  "provenance": {
+    "@cspotcode/source-map-support@0.8.1": "no attestation published",
+    "@jridgewell/resolve-uri@3.1.2": "no attestation published",
+    "@jridgewell/sourcemap-codec@1.6.0": "no attestation published",
+    "@jridgewell/trace-mapping@0.3.9": "no attestation published",
+    "@sindresorhus/is@7.2.0": "no attestation published",
+    "blake3-wasm@2.1.5": "no attestation published",
+    "cookie@1.1.1": "no attestation published",
+    "error-stack-parser-es@1.0.5": "no attestation published",
+    "fsevents@2.3.3": "no attestation published",
+    "kleur@4.1.5": "no attestation published",
+    "path-to-regexp@6.3.0": "no attestation published",
+    "pathe@2.0.3": "no attestation published",
+    "supports-color@10.2.2": "no attestation published",
+    "tslib@2.9.1": "no attestation published",
+    "unenv@2.0.0-rc.24": "no attestation published",
+    "ws@8.21.0": "no attestation published"
+  },
+  "age": {
+    "semver@7.8.6": "locked before the minimum release age rule; goes stale after 7 days",
+    "tslib@2.9.1": "locked before the minimum release age rule; goes stale after 7 days"
+  }
+}

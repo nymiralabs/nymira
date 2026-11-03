@@ -3,7 +3,7 @@ import { newFundingWallet, openFund } from './support';
 
 // The app is served with the production header set (headers.ts). These tests show that the set
 // does what it says (eval is refused by leaving `'unsafe-eval'` out, which the header test checks:
-// code run through the test driver is exempt from it). The hosting ticket (#39) turns the same set into the Pages headers.
+// code run through the test driver is exempt from it). The release build turns the same set into the Pages headers; integrity.spec.ts tests that file.
 
 test('the policy blocks an injected inline script, an injected style and a request to an unlisted host', async ({
   context,
@@ -45,7 +45,7 @@ test('the app and the wallet frame get different header sets', async ({ request 
   expect(csp).not.toContain("'unsafe-eval'");
   expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
   expect(app.headers()['referrer-policy']).toBe('no-referrer');
-  expect(app.headers()['permissions-policy']).toBe('');
+  expect(app.headers()['permissions-policy']).toContain('camera=()');
   expect(app.headers()['access-control-allow-origin']).toBeUndefined();
 
   const frame = await request.get('/wallet-host.html');

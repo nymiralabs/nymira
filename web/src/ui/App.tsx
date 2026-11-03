@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { warmProver } from '../chat/runtime';
 import { PROFILE } from '../profile';
+import { BundleHash } from './BundleHash';
 import { Chat } from './Chat';
 import { Close } from './Close';
 import { Fund } from './Fund';
@@ -74,6 +75,8 @@ export function App() {
           {PROFILE.network} ·{' '}
           {PROFILE.id === 'mock' ? 'test build' : 'vault ' + PROFILE.vaultAccount}
         </small>
+        <br />
+        <BundleHash />
       </footer>
     </main>
   );

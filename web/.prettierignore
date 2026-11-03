@@ -8,3 +8,7 @@ package-lock.json
 test-fixtures/executors
 test-fixtures/near-ai-recorded
 pins/attestation-policy.json
+dist-*
+site
+site-*
+test-fixtures/integrity

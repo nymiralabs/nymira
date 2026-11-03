@@ -119,8 +119,10 @@ export function Landing({ onOpen }: { onOpen: () => void }) {
       </p>
       <p className="notice" data-testid="integrity-notice">
         This page is code you load from a web host. A compromised host could serve a different app,
-        and nothing in your browser checks the bundle for you. People who will not trust that should
-        run <code>nymirad</code> instead.
+        and nothing in your browser checks the bundle for you. <code>nymirad verify-web</code>{' '}
+        compares what the host serves with the release's signed manifest, but it catches a different
+        app only if you run it and the host does not show it a clean copy. People who will not trust
+        that should run <code>nymirad</code> instead.
       </p>
       <button type="button" className="primary" data-testid="open-app" onClick={onOpen}>
         Try it

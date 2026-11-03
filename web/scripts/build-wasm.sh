@@ -18,6 +18,13 @@ fi
 # CARGO_TARGET_DIR, when set, holds both workspaces' output.
 ZK_TARGET="${CARGO_TARGET_DIR:-$root/vendor/zkapi/protocol/rust/target}"
 WS_TARGET="${CARGO_TARGET_DIR:-$root/target}"
+
+# The WASM files embed source paths (panic messages, `file!()`). Mapping them to fixed names makes
+# the output the same from any checkout path, cargo home and target directory, which the
+# reproducible web bundle (web/INTEGRITY.md) needs.
+CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
+SYSROOT="$(rustc --print sysroot)"
+export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$root=/nymira --remap-path-prefix=$CARGO_HOME_DIR=/cargo --remap-path-prefix=$SYSROOT=/sysroot --remap-path-prefix=$ZK_TARGET=/target-zk --remap-path-prefix=$WS_TARGET=/target"
 out="$root/web/src/wasm"
 rm -rf "$out"
 mkdir -p "$out"

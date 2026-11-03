@@ -12,3 +12,6 @@ web/src/wasm/
 web/test-results/
 web/playwright-report/
 web-testkit/test-results/
+web/dist-*/
+web/site/
+web/site-*/

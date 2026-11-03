@@ -70,7 +70,10 @@ test('a wallet executor loads in the sandboxed frame, and nothing is fetched at 
   await page.getByTestId('connect-fake-wallet').click();
   await expect(page.getByTestId('connected')).toContainText('sandbox.test');
   await expect(page.getByTestId('connected')).toContainText('sign-in signature checked');
-  for (const url of seen.requests) {
+  // The footer reads the release manifest of this origin; the wallet library's own manifest is what must not be fetched.
+  for (const url of seen.requests.filter(
+    (u) => !/^GET http:\/\/localhost:4173\/manifest\.json\s*$/.test(u),
+  )) {
     expect(url).not.toMatch(/raw\.githubusercontent|jsdelivr|near-selector|manifest\.json/);
   }
   expect(seen.violations).toEqual([]);
