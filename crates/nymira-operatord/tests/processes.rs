@@ -175,6 +175,10 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
         }
         (role.to_string(), child)
     };
+    // On Linux the descriptors of a process that set `PR_SET_DUMPABLE=0` cannot be read, so
+    // listeners are counted as the new ones in the kernel's table after the processes started.
+    #[cfg(target_os = "linux")]
+    let listening_before = tcp_listening_now();
     let mut procs = Procs(vec![]);
     procs.0.push(spawn("minter", Some("seal passphrase\n")));
     procs.0.push(spawn(
@@ -260,6 +264,19 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
     );
 
     // No TCP listener except the API's.
+    #[cfg(target_os = "linux")]
+    {
+        let new: Vec<String> = tcp_listening_now()
+            .into_iter()
+            .filter(|l| !listening_before.contains(l))
+            .collect();
+        assert_eq!(
+            new,
+            [format!("127.0.0.1:{port}")],
+            "the processes listen on"
+        );
+    }
+    #[cfg(not(target_os = "linux"))]
     for (name, child) in &procs.0 {
         let names = tcp_listeners(child.id());
         if name == "api" {
@@ -369,68 +386,53 @@ async fn five_processes_each_with_only_its_own_secrets_and_one_tcp_listener() {
     }
 }
 
-/// The TCP addresses `pid` listens on. On Linux read straight from `/proc` (the socket inodes of
-/// the process's descriptors against the kernel's listening table), which needs no `lsof`; on
-/// macOS `lsof`.
+/// Every TCP address some process of this user listens on, from the kernel's tables (Linux).
+#[cfg(target_os = "linux")]
+fn tcp_listening_now() -> Vec<String> {
+    let uid = std::fs::metadata("/proc/self")
+        .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
+        .unwrap();
+    let mut out = Vec::new();
+    for (file, v6) in [("/proc/net/tcp", false), ("/proc/net/tcp6", true)] {
+        let Ok(text) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        for line in text.lines().skip(1) {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            // local_address, state (0A is LISTEN), ..., uid.
+            if f.len() > 7 && f[3] == "0A" && f[7].parse::<u32>() == Ok(uid) {
+                let (addr, port) = f[1].split_once(':').unwrap();
+                let port = u16::from_str_radix(port, 16).unwrap();
+                let host = if v6 {
+                    format!("[{addr}]")
+                } else {
+                    let n = u32::from_str_radix(addr, 16).unwrap().to_le_bytes();
+                    format!("{}.{}.{}.{}", n[0], n[1], n[2], n[3])
+                };
+                out.push(format!("{host}:{port}"));
+            }
+        }
+    }
+    out
+}
+
+/// The TCP addresses `pid` listens on (`lsof`, where the descriptors can be read).
+#[cfg(not(target_os = "linux"))]
 fn tcp_listeners(pid: u32) -> Vec<String> {
-    #[cfg(target_os = "linux")]
-    {
-        let mut inodes = std::collections::HashSet::new();
-        for fd in std::fs::read_dir(format!("/proc/{pid}/fd"))
-            .unwrap()
-            .flatten()
-        {
-            if let Ok(link) = std::fs::read_link(fd.path()) {
-                if let Some(inode) = link
-                    .to_string_lossy()
-                    .strip_prefix("socket:[")
-                    .and_then(|r| r.strip_suffix(']'))
-                {
-                    inodes.insert(inode.to_string());
-                }
-            }
-        }
-        let mut out = Vec::new();
-        for (file, v6) in [("/proc/net/tcp", false), ("/proc/net/tcp6", true)] {
-            let Ok(text) = std::fs::read_to_string(file) else {
-                continue;
-            };
-            for line in text.lines().skip(1) {
-                let f: Vec<&str> = line.split_whitespace().collect();
-                // local_address state ... inode: 0A is LISTEN.
-                if f.len() > 9 && f[3] == "0A" && inodes.contains(f[9]) {
-                    let (addr, port) = f[1].split_once(':').unwrap();
-                    let port = u16::from_str_radix(port, 16).unwrap();
-                    let host = if v6 {
-                        format!("[{addr}]")
-                    } else {
-                        // Little-endian hex of the IPv4 address.
-                        let n = u32::from_str_radix(addr, 16).unwrap().to_le_bytes();
-                        format!("{}.{}.{}.{}", n[0], n[1], n[2], n[3])
-                    };
-                    out.push(format!("{host}:{port}"));
-                }
-            }
-        }
-        out
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let out = Command::new("lsof")
-            .args([
-                "-nP",
-                "-a",
-                "-iTCP",
-                "-sTCP:LISTEN",
-                "-Fn",
-                "-p",
-                &pid.to_string(),
-            ])
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter_map(|l| l.strip_prefix('n').map(String::from))
-            .collect()
-    }
+    let out = Command::new("lsof")
+        .args([
+            "-nP",
+            "-a",
+            "-iTCP",
+            "-sTCP:LISTEN",
+            "-Fn",
+            "-p",
+            &pid.to_string(),
+        ])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.strip_prefix('n').map(String::from))
+        .collect()
 }
