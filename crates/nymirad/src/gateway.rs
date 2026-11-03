@@ -417,7 +417,7 @@ impl Gateway {
     async fn unsealed_wallet(&self, entry: &NoteEntry, bound: u128) -> Result<Wallet, Skip> {
         let mut wallet = self.open_wallet(entry, bound)?;
         if wallet.has_pending_request() {
-            match wallet.recover_pending().await {
+            match crate::rpc::recover_pending_over(&self.transport, &mut wallet).await {
                 Ok(Some(_)) if !wallet.has_pending_request() => {}
                 _ => {
                     return Err(Skip::Reason(
@@ -964,6 +964,8 @@ impl Gateway {
     }
 
     async fn finish_lease(&self, s: &mut Session) -> Option<Settled> {
+        // The lease's own client: the same circuit the lease used.
+        s.wallet.set_http_client(Some(s.http.clone()));
         let response = s.wallet.recover_pending().await.ok().flatten()?;
         let charge = response.charge_applied;
         let mut warnings = Vec::new();

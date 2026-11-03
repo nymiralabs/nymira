@@ -102,6 +102,18 @@ pub fn client(transport: &Transport) -> Result<reqwest::Client, RpcError> {
     client_with_identity(transport, &crate::net::identity())
 }
 
+/// Asks the operator about the wallet's pending request through `transport`, on a circuit of its
+/// own. With a managed Tor that is not ready it fails and the wallet is untouched: the wallet's
+/// own client would otherwise send the request from this machine's address.
+pub async fn recover_pending_over(
+    transport: &Transport,
+    wallet: &mut zkapi_client::wallet::Wallet,
+) -> Result<Option<zkapi_types::wire::RequestResponseV2>, String> {
+    let http = client(transport).map_err(|e| e.to_string())?;
+    wallet.set_http_client(Some(http));
+    wallet.recover_pending().await.map_err(|e| e.to_string())
+}
+
 /// [`client`] with the SOCKS identity chosen by the caller, so a connection opened by hand
 /// ([`crate::net::prewarm`]) lands on the same Tor circuit as this client's requests.
 pub fn client_with_identity(
@@ -290,5 +302,53 @@ impl Rpc {
             .collect();
         keys.sort_by_key(|k| k["public_key"].as_str().unwrap_or("").to_string());
         Ok(keys)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tor::Tor;
+    use zkapi_client::config::{ClientConfig, ClientProofMode};
+    use zkapi_client::wallet::Wallet;
+    use zkapi_types::wire::CurvePointWire;
+    use zkapi_types::Felt252;
+
+    fn wallet(dir: &std::path::Path) -> Wallet {
+        let point = || CurvePointWire {
+            x: Felt252([0; 32]),
+            y: Felt252([0; 32]),
+        };
+        Wallet::new(ClientConfig {
+            protocol_version: 2,
+            chain_id: 1,
+            contract_address: Felt252([0; 32]),
+            request_charge_cap: 1,
+            policy_charge_cap: 1,
+            policy_enabled: false,
+            server_url: "http://127.0.0.1:9".into(),
+            state_dir: dir.to_string_lossy().into_owned(),
+            proof_mode: ClientProofMode::Groth16 {
+                setup_dir: String::new(),
+            },
+            state_signing_key: point(),
+            clearance_signing_key: point(),
+            settlement_window_seconds: 1,
+        })
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn recovery_with_a_dead_tor_fails_before_the_wallet_sends_anything() {
+        let (tor, _state) = Tor::for_tests(
+            "127.0.0.1:9".parse().unwrap(),
+            TorState::Failed("test: no circuit".into()),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let mut w = wallet(dir.path());
+        let err = recover_pending_over(&Transport::Tor(std::sync::Arc::new(tor)), &mut w)
+            .await
+            .expect_err("no Tor, no recovery");
+        assert!(err.contains("no circuit"), "{err}");
     }
 }

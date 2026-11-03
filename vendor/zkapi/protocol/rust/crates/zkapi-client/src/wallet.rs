@@ -108,6 +108,9 @@ pub struct Wallet {
     /// Nymira patch: the `request_time` of the next request proof, when the caller sets it (a
     /// coarse value from the operator's clock). `None` stamps the local clock, as upstream does.
     request_time_override: Option<u64>,
+    /// Nymira patch: the client every operator call goes through, when the caller sets one (it
+    /// must refuse redirects). `None` builds the upstream client per call.
+    http: Option<reqwest::Client>,
 }
 
 impl Wallet {
@@ -135,6 +138,7 @@ impl Wallet {
             exit_lock_path: state_dir.join(EXIT_LOCK_FILE),
             ownership_marker_path: state_dir.join(OWNERSHIP_PROOF_MARKER_FILE),
             call_timeout: None,
+            http: None,
             request_time_override: None,
         })
     }
@@ -148,6 +152,11 @@ impl Wallet {
 
     /// Bound every later operator call (recovery and clearance) by `timeout`,
     /// connect and full body included (E0's `CALL_TIMEOUT` in exit mode).
+    /// Nymira patch: sends every operator call through `http` (for example a Tor circuit).
+    pub fn set_http_client(&mut self, http: Option<reqwest::Client>) {
+        self.http = http;
+    }
+
     pub fn set_call_timeout(&mut self, timeout: Option<std::time::Duration>) {
         self.call_timeout = timeout;
     }
@@ -162,6 +171,7 @@ impl Wallet {
             &self.config.server_url,
             method,
             target,
+            self.http.as_ref(),
         )?;
         Ok(match self.call_timeout {
             Some(timeout) => request.timeout(timeout),
@@ -259,6 +269,7 @@ impl Wallet {
                 "{}/v2/requests",
                 self.config.server_url.trim_end_matches('/')
             ),
+            self.http.as_ref(),
         )?
         .json(&request)
         .send()

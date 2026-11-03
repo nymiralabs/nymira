@@ -333,7 +333,7 @@ impl Gateway {
         match self.open_wallet(entry, 0) {
             Ok(mut wallet) => {
                 if wallet.has_pending_request() {
-                    let _ = wallet.recover_pending().await;
+                    let _ = crate::rpc::recover_pending_over(&self.transport, &mut wallet).await;
                 }
                 Ok(wallet)
             }
