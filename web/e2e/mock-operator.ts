@@ -109,6 +109,9 @@ export class MockStack {
   scenario: Scenario = fresh();
   leases = new Map<string, Lease>();
   seen: Seen[] = [];
+  /** `request_time` of every lease request, and the slot times the status signed. */
+  requestTimes: number[] = [];
+  statusTimes: number[] = [];
   /** Plaintext the mock operator could see on the wire: it must never include message text. */
   wire: string[] = [];
   private servers: Server[] = [];
@@ -119,6 +122,8 @@ export class MockStack {
     this.scenario = fresh();
     this.leases.clear();
     this.seen = [];
+    this.requestTimes = [];
+    this.statusTimes = [];
     this.wire = [];
     this.issuedCount = 0;
   }
@@ -183,6 +188,7 @@ export class MockStack {
   private status() {
     const s = this.scenario;
     const slot = this.slot();
+    this.statusTimes.push(slot.ts);
     const seed = s.badStatusSignature ? 9n : 1n;
     const c = vault.pins.config;
     return {
@@ -227,12 +233,13 @@ export class MockStack {
     if (req.method === 'OPTIONS') return void res.writeHead(204).end();
     const url = new URL(req.url ?? '/', 'http://x');
     const body = req.method === 'POST' ? await this.body(req) : '';
-    this.seen.push({ method: req.method ?? '', path: url.pathname, headers: { ...req.headers }, body: url.pathname === '/v1/chat/completions' ? body : undefined });
+    this.seen.push({ method: req.method ?? '', path: url.pathname, headers: { ...req.headers }, body: url.pathname === '/v1/chat/completions' || url.pathname === '/v2/openrouter/leases' ? body : undefined });
     const s = this.scenario;
     try {
       if (req.method === 'GET' && url.pathname === '/v1/status') return this.json(res, 200, this.status());
 
       if (req.method === 'POST' && url.pathname === '/v2/openrouter/leases') {
+        this.requestTimes.push(Number(JSON.parse(splitObject(splitObject(body).public_inputs!).request_time!)));
         if (s.leaseLimit === 'operator') return this.error(res, 429, 'operator_capacity', 'credit', 30);
         if (s.puzzleDifficulty > 0) {
           const header = String(req.headers['x-nymira-puzzle'] ?? '');

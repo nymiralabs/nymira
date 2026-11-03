@@ -6,6 +6,7 @@ import { isUnlocked, requireKey } from '../crypto/wrap';
 import { loadNotes, makeBackupFile } from '../funding/flow';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
+import { backupDue } from '../chat/backup-policy';
 import { DEFAULT_MODEL, MODELS } from '../chat/models';
 import { chatDeps, warmProver, type ProverState } from '../chat/runtime';
 import {
@@ -23,9 +24,6 @@ import type { VaultCheck } from '../chain/vault';
 
 const units = (v: bigint | string) =>
   `${formatUnits(v, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}`;
-
-/** Above this balance a backup is prompted after every retire; below it, every tenth lease. */
-const BACKUP_EVERY_BALANCE = 500_000n;
 
 interface FsHandle {
   createWritable(): Promise<{ write(data: BlobPart): Promise<void>; close(): Promise<void> }>;
@@ -173,8 +171,7 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
     await refresh();
     const leases = (await session.current?.view())?.leases.length ?? 0;
     const balance = BigInt(result.balance);
-    const needed =
-      balance > BACKUP_EVERY_BALANCE || (balance > 0n && leases % 10 === 0) || balance === 0n;
+    const needed = backupDue(balance, leases);
     if (fileHandle && passphrase) {
       const bytes = await makeBackupFile(passphrase);
       const w = await fileHandle.createWritable();
