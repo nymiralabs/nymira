@@ -1,0 +1,181 @@
+{
+  "model_seed": "0505050505050505050505050505050505050505050505050505050505050505",
+  "model_pub": "6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1",
+  "client_seed": "0606060606060606060606060606060606060606060606060606060606060606",
+  "client_pub": "8a875fff1eb38451577acd5afee405456568dd7c89e090863a0557bc7af49f17",
+  "request": {
+    "model": "z-ai/glm-5.3-flash",
+    "stream": true,
+    "temperature": 0.25,
+    "messages": [
+      {
+        "role": "system",
+        "content": "Answer in one line."
+      },
+      {
+        "role": "user",
+        "name": "alice",
+        "content": "Wie geht's? 你好 🙂"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Zürich\",\"unit\":\"c\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": "12 degrees"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Current weather for a city",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "unit": {
+                "enum": [
+                  "c",
+                  "f"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "max_tokens": 256,
+  "sealed_request": {
+    "model": "z-ai/glm-5.3-flash",
+    "stream": true,
+    "temperature": 0.25,
+    "messages": [
+      {
+        "role": "system",
+        "content": "a4e09292b651c278b9772c569f5fa9bb13d906b46ab68c9df9dc2b4409f8a2090101010101010101010101010101010101010101010101019ec0c320a97ae73f2e0811b79c6d8ec96e01c4bffa2917568446ec5d03a0b80d926b00"
+      },
+      {
+        "role": "user",
+        "name": "ce8d3ad1ccb633ec7b70c17814a5c76ecd029685050d344745ba05870e587d59020202020202020202020202020202020202020202020202e3423c578efda419605ca262eba9ad208c35c470a1",
+        "content": "5dfedd3b6bd47f6fa28ee15d969d5bb0ea53774d488bdaf9df1c6e0124b3ef22030303030303030303030303030303030303030303030303735f1a9b0ba640cdc1c304d9490ec941e82c564a28699992ac9d1f295b2bde0c50c8dc924e60e2"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b0404040404040404040404040404040404040404040404049d2a46b5ac002c05490f5550c854b2a053a9094e202de7ab4c72d5",
+              "arguments": "50a61409b1ddd0325e9b16b700e719e9772c07000b1bd7786e907c653d20495d0505050505050505050505050505050505050505050505051a856595973dbcae32f7eb7334cab43fa58c311e77f20ce6e456a03b633e7d876ceb202dec1c4a780b529b7993"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": "f5b2d6e60f9477e310c2982daaa6c9136c108a1777c5947e448fa37d68174557060606060606060606060606060606060606060606060606f64cdb8b5cc5cefe3fc854cfd8c04b9f193f7fafbf9047a99347"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "13be4feaeaf204c7fd3358fc9c00721881d174278128227ec674f37f7fe97b6d070707070707070707070707070707070707070707070707f95b5c269751d4be0ab255c70651ea93ab024797d272b7177c7828",
+          "description": "31d4ab6aceec961137917037936e60716fac573afe94d9da84a8020448dfc112080808080808080808080808080808080808080808080808b91f96ca1e9828ddefc3f915ed1a12c54cea94199be2f914b7638a1c4768a9e90d760226f5c59017d73d",
+          "parameters": "57db4b359f23ae5e146e4e2512056704722506348c150c14753d0c933d04d42109090909090909090909090909090909090909090909090919649f21ebf22bdfe9fb1e686a4500cd953ce04a3c46a5c1a2be66cb2953f6672781ac8b6f7b083958e61cd586371cf40f11d1302a1c04193c9e753b6039512b56538f1d53536b1c612a489a8bbbbcf8070afbd1fb6d7c8b1de9e374e9fccc1b4e430ca96c375b23960d43b0460482997d86f095130fa4f15c4b12e0a454fc90660d10a614be30"
+        }
+      }
+    ],
+    "max_tokens": 256,
+    "stream_options": {
+      "include_usage": true
+    }
+  },
+  "headers": {
+    "x-signing-algo": "ed25519",
+    "x-client-pub-key": "8a875fff1eb38451577acd5afee405456568dd7c89e090863a0557bc7af49f17",
+    "x-model-pub-key": "6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1",
+    "x-encryption-version": "2"
+  },
+  "answer_plain": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "It is 12 degrees. 🙂",
+          "reasoning_content": "check the tool result",
+          "tool_calls": [
+            {
+              "id": "call_2",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"city\":\"Bern\"}"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 3
+    }
+  },
+  "answer": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "f77ff4b10788bfdca62ca0bb160d427cf5762d85f2b5cad6807ec9c3febbde090a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a699826cc871e2a38c707cd80b8571e5e819e49597f803fb91d7a8ae3b470fd647a7e966c532f",
+          "reasoning_content": "73b2d8b76aa9b53660032bc8f5d8bee3a3ae4e3b3a7fd49ade81f7347a34aa680b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b705bc37642d2ea69dbc99b7385362fe65d871f2f07c02f906d67bbe5368d1cdb2539803036",
+          "tool_calls": [
+            {
+              "id": "call_2",
+              "type": "function",
+              "function": {
+                "name": "97c3b10b4d6c133a78ea5dcc1cf6421d3f81ae37b1f628ce14ca6fce7730f3330c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c3a0e947cc8aa4c5f41542b022ee0342e91598c5cd74d16da64c603",
+                "arguments": "b307ae8660efaed4d6a65f6640896892ea4a1f0075555c489d1312a2e1677c280d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0dab30b052b09945ca6ce84da7b3a5f1cef6adbc183fb98c064386d66d830717"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 3
+    }
+  },
+  "sse_plain_content": "Pa ris",
+  "sse_line": "data: {\"choices\":[{\"delta\":{\"content\":\"5855784cb3c8c796d84ac93e8f4a53dab0bb31e80960042cfa87f03a4293b3080e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e68b5dfecb287ca1b5789f3b96aca418e391faa8a1f49\"}}]}",
+  "recorded": {
+    "model_pub": "5a0210f2442c79355784f9de021985429561da5bacc3a4424b01ac52b7e0caff",
+    "plaintext": "interop: sealed to the key NEAR AI attested",
+    "eph_secret": "4141414141414141414141414141414141414141414141414141414141414141",
+    "nonce": "424242424242424242424242424242424242424242424242",
+    "ciphertext": "7a1a4e709bf085ac494aba0469b9b1eda0ab1f78b16aabb79ffeda90623e85224242424242424242424242424242424242424242424242420ea3f0852d6927583cfe32b516fdb70c8ca4eea4a74ec9b10b73c4bc34555b21d3718bdd64d512bc31f293ccf908044b6d11164ca62512e8a318e2"
+  }
+}

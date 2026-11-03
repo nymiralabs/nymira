@@ -59,6 +59,13 @@ impl ClientKeys {
         }
     }
 
+    /// Keys from a fixed seed, for tests that need the same key every run.
+    pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self {
+            signing: SigningKey::from_bytes(seed),
+        }
+    }
+
     pub fn public_hex(&self) -> String {
         hex::encode(self.signing.verifying_key().to_bytes())
     }
@@ -78,22 +85,47 @@ fn cipher(shared: &[u8; 32]) -> XChaCha20Poly1305 {
 
 /// Encrypts `plaintext` to the Ed25519 public key `model_pub`; hex.
 pub fn encrypt(model_pub: &[u8; 32], plaintext: &[u8]) -> Result<String, E2eeError> {
+    #[cfg(test)]
+    if let Some(n) = tests::next_fixed() {
+        return encrypt_with(model_pub, plaintext, &[n; 32], &[n; 24]);
+    }
+    let mut seed = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut seed);
+    let mut nonce = [0u8; 24];
+    rand::rngs::OsRng.fill_bytes(&mut nonce);
+    encrypt_with(model_pub, plaintext, &seed, &nonce)
+}
+
+/// [`encrypt`] with the ephemeral secret and the nonce given. Only for known-answer tests: a
+/// reused pair breaks the encryption.
+pub fn encrypt_with(
+    model_pub: &[u8; 32],
+    plaintext: &[u8],
+    eph_seed: &[u8; 32],
+    nonce: &[u8; 24],
+) -> Result<String, E2eeError> {
     let x = VerifyingKey::from_bytes(model_pub)
         .map_err(|_| E2eeError::ModelKey)?
         .to_montgomery()
         .to_bytes();
-    let mut seed = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut seed);
-    let eph = StaticSecret::from(seed);
+    let eph = StaticSecret::from(*eph_seed);
     let shared = eph.diffie_hellman(&PublicKey::from(x));
-    let mut nonce = [0u8; 24];
-    rand::rngs::OsRng.fill_bytes(&mut nonce);
     let ct = cipher(shared.as_bytes())
-        .encrypt(XNonce::from_slice(&nonce), plaintext)
+        .encrypt(XNonce::from_slice(nonce), plaintext)
         .expect("encryption does not fail");
     Ok(hex::encode(
-        [PublicKey::from(&eph).as_bytes().as_slice(), &nonce, &ct].concat(),
+        [PublicKey::from(&eph).as_bytes().as_slice(), nonce, &ct].concat(),
     ))
+}
+
+/// The headers a chat request carries to the operator next to the sealed body.
+pub fn request_headers(client_pub_hex: &str, model_pub: &[u8; 32]) -> [(&'static str, String); 4] {
+    [
+        ("x-signing-algo", "ed25519".into()),
+        ("x-client-pub-key", client_pub_hex.into()),
+        ("x-model-pub-key", hex::encode(model_pub)),
+        ("x-encryption-version", "2".into()),
+    ]
 }
 
 /// Opens a hex ciphertext addressed to `keys`.
@@ -308,6 +340,21 @@ pub fn open_sse_line(keys: &ClientKeys, line: &str) -> Result<String, E2eeError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    thread_local! {
+        /// When set, `encrypt` uses `[n; 32]` and `[n; 24]` as ephemeral secret and nonce and counts
+        /// `n` up, so a whole sealed request is the same bytes every run (fixtures only).
+        static FIXED: Cell<Option<u8>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn next_fixed() -> Option<u8> {
+        FIXED.with(|c| {
+            let n = c.get()?;
+            c.set(Some(n + 1));
+            Some(n)
+        })
+    }
 
     fn model() -> (SigningKey, [u8; 32]) {
         let k = SigningKey::from_bytes(&[5; 32]);
@@ -466,5 +513,214 @@ mod tests {
             json!({"choices": [{"delta": {"content": encrypt(&me, b"Pa").unwrap()}}]})
         );
         assert!(open_sse_line(&keys, &line).unwrap().contains("\"Pa\""));
+    }
+
+    // ---- interop with web/src/chat/e2ee.ts: crates/nymirad/tests/fixtures/e2ee-{rust,ts}.json ----
+
+    const MODEL_SEED: [u8; 32] = [5; 32];
+    const CLIENT_SEED: [u8; 32] = [6; 32];
+    const RECORDED_EPH: [u8; 32] = [0x41; 32];
+    const RECORDED_NONCE: [u8; 24] = [0x42; 24];
+    const RECORDED_TEXT: &str = "interop: sealed to the key NEAR AI attested";
+
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
+
+    fn recorded_model_pub() -> [u8; 32] {
+        let report: Value = serde_json::from_slice(
+            &std::fs::read(fixture_path("near-ai-recorded/model-report.json")).unwrap(),
+        )
+        .unwrap();
+        let key = report["model_attestations"][0]["signing_public_key"]
+            .as_str()
+            .unwrap();
+        hex::decode(key).unwrap().try_into().unwrap()
+    }
+
+    fn pub_of(seed: &[u8; 32]) -> [u8; 32] {
+        SigningKey::from_bytes(seed).verifying_key().to_bytes()
+    }
+
+    /// The request both sides seal. Non-ASCII text and nested parameters on purpose.
+    pub(crate) fn interop_request() -> Value {
+        json!({
+            "model": "z-ai/glm-5.3-flash", "stream": true, "temperature": 0.25,
+            "messages": [
+                {"role": "system", "content": "Answer in one line."},
+                {"role": "user", "name": "alice", "content": "Wie geht's? 你好 🙂"},
+                {"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function",
+                    "function": {"name": "get_weather", "arguments": "{\"city\":\"Zürich\",\"unit\":\"c\"}"}}]},
+                {"role": "tool", "tool_call_id": "call_1", "content": "12 degrees"}
+            ],
+            "tools": [{"type": "function", "function": {"name": "get_weather",
+                "description": "Current weather for a city",
+                "parameters": {"type": "object", "properties": {"city": {"type": "string"},
+                    "unit": {"enum": ["c", "f"], "type": "string"}}, "required": ["city"]}}}]
+        })
+    }
+
+    /// The answer both sides open: every field the gateway encrypts.
+    fn interop_answer_plain() -> Value {
+        json!({"choices": [{"message": {"role": "assistant",
+            "content": "It is 12 degrees. 🙂", "reasoning_content": "check the tool result",
+            "tool_calls": [{"id": "call_2", "type": "function", "function":
+                {"name": "get_weather", "arguments": "{\"city\":\"Bern\"}"}}]}}],
+            "usage": {"prompt_tokens": 3}})
+    }
+
+    fn seal_answer(to: &[u8; 32]) -> Value {
+        let e = |s: &str| json!(encrypt(to, s.as_bytes()).unwrap());
+        json!({"choices": [{"message": {"role": "assistant",
+            "content": e("It is 12 degrees. 🙂"), "reasoning_content": e("check the tool result"),
+            "tool_calls": [{"id": "call_2", "type": "function", "function":
+                {"name": e("get_weather"), "arguments": e("{\"city\":\"Bern\"}")}}]}}],
+            "usage": {"prompt_tokens": 3}})
+    }
+
+    fn sse_chunk(to: &[u8; 32]) -> String {
+        let e = encrypt(to, "Pa ris".as_bytes()).unwrap();
+        format!("data: {}", json!({"choices": [{"delta": {"content": e}}]}))
+    }
+
+    fn recorded_seal() -> Value {
+        let ct = encrypt_with(
+            &recorded_model_pub(),
+            RECORDED_TEXT.as_bytes(),
+            &RECORDED_EPH,
+            &RECORDED_NONCE,
+        )
+        .unwrap();
+        json!({"model_pub": hex::encode(recorded_model_pub()), "plaintext": RECORDED_TEXT,
+               "eph_secret": hex::encode(RECORDED_EPH), "nonce": hex::encode(RECORDED_NONCE),
+               "ciphertext": ct})
+    }
+
+    fn rust_fixture() -> Value {
+        let model_pub = pub_of(&MODEL_SEED);
+        let client = ClientKeys::from_seed(&CLIENT_SEED);
+        let client_pub: [u8; 32] = hex::decode(client.public_hex())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        FIXED.with(|c| c.set(Some(1)));
+        let request = interop_request();
+        let sealed_request = seal_request(&request, &model_pub, Some(256)).unwrap();
+        let answer = seal_answer(&client_pub);
+        let sse = sse_chunk(&client_pub);
+        FIXED.with(|c| c.set(None));
+        let headers: Map<String, Value> = request_headers(&client.public_hex(), &model_pub)
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), Value::String(v)))
+            .collect();
+        json!({
+            "model_seed": hex::encode(MODEL_SEED), "model_pub": hex::encode(model_pub),
+            "client_seed": hex::encode(CLIENT_SEED), "client_pub": client.public_hex(),
+            "request": request, "max_tokens": 256, "sealed_request": sealed_request,
+            "headers": headers,
+            "answer_plain": interop_answer_plain(), "answer": answer,
+            "sse_plain_content": "Pa ris", "sse_line": sse,
+            "recorded": recorded_seal(),
+        })
+    }
+
+    fn write_or_compare(name: &str, fresh: &Value) {
+        let path = fixture_path(name);
+        let text = serde_json::to_string_pretty(fresh).unwrap() + "\n";
+        if std::env::var_os("NYMIRA_BLESS_FIXTURES").is_some() {
+            std::fs::write(&path, &text).unwrap();
+        }
+        let have = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(
+            have, text,
+            "{name} is stale: rerun with NYMIRA_BLESS_FIXTURES=1 and commit it"
+        );
+    }
+
+    #[test]
+    fn the_rust_interop_fixture_regenerates_byte_for_byte() {
+        write_or_compare("e2ee-rust.json", &rust_fixture());
+    }
+
+    /// What the TS side committed (`web/test/e2ee-interop.test.ts` regenerates it): Rust opens it.
+    #[test]
+    fn rust_opens_what_the_web_code_sealed() {
+        let f: Value = serde_json::from_slice(
+            &std::fs::read(fixture_path("e2ee-ts.json")).expect("e2ee-ts.json is committed"),
+        )
+        .unwrap();
+        let model = ClientKeys::from_seed(&MODEL_SEED);
+        let client = ClientKeys::from_seed(&CLIENT_SEED);
+        assert_eq!(f["model_pub"], hex::encode(pub_of(&MODEL_SEED)));
+        assert_eq!(f["client_pub"], client.public_hex());
+        let open = |v: &Value| decrypt(&model, v.as_str().unwrap()).unwrap();
+        let plain = interop_request();
+        assert_eq!(f["request"], plain);
+
+        let sealed = &f["sealed_request"];
+        assert_eq!(sealed["max_tokens"], 256);
+        assert_eq!(sealed["stream_options"], json!({"include_usage": true}));
+        assert_eq!(sealed["model"], plain["model"]);
+        for (i, m) in plain["messages"].as_array().unwrap().iter().enumerate() {
+            let s = &sealed["messages"][i];
+            assert_eq!(s["role"], m["role"]);
+            assert_eq!(s["tool_call_id"], m["tool_call_id"]);
+            match m["content"].as_str() {
+                Some(c) => assert_eq!(open(&s["content"]), c, "content {i}"),
+                None => assert!(s["content"].is_null()),
+            }
+            if let Some(name) = m["name"].as_str() {
+                assert_eq!(open(&s["name"]), name);
+            }
+            for (j, call) in m["tool_calls"].as_array().into_iter().flatten().enumerate() {
+                let sc = &s["tool_calls"][j]["function"];
+                assert_eq!(
+                    open(&sc["name"]),
+                    call["function"]["name"].as_str().unwrap()
+                );
+                assert_eq!(
+                    open(&sc["arguments"]),
+                    call["function"]["arguments"].as_str().unwrap()
+                );
+            }
+        }
+        let tool = &sealed["tools"][0]["function"];
+        let want = &plain["tools"][0]["function"];
+        assert_eq!(open(&tool["name"]), want["name"].as_str().unwrap());
+        assert_eq!(
+            open(&tool["description"]),
+            want["description"].as_str().unwrap()
+        );
+        // The gateway reads parameters as an encrypted JSON string.
+        let params: Value = serde_json::from_str(&open(&tool["parameters"])).unwrap();
+        assert_eq!(params, want["parameters"]);
+        for text in ["Zürich", "alice", "get_weather", "12 degrees", "你好"] {
+            assert!(!sealed.to_string().contains(text), "{text} leaked");
+        }
+
+        // The answer, as the gateway would encrypt it to the client key.
+        let mut answer = f["answer"].clone();
+        open_response(&client, &mut answer).unwrap();
+        assert_eq!(answer, interop_answer_plain());
+        let line = open_sse_line(&client, f["sse_line"].as_str().unwrap()).unwrap();
+        assert!(line.contains("\"Pa ris\""), "{line}");
+
+        // Sealed to the model key NEAR AI attested: the same bytes as Rust makes.
+        assert_eq!(f["recorded"], recorded_seal());
+
+        // The request headers are what the Rust gateway sends.
+        let headers: Map<String, Value> =
+            request_headers(&client.public_hex(), &pub_of(&MODEL_SEED))
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), Value::String(v)))
+                .collect();
+        assert_eq!(f["headers"], Value::Object(headers));
+    }
+
+    #[test]
+    fn the_recorded_near_ai_model_key_is_a_valid_ed25519_key() {
+        assert!(encrypt(&recorded_model_pub(), b"x").is_ok());
     }
 }
