@@ -45,6 +45,10 @@ pub enum NoteStatus {
     Accepted,
     /// The transfer failed or the vault refunded it.
     Failed,
+    /// `request_exit` was filed or its proof may have left: no new request on this note.
+    Exiting,
+    /// The vault paid the note out; its wallet is archived.
+    Closed,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
