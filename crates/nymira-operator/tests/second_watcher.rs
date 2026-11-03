@@ -153,6 +153,42 @@ async fn a_delivery_the_laptop_replicated_lets_the_second_watcher_raise_the_conc
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_client_whose_expire_was_refused_still_gets_its_concession_raised() {
+    let w = world().await;
+    let (s, v, _) = w.rig.lease(&w.rig.fresh(1)).await;
+    assert_eq!(s, 201, "{v}");
+    let (id, token) = (
+        v["lease_id"].as_str().unwrap().to_string(),
+        v["lease_token"].as_str().unwrap().to_string(),
+    );
+    w.rig.op.mark_delivered(&id).await.unwrap();
+    // The client gives up the lease; the operator refuses, since the key was used.
+    let response = w
+        .rig
+        .http
+        .post(format!("{}/v2/openrouter/leases/{id}/expire", w.rig.url))
+        .header("x-nymira-lease-token", &token)
+        .send()
+        .await
+        .unwrap();
+    let (status, body) = (
+        response.status().as_u16(),
+        response.json::<Value>().await.unwrap(),
+    );
+    json_error(status, &body, 409, "lease_used");
+    // The old state is filed as an exit: the proof kept by the refusal is what answers it.
+    w.pending_exit(exit(0, 1, 2));
+    w.watcher.poll().await;
+    let seen = w.calls.seen();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert_eq!(
+        (seen[0].key, seen[0].method),
+        (Key::Answer, "raise_concession")
+    );
+    assert_eq!(seen[0].args["amount"], "100000");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_reservation_that_was_rolled_back_leaves_no_proof_on_the_replica() {
     let w = world().await;
     w.rig
