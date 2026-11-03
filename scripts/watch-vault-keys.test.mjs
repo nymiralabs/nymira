@@ -39,6 +39,11 @@ async function stub(chain) {
       if (method === "block") return ok({ header: { height: chain.height } });
       if (method === "query" && params.request_type === "view_account") return ok({ code_hash: chain.code_hash });
       if (method === "query" && params.request_type === "view_access_key_list") return ok({ keys: chain.keys });
+      if (method === "query" && params.request_type === "call_function") {
+        const value = chain.proposals?.[params.method_name];
+        if (value === undefined) return res.end(JSON.stringify({ jsonrpc: "2.0", id, error: { name: "METHOD_NOT_FOUND" } }));
+        return ok({ result: [...Buffer.from(JSON.stringify(value))] });
+      }
       if (method === "EXPERIMENTAL_changes") {
         const named = chain.blockErrors?.[params.block_id];
         if (named) {
@@ -218,4 +223,28 @@ test("a height with no block (UNKNOWN_BLOCK on every node) is skipped", async (c
   const r = await poll(t.opts);
   assert.equal(r.failed, false);
   assert.equal(JSON.parse(readFileSync(t.statePath, "utf8")).height, 110);
+});
+
+test("an owner proposal that appears, changes or goes is an alert; a vault without the views is quiet", async (ctx) => {
+  const t = await setup(ctx);
+  t.chain.proposals = { pending_tvl_cap: null, pending_params: null };
+  await t.run();
+  t.chain.height = 110;
+  assert.deepEqual(await t.run(), []);
+  t.chain.height = 120;
+  t.chain.proposals.pending_tvl_cap = { tvl_cap: "200000000", effective_at: "1", lapses_at: "2" };
+  const alerts = await t.run();
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].alert, "owner_proposal_changed");
+  assert.equal(alerts[0].kind, "tvl_cap");
+  t.chain.height = 130;
+  assert.deepEqual(await t.run(), []);
+  t.chain.height = 140;
+  t.chain.proposals.pending_tvl_cap = null;
+  assert.equal((await t.run())[0].kind, "tvl_cap");
+  // A vault with neither view: both read "n/a" and never differ.
+  const quiet = await setup(ctx);
+  await quiet.run();
+  quiet.chain.height = 110;
+  assert.deepEqual(await quiet.run(), []);
 });
