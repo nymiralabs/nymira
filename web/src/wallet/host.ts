@@ -119,7 +119,8 @@ async function main() {
           | undefined;
         resolve({
           accountId: first?.accountId ?? '',
-          publicKey: first?.publicKey ?? '',
+          // Some wallets (Meteor) return the key only inside the signed message.
+          publicKey: first?.publicKey || first?.signedMessage?.publicKey || '',
           signedMessage: first?.signedMessage ?? null,
         });
       });
