@@ -24,8 +24,8 @@ export async function checkLive(base, site, { headers = true } = {}) {
   const listing = readFileSync(join(site, 'integrity/files.txt'), 'utf8');
   for (const line of listing.split('\n').filter(Boolean)) {
     const [hash, path] = [line.slice(0, 64), line.slice(66)];
-    // Hosts treat these two specially (a 404 status, a dotfile), so they are not fetched.
-    if (path === '404.html' || path === '.nojekyll') continue;
+    // Hosts serve 404.html only with a 404 status, so it is not fetched.
+    if (path === '404.html') continue;
     const { res, body } = await get(path === 'index.html' ? '' : path);
     if (!res.ok || sha256(body) !== hash)
       problems.push(`${path}: the served bytes differ from the listing`);

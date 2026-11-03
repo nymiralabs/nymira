@@ -15,3 +15,4 @@ minisign -S -s "$tmp/throwaway.key" -m "$here/site/manifest.json" \
   -t "nymira-web-manifest v1 profile=fixture version=0.0.1-fixture" >/dev/null
 node "$here/../../scripts/integrity.mjs" verify --site "$here/site" --pubkey "$here/minisign.pub"
 node "$here/../../scripts/integrity.mjs" fingerprint "$here/minisign.pub"
+node "$here/../../scripts/integrity.mjs" fixture-summary "$here" > "$here/expected.json"

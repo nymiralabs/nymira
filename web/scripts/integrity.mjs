@@ -68,6 +68,25 @@ try {
     console.log(`signed by key ${r.keyId}: ${r.trustedComment}`);
     console.log(`${r.files} files, bundle_hash ${r.manifest.bundle_hash}`);
     console.log(`header_set_hash ${r.manifest.header_set_hash}`);
+  } else if (command === 'fixture-summary') {
+    // What a reader of the fixture must find (INTEGRITY.md, "The test fixture").
+    const [dir] = positionals;
+    const site = join(dir, 'site');
+    const pub = readFileSync(join(dir, 'minisign.pub'), 'utf8');
+    const manifest = JSON.parse(readFileSync(join(site, 'manifest.json'), 'utf8'));
+    console.log(
+      JSON.stringify(
+        {
+          key_id: parsePublicKey(pub).keyId.toString('hex'),
+          key_fingerprint_sha256: fingerprint(pub),
+          trusted_comment: 'nymira-web-manifest v1 profile=fixture version=0.0.1-fixture',
+          manifest,
+          files: readFileSync(join(site, 'integrity/files.txt'), 'utf8').trim().split('\n').length,
+        },
+        null,
+        2,
+      ),
+    );
   } else if (command === 'hash') {
     const [dir] = positionals;
     if (!dir || !existsSync(dir)) fail('hash: a directory');
