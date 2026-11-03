@@ -166,6 +166,44 @@ fn a_defeat_stamps_the_activity_that_delays_the_claim() {
     );
 }
 
+/// The whole path, with no stamped field: an exit on an expired note, then a defeat in the last
+/// nanosecond of its window, after the plain claim date has passed. The defeat must restart the
+/// window; without that stamp the note would be sweepable the moment it is `Active` again.
+#[test]
+fn a_defeat_late_in_the_claim_window_restarts_the_window() {
+    let g = gen();
+    let f = fixture();
+    let after_expiry = expiry() + DAY;
+    let escape = g
+        .withdrawal(
+            &f.states[1],
+            WithdrawalKindId::Escape,
+            ALICE,
+            0,
+            after_expiry + 3_600,
+        )
+        .unwrap();
+    let mut v = funded();
+    request_exit(&mut v, after_expiry * NS, &escape);
+    let defeat_ns = after_expiry * NS + 7 * DAY * NS - 1;
+    assert!(
+        defeat_ns / NS >= claimable_at(expiry()),
+        "past the plain claim date"
+    );
+    super::exit::defeat(&mut v, ALICE, defeat_ns, 0, &f.defeat[0]);
+    assert_eq!(v.note_status(commitment_of_note()), Some(Status::Active));
+    let ready = defeat_ns + 7 * DAY * NS;
+    for ns in [defeat_ns, ready - 1] {
+        testing_env!(ctx("anyone.test", ns).build());
+        assert_refused(refusal(|| v.claim_expired(0)), "cannot be claimed yet");
+        assert!(v.claim_expired_batch(0, 10).is_empty());
+    }
+    assert_eq!(v.note_status(commitment_of_note()), Some(Status::Active));
+    testing_env!(ctx("anyone.test", ready).build());
+    v.claim_expired(0);
+    assert_eq!(v.note_status(commitment_of_note()), Some(Status::Closed));
+}
+
 #[test]
 fn an_expired_note_can_still_exit_and_finalize() {
     let g = gen();

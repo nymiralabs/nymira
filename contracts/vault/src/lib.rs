@@ -36,7 +36,9 @@ const NETWORK: Network = Network::Testnet;
 
 /// Layout version of the state struct.
 const STATE_VERSION: u32 = 1;
-/// Liquid NEAR under which a deposit is returned (exits, callbacks and registrations need NEAR).
+/// Liquid NEAR under which a deposit is returned. It is the headroom for the vault's own NEAR costs
+/// (pending-payout records, payout-account registrations); it is checked at deposit time only and
+/// the vault does not hold it back afterwards.
 const RESERVE: u128 = 2_000_000_000_000_000_000_000_000;
 /// 0.03 USDC.
 const CLOSE_FEE: u128 = 30_000;
