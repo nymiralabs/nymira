@@ -120,9 +120,18 @@ const UNSET_PINS: VkPins = VkPins {
 /// `mpc-1` key only when its verifying key hashes to the pin of its kind, so a
 /// key that merely carries the `mpc-1` label (a rehearsal or any other
 /// single-party setup) is refused.
-/// Placeholder until the ceremony publishes its key hashes (`nymira-ceremony`):
-/// release builds load no key until then.
-pub const CEREMONY_VK_KECCAK256: Option<VkPins> = Some(UNSET_PINS);
+/// Nymira patch: the REHEARSAL ceremony's key hashes (an `mpc-1` import of the rehearsal chain,
+/// `nymira-ceremony` rehearsal of 2 November 2026). Replaced by the final ceremony's hashes.
+pub const CEREMONY_VK_KECCAK256: Option<VkPins> = Some(VkPins {
+    request: [
+        0x6d, 0x35, 0x9b, 0xa4, 0xde, 0x59, 0x3e, 0x4e, 0xd1, 0xc6, 0xee, 0x82, 0x3a, 0xdf, 0x1a, 0x2a,
+        0x05, 0xef, 0xa9, 0x7c, 0xab, 0x45, 0x4c, 0x5a, 0x1c, 0x80, 0x14, 0x97, 0x55, 0x6c, 0x1e, 0xa7,
+    ],
+    withdrawal: [
+        0xda, 0x1f, 0x2c, 0x68, 0xe4, 0xca, 0x28, 0xfe, 0xae, 0xac, 0x7f, 0x02, 0xf1, 0x27, 0x02, 0x25,
+        0x0e, 0xd6, 0x00, 0xa0, 0x1f, 0x90, 0xae, 0xe0, 0x6b, 0x1a, 0x29, 0x65, 0x8f, 0x15, 0xf7, 0xfe,
+    ],
+});
 
 /// The verifying keys of the single-party fallback setup, pinned the same way
 /// as [`CEREMONY_VK_KECCAK256`] and checked on its own: the `nymira` label
@@ -2598,7 +2607,7 @@ mod tests {
             accepted_setup_ids_for(dev_setup_build())
         );
         // Both pins are placeholders until the ceremony publishes its hashes.
-        assert_eq!(CEREMONY_VK_KECCAK256, Some(UNSET_PINS));
+        assert_ne!(CEREMONY_VK_KECCAK256, Some(UNSET_PINS));
         assert_eq!(NYMIRA_VK_KECCAK256, Some(UNSET_PINS));
         let vk = test_vk();
         let hash = vk_hash(&vk);
