@@ -20,34 +20,34 @@ fn key() -> SigningKey {
 }
 
 struct Wire {
-    node: Arc<ReplicaNode>,
+    node: Mutex<Arc<ReplicaNode>>,
     down: Mutex<bool>,
     /// Alters the payload of the first entry a fetch returns.
     tamper: Mutex<bool>,
 }
 
 impl Wire {
-    fn node(&self) -> Result<&ReplicaNode, LinkError> {
+    fn node(&self) -> Result<Arc<ReplicaNode>, LinkError> {
         if *self.down.lock().unwrap() {
             return Err(LinkError::Down("cable out".into()));
         }
-        Ok(&self.node)
+        Ok(self.node.lock().unwrap().clone())
     }
 }
 
 #[async_trait]
 impl Link for Wire {
     async fn append(&self, e: &Entry) -> Result<SignedHead, LinkError> {
-        Link::append(self.node()?, e).await
+        Link::append(&*self.node()?, e).await
     }
     async fn head(&self) -> Result<SignedHead, LinkError> {
-        Link::head(self.node()?).await
+        Link::head(&*self.node()?).await
     }
     async fn hashes(&self, s: &[u64]) -> Result<Vec<Option<String>>, LinkError> {
-        Link::hashes(self.node()?, s).await
+        Link::hashes(&*self.node()?, s).await
     }
     async fn fetch(&self, from: u64, limit: u32) -> Result<Vec<Entry>, LinkError> {
-        let mut entries = Link::fetch(self.node()?, from, limit).await?;
+        let mut entries = Link::fetch(&*self.node()?, from, limit).await?;
         if *self.tamper.lock().unwrap() {
             if let Some(first) = entries.first_mut() {
                 first.payload = Some("{\"lease_id\":\"forged\"}".into());
@@ -59,10 +59,10 @@ impl Link for Wire {
 
 fn wire() -> Arc<Wire> {
     Arc::new(Wire {
-        node: Arc::new(ReplicaNode::new(
+        node: Mutex::new(Arc::new(ReplicaNode::new(
             Log::new(Store::open_in_memory().unwrap()),
             key(),
-        )),
+        ))),
         down: Mutex::new(false),
         tamper: Mutex::new(false),
     })
@@ -202,6 +202,74 @@ async fn a_lost_disk_comes_back_from_the_replica_and_an_honest_client_reconciles
         )
         .await;
     assert_eq!(s, 404);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_thirty_first_real_reconcile_call_in_a_minute_is_refused_with_429() {
+    use nymira_operator::operator::RECONCILES_PER_MINUTE;
+    let wire = wire();
+    let mut rig = Rig::new(real(&wire, T0)).await;
+    let total = RECONCILES_PER_MINUTE as u64 + 1;
+    let mut ids = Vec::new();
+    // The request a client keeps, taken before the disk is lost.
+    let mut requests = Vec::new();
+    for n in 1..=total {
+        requests.push(serde_json::from_slice::<Value>(&body(&rig.fresh(n))).unwrap());
+        ids.push(open(&rig, n).await.0);
+        // Key minting has its own limit; stay under it.
+        rig.clock.advance_secs(6);
+        rig.op.tick().await;
+    }
+    wipe(&rig);
+    rig.restart(real(&wire, T0 + 100)).await;
+
+    let call = |n: u64| {
+        json!({ "lease_id": ids[n as usize - 1], "request": requests[n as usize - 1] })
+            .to_string()
+            .into_bytes()
+    };
+    for n in 1..=RECONCILES_PER_MINUTE as u64 {
+        let (s, v) = rig.post_json("/v2/reconcile", call(n)).await;
+        assert_eq!(s, 200, "call {n}: {v}");
+    }
+    let (s, v) = rig.post_json("/v2/reconcile", call(total)).await;
+    json_error(s, &v, 429, "operator_capacity");
+    assert_eq!(
+        lease(&rig, &ids[total as usize - 1]).await.status,
+        "restored"
+    );
+    // The minute passes and the same call goes through.
+    rig.clock.advance_secs(61);
+    let (s, v) = rig.post_json("/v2/reconcile", call(total)).await;
+    assert_eq!(s, 200, "{v}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_scheduled_challenge_finds_a_replica_restored_from_an_old_snapshot_and_refills_it() {
+    let wire = wire();
+    let rig = Rig::new(real(&wire, T0)).await;
+    open(&rig, 1).await;
+    open(&rig, 2).await;
+    let full = wire.node.lock().unwrap().clone();
+    let head = full.head().await.seq;
+    assert!(head >= 2, "two reservations are on the replica");
+    // The replica comes back from a snapshot taken after the first entry only.
+    let old = Arc::new(ReplicaNode::new(
+        Log::new(Store::open_in_memory().unwrap()),
+        key(),
+    ));
+    for e in full.from(1, 1).await.unwrap() {
+        old.append(&e).await.unwrap();
+    }
+    assert_eq!(old.head().await.seq, 1);
+    *wire.node.lock().unwrap() = old.clone();
+
+    // No write happens: the periodic comparison alone notices and pushes the missing entries.
+    rig.clock
+        .advance_secs(nymira_operator::operator::SYNC_EVERY_SECS + 1);
+    rig.op.tick().await;
+    assert_eq!(old.head().await.seq, head, "the replica was refilled");
+    assert_eq!(rig.status().await["replica"], "ok");
 }
 
 #[tokio::test(flavor = "multi_thread")]
