@@ -1,4 +1,4 @@
-// The later launch profile. There is no public mainnet vault during the hackathon (ADR-0019), so
+// The later launch profile. There is no public mainnet vault during the hackathon, so
 // `pins` is null and the Fund screen stays disabled. It stays in the code so the mainnet build,
 // its CI checks and its constants exist when the launch comes.
 import type { Profile } from './types';

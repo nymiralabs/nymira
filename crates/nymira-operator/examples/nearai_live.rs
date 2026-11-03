@@ -51,7 +51,7 @@ async fn main() {
     let (mut lines, settings) = read_env();
     let get = |k: &str| settings.get(k).cloned().unwrap_or_default();
 
-    // The seal passphrase lives in the env file for this check only (open item 25: a prompt).
+    // The seal passphrase lives in the env file for this check only (a prompt would be better).
     let mut pass = get("NYMIRA_SEAL_PASSPHRASE");
     if pass.is_empty() {
         let mut raw = [0u8; 24];

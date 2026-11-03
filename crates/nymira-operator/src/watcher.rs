@@ -24,7 +24,7 @@ use crate::store::{self, Store};
 use crate::tx::{NearTx, TxRequest};
 
 const TGAS: u64 = 1_000_000_000_000;
-/// Measured on the sandbox (`docs/measurements.md`) times 1.2, rounded up; never above 300 Tgas.
+/// Measured on the sandbox times 1.2, rounded up; never above 300 Tgas.
 pub const GAS_DEFEAT: u64 = 46 * TGAS;
 pub const GAS_RAISE: u64 = 46 * TGAS;
 /// The vault wants 30 Tgas for a payout; the call burns about 10.

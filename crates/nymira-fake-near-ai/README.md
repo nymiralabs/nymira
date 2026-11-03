@@ -15,7 +15,7 @@ Binary: `nymira-fake-near-ai [--listen ADDR]` or `NYMIRA_FAKE_NEAR_AI_LISTEN`, d
 
 ## Endpoints
 
-Shapes follow `research/13b-near-ai-cloud-docs.md`. Where that file leaves a shape open, the choice is listed under "Choices".
+Shapes follow NEAR AI Cloud's public documentation (docs.near.ai/cloud). Where that file leaves a shape open, the choice is listed under "Choices".
 
 | Endpoint | Auth | Notes |
 |---|---|---|
