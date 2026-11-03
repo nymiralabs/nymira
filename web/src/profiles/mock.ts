@@ -32,7 +32,7 @@ export const profile: Profile = {
       {
         label: 'USDC on Solana',
         assetId: 'nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near',
-        dummyRefund: '11111111111111111111111111111111',
+        dummyRefund: '1nc1nerator11111111111111111111111111111111',
       },
     ],
   },
