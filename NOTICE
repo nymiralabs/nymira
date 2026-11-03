@@ -15,8 +15,8 @@ zkapi (https://github.com/ethereum/zkapi)
   2. Poseidon parameters exported as constants from zkapi-core
      (v2.rs: POSEIDON_FULL_ROUNDS, POSEIDON_PARTIAL_ROUNDS, POSEIDON_RATE,
      POSEIDON_CAPACITY, POSEIDON_ALPHA, POSEIDON_SKIP_MATRICES).
-  3. Setup patch: CEREMONY_VK_KECCAK256 set to a placeholder for our ceremony
-     hashes; new setup id "nymira" with NYMIRA_VK_KECCAK256 and its own pin
+  3. Setup patch: CEREMONY_VK_KECCAK256 holds our ceremony's key hashes (today
+     the rehearsal chain's, replaced by the final ceremony's); new setup id "nymira" with NYMIRA_VK_KECCAK256 and its own pin
      check (zkapi-proof/src/compact.rs); zkapi-browser accepts both ids
      (bundle_setup_ids); one test for the nymira pin check; the legacy setup/v2
      manifest test skips when that directory is absent.
@@ -31,6 +31,9 @@ zkapi (https://github.com/ethereum/zkapi)
      request_time can be set by the caller, so nymirad stamps the operator's signed
      time on a coarse grid. Without a call the wallet stamps the local clock, as upstream
      does. Exit locks, the near-expiry check and ownership proofs are unchanged.
+  7. Wallet::set_http_client (zkapi-client/src/wallet.rs, testnet_auth.rs): every
+     operator call of the wallet can go through a client the caller supplies (nymirad
+     passes a Tor circuit). Without a call the wallet builds its own client, as upstream does.
   Not applied: zkapi PR #29 (sdk/ only; the JS SDK is not vendored).
   No circuit change.
 

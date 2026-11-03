@@ -43,3 +43,7 @@ The toolchain is pinned in `rust-toolchain.toml` (rustc 1.99.0, `wasm32-unknown-
 cargo check --target wasm32-unknown-unknown --locked -p nymira-vault -p nymira-near-codec -p nymira-verifier -p verifier-probe -p mock-usdc -p mock-ft-receiver -p nymira-near-codec-wasm
 cargo test --workspace --locked
 ```
+
+## License
+
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option. Code taken from other projects is listed in [NOTICE](NOTICE).
