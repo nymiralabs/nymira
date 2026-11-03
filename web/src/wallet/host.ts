@@ -92,6 +92,7 @@ async function main() {
 
   // Tell the app when a wallet popup is on screen, so it can let clicks through to it.
   const popupVisible = () =>
+    document.querySelector('[data-nymira-continue]') !== null ||
     [...document.querySelectorAll<HTMLElement>('.hot-connector-popup')].some(
       (el) => el.style.display !== 'none',
     );
@@ -136,7 +137,43 @@ async function main() {
     return signed;
   }
 
+  // A wallet opens its approval window with `window.open`. A browser allows that only right after
+  // a click inside this frame, and a click on the app's own "Send" button does not reach an
+  // opaque-origin frame. So the frame asks for one click of its own before it calls the wallet.
+  // The test wallet opens no window and needs none. shortcut: one click per transaction, the
+  // button text is fixed English; upgrade when the app is translated.
+  function continueToWallet(): Promise<void> {
+    if (PROFILE.id === 'mock') return Promise.resolve();
+    return new Promise((resolve) => {
+      const box = document.createElement('div');
+      box.setAttribute('data-nymira-continue', '');
+      box.style.cssText =
+        'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font:16px system-ui,sans-serif;z-index:2147483647';
+      const card = document.createElement('div');
+      card.style.cssText =
+        'background:#fff;color:#111;border-radius:12px;padding:24px;max-width:340px;text-align:center';
+      const text = document.createElement('p');
+      text.textContent =
+        'Your wallet opens a window to approve this transaction. Press the button to open it.';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Continue to wallet';
+      button.style.cssText =
+        'font:inherit;padding:10px 16px;border-radius:8px;border:0;background:#2a4fd7;color:#fff;cursor:pointer';
+      button.addEventListener('click', () => {
+        // The wallet call below runs inside this click's activation.
+        resolve();
+        setTimeout(() => box.remove(), 0);
+      });
+      card.append(text, button);
+      box.append(card);
+      document.body.append(box);
+      button.focus();
+    });
+  }
+
   async function sendTransaction(receiverId: string, actions: FunctionCallAction[]) {
+    await continueToWallet();
     const wallet = await connector.wallet();
     const outcome = await wallet.signAndSendTransaction({
       receiverId,
