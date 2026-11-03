@@ -95,6 +95,29 @@ fn new_refuses_nonsense_lease_parameters() {
 // TVL cap
 
 #[test]
+fn pending_proposals_show_in_views_until_they_apply() {
+    let mut v = vault();
+    assert!(v.pending_tvl_cap().is_none());
+    assert!(v.pending_params().is_none());
+    propose_cap(&mut v, 1_000, 7 * ONE);
+    propose_params(&mut v, 2_000, new_params());
+    at(T0);
+    let cap = v.pending_tvl_cap().expect("a cap proposal");
+    assert_eq!(cap.tvl_cap.0, 7 * ONE);
+    assert_eq!(cap.effective_at.0, (1_000 + WAIT) * NS);
+    assert_eq!(cap.lapses_at.0, (1_000 + WAIT + 7 * DAY) * NS);
+    let params = v.pending_params().expect("a params proposal");
+    assert_eq!(params.params.min_charge.0, 4_000);
+    assert_eq!(params.effective_at.0, (2_000 + WAIT) * NS);
+    // The applied values do not move before they apply.
+    assert_eq!(v.config().tvl_cap.0, 100_000_000);
+    apply_cap(&mut v, (1_000 + WAIT) * NS);
+    apply_params(&mut v, (2_000 + WAIT) * NS);
+    assert!(v.pending_tvl_cap().is_none());
+    assert!(v.pending_params().is_none());
+}
+
+#[test]
 fn a_tvl_cap_applies_after_exactly_48_hours() {
     let mut v = vault();
     propose_cap(&mut v, T0, 7 * ONE);
@@ -174,6 +197,18 @@ fn a_proposal_lapses_seven_days_after_it_becomes_applicable() {
     propose_cap(&mut v, last + 10, 3 * ONE);
     apply_cap(&mut v, (last + 10 + WAIT) * NS);
     assert_eq!(v.config().tvl_cap.0, 3 * ONE);
+}
+
+#[test]
+fn lease_parameters_over_the_limits_are_refused() {
+    let mut p = new_params();
+    p.bound_classes = (1..=5).map(|n| U128(n * 1_000_000)).collect();
+    let text = refusal(|| p.check());
+    assert_refused(text, "more than four bound classes");
+    let mut p = new_params();
+    p.min_charge = U128(300_000);
+    let text = refusal(|| p.check());
+    assert_refused(text, "minimum charge above the smallest bound class");
 }
 
 #[test]

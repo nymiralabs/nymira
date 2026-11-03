@@ -4,6 +4,7 @@
 # feature sets has to fail to compile.
 set -u
 status=0
+"$(dirname "$0")/check-pins.sh" || status=1
 for features in mainnet,dev-setup judge,dev-setup mainnet,test-intents-account; do
   out=$(cargo check -p nymira-vault --target wasm32-unknown-unknown --locked --features "$features" 2>&1) && {
     echo "build with features [$features] compiled, but must be refused" >&2

@@ -750,8 +750,35 @@ fn finalize_needs_the_gas_for_its_payout() {
         v.note_status(commitment_of_note()),
         Some(Status::PendingExit)
     );
-    // The least gas that passes is measured with the real token (ticket 22).
+    // The least gas that passes is measured with the real token (issue #22).
     at(T0);
+}
+
+#[test]
+fn finalize_is_refused_whole_when_the_vault_is_short_of_near() {
+    let mut v = pending();
+    let usage = env::storage_usage();
+    let storage = u128::from(usage) * env::storage_byte_cost().as_yoctonear();
+    let mut c = ctx(ALICE, DEADLINE);
+    c.storage_usage(usage)
+        .account_balance(NearToken::from_yoctonear(storage + PAYOUT_RESERVE - 1));
+    testing_env!(c.build());
+    assert_refused(
+        refusal(|| {
+            v.finalize_exit(0);
+        }),
+        "the vault is short of NEAR for the payout",
+    );
+    assert_eq!(
+        v.note_status(commitment_of_note()),
+        Some(Status::PendingExit)
+    );
+    let mut c = ctx(ALICE, DEADLINE);
+    c.storage_usage(usage)
+        .account_balance(NearToken::from_yoctonear(storage + PAYOUT_RESERVE));
+    testing_env!(c.build());
+    drop(v.finalize_exit(0));
+    assert_eq!(v.note_status(commitment_of_note()), Some(Status::Closed));
 }
 
 #[test]

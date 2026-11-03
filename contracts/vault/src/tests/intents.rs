@@ -164,11 +164,6 @@ fn a_bad_message_goes_to_the_unclaimed_bucket_without_echoing_it() {
             r#"{{"commitment":"{}","withdraw_to":"{INTENTS}"}}"#,
             commitment(1)
         ),
-        format!(
-            r#"{{"commitment":"{}","withdraw_to":"{BOB}","{secret}":1}}"#,
-            commitment(1)
-        ),
-        format!(r#"{{"withdraw_to":"{BOB}"}}"#),
     ];
     let mut v = vault();
     let mut total = 0;
@@ -187,6 +182,56 @@ fn a_bad_message_goes_to_the_unclaimed_bucket_without_echoing_it() {
     assert_eq!(v.treasury_balance().0, total);
     assert!(v.note_records(0, 10).is_empty());
     assert_eq!(pending_of(&v, BOB), 0);
+}
+
+#[test]
+fn a_valid_payout_account_stays_claimable_whatever_else_the_message_holds() {
+    let mut v = vault();
+    let amount = ONE + NOTE_FEE;
+    // No commitment: the whole amount is a pending payout.
+    at(T0);
+    assert_eq!(
+        from_intents(&mut v, amount, &format!(r#"{{"withdraw_to":"{BOB}"}}"#)),
+        0
+    );
+    assert_eq!(pending_of(&v, BOB), amount);
+    // An unknown field: ignored, the note opens, and the field is never echoed.
+    at(T0);
+    let with_field = format!(
+        r#"{{"commitment":"{}","withdraw_to":"{BOB}","SECRET-MARK":1}}"#,
+        commitment(1)
+    );
+    assert_eq!(from_intents(&mut v, amount, &with_field), 0);
+    assert!(!get_logs().join("").contains("SECRET-MARK"));
+    // Both at once: pending again, nothing echoed.
+    at(T0);
+    let both = format!(r#"{{"withdraw_to":"{BOB}","SECRET-MARK":1}}"#);
+    assert_eq!(from_intents(&mut v, amount, &both), 0);
+    assert!(!get_logs().join("").contains("SECRET-MARK"));
+    assert_eq!(pending_of(&v, BOB), 2 * amount);
+    // Only the one opened note paid its fee.
+    assert_eq!(v.treasury_balance().0, NOTE_FEE);
+    assert_eq!(v.note_records(0, 10).len(), 1);
+}
+
+/// The NEAR reserve gate applies to the Intents branch too: with the vault under it no note is
+/// opened and the whole amount becomes a pending payout for the payout account.
+#[test]
+fn a_low_near_balance_turns_an_intents_deposit_into_a_pending_payout() {
+    let mut v = vault();
+    let usage = env::storage_usage();
+    let storage = u128::from(usage) * env::storage_byte_cost().as_yoctonear();
+    let mut c = context(TOKEN, T0);
+    c.storage_usage(usage)
+        .account_balance(NearToken::from_yoctonear(storage + RESERVE - 1));
+    testing_env!(c.build());
+    let amount = ONE + NOTE_FEE;
+    let msg = intents_msg(1, BOB);
+    let left = v.ft_on_transfer(account(INTENTS), U128(amount), msg).0;
+    assert_eq!(left, 0);
+    assert!(v.note_records(0, 10).is_empty());
+    assert_eq!(pending_of(&v, BOB), amount);
+    assert_eq!(v.treasury_balance().0, 0);
 }
 
 #[test]

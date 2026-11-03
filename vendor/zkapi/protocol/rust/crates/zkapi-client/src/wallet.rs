@@ -150,13 +150,13 @@ impl Wallet {
         self.request_time_override = time;
     }
 
-    /// Bound every later operator call (recovery and clearance) by `timeout`,
-    /// connect and full body included (E0's `CALL_TIMEOUT` in exit mode).
     /// Nymira patch: sends every operator call through `http` (for example a Tor circuit).
     pub fn set_http_client(&mut self, http: Option<reqwest::Client>) {
         self.http = http;
     }
 
+    /// Bound every later operator call (recovery and clearance) by `timeout`,
+    /// connect and full body included (E0's `CALL_TIMEOUT` in exit mode).
     pub fn set_call_timeout(&mut self, timeout: Option<std::time::Duration>) {
         self.call_timeout = timeout;
     }

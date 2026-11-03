@@ -4,11 +4,11 @@ The shared test doubles of issue #86, in one place. A ticket that needs a double
 
 | Double | Where | Used by |
 |---|---|---|
-| Mock USDC token (NEP-141, NEP-145) and an `ft_transfer_call` receiver | `contracts/mock-usdc`, `contracts/mock-ft-receiver`, helper `mock_usdc` | #15 to #20 (vault), #44, #45 (Intents funding), #35 (golden path) |
+| Mock USDC token (NEP-141, NEP-145) and an `ft_transfer_call` receiver | `contracts/mock-usdc`, `contracts/mock-ft-receiver`, helper `mock_usdc` | #15 to #20 (vault), #35 (golden path); planned: #44, #45 (Intents funding) |
 | Proof generator with NEAR-mapped inputs | `proofs` | #15 to #21 (vault), #23, #26, #27 (operator), #30 to #35 (`nymirad`, golden path) |
 | Sandbox time control and exact-time helper | `clock` | #16 to #19 (close, exits, claims), #27 (watcher), #34 (expiry guard) |
 | Sandboxes at the mainnet and testnet nearcore release | `chain` | #15 to #22 (vault), #35 |
-| Open-source Verifier v0.4.2 fixture | `intents` | #20 (Intents branch), #22 (testnet measurements), #44, #45 |
+| Open-source Verifier v0.4.2 fixture | `intents` | #20 (Intents branch), #22 (testnet measurements); planned: #44, #45 |
 | Mainnet USDC parity fixture | `mainnet_usdc` | #15, #16, #20, #22 |
 | Fake NEAR AI service | `crates/nymira-fake-near-ai` | #23, #24, #25, #87, #30, #31, #35, #36, #37 |
 | Fake NEAR RPC | `crates/nymira-fake-near-rpc` | #27, #28, #87, #88, #30 to #34, #36 to #39 |

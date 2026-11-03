@@ -286,6 +286,24 @@ fn new_panics_on_an_exit_delay_under_a_day() {
 }
 
 #[test]
+#[should_panic(expected = "exit delay over one year")]
+fn new_panics_on_an_exit_delay_over_a_year() {
+    try_new(Params {
+        exit_delay_secs: 366 * DAY,
+        ..Params::default()
+    });
+}
+
+#[test]
+#[should_panic(expected = "TVL cap is zero")]
+fn new_panics_on_a_zero_tvl_cap() {
+    try_new(Params {
+        tvl_cap: 0,
+        ..Params::default()
+    });
+}
+
+#[test]
 fn new_accepts_an_exit_delay_of_exactly_a_day() {
     try_new(Params {
         exit_delay_secs: DAY,
@@ -1810,6 +1828,40 @@ mod close {
                 .map(|w| Base64VecU8(w.to_vec()))
                 .collect(),
         );
+    }
+
+    #[test]
+    fn a_close_is_refused_whole_when_the_vault_is_short_of_near() {
+        let mut v = funded();
+        let usage = env::storage_usage();
+        let storage = u128::from(usage) * env::storage_byte_cost().as_yoctonear();
+        let b = bundle();
+        let attempt = |v: &mut Vault, balance: u128| {
+            let mut c = context(ALICE, CLOSE_AT);
+            c.storage_usage(usage)
+                .account_balance(NearToken::from_yoctonear(balance));
+            testing_env!(c.build());
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drop(
+                    v.mutual_close(
+                        Base64VecU8(b.proof_wire.clone()),
+                        b.inputs_wire
+                            .iter()
+                            .map(|w| Base64VecU8(w.to_vec()))
+                            .collect(),
+                    ),
+                );
+            }))
+        };
+        let text = panic_text(attempt(&mut v, storage + PAYOUT_RESERVE - 1));
+        assert!(
+            text.contains("the vault is short of NEAR for the payout"),
+            "{text}"
+        );
+        assert_eq!(v.note_status(commitment_of_note()), Some(Status::Active));
+        assert_eq!(v.treasury_balance().0, NOTE_FEE);
+        assert!(attempt(&mut v, storage + PAYOUT_RESERVE).is_ok());
+        assert_eq!(v.note_status(commitment_of_note()), Some(Status::Closed));
     }
 
     #[test]

@@ -9,7 +9,9 @@ zkapi (https://github.com/ethereum/zkapi)
   Licensed under MIT OR Apache-2.0 (workspace Cargo.toml). The upstream
   repository root has no license file; a request is open at ethereum/zkapi#28.
 
-  Patches applied after the upstream snapshot, one commit each:
+  Patches applied after the upstream snapshot. Commits: 1 = 57a0915, 2 = 1e4517b,
+  3 = 0bea0cb and 995bf31, 4 = 090ee59, 5 = 117f25f, 6 = 3992a98 (the wallet.rs
+  hunk only; the commit also holds nymirad changes), 7 = 7687574.
   1. zkapi PR #22 (head 8a96d2aa0bd983eba1f226e5dff827aab38d88d0):
      zkapi-types/src/felt.rs rejects non-hex characters in Felt252::from_hex.
   2. Poseidon parameters exported as constants from zkapi-core

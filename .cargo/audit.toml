@@ -1,6 +1,7 @@
-# Every advisory below is in host-side test tooling (near-workspaces, near-sdk's
-# unit-testing VM, arkworks' std features) or in a compile-time proc macro; none
-# is compiled into a contract wasm. Newer versions are blocked by the exact
+# Each advisory below is in host-side test tooling (near-workspaces, near-sdk's
+# unit-testing VM, arkworks' std features), in a compile-time proc macro, in
+# nymirad's attestation verification (rsa, age) or, for RUSTSEC-2025-0055, in the
+# vault's wasm tree without a path to it (see that line). The reason is on each line. Newer versions are blocked by the exact
 # near-sdk/near-workspaces pins (a rustls bump conflicts on aws-lc-rs; zstd 0.14
 # and crypto-bigint 0.7 are major bumps). Revisit when those pins move.
 [advisories]

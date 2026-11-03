@@ -665,7 +665,7 @@ impl Watcher {
                         "vault_liquid_low",
                         "The vault is running low on NEAR",
                         &format!(
-                            "The vault can spend {}.{:03} NEAR after its storage. Under 2 NEAR it refuses deposits and a failed payout may not be recorded; top it up.",
+                            "The vault can spend {}.{:03} NEAR after its storage. Under 2 NEAR it refuses deposits, and under 0.1 NEAR it refuses closes and exit payouts; top it up.",
                             liquid / YOCTO_PER_NEAR,
                             liquid % YOCTO_PER_NEAR / (YOCTO_PER_NEAR / 1_000)
                         ),
