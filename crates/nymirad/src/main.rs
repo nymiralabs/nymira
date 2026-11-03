@@ -247,9 +247,14 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
     let Some(signer) = signer else {
         return refuse("this build pins no attestation policy signer".into());
     };
-    // A signed policy in the state directory is used when it is at least as new as the one signed
-    // and shipped with this build (a newer one, downloaded); an older one never rolls it back.
-    let file = std::fs::read(home.join("attestation-policy.json")).ok();
+    // A signed policy in the state directory is used when it is newer than the one signed and
+    // shipped with this build (a newer one, downloaded); an older or equal one never replaces it.
+    // A file that exists but cannot be read is an error, not "no file".
+    let file = match std::fs::read(home.join("attestation-policy.json")) {
+        Ok(f) => Some(f),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return refuse(format!("attestation-policy.json: {e}")),
+    };
     match nymirad::attest::Policy::choose(
         file.as_deref(),
         include_bytes!("../pins/attestation-policy.json"),

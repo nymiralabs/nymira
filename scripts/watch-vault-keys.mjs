@@ -17,8 +17,11 @@
 //  - AddKey: any key in the key list that was not there, or whose permission differs. Nonce and
 //    allowance move with every transaction a function-call key sends, so they are not compared.
 // A key that was added and removed between two polls shows up as a deletion event.
+// Limits: the first run (or `--expect`) judges the account as it is now and scans no history, so
+// something done and undone before it left no trace; `--no-events` sees only the state at each poll.
+// More than 600 blocks since the last poll are scanned in several polls (`catching_up`).
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const MAX_BLOCKS_PER_TICK = 600;
@@ -42,17 +45,16 @@ async function rpc(urls, method, params, timeoutMs = 15000) {
       }
       return body.result;
     } catch (e) {
-      last = e;
-      if (e.rpcName === "UNKNOWN_BLOCK") throw e; // a node answered: no other node will know it better
+      last = e; // a lagging node may not know a block another node knows: try the next one
     }
   }
   throw last;
 }
 
+// Everything but the allowance, which shrinks with each transaction a function-call key sends.
 function permissionKey(permission) {
   if (permission === "FullAccess") return "FullAccess";
-  const f = permission.FunctionCall;
-  return JSON.stringify({ receiver_id: f.receiver_id, method_names: f.method_names });
+  return JSON.stringify(permission, (k, v) => (k === "allowance" ? undefined : v));
 }
 
 async function readAccount(rpcs, account) {
@@ -109,36 +111,61 @@ function diff(base, now, eventAlerts) {
 }
 
 const load = (p) => JSON.parse(readFileSync(p, "utf8"));
-const save = (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + "\n");
+const save = (p, v) => {
+  writeFileSync(`${p}.tmp`, JSON.stringify(v, null, 2) + "\n");
+  renameSync(`${p}.tmp`, p);
+};
 
-/** One poll. Returns the alerts it raised; the state file is updated to what it saw. */
-export async function tick({ rpcs, account, statePath, events = true, failLimit = 3, expectPath }) {
-  const state = existsSync(statePath) ? load(statePath) : null;
+/** One poll: `{alerts, failed}`. The state file is updated to what it saw. */
+export async function poll({ rpcs, account, statePath, events = true, failLimit = 3, expectPath }) {
+  let state = null;
+  if (existsSync(statePath)) {
+    try {
+      state = load(statePath);
+    } catch (e) {
+      // Overwriting an unreadable state would hide what changed while it was broken.
+      return { alerts: [{ account, alert: "state_unreadable", error: String(e.message) }], failed: true };
+    }
+  }
   try {
     const now = await readAccount(rpcs, account);
-    let alerts = [];
-    if (!state) {
+    if (!state || state.baseline === false) {
       const base = expectPath ? load(expectPath) : null;
-      if (base) alerts = diff(base, now, []);
+      const alerts = base ? diff(base, now, []) : [];
       save(statePath, { code_hash: now.code_hash, keys: now.keys, height: now.height, fails: 0, down: false });
-      return alerts.map((a) => ({ account, ...a }));
+      return { alerts: alerts.map((a) => ({ account, ...a })), failed: false };
     }
     const from = state.height + 1;
     const to = Math.min(now.height, state.height + MAX_BLOCKS_PER_TICK);
+    const catching = events && to < now.height;
     const ev = events ? await scanEvents(rpcs, account, from, to) : [];
-    alerts = [...ev, ...diff(state, now, ev)];
-    if (events && to < now.height) alerts.push({ alert: "catching_up", scanned_to: to, final: now.height });
-    save(statePath, { code_hash: now.code_hash, keys: now.keys, height: events ? to : now.height, fails: 0, down: false });
-    return alerts.map((a) => ({ account, ...a }));
+    // While catching up, the events cover only part of the range the state has moved through:
+    // report the events and keep the old snapshot until the scan reaches the present.
+    // Events of earlier steps are carried, so the final diff does not report them a second time.
+    const seen = [...(state.carry || []), ...ev];
+    const alerts = catching
+      ? [...ev, { alert: "catching_up", scanned_to: to, final: now.height }]
+      : [...ev, ...diff(state, now, seen)];
+    const next = catching
+      ? { ...state, height: to, carry: seen, fails: 0, down: false }
+      : { code_hash: now.code_hash, keys: now.keys, height: events ? to : now.height, fails: 0, down: false };
+    save(statePath, next);
+    return { alerts: alerts.map((a) => ({ account, ...a })), failed: false };
   } catch (e) {
-    const next = { ...(state || { code_hash: null, keys: {}, height: 0 }) };
+    // A first run that cannot read the node still counts its failures, so a watcher that never
+    // worked cannot look like one that sees no changes.
+    const next = { ...(state || { baseline: false, code_hash: null, keys: {}, height: 0 }) };
     next.fails = (next.fails || 0) + 1;
     const raise = next.fails >= failLimit && !next.down;
     if (raise) next.down = true;
-    // A first run that cannot read the node has no baseline to protect: keep the empty state out.
-    if (state) save(statePath, next);
-    return raise ? [{ account, alert: "rpc_unreachable", failed_polls: next.fails, error: String(e.message) }] : [];
+    save(statePath, next);
+    const alerts = raise ? [{ account, alert: "rpc_unreachable", failed_polls: next.fails, error: String(e.message) }] : [];
+    return { alerts, failed: true };
   }
+}
+
+export async function tick(opts) {
+  return (await poll(opts)).alerts;
 }
 
 function args(argv) {
@@ -170,11 +197,12 @@ async function main() {
   }
   let status = 0;
   for (;;) {
-    const alerts = await tick(o);
+    const { alerts, failed } = await poll(o);
     for (const a of alerts) console.log(JSON.stringify({ at: new Date().toISOString(), ...a }));
     if (o.once) {
-      if (alerts.some((a) => a.alert === "rpc_unreachable")) status = 1;
-      else if (alerts.length) status = 2;
+      // 2: something changed. 1: the account could not be read this time (or the state is broken).
+      if (alerts.some((a) => a.alert !== "rpc_unreachable" && a.alert !== "state_unreadable")) status = 2;
+      else if (failed) status = 1;
       process.exit(status);
     }
     await new Promise((r) => setTimeout(r, o.interval * 1000));

@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tick } from "./watch-vault-keys.mjs";
+import { tick, poll } from "./watch-vault-keys.mjs";
 
 const ACCOUNT = "vault.test.near";
 const OPERATOR_KEY = {
@@ -40,6 +40,11 @@ async function stub(chain) {
       if (method === "query" && params.request_type === "view_account") return ok({ code_hash: chain.code_hash });
       if (method === "query" && params.request_type === "view_access_key_list") return ok({ keys: chain.keys });
       if (method === "EXPERIMENTAL_changes") {
+        const named = chain.blockErrors?.[params.block_id];
+        if (named) {
+          const cause = { name: named };
+          return res.end(JSON.stringify({ jsonrpc: "2.0", id, error: { name: "HANDLER_ERROR", cause } }));
+        }
         const at = chain.events[params.block_id];
         return ok({ block_hash: "h", changes: (at && at[params.changes_type]) || [] });
       }
@@ -55,8 +60,9 @@ async function setup(ctx) {
   const { server, url } = await stub(chain);
   const statePath = join(mkdtempSync(join(tmpdir(), "watch-")), "state.json");
   ctx.after(() => { server.closeAllConnections?.(); server.close(); });
-  const run = () => tick({ rpcs: [url], account: ACCOUNT, statePath, events: true, failLimit: 3 });
-  return { chain, run, statePath };
+  const opts = { rpcs: [url], account: ACCOUNT, statePath, events: true, failLimit: 3 };
+  const run = () => tick(opts);
+  return { chain, run, statePath, opts };
 }
 
 test("the first run records a baseline and alerts on nothing", async (ctx) => {
@@ -148,4 +154,68 @@ test("a pinned expectation file replaces the first-run baseline, so a vault that
   writeFileSync(expectPath, JSON.stringify({ code_hash: "PINNED", keys: {} }));
   const alerts = await tick({ rpcs: [url], account: ACCOUNT, statePath: join(dir, "s.json"), events: false, failLimit: 3, expectPath });
   assert.deepEqual(alerts.map((a) => a.alert).sort(), ["add_key", "deploy_contract"]);
+});
+
+test("a watcher that never worked is not silent: failed first polls are counted and raise rpc_unreachable", async (ctx) => {
+  const t = await setup(ctx);
+  t.chain.down = true;
+  const opts = { ...t.opts, failLimit: 2 };
+  assert.deepEqual(await poll(opts), { alerts: [], failed: true });
+  const second = await poll(opts);
+  assert.deepEqual(second.alerts.map((a) => a.alert), ["rpc_unreachable"]);
+  assert.equal(second.failed, true);
+  t.chain.down = false;
+  assert.deepEqual(await t.run(), [], "the first poll that works records the baseline");
+  assert.equal(JSON.parse(readFileSync(t.statePath, "utf8")).code_hash, "CODE1");
+});
+
+test("a corrupt state file is reported and left untouched, not overwritten", async (ctx) => {
+  const t = await setup(ctx);
+  writeFileSync(t.statePath, '{"code_hash": "CO');
+  const r = await poll(t.opts);
+  assert.deepEqual(r.alerts.map((a) => a.alert), ["state_unreadable"]);
+  assert.equal(r.failed, true);
+  assert.equal(readFileSync(t.statePath, "utf8"), '{"code_hash": "CO');
+});
+
+test("catching up scans in steps, keeps one consistent snapshot and reports a change once", async (ctx) => {
+  const t = await setup(ctx);
+  await t.run();
+  t.chain.height = 1000; // 900 blocks since the last poll: more than one scan step
+  t.chain.code_hash = "CODE2";
+  t.chain.events[650] = { contract_code_changes: [{ type: "contract_code_update", change: { account_id: ACCOUNT } }] };
+  let alerts = await t.run();
+  assert.deepEqual(alerts.map((a) => a.alert), ["deploy_contract", "catching_up"]);
+  assert.equal(JSON.parse(readFileSync(t.statePath, "utf8")).code_hash, "CODE1", "the snapshot stays old until the scan is done");
+  assert.deepEqual(await t.run(), [], "the deploy seen in the first step is not reported again by the final diff");
+  assert.equal(JSON.parse(readFileSync(t.statePath, "utf8")).code_hash, "CODE2");
+});
+
+test("an unfamiliar permission shape is compared, not a crash that looks like an outage", async (ctx) => {
+  const t = await setup(ctx);
+  t.chain.keys = [{ public_key: "ed25519:x", access_key: { nonce: 0, permission: { Delegated: { who: "y" } } } }];
+  await t.run();
+  t.chain.keys = [{ public_key: "ed25519:x", access_key: { nonce: 0, permission: { Delegated: { who: "z" } } } }];
+  const alerts = await t.run();
+  assert.deepEqual(alerts.map((a) => a.alert), ["key_permission_changed"]);
+});
+
+test("a block the node has pruned fails the poll instead of being skipped", async (ctx) => {
+  const t = await setup(ctx);
+  await t.run();
+  t.chain.height = 110;
+  t.chain.blockErrors = { 105: "GARBAGE_COLLECTED_BLOCK" };
+  const r = await poll(t.opts);
+  assert.equal(r.failed, true);
+  assert.equal(JSON.parse(readFileSync(t.statePath, "utf8")).height, 100, "the height does not move past blocks that were not scanned");
+});
+
+test("a height with no block (UNKNOWN_BLOCK on every node) is skipped", async (ctx) => {
+  const t = await setup(ctx);
+  await t.run();
+  t.chain.height = 110;
+  t.chain.blockErrors = { 105: "UNKNOWN_BLOCK" };
+  const r = await poll(t.opts);
+  assert.equal(r.failed, false);
+  assert.equal(JSON.parse(readFileSync(t.statePath, "utf8")).height, 110);
 });

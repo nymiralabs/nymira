@@ -178,8 +178,9 @@ impl Policy {
 
     /// The policy to use when a file in the state directory may be newer than the one compiled
     /// into the build. A file that does not verify is an error: it is never silently replaced by
-    /// the compiled policy. A valid file older than the compiled policy loses, so an old signed
-    /// file cannot roll a newer build back.
+    /// the compiled policy. Only a file with a higher version than the compiled policy wins: an
+    /// older or equal one loses, so an old signed file cannot roll a build back and a reissued
+    /// version number cannot swap its content.
     pub fn choose(
         file: Option<&[u8]>,
         compiled: &[u8],
@@ -192,7 +193,7 @@ impl Policy {
         };
         let file = Self::load(file, signer_pk, min_version)?;
         Ok(match compiled {
-            Ok(c) if c.version > file.version => c,
+            Ok(c) if c.version >= file.version => c,
             _ => file,
         })
     }
@@ -481,12 +482,12 @@ mod tests {
     }
 
     #[test]
-    fn a_file_of_the_same_version_is_used() {
+    fn a_file_of_the_same_version_does_not_replace_the_compiled_policy() {
         let mut other = policy(4, &["UpToDate"]);
         other.accepted_measurements = vec!["m2".into()];
         let file = serde_json::to_vec(&other.sign(&signer())).unwrap();
         let chosen = Policy::choose(Some(&file), &json_of(4), &pk(), 1).unwrap();
-        assert_eq!(chosen.accepted_measurements, vec!["m2".to_string()]);
+        assert_eq!(chosen.accepted_measurements, vec!["m1".to_string()]);
     }
 
     #[test]
