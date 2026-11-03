@@ -77,7 +77,12 @@ export function App() {
         </small>
         <br />
         <small>
-          <a href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer" data-testid="terms-link">
+          <a
+            href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="terms-link"
+          >
             Terms of use
           </a>
         </small>
