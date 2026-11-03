@@ -205,6 +205,43 @@ async fn a_lost_disk_comes_back_from_the_replica_and_an_honest_client_reconciles
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_thirty_first_real_reconcile_call_in_a_minute_is_refused_with_429() {
+    use nymira_operator::operator::RECONCILES_PER_MINUTE;
+    let wire = wire();
+    let mut rig = Rig::new(real(&wire, T0)).await;
+    let total = RECONCILES_PER_MINUTE as u64 + 1;
+    let mut ids = Vec::new();
+    // The request a client keeps, taken before the disk is lost.
+    let mut requests = Vec::new();
+    for n in 1..=total {
+        requests.push(serde_json::from_slice::<Value>(&body(&rig.fresh(n))).unwrap());
+        ids.push(open(&rig, n).await.0);
+        // Key minting has its own limit; stay under it.
+        rig.clock.advance_secs(6);
+        rig.op.tick().await;
+    }
+    wipe(&rig);
+    rig.restart(real(&wire, T0 + 100)).await;
+
+    let call = |n: u64| {
+        json!({ "lease_id": ids[n as usize - 1], "request": requests[n as usize - 1] })
+            .to_string()
+            .into_bytes()
+    };
+    for n in 1..=RECONCILES_PER_MINUTE as u64 {
+        let (s, v) = rig.post_json("/v2/reconcile", call(n)).await;
+        assert_eq!(s, 200, "call {n}: {v}");
+    }
+    let (s, v) = rig.post_json("/v2/reconcile", call(total)).await;
+    json_error(s, &v, 429, "operator_capacity");
+    assert_eq!(lease(&rig, &ids[total as usize - 1]).await.status, "restored");
+    // The minute passes and the same call goes through.
+    rig.clock.advance_secs(61);
+    let (s, v) = rig.post_json("/v2/reconcile", call(total)).await;
+    assert_eq!(s, 200, "{v}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_old_backup_is_brought_level_with_what_the_replica_saw_after_it() {
     let wire = wire();
     let mut rig = Rig::new(real(&wire, T0)).await;
