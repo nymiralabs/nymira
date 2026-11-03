@@ -31,7 +31,8 @@ pub struct WalletVault {
     rounds: u32,
 }
 
-type Files = BTreeMap<String, String>;
+/// A wallet's files: name to base64.
+pub type Files = BTreeMap<String, String>;
 
 /// Written last by `checkout`. A working directory without it is a checkout that died half way:
 /// it holds some of the files, so sealing it would overwrite the good sealed copy with a part.
@@ -109,6 +110,46 @@ impl WalletVault {
         let bytes = Zeroizing::new(serde_json::to_vec(&files).expect("files serialize"));
         self.sealed(key)?.write(&bytes)?;
         std::fs::remove_dir_all(&dir)?;
+        Ok(())
+    }
+
+    /// The files of every note's wallet, for the backup: a wallet with a lease open is read from
+    /// its working directory (it holds the journal of the lease in flight), the others from their
+    /// sealed copy.
+    pub fn export_all(&self) -> Result<BTreeMap<String, Files>, VaultError> {
+        let mut out = BTreeMap::new();
+        if let Ok(entries) = std::fs::read_dir(self.home.join("wallets")) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let Some(key) = name.strip_suffix(".sealed") else {
+                    continue;
+                };
+                if let Some(bytes) = self.sealed(key)?.read()? {
+                    let bytes = Zeroizing::new(bytes);
+                    let files: Files = serde_json::from_slice(&bytes)
+                        .map_err(|e| VaultError::Format(e.to_string()))?;
+                    out.insert(key.to_string(), files);
+                }
+            }
+        }
+        if let Ok(entries) = std::fs::read_dir(self.work_root()?) {
+            for entry in entries.flatten() {
+                if !entry.path().join(COMPLETE).exists() {
+                    continue;
+                }
+                let mut files = Files::new();
+                if collect(&entry.path(), &entry.path(), &mut files).is_ok() {
+                    out.insert(entry.file_name().to_string_lossy().into_owned(), files);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Seals `files` as the wallet of `key` (a restore).
+    pub fn import(&self, key: &str, files: &Files) -> Result<(), VaultError> {
+        let bytes = Zeroizing::new(serde_json::to_vec(files).expect("files serialize"));
+        self.sealed(key)?.write(&bytes)?;
         Ok(())
     }
 

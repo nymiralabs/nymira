@@ -24,8 +24,17 @@ use nymirad::{backup, guard, hardening, status};
 const USAGE: &str =
     "usage: nymirad [--home DIR] [--passphrase-file FILE | --passphrase-stdin] <command>
 commands:
-  init --rpc URL --operator URL --account ID [--socks HOST:PORT]
-  backup-setup [--place DIR]...     makes a key pair, shows the private key once
+  init --rpc URL --operator URL --account ID [--socks HOST:PORT] [backup options | --no-backup]
+  backup-setup [backup options]     sets up the encrypted backup
+      backup options: --place DIR (the second place; repeat for more) | --local-only,
+      and --backup-passphrase [--backup-passphrase-file FILE] to use a passphrase of 12 or
+      more characters instead of a key pair (the key pair's private key is shown once)
+  backup                            writes the backup now (over the owner socket)
+  restore --from DIR_OR_FILE... [--backup-key-file FILE]
+                                    into an empty --home, from the private key or passphrase
+  restore-secret --note ID --secret-file FILE [--payout ACCOUNT]
+                                    from a note secret alone: the note can be exited, not spent
+  note-secret --note ID             shows a note's secret after a confirmation on the terminal
   serve                             the local gateway on 127.0.0.1:8788
   status
   deposit --key-file FILE --amount BASE_UNITS [--payout ACCOUNT]
@@ -176,11 +185,7 @@ async fn build_gateway(
             idle_secs: cfg.idle_secs.unwrap_or(120),
             share_pct: 90,
             prewarm_max_secs: 5,
-            backup: cfg.backup_recipient.as_deref().and_then(|r| {
-                backup::parse_recipient(r)
-                    .ok()
-                    .map(|r| (r, cfg.backup_places.clone()))
-            }),
+            backup: cfg.backup_target(),
         },
         transport,
         rpc,
@@ -191,7 +196,7 @@ async fn build_gateway(
         clock,
     );
     let gateway = match gateway {
-        Ok(g) => Arc::new(g),
+        Ok(g) => Arc::new(g.with_guard(cfg.guard())),
         Err(e) => {
             eprintln!("warning: chat is off: {e}");
             return None;
@@ -287,29 +292,47 @@ async fn main() {
 
     match command.as_str() {
         "init" => {
-            let cfg = Config {
+            let mut cfg = Config {
                 rpc_url: flag(&mut args, "--rpc").unwrap_or_else(|| die(USAGE)),
                 operator_url: flag(&mut args, "--operator").unwrap_or_else(|| die(USAGE)),
                 account: flag(&mut args, "--account").unwrap_or_else(|| die(USAGE)),
                 socks: flag(&mut args, "--socks"),
                 ..Config::default()
             };
+            // Backups are on by default: the state is lost with the machine otherwise.
+            if switch(&mut args, "--no-backup") {
+                eprintln!("warning: no backup. If this machine is lost, an exit can be defeated and the note expire to the treasury.");
+            } else {
+                setup_backup(&mut cfg, &home, &mut args);
+            }
             cfg.save(&home).unwrap_or_else(|e| die(e));
             println!("wrote {}", home.join("config.json").display());
         }
         "backup-setup" => {
             let mut cfg = Config::load(&home).unwrap_or_else(|e| die(e));
-            while let Some(place) = flag(&mut args, "--place") {
-                cfg.backup_places.push(place.into());
-            }
-            let (private, public) = backup::generate_identity();
-            cfg.backup_recipient = Some(public.clone());
+            setup_backup(&mut cfg, &home, &mut args);
             cfg.save(&home).unwrap_or_else(|e| die(e));
-            println!("Backup public key: {public}");
-            println!(
-                "Backup PRIVATE key (shown once, keep it off this machine):\n{}",
-                private.as_str()
-            );
+        }
+        "backup" => owner_command(&home, "backup", &mut args).await,
+        "restore" => restore_command(&home, &source, &mut args),
+        "restore-secret" => restore_secret_command(&home, mode, &source, &mut args, clock).await,
+        "note-secret" => {
+            let note = note_id(&mut args);
+            let passphrase = source.read().unwrap_or_else(|e| die(e));
+            let notes = NoteStore::open(&home.join("notes.sealed"), &passphrase, ROUNDS)
+                .unwrap_or_else(|e| die(e));
+            let entry = notes
+                .list()
+                .unwrap_or_else(|e| die(e))
+                .into_iter()
+                .find(|n| n.note_id == Some(note))
+                .unwrap_or_else(|| die(format!("no note {note}")));
+            if !Terminal.confirm_text(&format!(
+                "This shows the secret of note {note}. Whoever has it can exit the note, and spend it if they also have its state. Type yes to show it: "
+            )) {
+                die("not confirmed; nothing shown");
+            }
+            println!("{}", entry.secret);
         }
         "serve" => {
             let token =
@@ -323,6 +346,12 @@ async fn main() {
                 eprintln!("warning: {e} (run init): chat is off");
                 Config::default()
             });
+            for w in cfg.backup_warnings() {
+                eprintln!("warning: {w}");
+            }
+            if !cfg.guard().enabled {
+                eprintln!("warning: the expiry guard is off: nymirad will not stop leases near expiry, close, exit or remind you");
+            }
             let gateway = build_gateway(&cfg, &home, mode, &source, clock.clone()).await;
             if let Some(gw) = &gateway {
                 let listener = nymirad::ownersock::bind(&home).unwrap_or_else(|e| die(e));
@@ -371,6 +400,12 @@ async fn main() {
                         clock.now_secs()
                     )
                 );
+                for w in cfg.backup_warnings() {
+                    println!("warning: {w}");
+                }
+                if cfg.backup_target().is_some() {
+                    println!("{}", backup_line(&cfg, clock.now_secs()));
+                }
                 return;
             }
             let pins =
@@ -409,11 +444,7 @@ async fn main() {
                 tx_store,
                 sender: cfg.account.clone(),
                 clock,
-                backup: cfg.backup_recipient.as_deref().and_then(|r| {
-                    backup::parse_recipient(r)
-                        .ok()
-                        .map(|r| (r, cfg.backup_places.clone()))
-                }),
+                backup: cfg.backup_target(),
                 calendar_dir: home.join("calendar"),
             };
             if command == "recover" {
@@ -483,6 +514,7 @@ async fn owner_command(home: &std::path::Path, command: &str, args: &mut Vec<Str
             note: note_id(args),
             family,
         },
+        "backup" => Command::Backup,
         _ => match (args.first().map(String::as_str), family) {
             (Some("add"), Some(family)) => {
                 args.remove(0);
@@ -513,6 +545,180 @@ async fn owner_command(home: &std::path::Path, command: &str, args: &mut Vec<Str
         Ok(text) => println!("{text}"),
         Err(e) => die(e),
     }
+}
+
+/// What a backup place holds and when it was last written, for `status`.
+fn backup_line(cfg: &Config, now_secs: u64) -> String {
+    let mut parts = Vec::new();
+    for dir in &cfg.backup_places {
+        let state = dir.join(backup::STATE_FILE);
+        let written = std::fs::metadata(&state)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+        parts.push(match written {
+            Some(t) => format!(
+                "{} (state backup {} min ago)",
+                dir.display(),
+                now_secs.saturating_sub(t) / 60
+            ),
+            None => format!("{} (no state backup yet)", dir.display()),
+        });
+    }
+    format!("Backup: on, {}", parts.join("; "))
+}
+
+/// A secret from a 0600 file or, without one, from the terminal.
+fn secret_input(file: Option<String>, prompt: &str) -> zeroize::Zeroizing<String> {
+    match file {
+        Some(path) => PassphraseSource::File(path.into())
+            .read()
+            .unwrap_or_else(|e| die(e)),
+        None => {
+            zeroize::Zeroizing::new(rpassword::prompt_password(prompt).unwrap_or_else(|e| die(e)))
+        }
+    }
+}
+
+/// Makes the backup key (or derives it from a passphrase) and records where the copies go: the
+/// local one under the state directory and the second place the user names.
+fn setup_backup(cfg: &mut Config, home: &std::path::Path, args: &mut Vec<String>) {
+    let local_only = switch(args, "--local-only");
+    let mut places = vec![home.join("backup")];
+    while let Some(place) = flag(args, "--place") {
+        places.push(place.into());
+    }
+    if places.len() < 2 && !local_only {
+        die("name a second place for the backup copy with --place DIR (another disk, a synced folder, a USB stick), or pass --local-only to keep it on this machine only");
+    }
+    let wants_passphrase = switch(args, "--backup-passphrase");
+    let pass_file = flag(args, "--backup-passphrase-file");
+    if wants_passphrase || pass_file.is_some() {
+        let pass = secret_input(pass_file, "Backup passphrase (12 or more characters): ");
+        let (kdf, public) = backup::passphrase_setup(&pass).unwrap_or_else(|e| die(e));
+        cfg.backup_recipient = Some(public);
+        cfg.backup_kdf = Some(kdf);
+        println!(
+            "Backup key derived from your passphrase with Argon2id ({} MiB, {} passes, {} lane, random salt kept in each backup). The passphrase is not stored: without it the backup cannot be opened, and nymirad cannot recover it.",
+            backup::KDF_M_KIB / 1024,
+            backup::KDF_T,
+            backup::KDF_P
+        );
+    } else {
+        let (private, public) = backup::generate_identity();
+        cfg.backup_recipient = Some(public.clone());
+        cfg.backup_kdf = None;
+        println!("Backup public key: {public}");
+        println!(
+            "Backup PRIVATE key (shown once; keep it off this machine, not in this machine's keychain and not beside the backup):\n{}",
+            private.as_str()
+        );
+    }
+    println!(
+        "Backups go to: {}",
+        places
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    cfg.backup_places = places;
+}
+
+/// `restore`: opens the backup with the key or passphrase the user holds and writes the state
+/// into an empty state directory. Runs in this process, after a confirmation on the terminal.
+fn restore_command(home: &std::path::Path, source: &PassphraseSource, args: &mut Vec<String>) {
+    let mut from: Vec<PathBuf> = Vec::new();
+    while let Some(f) = flag(args, "--from") {
+        from.push(f.into());
+    }
+    if from.is_empty() {
+        die(USAGE);
+    }
+    let secret = secret_input(
+        flag(args, "--backup-key-file"),
+        "Backup private key or passphrase: ",
+    );
+    let state = backup::load(&from, &secret).unwrap_or_else(|e| die(e));
+    println!(
+        "The backup holds {} note(s), taken at Unix time {}.",
+        state.notes.len(),
+        state.taken_at
+    );
+    if !Terminal.confirm_text(&format!(
+        "Restore it into {}, which must be empty. The notes and wallets will be sealed under the passphrase you enter next. Type yes: ",
+        home.display()
+    )) {
+        die("not confirmed; nothing written");
+    }
+    let passphrase = source.read().unwrap_or_else(|e| die(e));
+    let restored =
+        backup::restore_into(home, state, &passphrase, ROUNDS).unwrap_or_else(|e| die(e));
+    for (id, status, has_wallet) in &restored.notes {
+        println!(
+            "Note {}: {:?}{}",
+            id.map_or("?".to_string(), |i| i.to_string()),
+            status,
+            if *has_wallet {
+                ""
+            } else {
+                " (no wallet state: it restarts from its deposit)"
+            }
+        );
+    }
+    println!(
+        "{}",
+        backup::restore_notice(&restored, SystemClock.now_secs())
+    );
+}
+
+/// `restore-secret`: one note from its secret alone, stored so it can only be exited.
+async fn restore_secret_command(
+    home: &std::path::Path,
+    mode: Mode,
+    source: &PassphraseSource,
+    args: &mut Vec<String>,
+    clock: Arc<dyn Clock>,
+) {
+    let cfg = Config::load(home)
+        .unwrap_or_else(|e| die(format!("{e} (run `nymirad init ... --no-backup` first)")));
+    let note = note_id(args);
+    let secret = secret_input(flag(args, "--secret-file"), "Note secret: ");
+    let payout = flag(args, "--payout").unwrap_or_else(|| cfg.account.clone());
+    println!("{}", backup::SECRET_ONLY_NOTICE);
+    println!("Payout account: {payout}. It must be the account named at deposit; the vault refuses an exit to another one.");
+    if !Terminal.confirm_text("Type yes to continue: ") {
+        die("not confirmed; nothing written");
+    }
+    let passphrase = source.read().unwrap_or_else(|e| die(e));
+    let transport = connect(&cfg, home, TOR_WAIT).await;
+    let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
+    let pinned = pins::compiled(mode);
+    #[cfg(feature = "mock")]
+    let pinned = pinned.or_else(|| pins::demo(home));
+    let vault = pinned
+        .map(|p| p.vault)
+        .unwrap_or_else(|| die("no vault is pinned in this build"));
+    let entry = nymirad::restore::from_secret(
+        home,
+        &rpc,
+        &vault,
+        mode.chain_label(),
+        &secret,
+        note,
+        &payout,
+        &passphrase,
+        ROUNDS,
+        clock.now_secs(),
+    )
+    .await
+    .unwrap_or_else(|e| die(e));
+    println!(
+        "Note {} is stored for exit. Next: `nymirad submitter add --family personal --account ACCOUNT` (while `nymirad serve` runs), then `nymirad exit --note {}`.",
+        entry.note_id.unwrap_or(note),
+        entry.note_id.unwrap_or(note)
+    );
 }
 
 impl Terminal {

@@ -38,3 +38,15 @@ A close, an exit request and a payout name the note's ID in the vault call. `nym
 One submitter shared by every note puts all of those notes next to one account. `nymirad` keeps one submitter per family (your personal notes, and each budget note on its own) so you can keep that link apart. A note belongs to the family `personal` until you assign another.
 
 Sends go over Tor, each on its own circuit. If Tor is down, `nymirad` sends nothing by itself. It asks you first, in fixed words: a direct send shows your IP address to the RPC endpoint together with the note's ID and its total spend. The clearance request and the operator's close intake never go direct, because they would show your address to the operator. A close can go to the operator's intake when the submitter has no NEAR; the operator then keeps its close fee.
+
+## Expiry and backups
+
+A note that reaches its expiry goes to the treasury. By default `nymirad` opens no new lease on a note within 5 days of its expiry and tries a mutual close at 5 days. If the close has failed, it files `request_exit` at 3 days. It shows notices at 14, 7 and 2 days. The guard can be switched off. A close or exit it sends shows the note ID like any other, and it never goes direct while Tor is down. Closing every note when a session ends is a separate switch, off by default, because each close shows the note ID and the total spend.
+
+After every retire, and after each lease open, close and deposit, `nymirad` writes the whole state, encrypted with age to a public key you chose at setup, to a copy on the machine and to a second place you name. The private key is shown once and is never stored by `nymirad`, in the keychain or beside the file. With a passphrase instead, Argon2id (64 MiB, 3 passes, 1 lane, random salt) derives the key, and the passphrase needs at least 12 characters. A passphrase can still be guessed offline by anyone who holds a backup; Argon2id slows that down and does not stop it.
+
+Inside the encryption the notes and wallet states are in the clear, so whoever holds a backup and its key or passphrase can spend your notes. Keep the key away from the machine and from the backup. The place that stores the file sees an encrypted blob, its size and its write times.
+
+Restoring with the key or passphrase continues on the same note from the state the backup held. If a lease was served after that backup, the operator is ahead of the restored state, and the way out is an exit, which the operator can defeat by showing a later state; the balance then goes to the treasury at expiry. Restoring from the note secret alone gives an exit from the deposit state with concession 0, with the same risk.
+
+On the operator's emergency notice `nymirad` stops opening leases and suggests an exit for each open note. It does not exit by itself because of the notice. It reads the notice from `/v1/status` before each lease and every few minutes while it runs, so a notice can reach it late.
