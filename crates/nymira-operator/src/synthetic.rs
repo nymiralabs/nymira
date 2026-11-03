@@ -71,12 +71,28 @@ impl Synthetic {
             }
         };
         self.alarms.resolve("synthetic_open_failed");
+        // The test counts only an exit that was seen open and then came back to `Active`: a note
+        // that never showed `PendingExit`, or that ended `Closed`, proves nothing about a defeat.
+        let mut seen_pending = false;
         loop {
-            // A note out of its exit (defeated) means the watcher answered.
             if let Ok(Some(note)) = self.view.note(note_id).await {
-                if note.status != "PendingExit" {
+                if note.status == "PendingExit" {
+                    seen_pending = true;
+                } else if seen_pending && note.status == "Active" {
                     self.alarms.resolve("synthetic_failed");
                     return true;
+                } else if seen_pending {
+                    self.alarms
+                        .raise(
+                            "synthetic_failed",
+                            "The daily watcher test ended in an unexpected state",
+                            &format!(
+                                "Test note {note_id} left its exit as {}, not as an answered one.",
+                                note.status
+                            ),
+                        )
+                        .await;
+                    return false;
                 }
             }
             if self.clock.now_secs().saturating_sub(started) >= self.within_secs {

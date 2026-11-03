@@ -49,6 +49,9 @@ struct Env {
     usdc: MockUsdc,
     vault: Contract,
     alice: Account,
+    /// The vault's operator account (the only one whose close pays the close fee).
+    operator: Account,
+    treasury: Account,
     dir: tempfile::TempDir,
 }
 
@@ -107,6 +110,8 @@ async fn setup_with(exit_delay_secs: u64, note_ttl: u64) -> Env {
         usdc,
         vault,
         alice,
+        operator,
+        treasury,
         dir: tempfile::tempdir().unwrap(),
     }
 }
@@ -562,4 +567,116 @@ async fn claim_and_finalize_are_sent_by_the_watcher_and_a_full_batch_fits_in_its
         env.usdc.balance_of(env.alice.id()).await > before,
         "the exit's payout reached its account"
     );
+}
+
+/// The operator-sent close, end to end: the real closer checks a real proof against the real
+/// vault, `NearCloseSender` sends it with a function-call key that lists `mutual_close` only,
+/// the vault pays the stored payout account less the close fee, and a repeat inside the window
+/// is the same transaction. Before this test each layer ran only against a fake of the other.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_operator_sent_close_pays_the_stored_account_less_the_fee_and_a_repeat_is_the_same_hash(
+) {
+    use nymira_near_codec::{chain_id, contract_address};
+    use nymira_operator::closer::{CloseApi, Closer, NearCloseSender};
+    use nymira_operator::verify::GrothWithdrawalVerifier;
+    let env = setup().await;
+    let n = note(&env, 301).await;
+    let gen = ProofGen::new(Network::Testnet, env.vault.id().as_str()).unwrap();
+    let s0 = n.genesis(Felt252::from_u64(7));
+    let chain_now = now_seconds(&env.worker).await;
+    let bundle = gen
+        .withdrawal(
+            &s0,
+            WithdrawalKindId::MutualClose,
+            env.alice.id().as_str(),
+            0,
+            chain_now + 3_600,
+        )
+        .unwrap();
+    // The operator account gets a key that lists `mutual_close` only.
+    let key = SigningKey::from_bytes(&[41; 32]);
+    let public: PublicKey = format!(
+        "ed25519:{}",
+        bs58::encode(key.verifying_key().as_bytes()).into_string()
+    )
+    .parse()
+    .unwrap();
+    env.operator
+        .batch(env.operator.id())
+        .add_key(
+            public,
+            AccessKey::function_call_access(env.vault.id(), &["mutual_close"], None),
+        )
+        .transact()
+        .await
+        .unwrap()
+        .into_result()
+        .unwrap();
+    env.worker.fast_forward(5).await.unwrap();
+    let store = Store::open(&env.dir.path().join("close.db")).unwrap();
+    let clock = Arc::new(ManualClock::new(chain_now * 1_000));
+    let alarms = Arc::new(Alarms::new(vec![], clock.clone()));
+    let tx = Arc::new(
+        NearTx::new(
+            env.worker.rpc_addr(),
+            env.operator.id().as_str(),
+            env.vault.id().as_str(),
+            key,
+            store.clone(),
+            clock.clone(),
+        )
+        .with_config(TxConfig {
+            send_timeout: Duration::from_secs(60),
+            retry_delay: Duration::from_millis(300),
+            max_attempts: 40,
+        }),
+    );
+    let sender = Arc::new(NearCloseSender {
+        tx,
+        store,
+        clock: clock.clone(),
+        alarms: alarms.clone(),
+    });
+    let closer = Closer::new(
+        Arc::new(RpcVault::new(
+            env.worker.rpc_addr(),
+            env.vault.id().as_str(),
+        )),
+        Arc::new(GrothWithdrawalVerifier::load(std::path::Path::new(common::SETUP_DIR)).unwrap()),
+        sender,
+        clock.clone(),
+        alarms,
+        chain_id(Network::Testnet),
+        Felt252(contract_address(env.vault.id().as_str())),
+    );
+    let body = json!({ "proof": bundle.proof_base64(), "inputs": bundle.inputs_base64() })
+        .to_string()
+        .into_bytes();
+    let before = env.usdc.balance_of(env.alice.id()).await;
+    let treasury_before = env.usdc.balance_of(env.treasury.id()).await;
+    let hash = closer.close(&body).await.expect("the close is sent");
+    // Wait for the vault's callback and the token legs to land.
+    let mut paid = 0;
+    for _ in 0..40 {
+        env.worker.fast_forward(5).await.unwrap();
+        paid = env.usdc.balance_of(env.alice.id()).await - before;
+        if paid > 0 {
+            break;
+        }
+    }
+    // The operator's close takes the 0.03 USDC close fee out of the payout; the fee stays in the
+    // vault's books for the treasury and is paid by `claim_treasury`, not here.
+    assert_eq!(
+        paid,
+        ONE - 30_000,
+        "payout is the balance less the close fee"
+    );
+    assert_eq!(
+        env.usdc.balance_of(env.treasury.id()).await,
+        treasury_before
+    );
+    let treasury_book: String = view(&env.vault, "treasury_balance", json!({})).await;
+    assert_eq!(treasury_book, (NOTE_FEE + 30_000).to_string());
+    // A repeat of the same close inside the window is the same transaction.
+    assert_eq!(closer.close(&body).await.expect("repeat"), hash);
 }

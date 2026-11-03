@@ -6,6 +6,7 @@
 //! (charge fixed, next state signed, nullifier `finalized`). Every move is a compare-and-set on
 //! the status, and `tick` is safe to run at any time and any number of times.
 
+use crate::replog::Log as ReplogTable;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -35,6 +36,8 @@ async fn timed<T>(
 
 /// A lease with no request for this long is retired.
 pub const IDLE_SECS: u64 = 5 * 60;
+/// How long the replica must be unreachable before the alarm goes out.
+pub const REPLICA_DOWN_ALARM_SECS: u64 = 60;
 /// Requests in flight get this long to drain before they are cancelled.
 pub const DRAIN_SECS: u64 = 120;
 /// Usage is read at least this long after the key is deactivated.
@@ -366,7 +369,26 @@ impl Operator {
             ),
         ] {
             let key = format!("replica_{health}");
-            if self.replica.health() == health {
+            let now = self.clock.now_secs();
+            let seen = self.replica.health() == health;
+            // A diverged log is told at once; an unreachable one only after a minute, so a
+            // single dropped call does not wake anyone.
+            let due = if health == "unreachable" {
+                let mut since = self
+                    .replica_down_since
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if seen {
+                    let first = *since.get_or_insert(now);
+                    now.saturating_sub(first) >= REPLICA_DOWN_ALARM_SECS
+                } else {
+                    *since = None;
+                    false
+                }
+            } else {
+                seen
+            };
+            if due {
                 self.alarms
                     .raise(&key, &format!("Replica {health}"), what)
                     .await;
@@ -407,6 +429,9 @@ impl Operator {
                 .store
                 .run(move |c| store::purge_old(c, now, crate::replog::RETENTION_SECS))
                 .await;
+            // The log table in the same database holds the same proofs and states: its payloads
+            // go on the same schedule (the hashes that chain the entries stay).
+            let _ = ReplogTable::new(self.store.clone()).purge(now).await;
         }
         let balance_due = self.clock.now_ms().saturating_sub(self.balance_read_ms())
             >= self.config().balance_refresh_secs * 1000;
@@ -583,18 +608,32 @@ impl Operator {
         if self.replica.in_recovery() {
             return;
         }
-        match tokio::time::timeout(CALL_TIMEOUT, self.signer.sign_next(request)).await {
-            Ok(Ok(signed)) if signed.charge_applied == amount => {}
-            // The second machine has been away for six hours: the lease is settled at its bound
-            // and no next state is signed. The user leaves this note by exit.
-            // A link that answers nothing times the call out; that is the same thing.
-            Ok(Err(SignerError::ReplicaUnreachable)) | Err(_)
-                if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS =>
-            {
-                amount = lease.bound;
-                basis = "link_down";
+        // A nullifier the vault shows in an exit takes no next state: the signer refuses it for
+        // good. The lease is settled at its charge with no state, so its bound leaves the
+        // admission ledger instead of staying there for ever (the exit's own concession and the
+        // vault decide what the user keeps).
+        let nullifier = lease.nullifier.clone();
+        let in_exit = self
+            .store
+            .run(move |c| store::is_exit_seen(c, &nullifier))
+            .await
+            .unwrap_or(false);
+        if in_exit {
+            basis = "exit";
+        } else {
+            match tokio::time::timeout(CALL_TIMEOUT, self.signer.sign_next(request)).await {
+                Ok(Ok(signed)) if signed.charge_applied == amount => {}
+                // The second machine has been away for six hours: the lease is settled at its
+                // bound and no next state is signed. The user leaves this note by exit.
+                // A link that answers nothing times the call out; that is the same thing.
+                Ok(Err(SignerError::ReplicaUnreachable)) | Err(_)
+                    if now >= lease.retiring_at.unwrap_or(now) + UNREAD_SETTLES_AFTER_SECS =>
+                {
+                    amount = lease.bound;
+                    basis = "link_down";
+                }
+                _ => return,
             }
-            _ => return,
         }
         let (id, basis) = (lease.lease_id.clone(), basis);
         let settled = self

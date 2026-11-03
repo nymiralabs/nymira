@@ -193,6 +193,39 @@ async fn a_replica_that_lost_its_volume_is_filled_from_the_laptop_before_anythin
     assert_eq!(r.laptop.state(), State::Ready);
 }
 
+/// A laptop restored from an old backup meets a replica that is empty (the second machine was
+/// lost too). Without the hold the stale log looks like the one that is ahead and is pushed;
+/// with the hold the machine stays in recovery, pushes nothing and signs nothing.
+#[tokio::test]
+async fn a_stale_laptop_on_hold_does_not_seed_an_empty_replica() {
+    let r = rig();
+    for n in 1..=3 {
+        r.laptop.append(&reservation(n)).await.unwrap();
+    }
+    // The replica is replaced by an empty one, and a person puts the laptop on hold.
+    let fresh = Arc::new(ReplicaNode::new(log(), key(1)));
+    r.wire.swap(fresh.clone());
+    r.laptop
+        .log()
+        .store()
+        .run(|c| nymira_operator::store::set_recovery_hold(c, 7_200))
+        .await
+        .unwrap();
+    assert!(r.laptop.append(&reservation(4)).await.is_err());
+    assert!(r.laptop.in_recovery());
+    assert_eq!(fresh.head().await.seq, 0, "nothing was pushed");
+    // Lifting the hold lets the laptop fill the replica as it always did.
+    r.laptop
+        .log()
+        .store()
+        .run(|c| nymira_operator::store::clear_recovery_hold(c))
+        .await
+        .unwrap();
+    r.laptop.append(&reservation(4)).await.unwrap();
+    assert_eq!(fresh.head().await.seq, 4);
+    assert!(!r.laptop.in_recovery());
+}
+
 #[tokio::test]
 async fn an_acknowledgement_from_a_node_without_the_pinned_key_is_not_one() {
     let r = rig();
@@ -356,4 +389,53 @@ async fn a_replica_that_pins_the_operators_key_takes_only_signed_entries() {
     // A laptop without the signing key is refused, and says so as an unreachable replica.
     let plain = Replicator::new(log(), wire, pk, clock());
     assert!(plain.append(&reservation(5)).await.is_err());
+}
+
+/// Over HTTP, a replica that pins the operator's key also refuses to read out entries or hashes
+/// to a peer that does not sign the request: the entries hold request proofs and signed states.
+#[tokio::test]
+async fn a_pinned_replica_reads_out_only_to_a_signed_request() {
+    use nymira_operator::replica_http::{router, HttpLink};
+    let operator = key(9);
+    let replica = Arc::new(
+        ReplicaNode::new(log(), key(1)).with_laptop_key(operator.verifying_key().to_bytes()),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let app = router(replica.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let pk = key(1).verifying_key().to_bytes();
+    let clock = || Arc::new(ManualClock::new(7_200_000));
+    let signed = Replicator::new(
+        log(),
+        Arc::new(
+            HttpLink::new(&url)
+                .unwrap()
+                .with_signing_key(operator.clone()),
+        ),
+        pk,
+        clock(),
+    )
+    .with_signing_key(operator);
+    signed.append(&reservation(1)).await.unwrap();
+    // The signing laptop can read back (a restore path).
+    let link = HttpLink::new(&url).unwrap();
+    let http = reqwest::Client::new();
+    let unsigned = http
+        .get(format!("{url}/replica/entries?from=1&limit=10"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsigned.status(), 401, "an unsigned read must be refused");
+    let unsigned = http
+        .post(format!("{url}/replica/hashes"))
+        .json(&serde_json::json!({"seqs": [1]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsigned.status(), 401);
+    // The head stays public (the replica's key signed it), and an unsigned link cannot fetch.
+    assert!(Link::head(&link).await.is_ok());
+    assert!(Link::fetch(&link, 1, 10).await.is_err());
+    server.abort();
 }

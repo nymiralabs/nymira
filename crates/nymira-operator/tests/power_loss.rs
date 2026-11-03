@@ -21,6 +21,22 @@ fn the_settings_are_full_synchronous_and_full_fsync() {
     assert_eq!(store.durability().unwrap(), (2, 1));
 }
 
+/// On a file (an in-memory database ignores WAL) the settings are the same, and the journal is
+/// the write-ahead log. A `synchronous=OFF` would pass the kill test below, since SIGKILL leaves
+/// the page cache alone, so the settings themselves are asserted.
+#[test]
+fn a_database_file_is_in_wal_mode_with_full_synchronous() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("op.db");
+    let store = Store::open(&path).unwrap();
+    assert_eq!(store.durability().unwrap(), (2, 1));
+    let mode: String = rusqlite::Connection::open(&path)
+        .unwrap()
+        .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(mode.to_lowercase(), "wal");
+}
+
 /// The child half: runs only when the parent set the database path.
 #[test]
 fn power_loss_child() {

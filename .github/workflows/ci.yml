@@ -57,6 +57,11 @@ jobs:
           cd web
           npm ci --ignore-scripts
       - run: cargo test --workspace --locked
+      # The five operator processes against the fakes, one TCP listener (needs `lsof`).
+      - name: Operator processes (dev-setup)
+        run: cargo test --locked -p nymira-operatord --features dev-setup
+      - name: The operator fuzz targets build
+        run: cargo check --locked --manifest-path crates/nymira-operator/fuzz/Cargo.toml
 
   # What a newcomer runs from a clean checkout: `make demo` builds, and the golden path (a note
   # deposited, used, settled, closed and retired in the mock stack) passes (issue 35).

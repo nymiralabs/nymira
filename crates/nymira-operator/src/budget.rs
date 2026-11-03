@@ -52,7 +52,8 @@ impl Default for BudgetConfig {
 
 impl BudgetConfig {
     /// The hackathon deployment: 1 USD of provider credit in total, so a 0.20 USD reserve and
-    /// 0.05 USD a day (about 0.70 USD over the 14 days). The 0.50 class stays closed until live
+    /// 0.05 USD a day. This stops new leases once the day's admitted bounds and settled charges reach
+    /// it; it is not an upper bound on spend (requests on leases already open are not counted). The 0.50 class stays closed until live
     /// credit reaches 2.50 USD, whatever the config.
     pub fn hackathon() -> Self {
         Self {

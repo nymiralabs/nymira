@@ -246,6 +246,43 @@ async fn three_new_exits_in_an_hour_raise_an_alarm_two_or_a_slow_trickle_do_not(
     assert_eq!(w.alarm_keys(), vec!["exit_wave"]);
 }
 
+/// Three exits that were pending before a restart are not a wave: the database knows them, so a
+/// new process does not count them as new.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_does_not_read_pending_exits_as_a_wave() {
+    let w = world().await;
+    let ids = [0u32, 1, 2];
+    let exits: Vec<_> = ids.iter().map(|i| exit(*i, u64::from(*i))).collect();
+    let records: Vec<_> = ids.iter().map(|i| record(*i)).collect();
+    w.both(move |v| {
+        v.exits = exits.clone();
+        v.records = records.clone();
+    });
+    // Imported by an earlier process.
+    for i in ids {
+        let n = nullifier_hex(u64::from(i));
+        w.rig
+            .op
+            .store()
+            .run(move |c| store::record_exit_seen(c, &n))
+            .await
+            .unwrap();
+    }
+    // A fresh watcher over the same database, as after a restart.
+    let providers: Vec<Arc<dyn VaultView>> = vec![w.rig.vault.clone(), w.second.clone()];
+    let fresh = Watcher::new(
+        providers,
+        Arc::new(FakeCalls::default()),
+        w.rig.op.store().clone(),
+        w.rig.clock.clone(),
+        w.alarms.clone(),
+        WatcherConfig::default(),
+    )
+    .unwrap();
+    fresh.poll().await;
+    assert!(w.rig.sink.sent().is_empty(), "{:?}", w.alarm_keys());
+}
+
 struct Opener(Arc<FakeVault>);
 
 #[async_trait]
@@ -276,6 +313,38 @@ fn synthetic(w: &World, opener: Arc<dyn OldStateExit>) -> Synthetic {
         w.alarms.clone(),
     )
     .with_timing(600, Duration::from_millis(1))
+}
+
+/// An opener that opens nothing (the note stays `Active`) must not pass the daily test: a
+/// status other than `PendingExit` proves an answer only after the exit was seen open.
+struct DoesNothing;
+
+#[async_trait]
+impl OldStateExit for DoesNothing {
+    async fn open(&self) -> Result<u32, String> {
+        Ok(0)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_daily_test_does_not_pass_when_no_exit_was_ever_open() {
+    let w = world().await;
+    w.rig.vault.edit(|v| {
+        v.records = vec![NoteRecord {
+            status: "Active".into(),
+            ..record(0)
+        }];
+    });
+    let clock = w.rig.clock.clone();
+    let ticker = tokio::spawn(async move {
+        for _ in 0..20 {
+            clock.advance_secs(60);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    });
+    assert!(!synthetic(&w, Arc::new(DoesNothing)).run_once().await);
+    ticker.await.unwrap();
+    assert_eq!(w.alarm_keys(), vec!["synthetic_failed"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

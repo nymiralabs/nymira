@@ -200,13 +200,18 @@ async fn chat(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> Response {
-    let Ok(body) = to_bytes(request.into_body(), crate::proxy::CHAT_BODY_LIMIT).await else {
-        return ApiError::new(Code::BodyTooLarge, "request body over 4 MiB").into_response();
-    };
     let lease = headers
         .get("x-nymira-lease-id")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    // The lease token is checked before up to 4 MiB of body is read into memory: a caller with
+    // no lease costs one lookup, not a buffer.
+    if let Err(e) = op.authorized(lease, lease_token(&headers)).await {
+        return e.into_response();
+    }
+    let Ok(body) = to_bytes(request.into_body(), crate::proxy::CHAT_BODY_LIMIT).await else {
+        return ApiError::new(Code::BodyTooLarge, "request body over 4 MiB").into_response();
+    };
     match op.chat(lease, lease_token(&headers), &headers, &body).await {
         Err(e) => e.into_response(),
         Ok(reply) => {

@@ -266,6 +266,10 @@ pub async fn signer(cfg: &Config) -> Result<(), Failure> {
     let state = secretfile::passphrase("state key passphrase").map_err(|e| e.to_string())?;
     let clearance =
         secretfile::passphrase("clearance key passphrase").map_err(|e| e.to_string())?;
+    if !cfg.sandbox() {
+        signer::check_passphrase_strength(&state).map_err(|e| e.to_string())?;
+        signer::check_passphrase_strength(&clearance).map_err(|e| e.to_string())?;
+    }
     let (state_seed, clearance_seed) =
         signer::seeds_from_passphrases(&state, &clearance, signer::KDF_ROUNDS)
             .map_err(|e| e.to_string())?;
@@ -358,10 +362,14 @@ pub async fn watcher(cfg: &Config) -> Result<(), Failure> {
                 .ok()
                 .and_then(|b| b.try_into().ok())
                 .ok_or("the replica public_key is not 64 hex digits")?;
-            let link = HttpLink::new(&r.url).map_err(|e| e.to_string())?;
+            // One entry key signs the log entries and the reads of them.
+            let entry = near_key(cfg, "entry")?;
+            let link = HttpLink::new(&r.url)
+                .map_err(|e| e.to_string())?
+                .with_signing_key(entry.clone());
             Arc::new(
                 Replicator::new(Log::new(store.clone()), Arc::new(link), pk, clock.clone())
-                    .with_signing_key(near_key(cfg, "entry")?),
+                    .with_signing_key(entry),
             )
         }
         None => Arc::new(NoReplica),

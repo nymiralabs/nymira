@@ -144,7 +144,16 @@ pub fn variant(n: u64, bound: u128, time: u64, root: &str) -> ApiRequestV2 {
     r.public_inputs.solvency_bound = bound;
     r.public_inputs.request_time = time;
     r.public_inputs.active_root = Felt252::from_hex(root).unwrap();
+    retag(&mut r);
     r
+}
+
+/// Sets the authorization tag the proof would carry for this request's nullifier, id and
+/// payload: the operator checks it before it spends a pairing.
+pub fn retag(r: &mut ApiRequestV2) {
+    let context = canonical_request_context(&r.client_request_id, &r.payload_hash);
+    r.public_inputs.authorization_tag =
+        zkapi_core::v2::authorization_tag(&r.public_inputs.request_nullifier, &context);
 }
 
 pub fn body(r: &ApiRequestV2) -> Vec<u8> {

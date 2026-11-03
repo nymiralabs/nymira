@@ -268,6 +268,18 @@ pub fn parse_chat(body: &[u8], cfg: &ProxyConfig, blocked: &HashSet<String>) -> 
     })
 }
 
+/// The body with `max_tokens` set to `cap`. Keys keep their order (the crate builds `serde_json`
+/// with `preserve_order`), so everything else reads as the client sent it.
+pub fn with_max_tokens(body: &[u8], cap: u64) -> Vec<u8> {
+    match serde_json::from_slice::<Value>(body) {
+        Ok(Value::Object(mut map)) => {
+            map.insert("max_tokens".into(), json!(cap));
+            serde_json::to_vec(&Value::Object(map)).unwrap_or_else(|_| body.to_vec())
+        }
+        _ => body.to_vec(),
+    }
+}
+
 /// The headers a chat request may carry upstream, validated, plus the two the operator adds.
 pub fn forward_headers(headers: &HeaderMap) -> ApiResult<Vec<(String, String)>> {
     let mut out = Vec::new();
@@ -543,12 +555,17 @@ impl UsageScan {
             v["usage"]["completion_tokens"].as_u64(),
         ) {
             self.usage = Some((p, c));
-        } else if v["choices"][0]["delta"]["content"]
-            .as_str()
-            .is_some_and(|c| !c.is_empty())
+        } else if ["content", "reasoning_content", "reasoning"]
+            .iter()
+            .any(|field| {
+                v["choices"][0]["delta"][field]
+                    .as_str()
+                    .is_some_and(|c| !c.is_empty())
+            })
             || v["choices"][0]["delta"].get("tool_calls").is_some()
         {
-            // Content only: the opening chunk that carries just the role costs no output token.
+            // Text, reasoning or tool calls: the opening chunk that carries just the role costs no output
+            // token. A reasoning model writes most of its output as reasoning.
             self.events += 1;
         }
     }
@@ -739,8 +756,15 @@ impl Operator {
                 .insert(lease_id.to_string(), algo.clone());
         }
 
+        // A request without a limit is reserved at the model cap, so it is also held to it: the
+        // reservation is only a control if the provider cannot generate past it.
+        let body = if parsed.max_output.is_none() {
+            with_max_tokens(&parsed.body, max_output)
+        } else {
+            parsed.body
+        };
         let request = ChatRequest {
-            body: Bytes::from(parsed.body),
+            body: Bytes::from(body),
             headers: forward,
         };
         let called = tokio::select! {
@@ -884,9 +908,12 @@ impl Operator {
         );
         // A lease that already settled or expired has no book: nothing to tell the budget.
         if let Some(still) = still {
-            self.ledger.set_inflight(lease_id, still);
-            // Kept on disk, so a restart does not start the lease's worst-case check from zero.
             let finished = self.spent_estimate(lease_id);
+            // The day sees what is still reserved and what finished requests cost but is not
+            // settled yet (up to ten minutes), so a burst of short leases cannot spend past the
+            // day's limit before the first one settles.
+            self.ledger.set_inflight(lease_id, still + finished);
+            // Kept on disk, so a restart does not start the lease's worst-case check from zero.
             let (store, id) = (self.store.clone(), lease_id.to_string());
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                 runtime.spawn(async move {
@@ -963,3 +990,32 @@ impl Operator {
 
 /// Re-read the pinned prices every 5 minutes.
 pub const MODEL_CHECK_EVERY_MS: u64 = 5 * 60 * 1000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_stream_scan_counts_reasoning_text_and_tool_calls_but_not_the_role_chunk() {
+        let mut scan = UsageScan::new(true);
+        for chunk in [
+            json!({"choices":[{"delta":{"role":"assistant"}}]}),
+            json!({"choices":[{"delta":{"reasoning_content":"thinking"}}]}),
+            json!({"choices":[{"delta":{"reasoning":"more"}}]}),
+            json!({"choices":[{"delta":{"content":"answer"}}]}),
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0}]}}]}),
+            json!({"choices":[{"delta":{"content":""}}]}),
+        ] {
+            scan.note(&chunk);
+        }
+        assert_eq!(scan.events, 4);
+    }
+
+    #[test]
+    fn a_body_without_a_limit_gets_the_cap_and_keeps_its_key_order() {
+        let out = with_max_tokens(br#"{"stream":false,"model":"m"}"#, 4096);
+        assert_eq!(out, br#"{"stream":false,"model":"m","max_tokens":4096}"#);
+        // Not a JSON object: left as it was.
+        assert_eq!(with_max_tokens(b"[1]", 4096), b"[1]");
+    }
+}

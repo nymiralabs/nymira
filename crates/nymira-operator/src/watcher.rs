@@ -415,13 +415,27 @@ impl Watcher {
     /// Counts exits not seen before; a burst of them gets a person's attention.
     async fn check_wave(&self, exits: &[ExitEntry]) {
         let now = self.clock.now_secs();
+        // Exits the database already knows (imported before a restart) are not new, whatever
+        // this process remembers: a restart must not read three pending exits as a wave.
+        let mut known = HashSet::new();
+        for exit in exits {
+            let n = exit.nullifier.to_ascii_lowercase();
+            let key = n.clone();
+            if self
+                .store
+                .run(move |c| store::is_exit_seen(c, &key))
+                .await
+                .unwrap_or(false)
+            {
+                known.insert((exit.note_id, n));
+            }
+        }
         let size = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             for exit in exits {
-                if state
-                    .seen_exits
-                    .insert((exit.note_id, exit.nullifier.to_ascii_lowercase()))
-                {
+                let key = (exit.note_id, exit.nullifier.to_ascii_lowercase());
+                let already = known.contains(&key);
+                if state.seen_exits.insert(key) && !already {
                     state.wave.push_back(now);
                 }
             }

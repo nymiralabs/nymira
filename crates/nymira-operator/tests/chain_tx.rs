@@ -226,7 +226,40 @@ async fn after_a_timeout_the_hash_is_asked_for_and_the_same_bytes_go_out_again()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_failed_receipt_is_a_failed_transaction() {
+async fn a_failed_receipt_on_the_vault_is_a_failed_transaction() {
+    let e = env(0).await;
+    let tx = near_tx(&e);
+    let row = tx.submit(request(None)).await.unwrap();
+    let hash = row.hash.clone().unwrap();
+    let mut spec = TxStatusSpec::success(&hash, OPERATOR, VAULT);
+    spec.receipts = vec![
+        ReceiptSpec {
+            executor_id: VAULT.into(),
+            logs: vec![],
+            status: OutcomeSpec::Success(String::new()),
+        },
+        ReceiptSpec {
+            executor_id: VAULT.into(),
+            logs: vec![],
+            status: OutcomeSpec::Failure("ft_transfer panicked".into()),
+        },
+    ];
+    e.rpc.set_tx_status(spec);
+    let end = tx.drive(row.id).await.unwrap();
+    assert!(!end.success);
+    assert!(
+        end.detail.contains("ft_transfer panicked"),
+        "{}",
+        end.detail
+    );
+    let stored = rows(&e, &tx.public_key()).await.remove(0);
+    assert_eq!(stored.state, "failed");
+}
+
+/// The payout leg on the token fails (blocklist, pause) while the vault books a pending payout:
+/// the close happened, so it is reported as done, not as a failure to retry.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_payout_leg_on_the_token_does_not_fail_the_close() {
     let e = env(0).await;
     let tx = near_tx(&e);
     let row = tx.submit(request(None)).await.unwrap();
@@ -243,17 +276,16 @@ async fn a_failed_receipt_is_a_failed_transaction() {
             logs: vec![],
             status: OutcomeSpec::Failure("ft_transfer panicked".into()),
         },
+        ReceiptSpec {
+            executor_id: VAULT.into(),
+            logs: vec![],
+            status: OutcomeSpec::Success(String::new()),
+        },
     ];
     e.rpc.set_tx_status(spec);
     let end = tx.drive(row.id).await.unwrap();
-    assert!(!end.success);
-    assert!(
-        end.detail.contains("ft_transfer panicked"),
-        "{}",
-        end.detail
-    );
-    let stored = rows(&e, &tx.public_key()).await.remove(0);
-    assert_eq!(stored.state, "failed");
+    assert!(end.success, "{}", end.detail);
+    assert_eq!(rows(&e, &tx.public_key()).await.remove(0).state, "final");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -277,8 +309,14 @@ async fn nonces_grow_with_each_transaction_even_before_the_node_has_seen_the_las
     let e = env(5).await;
     let tx = near_tx(&e);
     let a = tx.submit(request(None)).await.unwrap();
-    let b = tx.submit(request(None)).await.unwrap();
+    // A different call (the same call that has not finished would reuse the first row).
+    let mut other = request(None);
+    other.args = br#"{"proof":"BB==","inputs":[]}"#.to_vec();
+    let b = tx.submit(other).await.unwrap();
     assert_eq!((a.nonce, b.nonce), (Some(6), Some(7)));
+    // The same call again, still unfinished: the first row, no new nonce.
+    let again = tx.submit(request(None)).await.unwrap();
+    assert_eq!(again.id, a.id);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -300,6 +338,31 @@ async fn the_heartbeat_goes_out_as_a_transaction_and_a_failed_send_is_an_error()
     // A node that refuses everything: an error, and the next tick makes a new attempt.
     e.rpc.set_failure(Failure::Http(503));
     assert!(heartbeat.send().await.is_err());
+}
+
+/// A node that is down for a long time must not turn each retry into a new row, or a burst of
+/// old transactions when it comes back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hundred_failed_sends_of_one_call_leave_one_row_and_one_send_after_recovery() {
+    let e = env(0).await;
+    let tx = Arc::new(near_tx(&e));
+    let heartbeat = NearHeartbeat(tx.clone());
+    e.rpc.set_failure(Failure::Http(503));
+    for _ in 0..100 {
+        assert!(heartbeat.send().await.is_err());
+    }
+    let open = rows(&e, &tx.public_key()).await;
+    assert!(open.len() <= 3, "{} rows after 100 failures", open.len());
+    e.rpc.set_failure(Failure::None);
+    heartbeat.send().await.expect("sent after recovery");
+    assert_eq!(
+        e.rpc.submissions().len(),
+        1,
+        "one transaction reached the chain"
+    );
+    // The next call after a finished one is a new row.
+    heartbeat.send().await.expect("sent again");
+    assert_eq!(e.rpc.submissions().len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]

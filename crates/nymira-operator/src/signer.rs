@@ -108,6 +108,8 @@ pub struct Signer {
     clock: Arc<dyn Clock>,
     heartbeat: Arc<dyn HeartbeatSender>,
     last_heartbeat: Mutex<Option<u64>>,
+    /// Failed heartbeat sends in a row and the earliest time of the next try.
+    heartbeat_retry: Mutex<(u32, u64)>,
     status_host: Option<String>,
     /// Every signed state is here before it is stored where a client can read it.
     replica: Arc<dyn crate::replica::Replica>,
@@ -145,6 +147,46 @@ pub fn seeds_from_passphrases(
     ))
 }
 
+/// Fewest characters of a signing passphrase outside the sandbox. The public keys sit in the
+/// vault's `config()`, so anyone can test passphrases against them offline; the KDF slows each
+/// guess but only length stops the search.
+pub const MIN_PASSPHRASE_CHARS: usize = 20;
+
+/// Refuses a passphrase that is too short to be a signing secret.
+pub fn check_passphrase_strength(passphrase: &str) -> Result<(), SignerError> {
+    if passphrase.chars().count() < MIN_PASSPHRASE_CHARS {
+        return Err(SignerError::Internal(format!(
+            "a signing passphrase needs at least {MIN_PASSPHRASE_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
+
+/// The state and clearance public keys two passphrases give: what `new()` of the vault takes as
+/// `operator_pk` and `clearance_pk`.
+pub fn public_keys_from_passphrases(
+    state_passphrase: &str,
+    clearance_passphrase: &str,
+    rounds: u32,
+    allow_development: bool,
+) -> Result<
+    (
+        zkapi_types::wire::CurvePointWire,
+        zkapi_types::wire::CurvePointWire,
+    ),
+    SignerError,
+> {
+    if !allow_development {
+        check_passphrase_strength(state_passphrase)?;
+        check_passphrase_strength(clearance_passphrase)?;
+    }
+    let (state_seed, clearance_seed) =
+        seeds_from_passphrases(state_passphrase, clearance_passphrase, rounds)?;
+    let (state, clearance) =
+        Signer::signers_from_seeds(&state_seed, &clearance_seed, allow_development)?;
+    Ok((state.public_key(), clearance.public_key()))
+}
+
 /// Rounds of the passphrase KDF in production.
 pub const KDF_ROUNDS: u32 = 600_000;
 
@@ -178,6 +220,7 @@ impl Signer {
             clock,
             heartbeat,
             last_heartbeat: Mutex::new(None),
+            heartbeat_retry: Mutex::new((0, 0)),
             status_host: None,
             replica: Arc::new(crate::replica::NoReplica),
         })
@@ -258,11 +301,30 @@ impl Signer {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .is_none_or(|at| now.saturating_sub(at) >= HEARTBEAT_EVERY_SECS);
-        if due && self.heartbeat.send().await.is_ok() {
+        let wait_until = self
+            .heartbeat_retry
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .1;
+        if !due || now < wait_until {
+            return;
+        }
+        let sent = self.heartbeat.send().await.is_ok();
+        let mut retry = self
+            .heartbeat_retry
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if sent {
+            *retry = (0, 0);
             *self
                 .last_heartbeat
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = Some(now);
+        } else {
+            // 60 s, doubling to 10 minutes: a node that is down is not asked every ten seconds.
+            let failures = retry.0.saturating_add(1);
+            let wait = (60u64 << (failures - 1).min(4)).min(600);
+            *retry = (failures, now + wait);
         }
     }
 
