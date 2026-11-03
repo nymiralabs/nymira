@@ -10,6 +10,27 @@ pub fn identity() -> String {
     hex::encode(rand::random::<[u8; 32]>())
 }
 
+/// How many circuits a fetch tries before it gives up: some destinations (NVIDIA's attestation
+/// service answers 403) turn away most Tor exits and let others through.
+pub const CIRCUIT_TRIES: u32 = 4;
+
+/// Runs `attempt` with a fresh identity (so a fresh circuit) until it succeeds or `tries` attempts
+/// have failed; returns the last error. `attempt` gets the identity and the attempt number from 0.
+pub async fn on_fresh_circuits<T, E, F, Fut>(tries: u32, mut attempt: F) -> Result<T, E>
+where
+    F: FnMut(String, u32) -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+{
+    let mut n = 0;
+    loop {
+        match attempt(identity(), n).await {
+            Ok(v) => return Ok(v),
+            Err(e) if n + 1 >= tries => return Err(e),
+            Err(_) => n += 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Failure {
     /// The proxy is not there: Tor is stopped or not listening.
@@ -113,4 +134,40 @@ pub async fn prewarm(socks: &str, identity: &str, host: &str, port: u16) -> std:
         return Err(bad("the proxy could not connect"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_failing_fetch_is_retried_on_new_identities_and_then_gives_up() {
+        let mut seen = Vec::new();
+        let ok: Result<u32, String> = on_fresh_circuits(4, |id, n| {
+            seen.push(id);
+            async move {
+                if n < 2 {
+                    Err(format!("403 on try {n}"))
+                } else {
+                    Ok(n)
+                }
+            }
+        })
+        .await;
+        assert_eq!(ok, Ok(2));
+        assert_eq!(seen.len(), 3);
+        assert_eq!(
+            seen.iter().collect::<std::collections::HashSet<_>>().len(),
+            3
+        );
+
+        let mut count = 0;
+        let bad: Result<(), String> = on_fresh_circuits(4, |_, n| {
+            count += 1;
+            async move { Err(format!("try {n}")) }
+        })
+        .await;
+        assert_eq!(bad, Err("try 3".to_string()));
+        assert_eq!(count, 4);
+    }
 }

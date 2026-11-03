@@ -475,26 +475,35 @@ impl Gateway {
     }
 
     async fn model_identity(&self, model: &str) -> Result<ModelIdentity, ApiError> {
-        let nonce = hex::encode(rand::random::<[u8; 32]>());
-        // Its own identity: the attestation fetch is not on a lease's circuit. Every client the
-        // verifier builds (gateway, Intel, NVIDIA) goes through the same proxy.
-        let identity = crate::net::identity();
-        let http = client_with_identity(&self.transport, &identity)
-            .map_err(|e| net_error("attestation_unreachable", e))?;
-        let socks_url = self
-            .transport
-            .socks_url(&identity)
-            .map_err(|e| net_error("attestation_unreachable", e))?;
-        self.attestor
-            .verify_model(&ReportRequest {
-                gateway_url: &self.cfg.gateway_url,
-                model,
-                nonce: &nonce,
-                http: &http,
-                socks_url: socks_url.as_deref(),
-            })
-            .await
-            .map_err(|e| unavailable("attestation_failed", e))
+        // Every attempt has its own identity, nonce and circuit: the attestation fetch is not on a
+        // lease's circuit, and a destination that turns away some Tor exits (NVIDIA's service
+        // answers 403) gets another exit. Every client the verifier builds (gateway, Intel,
+        // NVIDIA) goes through the same proxy.
+        let tries = if self.transport.is_direct() {
+            1
+        } else {
+            crate::net::CIRCUIT_TRIES
+        };
+        crate::net::on_fresh_circuits(tries, |identity, _| async move {
+            let nonce = hex::encode(rand::random::<[u8; 32]>());
+            let http = client_with_identity(&self.transport, &identity)
+                .map_err(|e| net_error("attestation_unreachable", e))?;
+            let socks_url = self
+                .transport
+                .socks_url(&identity)
+                .map_err(|e| net_error("attestation_unreachable", e))?;
+            self.attestor
+                .verify_model(&ReportRequest {
+                    gateway_url: &self.cfg.gateway_url,
+                    model,
+                    nonce: &nonce,
+                    http: &http,
+                    socks_url: socks_url.as_deref(),
+                })
+                .await
+                .map_err(|e| unavailable("attestation_failed", e))
+        })
+        .await
     }
 
     /// The random delay, then an empty connection to the operator on the conversation's identity.
