@@ -151,8 +151,20 @@ jobs:
         run: |
           npm run build
           npm run check:bundle -- dist testnet
+          mv dist dist-testnet && mv dist-meta dist-testnet-meta
           npm run build:mainnet
           npm run check:bundle -- dist mainnet
+          mv dist dist-mainnet && mv dist-meta dist-mainnet-meta
+      - name: Header policy and manifest checks (assemble refuses a policy with unsafe-eval; an unsigned site fails verify)
+        working-directory: web
+        run: |
+          for p in testnet mainnet; do
+            node scripts/integrity.mjs assemble --dist dist-$p --meta dist-$p-meta --out site-$p --version 0.0.0-ci --profile $p
+            if node scripts/integrity.mjs verify --site site-$p --pubkey test-fixtures/integrity/minisign.pub; then
+              echo "an unsigned site passed verify" >&2; exit 1
+            fi
+          done
+          node scripts/integrity.mjs verify --site test-fixtures/integrity/site --pubkey test-fixtures/integrity/minisign.pub
       - name: Playwright (builds the mock bundle itself)
         working-directory: web
         run: npm run test:e2e

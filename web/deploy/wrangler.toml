@@ -1,0 +1,3 @@
+name = "nymira"
+pages_build_output_dir = "../site-testnet"
+compatibility_date = "2026-11-03"

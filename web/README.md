@@ -1,6 +1,6 @@
 # web
 
-The Nymira web app. Funding (#36) gives the landing page, wallet connection, vault checks, the Fund screen, note storage, backup and restore. Chat (#37) adds the Chat screen. Close and exit (#38) adds the Close screen and the expiry guard. Hosting (#39) builds on all three.
+The Nymira web app. Funding (#36) gives the landing page, wallet connection, vault checks, the Fund screen, note storage, backup and restore. Chat (#37) adds the Chat screen. Close and exit (#38) adds the Close screen and the expiry guard. Hosting and integrity (#39) is the last of the four.
 
 The app is a static bundle: Vite 8, React 19, TypeScript. It has no backend and no third-party script, font or analytics. Everything below says what it does and what it cannot promise.
 
@@ -23,6 +23,9 @@ npm test                       # typecheck, prettier, executor pins, unit tests,
 | `npm run check:executors`                            | Fails when a vendored wallet executor and its pin disagree.                                                                                                       |
 | `npm run pin-vault -- --rpc <url> --vault <account>` | Prints the `pins` object for a profile from a deployed vault.                                                                                                     |
 | `npm run test:unit`                                  | Vitest, including the real zkapi wallet core in Node.                                                                                                             |
+| `npm run check:deps -- <lock> <exceptions>`          | Minimum release age, registry hash and provenance of every locked package (`scripts/check-deps.mjs`).                                                             |
+| `node scripts/integrity.mjs assemble\|verify\|hash`  | Builds the signed-release site from a bundle, verifies one against a public key (`INTEGRITY.md`).                                                                 |
+| `scripts/repro-check.sh`                             | Builds the bundle twice from one commit and compares the hashes.                                                                                                  |
 | `npm run test:e2e`                                   | Playwright on Chromium; WebKit runs the tests tagged `@webkit`. The chat tests start a mock operator and gateway inside the test worker (`e2e/mock-operator.ts`). |
 
 ## Layout
@@ -110,7 +113,7 @@ They show that Intear's connect chooser renders in the frame under the productio
 ## What the app does not promise
 
 - It cannot hide the user's IP address from the operator, an RPC provider or 1Click. It says so on every screen and points to Tor Browser or `nymirad`.
-- A compromised host could serve a different app, and nothing in the browser checks the bundle. Hosting and `nymirad verify-web` (#39) narrow that; they do not remove it.
+- A compromised host could serve a different app, and nothing in the browser checks the bundle. The signed manifest and `nymirad verify-web` narrow that; `verify-web` catches a different app only if the user runs it and the host does not show it a clean copy (cloaking). The footer's bundle hash comes from the same host, so it proves nothing by itself.
 - Anonymity on testnet is small and made of test notes.
 - The web app cannot use Tor and cannot bind the gateway's TLS certificate. The operator, NEAR AI's gateway and the PCCS see the user's IP address and the time. It cannot verify NVIDIA's GPU evidence (see Chat).
 - The main thread never holds a plain note secret, but the worker's memory does, and a script that can run in the page can ask the worker to do what the page can do. The strict policy is what keeps such a script out; see the hosting ticket.
@@ -188,11 +191,24 @@ Real: the app, every proof (development setup), the operator mock's verification
 
 Mocked: the vault. The fake RPC runs no contract, so after each call the test scripts the views the vault would show (`note_records`, `exit_requests`, `pending_payout`). The chain's clock is the fake chain's, moved by the test: the sandbox cannot move seven days. No call from this app has run against the real vault or a sandbox vault.
 
-## For the hosting ticket (#39)
+## Hosting and integrity
+
+The full rules, byte by byte, are in [`INTEGRITY.md`](INTEGRITY.md). In short:
+
+- **Where.** Cloudflare Pages serves `https://nymira.pages.dev` with the header sets of `headers.ts`: the app's strict policy, the wallet frame's relaxed one, and `Access-Control-Allow-Origin: *` on `/assets/` and `/executors/`. The build writes the Pages `_headers` file (`<outDir>-meta/_headers`, no overlapping rules, because Pages joins a header set by two rules with a comma). GitHub Pages is a mirror with the same bytes and none of the headers; the app refuses to run there. No webfont, analytics or third-party script. Cloudflare's analytics and response-rewriting features stay off.
+- **Release.** The build writes `<outDir>-meta/headers.txt`; `scripts/integrity.mjs assemble` adds `integrity/files.txt`, `integrity/headers.txt`, `_headers` and an unsigned `manifest.json` `{version, bundle_hash, header_set_hash}`. A person signs `manifest.json` offline with minisign; the signed pair is committed under `releases/`. `integrity.mjs verify` (CI and the deploy workflow) fails an unsigned or mismatching site, or a policy with `unsafe-eval`.
+- **Reproducible.** `scripts/repro-check.sh` builds twice and compares; CI runs it (`web-integrity`). `Dockerfile.repro` and `scripts/rebuild-in-container.sh` rebuild in a pinned container for an independent check.
+- **Dependencies.** Lockfile installs with scripts off; `scripts/check-deps.mjs` and `npm audit signatures` run in a read-only CI job with no secrets and no cache. `check:bundle` refuses test-only content, the dev-setup wallet core and keys in the testnet and mainnet bundles. `scripts/check-release-binary.sh` (repository root) shows the release `nymirad` has no `mock` feature and no demo strings.
+- **Bundle hash.** Printed in each release's notes (`releases/RELEASE_NOTES_TEMPLATE.md`) and shown in the app footer from `/manifest.json`.
+
+No release is signed yet, so `pins/release-signing.pub` does not exist and the deploy workflow stops at its verify step. The signing key, the Cloudflare project and the places the fingerprint is published are human tasks (`INTEGRITY.md`).
+
+**What remains.** A compromised host could serve a different app. The signed manifest and `nymirad verify-web` let a user compare what the host serves with what the key signed, but only if the user runs it, and not if the host shows `verify-web` a clean copy. Reading the footer hash is no check.
+
+### Notes from the earlier tickets
 
 - No new host: the Close screen talks to the operator, the RPC endpoints and the wallet frame, all already in `headers.ts`. The withdrawal proving key is a second file next to the request key (`profile.withdrawalKey`); if its URL is not on this origin, its host goes into `connect-src` too.
-- New files: `src/leave/` (flow, guard, store, wording), `src/chain/leave.ts`, `src/note/exit.ts`, `src/ui/Close.tsx`, `Watch.tsx`, `WalletConnect.tsx`, and the worker operations `loadWithdrawalProver` and `prepareWithdrawal`. The mock build serves `dist/setup/withdrawal.pk` (development key, mock profile only; `check:bundle` refuses `setup/` in a deployed bundle).
-- `nymira-web-wasm` exports `withdrawal_words` (the 16 statement words of a withdrawal) in the shipped build; its `test_operator_*` exports exist only in the test build.
-- Header set: `headers.ts` is the only place that knows the policy. Keep new hosts there.
+- `headers.ts` is the only place that knows the policy. Keep new hosts there.
+- The mainnet profile carries no archival RPC endpoint yet, and NRAS is not in `connect-src` because it refuses browser requests (see Chat).
 
 From the funding and chat tickets, still true: `walletClient.send(receiver, FunctionCallAction)` is how every vault call goes out, and the sealed payload is `{state, extra}` as JSON text read with `note/rawjson.ts`, never `JSON.parse` for numbers.

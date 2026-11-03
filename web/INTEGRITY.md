@@ -1,0 +1,268 @@
+# Web integrity
+
+How a web release is built, hashed, signed, published and checked. This file is the contract that
+`nymirad verify-web` reads. Everything here is exact on purpose: another program has to reproduce
+it byte for byte.
+
+## What the signature covers, and what it does not
+
+A release is a directory of static files (the bundle) plus the headers a host sends with them. The
+signed manifest names both:
+
+```json
+{
+  "version": "0.1.0",
+  "bundle_hash": "<64 lowercase hex>",
+  "header_set_hash": "<64 lowercase hex>"
+}
+```
+
+It proves that the project's offline key vouched for those hashes. It does not stop a compromised
+host from serving something else, and it does not tell a user what the code does. A user who never
+runs `verify-web` gets nothing from it. A host that shows `verify-web` a clean copy and users a
+different one (cloaking) defeats it; running it over Tor and directly, against two hosts, makes that
+harder, not impossible.
+
+## Files of a published site
+
+Paths are relative to the site root (`https://nymira.pages.dev/`).
+
+| Path                    | Content                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `manifest.json`         | The manifest above, canonical form (below).                                         |
+| `manifest.json.minisig` | The minisign signature of `manifest.json`.                                          |
+| `integrity/files.txt`   | The bundle listing. Its SHA-256 is `bundle_hash`.                                   |
+| `integrity/headers.txt` | The signed header set. Its SHA-256 is `header_set_hash`.                            |
+| `_headers`              | The Cloudflare Pages header file. Served by no one (Pages consumes it); not hashed. |
+| every other file        | The bundle: each one is a line of `integrity/files.txt`.                            |
+
+The mirror (`https://nymiralabs.github.io/nymira/`) holds the same files except that it cannot send
+the headers.
+
+## Bundle hash
+
+1. The bundle is every file of the site except `_headers`, `manifest.json`,
+   `manifest.json.minisig`, `integrity/files.txt` and `integrity/headers.txt`.
+2. Sort the paths (relative, `/` separators, no leading `/`) by the byte order of their UTF-8.
+3. For each path write one line: `<SHA-256 of the file, 64 lowercase hex>`, two spaces, the path,
+   `\n`. This is what `sha256sum` prints.
+4. `integrity/files.txt` is those lines, nothing before, nothing after, no trailing blank line.
+5. `bundle_hash` is the SHA-256 of `integrity/files.txt`, lowercase hex.
+
+Anyone can recompute it: `cd site && find . -type f ! -path ./_headers ! -path ./manifest.json
+! -path ./manifest.json.minisig ! -path './integrity/*' | sed 's|^\./||' | LC_ALL=C sort | xargs
+sha256sum | sha256sum` gives the same value for ASCII paths (the bundle has only ASCII paths).
+
+`index.html` is the file served at `/`. `404.html` is served only with status 404 on an unknown
+path, so a client fetches an unknown path (for example `/nymira-verify-404`) to read it, and
+requires status 404.
+
+## Header-set hash
+
+The host sends different headers for three kinds of path:
+
+| Class    | Paths                                  |
+| -------- | -------------------------------------- |
+| `app`    | everything not listed below            |
+| `assets` | `/assets/*` and `/executors/*`         |
+| `frame`  | `/wallet-host.html` and `/wallet-host` |
+
+`integrity/headers.txt` holds the three sets, always in this order (`app`, `assets`, `frame`):
+
+```
+# app
+content-security-policy: <value>
+permissions-policy: <value>
+referrer-policy: <value>
+strict-transport-security: <value>
+x-content-type-options: <value>
+# assets
+access-control-allow-origin: *
+content-security-policy: ...
+...
+# frame
+content-security-policy: ...
+...
+```
+
+- A class starts with the line `# <class>`.
+- Header names are lowercase and in this order, each only if the class has it:
+  `access-control-allow-origin`, `content-security-policy`, `permissions-policy`,
+  `referrer-policy`, `strict-transport-security`, `x-content-type-options`.
+- A line is `name: value` (one space after the colon). Every line ends with `\n`. No blank lines.
+- `header_set_hash` is the SHA-256 of the file, lowercase hex.
+
+Only these six headers are signed. A host may add others (Cloudflare adds its own); a client
+compares only these. A header that is present but not in the class's set is not an error; a signed
+header that is missing or different is. For the `app` class `access-control-allow-origin` must be
+absent from the response.
+
+`headers.ts` is the one source of the sets. The build writes `_headers` and `integrity/headers.txt`
+from it. The release tool refuses a set whose policy has `unsafe-eval`, a wildcard source, a
+script `unsafe-inline` (outside the sandboxed frame) or a missing `frame-ancestors`, Trusted Types or
+`base-uri`, `form-action`, `object-src` rule (`scripts/lib/csp.mjs`).
+
+## Manifest
+
+Canonical form: `JSON.stringify({version, bundle_hash, header_set_hash}, null, 2)` plus one `\n`.
+Exactly these three keys in this order, two-space indent, LF. A reader must also accept only this
+form: the signature covers the bytes, so a reader that parses first and re-serializes could be
+fooled by duplicate keys.
+
+## Signature
+
+`manifest.json.minisig` is a minisign signature file (format: <https://jedisct1.github.io/minisign/>),
+four lines:
+
+```
+untrusted comment: <anything, not signed>
+<base64 of: "ED" || key_id (8 bytes) || Ed25519 signature (64 bytes)>
+trusted comment: nymira-web-manifest v1 profile=<profile> version=<version>
+<base64 of the 64-byte global signature>
+```
+
+- The algorithm is `ED` (prehashed). `Ed` (legacy) is refused. The Ed25519 signature is over the
+  BLAKE2b-512 digest of the bytes of `manifest.json`.
+- The global signature is Ed25519 over `signature (64 bytes) || trusted comment (the text after
+"trusted comment: ", UTF-8, no newline)`. A verifier must check both signatures.
+- `key_id` must equal the key id of the public key.
+- The trusted comment is signed, so a verifier should also require `profile=` to match the profile
+  it expects (`testnet` or `mainnet`) and `version=` to equal the manifest's `version`.
+
+The public key file is the minisign format:
+
+```
+untrusted comment: <text>
+<base64 of: "Ed" || key_id (8 bytes) || Ed25519 public key (32 bytes)>
+```
+
+**Fingerprint.** The SHA-256 of the 32-byte public key, lowercase hex. `node
+web/scripts/integrity.mjs fingerprint <key.pub>` prints it with the key id. The fingerprint is what
+is published outside the project's accounts (below).
+
+The release key is generated offline with `minisign -G` and never enters this repository or CI. Only
+`web/pins/release-signing.pub` (its public half) is committed. `nymirad` compiles the same public
+key in. Tests use a throwaway key.
+
+## URLs `verify-web` fetches
+
+For each origin `O` in `https://nymira.pages.dev` and `https://nymiralabs.github.io/nymira` (a
+trailing `/` is added; the mirror has a path prefix, so resolve paths against `O/`):
+
+1. `O/manifest.json`, `O/manifest.json.minisig`: check the signature with the compiled-in key;
+   check the canonical form and the trusted comment.
+2. `O/integrity/files.txt`: its SHA-256 must be `bundle_hash`. `O/integrity/headers.txt`: its
+   SHA-256 must be `header_set_hash`.
+3. Every file in `files.txt` (`/` for `index.html`; the unknown-path request for `404.html`): its
+   SHA-256 must be the one listed.
+4. Headers (the Cloudflare origin only; the mirror cannot send them): the response headers of `/`,
+   of `/wallet-host.html`, and of any file under `/assets/` must carry the six signed headers of
+   the `app`, `frame` and `assets` classes. Check also `/wallet-host` for the frame class.
+5. Do 1 to 4 once through Tor and once directly. Fail on a difference between the two, between
+   the origins, or from the manifest. Both origins must show the same `manifest.json` bytes.
+
+The listing makes the check independent of which files exist today: a file the host serves that is
+not in `files.txt` is not looked for (the check cannot enumerate a host), but any listed file that
+differs, and the listing itself, are.
+
+## The test fixture
+
+`web/test-fixtures/integrity/` is a small signed example for the Rust side's tests:
+
+| Path                       | What it is                                                                                               |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `minisign.pub`             | The throwaway test public key.                                                                           |
+| `site/`                    | A complete valid site: manifest, signature, `integrity/`, `_headers`.                                    |
+| `expected.json`            | The key id and fingerprint, the trusted comment, the manifest, and the number of files.                  |
+| `src/bundle/`, `src/meta/` | The inputs `regenerate.sh` builds the site from.                                                         |
+| `regenerate.sh`            | Makes a new throwaway key and rebuilds `site/` (do this only to change the fixture; the key id changes). |
+
+Serve `site/` from a local server for the fetch tests. Negative cases are made by changing one
+thing in a copy: a byte of a bundle file; `files.txt`; `headers.txt`; `manifest.json`; the trusted
+comment; the signature file removed; a signature by another key (`web/test/integrity.test.ts` does
+each of these against the JavaScript implementation, `web/scripts/lib/integrity.mjs`, which is the
+reference).
+
+## Reproducible build
+
+`web/scripts/repro-check.sh` builds the bundle twice from one commit (`git archive`) in two
+differently named directories with separate cargo output, and fails when the bundle hashes differ.
+The CI job `web-integrity / reproducible` runs it. What makes this work: exact versions and
+lockfiles, `npm ci --ignore-scripts`, source paths remapped in the WASM build
+(`--remap-path-prefix` in `build-wasm.sh`), `sourcemap: false`, and file names hashed from content by
+Vite. Not covered by the CI job: a different CPU or operating system, which is what the independent
+rebuild is for. Measured on one machine: the testnet profile built twice in two directories gave the same hash (the mainnet profile and the CI runner were not measured). The container recipe was not run (no Docker daemon here).
+
+## Rebuilding (independent rebuild)
+
+On another machine, with Docker:
+
+```sh
+git clone https://github.com/nymiralabs/nymira && cd nymira
+git checkout <release tag>
+web/scripts/rebuild-in-container.sh <release tag> <testnet|mainnet> <version>
+```
+
+The container is `web/Dockerfile.repro`: `rust:1.99.0-bookworm` pinned by digest
+(`sha256:114c7a44...04d6`), Node 24.22.1 pinned by tarball hash, `wasm-bindgen-cli` 0.2.117 with
+`--locked`, `linux/amd64`. The script compares the rebuilt `manifest.json` with
+`web/releases/<profile>-<version>/manifest.json` byte for byte. If they match, publish an
+attestation from `web/releases/REBUILD_ATTESTATION_TEMPLATE.md` somewhere the project does not
+control (the rebuilder's own repository, a gist, a signed post).
+
+## Release procedure (human)
+
+1. Merge the release commit; tag it (`web-v<version>`).
+2. CI builds; the `reproducible` job is green. Note the hashes it prints.
+3. Offline machine: check out the tag, run `web/scripts/rebuild-in-container.sh`, copy
+   `rebuilt-site/manifest.json` out, then sign:
+   `minisign -S -s <offline.key> -m manifest.json -t "nymira-web-manifest v1 profile=<p> version=<v>"`.
+4. Commit `manifest.json` and `manifest.json.minisig` as `web/releases/<profile>-<version>/`, in a
+   pull request. The deploy workflow refuses to run without them.
+5. Run the `web-deploy` workflow on the tag. It rebuilds, compares the manifest with the committed
+   one, verifies the signature with `web/pins/release-signing.pub`, deploys, and runs
+   `check-live.mjs` against the live site.
+6. Publish the bundle hash and the key fingerprint (below). Fill in
+   `web/releases/RELEASE_NOTES_TEMPLATE.md` for the release.
+
+## Where the hashes are published
+
+The key fingerprint and each manifest hash must also live where the project's GitHub, Cloudflare
+and registrar accounts cannot change them. The accounts are the thing being defended against: a
+thief with them can change the site, the repository, the README and the DNS, so a copy kept in any
+of those proves nothing. Copies to make (each is a human task):
+
+- the key fingerprint and every `bundle_hash` as an entry in a public, append-only log the project
+  cannot edit (a transparency log such as Sigstore Rekor, with the entry signed by the release
+  key: `rekor-cli upload` of the signed `manifest.json`);
+- the fingerprint printed in a place the team controls offline (a card with the team), and read
+  aloud or posted at the project's launch event;
+- an independent rebuild attestation from someone outside the team for each release;
+- the fingerprint in `nymirad` itself (the public key is compiled in), so a user who builds
+  `nymirad` from source gets it from a second path.
+
+If the fingerprint here and one of those copies differ, treat the site as compromised.
+
+## Dependencies
+
+`npm ci --ignore-scripts` is the only install (`.npmrc` sets `ignore-scripts=true`; CI passes the
+flag too). `scripts/check-deps.mjs` fails on a locked package that is younger than 7 days, whose
+lockfile hash is not the registry's, or whose version has no provenance attestation and no entry
+in the exceptions file (`pins/dependency-exceptions.json`, `web-testkit/dependency-exceptions.json`,
+`deploy/dependency-exceptions.json`, each entry with a reason). `npm audit signatures` checks the
+registry signatures and the attestations that exist. Most small packages publish no attestation, so
+the exceptions list is long; it is the record of what was accepted without one.
+
+The deploy tool is pinned apart from the app (`web/deploy`, wrangler 4.153.0).
+
+## What a static host cannot do
+
+- GitHub Pages cannot set response headers. The mirror therefore serves the same bytes with none of
+  the policy, and the app refuses to run there (its `appOrigin` is `nymira.pages.dev`; the page says
+  so). The mirror exists so `verify-web` can compare two hosts, not as a second place to use the app.
+- Cloudflare Pages `_headers` applies to static files only, joins a header set by two rules with a
+  comma, and allows 100 rules. The generated file has no overlapping rules and the tests model the
+  join.
+- Cloudflare features that rewrite responses (Web Analytics beacon, Auto Minify, Rocket Loader,
+  Email Obfuscation, Zaraz) must stay off for the project: they change the bytes or add script.
+  The CSP would block an injected beacon, and `verify-web` would show the changed bytes.

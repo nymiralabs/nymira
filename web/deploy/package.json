@@ -1,0 +1,11 @@
+{
+  "name": "nymira-web-deploy",
+  "private": true,
+  "description": "The Cloudflare Pages deploy tool, pinned and installed apart from the app.",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "devDependencies": {
+    "wrangler": "4.153.0"
+  }
+}

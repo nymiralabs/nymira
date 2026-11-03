@@ -21,6 +21,7 @@
     "test:e2e": "playwright test",
     "test": "npm run typecheck && npm run format:check && npm run check:executors && npm run test:unit && npm run test:e2e",
     "check:bundle": "node scripts/check-bundle.mjs",
+    "check:deps": "node scripts/check-deps.mjs",
     "pin-vault": "node scripts/pin-vault.mjs"
   },
   "dependencies": {
