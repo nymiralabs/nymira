@@ -9,7 +9,7 @@ if [ "$(uname)" = Darwin ]; then export TMPDIR="$HOME/.cache/nymira-tmp"; mkdir 
 # Two builds of one commit must give one file: the contract embeds its source revision, so only
 # the same commit can match. A published code hash names the commit it was built from.
 build() {
-  cargo near build reproducible-wasm
+  cargo near build reproducible-wasm >&2
   local file
   file=$(cd "${CARGO_TARGET_DIR:-../../target}/near/nymira_vault" && pwd)/nymira_vault.wasm
   shasum -a 256 "$file" | cut -d' ' -f1

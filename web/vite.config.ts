@@ -8,9 +8,10 @@ import { canonicalHeaderSet } from './scripts/lib/integrity.mjs';
 import { profile as mainnet } from './src/profiles/mainnet';
 import { profile as mock } from './src/profiles/mock';
 import { profile as testnet } from './src/profiles/testnet';
+import { profile as rehearsal } from './src/profiles/rehearsal';
 import type { Profile } from './src/profiles/types';
 
-const PROFILES: Record<string, Profile> = { mock, testnet, mainnet };
+const PROFILES: Record<string, Profile> = { mock, testnet, mainnet, rehearsal };
 
 // Serves `vite preview` with the production header set, so the e2e tests run the app under the
 // strict policy. It also copies the test-only wallet executor into mock builds.
