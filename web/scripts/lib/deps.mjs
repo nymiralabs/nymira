@@ -6,7 +6,7 @@
 //    file. `npm audit signatures` (a CI step) then verifies the signatures and attestations.
 // The exceptions file is `{ "provenance": { "name@version": "why" }, "age": { ... } }`. An age
 // exception is for a version already in the lockfile; it is flagged for removal once the version
-// is old enough, so the list empties itself.
+// is old enough; the check warns about it and does not fail.
 export const MIN_AGE_DAYS = 7;
 
 /** `[{ name, version, integrity }]` for every registry package in a lockfile. */
@@ -69,11 +69,16 @@ export async function checkPackages(
     }
     if (!v.dist?.attestations?.provenance && !(id in noProv)) missing.add(id);
   }
-  for (const id of stale) problems.push(`${id}: age exception no longer needed; remove it`);
   for (const id of Object.keys(noProv)) {
     if (!seen.has(id))
       problems.push(`${id}: provenance exception but not in the lockfile; remove it`);
   }
   for (const id of tooYoung) problems.push(`${id}: younger than ${minAgeDays} days`);
-  return { problems, noProvenance: [...missing].sort(), tooYoung: [...tooYoung].sort() };
+  return {
+    problems,
+    noProvenance: [...missing].sort(),
+    tooYoung: [...tooYoung].sort(),
+    // A stale age exception is a warning: it turns stale with time, not with a change.
+    stale: [...stale].sort(),
+  };
 }

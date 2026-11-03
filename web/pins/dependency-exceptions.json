@@ -39,7 +39,6 @@
     "typescript@6.0.3": "no attestation published"
   },
   "age": {
-    "@oxc-project/types@0.156.0": "locked before the minimum release age rule; goes stale after 7 days",
     "@rolldown/binding-android-arm-eabi@1.2.16": "locked before the minimum release age rule; goes stale after 7 days",
     "@rolldown/binding-android-arm64@1.2.16": "locked before the minimum release age rule; goes stale after 7 days",
     "@rolldown/binding-darwin-arm64@1.2.16": "locked before the minimum release age rule; goes stale after 7 days",
@@ -56,7 +55,6 @@
     "@rolldown/binding-win32-arm64-msvc@1.2.16": "locked before the minimum release age rule; goes stale after 7 days",
     "@rolldown/binding-win32-x64-msvc@1.2.16": "locked before the minimum release age rule; goes stale after 7 days",
     "@types/estree@1.0.10": "locked before the minimum release age rule; goes stale after 7 days",
-    "magic-string@1.4.5": "locked before the minimum release age rule; goes stale after 7 days",
     "rolldown@1.2.16": "locked before the minimum release age rule; goes stale after 7 days",
     "tinybench@6.2.3": "locked before the minimum release age rule; goes stale after 7 days"
   }

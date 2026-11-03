@@ -45,7 +45,7 @@ describe('dependency check', () => {
 
   it('passes an old package with provenance', async () => {
     const r = await checkPackages([pkg('old', '1.0.0', 'sha512-a')], packument, {}, NOW);
-    expect(r).toEqual({ problems: [], noProvenance: [], tooYoung: [] });
+    expect(r).toEqual({ problems: [], noProvenance: [], tooYoung: [], stale: [] });
   });
 
   it('fails a package younger than the minimum age, unless excepted, and flags a stale exception', async () => {
@@ -61,7 +61,8 @@ describe('dependency check', () => {
       { age: { 'young@2.0.0': 'why' } },
       NOW + 10 * 86_400_000,
     );
-    expect(later.problems).toEqual(['young@2.0.0: age exception no longer needed; remove it']);
+    expect(later.problems).toEqual([]);
+    expect(later.stale).toEqual(['young@2.0.0']);
   });
 
   it('fails a lockfile hash that is not the registry’s', async () => {

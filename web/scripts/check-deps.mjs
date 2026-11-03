@@ -22,7 +22,7 @@ const packument = async (name) => {
   }
   return cache.get(name);
 };
-const { problems, noProvenance, tooYoung } = await checkPackages(
+const { problems, noProvenance, tooYoung, stale } = await checkPackages(
   lockedPackages(lock),
   packument,
   exceptions,
@@ -47,6 +47,7 @@ if (flag === '--write') {
   );
   process.exit(0);
 }
+for (const id of stale) console.warn(`warning: ${id}: age exception no longer needed; remove it`);
 for (const id of noProvenance)
   problems.push(`${id}: no provenance attestation; add it to ${exceptionsFile} with a reason`);
 if (problems.length) {
