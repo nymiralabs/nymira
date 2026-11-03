@@ -558,10 +558,20 @@ fn differential_on_corrupted_verifying_keys() {
         for byte in (0..canonical.len()).step_by(3) {
             let mut bytes = canonical.clone();
             bytes[byte] ^= 1 << (byte % 8);
-            // arkworks itself panics on a corrupted list length; the codec must not, so only the
-            // reference side is guarded.
-            let ark = catch_unwind(|| ArkVk::<Bn254>::deserialize_compressed(&bytes[..]))
-                .unwrap_or(Err(ark_serialize::SerializationError::InvalidData));
+            // arkworks allocates the IC list from its length prefix before reading it, so on a
+            // corrupted length it panics or aborts the process (by platform). The codec checks the
+            // length first and must refuse such a key; arkworks is not asked about it.
+            let prefix = u64::from_le_bytes(bytes[224..232].try_into().unwrap());
+            if prefix.checked_mul(32) != Some((bytes.len() - 232) as u64) {
+                assert_eq!(
+                    VerifyingKey::from_canonical(&bytes).err(),
+                    Some(CodecError::Malformed),
+                    "{name} key byte {byte}: bad list length"
+                );
+                refused_by_both += 1;
+                continue;
+            }
+            let ark = ArkVk::<Bn254>::deserialize_compressed(&bytes[..]);
             let ours = VerifyingKey::from_canonical(&bytes);
             match (&ark, &ours) {
                 (Ok(_), Ok(vk)) => {
