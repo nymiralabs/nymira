@@ -44,5 +44,9 @@ export const profile: Profile = {
     url: '/setup/request.pk',
     sha256: 'fb5f0ec0908b29aa5a3ba75c5cefda70ca0bc1d68da031c4a21ef63c0806af87',
   },
+  withdrawalKey: {
+    url: '/setup/withdrawal.pk',
+    sha256: 'c04e0368a85378c268b68c9c18764b0d1f86bac98fb21d69e6e80918ce2e486f',
+  },
   testEvidence: true,
 };

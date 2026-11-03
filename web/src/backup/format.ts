@@ -10,7 +10,7 @@
 import { b64decode, b64encode } from '../crypto/bytes';
 import { open, seal, importAesKey } from '../crypto/aead';
 import { ARGON2, SALT_BYTES, deriveKeyBytes, type Argon2Params } from '../crypto/kdf';
-import type { NotePhase, SealedKind } from '../store/types';
+import type { LeaveInfo, NotePhase, NoteRecord, SealedKind } from '../store/types';
 
 export const BACKUP_FORMAT = 'nymira-backup';
 export const BACKUP_AAD = 'nymira:v1:backup';
@@ -32,6 +32,9 @@ export interface BackupNote {
   expiry?: number;
   createdAt: number;
   updatedAt: number;
+  /** Where the note stands on its way out, and what the expiry guard did (public values). */
+  leave?: LeaveInfo;
+  guard?: NoteRecord['guard'];
   kind: SealedKind;
   /** The note secret (`kind: pending`, `0x` plus 64 hex digits). */
   secret?: string;

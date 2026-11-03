@@ -78,11 +78,35 @@ export interface ActiveLease {
   expiresAt?: number;
 }
 
+/** One exit proof that left, or may have left, the worker (the wallet core's `exit_lock.json`). */
+export interface ReleasedProof {
+  /** 0 escape (`request_exit`), 1 mutual close, 2 ownership proof for a clearance. */
+  kind: 0 | 1 | 2;
+  /** Unix seconds: the last second the vault (kinds 0, 1) or the operator (kind 2) accepts it. */
+  validUntil: number;
+  /** Micro-USDC conceded by an escape, as a decimal string. */
+  conceded: string;
+  /** A kind-2 proof is kept (JSON text of `{public_inputs, proof}`) so a retry resends the same one. */
+  ownership?: string;
+}
+
+/**
+ * The exit lock. Once it exists, this note makes no request proof any more: it can only leave. It
+ * is written to the sealed payload before an exit proof is returned, so a proof that left the
+ * worker is always on record.
+ */
+export interface ExitLock {
+  mode: 'mutual' | 'escape';
+  since: number;
+  released: ReleasedProof[];
+}
+
 export interface NoteExtra {
   /** The journal of a prepared request that has no installed response yet (JSON text). */
   journal?: string;
   active?: ActiveLease;
   leases: LeaseRecord[];
+  exit?: ExitLock;
 }
 
 interface Payload {
@@ -104,13 +128,13 @@ export function walletConfigJson(c: LeaseConfig, bound: string): string {
   );
 }
 
-async function open(key: CryptoKey, aad: string, sealed: Sealed) {
+export async function open(key: CryptoKey, aad: string, sealed: Sealed) {
   const payload = await openJson<Payload>(key, sealed, aad);
   if (typeof payload.state !== 'string') throw new Error('this note has no wallet state yet');
   return { state: payload.state, extra: parseExtra(payload.extra) };
 }
 
-const seal = (key: CryptoKey, aad: string, state: string, extra: NoteExtra) =>
+export const seal = (key: CryptoKey, aad: string, state: string, extra: NoteExtra) =>
   sealJson(key, { state, extra: JSON.stringify(extra) } satisfies Payload, aad);
 
 export interface PrepareInput {
@@ -147,6 +171,8 @@ export async function prepareLease(
   input: PrepareInput,
 ): Promise<PreparedLease> {
   const { state, extra } = await open(key, aad, sealed);
+  if (extra.exit)
+    throw new Error('this note is leaving (an exit proof was made), so it opens no new lease');
   if (extra.active?.token !== undefined) throw new Error('a lease is already open on this note');
   const snapshot = JSON.stringify({
     root: input.tree.root,
@@ -309,6 +335,7 @@ export interface NoteView {
   pending: boolean;
   active?: ActiveLease;
   leases: LeaseRecord[];
+  exit?: ExitLock;
 }
 
 export async function readNote(key: CryptoKey, aad: string, sealed: Sealed): Promise<NoteView> {
@@ -322,5 +349,6 @@ export async function readNote(key: CryptoKey, aad: string, sealed: Sealed): Pro
     pending: extra.journal !== undefined,
     active: extra.active,
     leases: extra.leases,
+    ...(extra.exit ? { exit: extra.exit } : {}),
   };
 }

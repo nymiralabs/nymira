@@ -53,5 +53,6 @@ export const profile: Profile = {
   pccsUrl: 'https://pccs.phala.network',
   // Set with the published setup (the ceremony's `mpc-1` or Nymira's fallback key) and its hash.
   provingKey: null,
+  withdrawalKey: null,
   testEvidence: false,
 };

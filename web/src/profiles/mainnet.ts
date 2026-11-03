@@ -29,5 +29,6 @@ export const profile: Profile = {
   gatewayUrl: 'https://cloud-api.near.ai',
   pccsUrl: 'https://pccs.phala.network',
   provingKey: null,
+  withdrawalKey: null,
   testEvidence: false,
 };

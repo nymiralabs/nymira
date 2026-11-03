@@ -106,6 +106,20 @@ export class RpcClient {
   }
 
   /**
+   * The latest final block's time in Unix seconds. The vault judges every deadline (the exit
+   * window, a proof's `valid_until`) by block time, so the app asks the chain, not the local clock.
+   */
+  async finalBlockTime(): Promise<number> {
+    const block = await this.call<{ header: { timestamp?: number; timestamp_nanosec?: string } }>(
+      'block',
+      { finality: 'final' },
+    );
+    const ns = block.header.timestamp_nanosec ?? String(block.header.timestamp ?? '');
+    if (!/^\d+$/.test(ns)) throw new Error('the block has no timestamp');
+    return Number(BigInt(ns) / 1_000_000_000n);
+  }
+
+  /**
    * A view call at the final block (or at `blockHash`, so several calls read one state); the
    * contract's JSON result.
    */

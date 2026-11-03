@@ -10,6 +10,7 @@ import type {
   PreparedLease,
   Settlement,
 } from '../note/lease';
+import type { PreparedWithdrawal, WithdrawalInput } from '../note/exit';
 import type { NoteRecord } from '../store/types';
 
 /** What the page sends to build a genesis state. The worker maps `vault` to the contract address. */
@@ -46,6 +47,18 @@ export type WorkerRequest =
       sealed: Sealed;
       input: Omit<PrepareInput, 'config'> & { config: LeaseConfigInput };
     }
+  | { op: 'loadWithdrawalProver'; url: string; sha256: string }
+  | {
+      op: 'prepareWithdrawal';
+      key: CryptoKey;
+      aad: string;
+      sealed: Sealed;
+      /** `payout` is the payout account id; the worker maps it to the 20-byte destination. */
+      input: Omit<WithdrawalInput, 'config' | 'destination'> & {
+        config: LeaseConfigInput;
+        payout?: string;
+      };
+    }
   | { op: 'solvePuzzle'; nonce: string; difficulty: number }
   | {
       op: 'leaseOpened';
@@ -74,6 +87,8 @@ export interface ResultOf {
   testBackup: BackupCheck;
   restoreBackup: { records: NoteRecord[]; foreign: number };
   loadProver: { bytes: number; ms: number };
+  loadWithdrawalProver: { bytes: number; ms: number };
+  prepareWithdrawal: PreparedWithdrawal;
   prepareLease: PreparedLease;
   solvePuzzle: string;
   leaseOpened: Sealed;
