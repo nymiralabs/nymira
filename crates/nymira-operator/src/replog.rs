@@ -399,6 +399,10 @@ impl Log {
             .await?)
     }
 
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
     /// Drops the payload of every entry older than [`RETENTION_SECS`] at `now_secs`. The hashes
     /// stay, so the chain still checks. Returns how many payloads went.
     pub async fn purge(&self, now_secs: u64) -> Result<usize, LogError> {
@@ -497,6 +501,11 @@ impl ReplicaNode {
     }
 
     /// Pins the operator's entry-signing key.
+    /// The pinned entry key, if any.
+    pub fn laptop_key(&self) -> Option<[u8; 32]> {
+        self.laptop
+    }
+
     pub fn with_laptop_key(mut self, pk: [u8; 32]) -> Self {
         self.laptop = Some(pk);
         self

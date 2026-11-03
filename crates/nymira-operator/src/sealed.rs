@@ -101,6 +101,14 @@ impl SealedFile {
         file.write_all(&ct)?;
         file.sync_all()?;
         std::fs::rename(&tmp, &self.path)?;
+        // The rename itself must reach the disk: a power cut right after a token rotation must
+        // not bring back the old, dead file.
+        #[cfg(unix)]
+        if let Some(dir) = self.path.parent() {
+            if let Ok(dir) = std::fs::File::open(dir) {
+                let _ = dir.sync_all();
+            }
+        }
         Ok(())
     }
 }

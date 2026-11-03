@@ -88,6 +88,59 @@ async fn settlement_deletes_the_key_id_and_the_exact_timers() {
     assert!(key_id.is_none() && activity.is_none() && revoked.is_none() && usage.is_some());
     assert_eq!(settled_at % 3600, 0);
     assert_eq!(issued_at % 3600, 0);
+    // No exact time is left in any table next to the nullifier or the lease: every integer time
+    // column falls back to the hour, the usage reading's `read_at` included.
+    let store = rig.op.store().clone();
+    let (updated_at, read_at): (i64, i64) = store
+        .run(move |c| {
+            c.query_row(
+                "SELECT (SELECT MIN(updated_at) FROM nullifiers),
+                        (SELECT json_extract(usage_json, '$.record.read_at') FROM leases
+                          WHERE usage_json IS NOT NULL LIMIT 1)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+        })
+        .await
+        .unwrap();
+    assert_eq!(updated_at % 3600, 0, "nullifiers.updated_at is exact");
+    assert_eq!(read_at % 3600, 0, "usage read_at is exact");
+}
+
+/// 30 days of note life, 7 for the claim window and 7 for an exit: the number the public text
+/// states. Tests import the constant, so changing it would fail nothing without this.
+#[test]
+fn the_retention_is_forty_four_days() {
+    assert_eq!(RETENTION_SECS, 44 * 86_400);
+}
+
+/// The log table on the operator's own disk holds the same request proofs and signed states as
+/// the leases and signed-state tables; its payloads go on the same schedule.
+#[tokio::test(flavor = "multi_thread")]
+async fn old_log_payloads_on_the_operators_own_disk_are_purged_too() {
+    let rig = Rig::new(Setup::default()).await;
+    let store = rig.op.store().clone();
+    let old_hour = (rig.clock_now() / 3600 * 3600) as i64;
+    store
+        .run(move |c| {
+            c.execute(
+                "INSERT INTO replog(seq, prev, kind, key, hour, payload_hash, payload, hash)
+                 VALUES (1, 'p', 'reservation', 'k', ?1, 'h', '{\"request_json\":\"secret\"}', 'x')",
+                [old_hour],
+            )
+        })
+        .await
+        .unwrap();
+    rig.clock.advance_secs(RETENTION_SECS + 7_200);
+    rig.op.tick().await;
+    let left: Option<String> = rig
+        .op
+        .store()
+        .clone()
+        .run(|c| c.query_row("SELECT payload FROM replog WHERE seq = 1", [], |r| r.get(0)))
+        .await
+        .unwrap();
+    assert!(left.is_none(), "the payload is still there: {left:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -160,13 +213,27 @@ async fn a_diverged_or_unreachable_replica_raises_an_alarm() {
             ..Setup::default()
         })
         .await;
+        let raised = |rig: &Rig| {
+            rig.sink
+                .sent()
+                .iter()
+                .any(|a| a.key == format!("replica_{health}"))
+        };
         rig.clock.advance_secs(11);
         rig.op.tick().await;
+        if health == "unreachable" {
+            // The first tick that sees the outage starts the minute: 59 seconds on, nobody is
+            // woken; the check after 60 seconds raises it.
+            assert!(!raised(&rig), "alarm at the first sight");
+            rig.clock.advance_secs(59);
+            rig.op.tick().await;
+            assert!(!raised(&rig), "alarm at 59 seconds");
+            // The health check runs with the replica sync, every ten seconds.
+            rig.clock.advance_secs(10);
+            rig.op.tick().await;
+        }
         let alarms = rig.sink.sent();
-        assert!(
-            alarms.iter().any(|a| a.key == format!("replica_{health}")),
-            "{health}: {alarms:?}"
-        );
+        assert!(raised(&rig), "{health}: {alarms:?}");
         assert_eq!(rig.status().await["replica"], health);
     }
 }

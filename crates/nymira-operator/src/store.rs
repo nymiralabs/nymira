@@ -126,6 +126,10 @@ CREATE TABLE IF NOT EXISTS watcher_status(
   id TEXT PRIMARY KEY,
   last_poll INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS recovery_hold(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  since INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS emergency(
   id INTEGER PRIMARY KEY CHECK (id = 1),
   notice TEXT NOT NULL,
@@ -280,7 +284,8 @@ pub fn claim_nullifier(
     }
     tx.execute(
         "INSERT INTO nullifiers(nullifier, state, updated_at) VALUES (?1, ?2, ?3)",
-        params![nullifier, to, now],
+        // The hour only: a clearance row has no lease to scrub later.
+        params![nullifier, to, now / 3600 * 3600],
     )?;
     tx.commit()?;
     Ok(Cas::Done)
@@ -480,8 +485,9 @@ pub fn settle(
 }
 
 /// At settlement the exact timers go: times fall back to the hour (the resolution the replica
-/// holds), and the key id, the last-activity, retirement and revocation times are deleted. The usage reading stays: the lease status
-/// reports the measured cost from it, and its `read_at` is the only exact time left.
+/// holds), and the key id, the last-activity, retirement and revocation times are deleted. The
+/// usage reading stays, with its `read_at` rounded: the lease status reports the measured cost
+/// from it.
 pub fn scrub_timers(conn: &Connection, lease_id: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE leases SET
@@ -493,6 +499,18 @@ pub fn scrub_timers(conn: &Connection, lease_id: &str) -> rusqlite::Result<()> {
     )?;
     conn.execute(
         "UPDATE signed_states SET signed_at = signed_at / 3600 * 3600 WHERE lease_id = ?1",
+        [lease_id],
+    )?;
+    // The nullifier row sits next to the lease id: its time falls back to the hour as well, and
+    // so does the usage reading's (the status needs its cost only, never its signature).
+    conn.execute(
+        "UPDATE nullifiers SET updated_at = updated_at / 3600 * 3600 WHERE lease_id = ?1",
+        [lease_id],
+    )?;
+    conn.execute(
+        "UPDATE leases SET usage_json = json_set(usage_json, '$.record.read_at',
+           json_extract(usage_json, '$.record.read_at') / 3600 * 3600)
+         WHERE lease_id = ?1 AND usage_json IS NOT NULL",
         [lease_id],
     )?;
     // The spend book and the chat ids serve an open lease only.
@@ -611,6 +629,27 @@ pub fn set_emergency(conn: &Connection, notice: &str, now: u64) -> rusqlite::Res
         params![notice, now],
     )
     .map(|_| ())
+}
+
+/// Whether a person put this machine on recovery hold: its log may be an old restore, and until
+/// the hold is lifted it signs nothing and pushes nothing to the second machine.
+pub fn recovery_hold(conn: &Connection) -> rusqlite::Result<Option<u64>> {
+    conn.query_row("SELECT since FROM recovery_hold WHERE id = 1", [], |r| {
+        r.get::<_, i64>(0).map(|t| t as u64)
+    })
+    .optional()
+}
+
+pub fn set_recovery_hold(conn: &Connection, now: u64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO recovery_hold(id, since) VALUES (1, ?1)",
+        params![now],
+    )
+    .map(|_| ())
+}
+
+pub fn clear_recovery_hold(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM recovery_hold", []).map(|_| ())
 }
 
 pub fn clear_emergency(conn: &Connection) -> rusqlite::Result<()> {
@@ -823,6 +862,28 @@ pub fn finish_tx(conn: &Connection, id: i64, state: &str, detail: &str) -> rusql
         params![id, state, detail],
     )?;
     Ok(())
+}
+
+/// The newest unfinished transaction of the same call (kind, method, arguments) written at or
+/// after `since`: a retry of a call that has not reached the chain reuses its row instead of
+/// writing a new one every tick.
+pub fn open_tx_same_call(
+    conn: &Connection,
+    public_key: &str,
+    kind: &str,
+    method: &str,
+    args: &[u8],
+    since: u64,
+) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT id FROM operator_txs
+         WHERE public_key = ?1 AND kind = ?2 AND method = ?3 AND args = ?4
+           AND state IN ('intent', 'signed') AND created_at >= ?5
+         ORDER BY id DESC LIMIT 1",
+        params![public_key, kind, method, args, since as i64],
+        |r| r.get(0),
+    )
+    .optional()
 }
 
 /// Transactions of one key that are written but not finished, oldest first.

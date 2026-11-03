@@ -31,7 +31,10 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 rpassword = "7"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order: the forwarded body keeps the client's key order, which the gateway signs
+# (nymirad and the web app hash the bytes they sent). Set here so it does not depend on which
+# other crate of a build turns it on.
+serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 subtle = "2"
 thiserror = "2"

@@ -267,8 +267,19 @@ async fn the_real_verifier_refuses_a_forged_proof() {
     .await;
     let mut forged = real_request().clone();
     forged.public_inputs.request_nullifier = Felt252::from_u64(77);
+    retag(&mut forged);
     let (s, v, _) = rig.lease(&forged).await;
     json_error(s, &v, 422, "proof_invalid");
+    // A captured request sent again under another id, or with another payload, is refused before
+    // any pairing: the proof's authorization tag binds both.
+    let mut moved = real_request().clone();
+    moved.client_request_id = "another-id".into();
+    let (s, v, _) = rig.lease(&moved).await;
+    json_error(s, &v, 400, "malformed_request");
+    assert!(v["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("authorization_tag"));
     let mut tampered = real_request().clone();
     tampered.public_inputs.solvency_bound = 500_000;
     let (s, v, _) = rig.lease(&tampered).await;
@@ -457,17 +468,20 @@ async fn a_fourth_attempt_on_one_nullifier_in_300_seconds_is_rate_limited() {
     for i in 0..2 {
         let mut again = base.clone();
         again.client_request_id = format!("other-{i}");
+        retag(&mut again);
         let (s, v, _) = rig.lease(&again).await;
         json_error(s, &v, 409, "nullifier_seen");
     }
     let mut again = base.clone();
     again.client_request_id = "other-3".into();
+    retag(&mut again);
     let (s, v, h) = rig.lease(&again).await;
     json_error(s, &v, 429, "nullifier_rate_limited");
     assert!(retry_after(&h) <= 300);
     rig.clock.advance_secs(300);
     let mut later = variant(1, 100_000, rig.clock_now(), &root_hex());
     later.client_request_id = "other-4".into();
+    retag(&mut later);
     let (s, v, _) = rig.lease(&later).await;
     json_error(s, &v, 409, "nullifier_seen");
 }
@@ -643,6 +657,7 @@ async fn a_duplicate_post_returns_the_same_lease() {
     assert_eq!((s, &c["lease_id"]), (201, &a.1["lease_id"]));
     let mut other = r.clone();
     other.client_request_id = "different".into();
+    retag(&mut other);
     let (s, v, _) = rig.lease(&other).await;
     json_error(s, &v, 409, "nullifier_seen");
 }

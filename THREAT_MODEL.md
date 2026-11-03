@@ -15,11 +15,11 @@ NEAR AI receives each request under a per-lease key that the operator mints and 
 
 ## What the logs keep
 
-The operator writes no log lines. Lease records hold the nullifier, the lease token's hash, the bound, the charge and times; at settlement the key id and the exact timers are deleted and times fall back to the hour. Copies on the second machine carry hour-rounded times from the start. Request proofs and signed states are deleted after 44 days. Alarm messages and errors pass through a scrubber that removes `sk-` and `rpt-` strings and `Authorization` values.
+The operator writes no log lines that come from a request; its error output holds start-up errors and, after a panic, the source line only. Lease records hold the nullifier, the lease token's hash, the bound, the charge, the usage reading and times; at settlement the key id and the exact timers are deleted and times fall back to the hour. Copies on the second machine carry hour-rounded times from the start. Request proofs and signed states are deleted after 44 days, on both machines. Alarm messages pass through a scrubber that removes `sk-` and `rpt-` strings and `Authorization` values.
 
 ## Processes and keys
 
-The operator runs as five processes under one dedicated macOS user: the public API, a key minter, a signer, a closer and a watcher. The public API has no secret and no NEAR key. The NEAR AI login lives only in the key minter. The state and clearance keys exist only in the signer, from two passphrases typed at start-up. The closer holds one function-call key, `mutual_close`; the signer's is `heartbeat`; the watcher holds the upkeep key and a separate exit-answer key. Processes talk over Unix sockets (mode 0600, checked by user id), and the public API is the only TCP listener.
+The operator runs as five processes under one dedicated macOS user: the public API, a key minter, a signer, a closer and a watcher. The public API has no NEAR key and no login; it holds the provider keys of the leases that are open, in memory, each capped at its lease bound. The NEAR AI login lives only in the key minter. The state and clearance keys exist only in the signer, from two passphrases typed at start-up. The closer holds one function-call key, `mutual_close`; the signer's is `heartbeat`; the watcher holds the upkeep key and a separate exit-answer key. Processes talk over Unix sockets (mode 0600, checked by user id), and the public API is the only TCP listener.
 
 The processes share one macOS user, so code execution in any one of them as that user can read every file that user can read, including the sealed login file once its passphrase is known. The separation limits what a bug in the web-facing process can reach in memory and which keys it holds; it does not stop an attacker who gets a shell as the service user. The developer tools and browsers installed on the laptop stay readable by every user on macOS.
 
@@ -27,7 +27,7 @@ Usage figures come from NEAR AI's `usage/history` for a lease's key, read with t
 
 ## The second machine
 
-The operator signs a state only after a second machine has the record on disk, so a lost laptop disk does not let a user spend a state twice. The second machine sits in the same home as the laptop: it covers a lost disk or a dead laptop, not a power or network failure of the house, and it does not protect against someone who takes both machines. It holds the log, a watcher and its own exit-answer key, and no signing key and no provider token. The operator signs each log entry it sends, and the second machine can pin that key. Its volume snapshots keep the shortest retention the host allows.
+The operator signs a state only after a second machine has the record on disk, so a lost laptop disk does not let a user spend a state twice. The second machine sits in the same home as the laptop: it covers a lost disk or a dead laptop, not a power or network failure of the house, and it does not protect against someone who takes both machines. It is planned to hold the log, a watcher and its own exit-answer key, and no signing key and no provider token; today it holds the log. The operator signs each log entry it sends, and the second machine can pin that key. The second machine is not set up yet.
 
 ## If the operator is offline
 

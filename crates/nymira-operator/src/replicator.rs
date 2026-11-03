@@ -49,6 +49,8 @@ pub struct Replicator {
     /// Set once this log has been compared with the replica. Before that nothing is written: a
     /// disk that was lost would start a chain of its own beside the replica's.
     based: AtomicBool,
+    /// A person put this machine on recovery hold (read from the database at every sync).
+    hold: AtomicBool,
     /// Signs every entry sent to the replica, when the replica pins the matching key.
     signing: Option<ed25519_dalek::SigningKey>,
 }
@@ -67,6 +69,7 @@ impl Replicator {
             gate: tokio::sync::Mutex::new(()),
             state: Mutex::new(State::Ready),
             based: AtomicBool::new(false),
+            hold: AtomicBool::new(false),
             signing: None,
         }
     }
@@ -91,7 +94,7 @@ impl Replicator {
 
     /// True while the replica is ahead of this log.
     pub fn in_recovery(&self) -> bool {
-        matches!(self.state(), State::Recovery { .. })
+        self.hold.load(Ordering::SeqCst) || matches!(self.state(), State::Recovery { .. })
     }
 
     /// An acknowledgement that names the entry, signed by the pinned key.
@@ -106,6 +109,17 @@ impl Replicator {
     }
 
     async fn sync_locked(&self) -> Result<(), ReplicaError> {
+        // A person may have put this machine on hold (after a restore from a backup, or when the
+        // second machine was replaced): the flag is read at every sync.
+        let hold = self
+            .log
+            .store()
+            .run(|c| crate::store::recovery_hold(c))
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        self.hold.store(hold, Ordering::SeqCst);
         let found = match audit(&self.log, &*self.link, &self.pk, SAMPLES).await {
             Ok(found) => found,
             Err(e) => {
@@ -126,6 +140,15 @@ impl Replicator {
             Audit::Diverged { seq } => {
                 self.set(State::Diverged { seq });
                 Err(down(format!("the chains differ at {seq}")))
+            }
+            // On hold, a replica that is shorter than this log is not trusted to be the one that
+            // lost data: this log may be the old one. Nothing is pushed and nothing is signed
+            // until a person lifts the hold.
+            Audit::Behind { replica, local } if hold => {
+                self.set(State::Recovery { replica, local });
+                Err(down(
+                    "on recovery hold: the replica is shorter than this log",
+                ))
             }
             Audit::Behind { replica, .. } => {
                 let mut next = replica + 1;

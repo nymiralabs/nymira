@@ -20,6 +20,12 @@ use crate::store::{self, Store, TxRow};
 
 /// A repeat of the same request inside this window gets the first transaction back.
 pub const IDEM_WINDOW_SECS: u64 = 600;
+/// An unfinished row of the same call is reused for this long; an older one may carry a block
+/// hash the chain no longer accepts, so a fresh row is written.
+pub const OPEN_REUSE_SECS: u64 = 3_600;
+/// `resume` drives at most this many open rows (the newest): a long outage cannot turn into a
+/// burst of old transactions at start-up.
+pub const RESUME_MAX_ROWS: usize = 50;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TxError {
@@ -294,6 +300,12 @@ impl NearTx {
                             return Ok(existing.id);
                         }
                     }
+                    // The same call that has not reached the chain yet: drive that row again.
+                    let since = now.saturating_sub(OPEN_REUSE_SECS);
+                    if let Some(id) = store::open_tx_same_call(c, &pk, kind, method, &args, since)?
+                    {
+                        return Ok(id);
+                    }
                     store::insert_tx_intent(c, kind, method, &args, gas, &pk, key.as_deref(), now)
                 })
                 .await
@@ -447,7 +459,7 @@ impl NearTx {
         if result["final_execution_status"] != "FINAL" {
             return Ok(None);
         }
-        let failure = failure_in(result);
+        let failure = failure_in(result, &self.receiver_id);
         let (state, detail) = match &failure {
             Some(why) => ("failed", why.as_str()),
             None => ("final", ""),
@@ -482,21 +494,27 @@ impl NearTx {
             .run(move |c| store::open_txs(c, &pk))
             .await
             .unwrap_or_default();
-        for row in open {
+        let skip = open.len().saturating_sub(RESUME_MAX_ROWS);
+        for row in open.into_iter().skip(skip) {
             let _ = self.drive(row.id).await;
         }
     }
 }
 
-/// The first failure in a final result: the transaction's own status or any receipt's.
-fn failure_in(result: &Value) -> Option<String> {
+/// The first failure in a final result: the transaction's own status or a receipt that ran on
+/// the vault. A failed payout leg on the token does not fail a close: the vault's callback books
+/// a pending payout and the note is closed, so reporting a failed close would invite a retry the
+/// vault refuses.
+fn failure_in(result: &Value, vault: &str) -> Option<String> {
     if let Some(failure) = result["status"].get("Failure") {
         return Some(failure.to_string());
     }
-    result["receipts_outcome"]
-        .as_array()?
-        .iter()
-        .find_map(|r| r["outcome"]["status"].get("Failure").map(|f| f.to_string()))
+    result["receipts_outcome"].as_array()?.iter().find_map(|r| {
+        if r["outcome"]["executor_id"].as_str() != Some(vault) {
+            return None;
+        }
+        r["outcome"]["status"].get("Failure").map(|f| f.to_string())
+    })
 }
 
 /// The heartbeat as a real transaction from the operator account.

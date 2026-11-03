@@ -10,7 +10,7 @@ use lru::LruCache;
 use serde_json::{json, Value};
 use tokio::sync::Semaphore;
 use zkapi_types::wire::{ApiRequestV2, OpenRouterLeaseAuthorization};
-use zkapi_types::{canonical_payload_hash, Felt252, PROTOCOL_VERSION};
+use zkapi_types::{canonical_payload_hash, canonical_request_context, Felt252, PROTOCOL_VERSION};
 
 mod clearance;
 
@@ -192,6 +192,8 @@ pub struct Operator {
     /// Requests in flight per lease, and the leases that take no new ones.
     pub(crate) inflight: Arc<Mutex<HashMap<String, u32>>>,
     pub(crate) closing: Mutex<HashSet<String>>,
+    /// When the replica was first seen unreachable in the current outage.
+    pub(crate) replica_down_since: Mutex<Option<u64>>,
     /// Serialises lifecycle steps (retire, expire, tick).
     pub(crate) lifecycle: tokio::sync::Mutex<()>,
     pub(crate) spend: Mutex<crate::proxy::SpendBook>,
@@ -306,6 +308,7 @@ impl Operator {
             minter,
             inflight: Arc::new(Mutex::new(HashMap::new())),
             closing: Mutex::new(HashSet::new()),
+            replica_down_since: Mutex::new(None),
             lifecycle: tokio::sync::Mutex::new(()),
             spend: Mutex::new(crate::proxy::SpendBook::default()),
             cancels: Mutex::new(HashMap::new()),
@@ -1267,6 +1270,17 @@ pub(crate) fn parse_request(body: &[u8]) -> ApiResult<(ApiRequestV2, Value)> {
         .map_err(|_| malformed("payload is not a lease authorization"))?;
     if canonical_payload_hash(request.payload.as_bytes()) != request.payload_hash {
         return Err(malformed("payload_hash does not match the payload"));
+    }
+    // The proof binds the request through this tag. Without the check a captured request could be
+    // sent again under another client_request_id, or with another payload, and still verify.
+    let context = canonical_request_context(&request.client_request_id, &request.payload_hash);
+    let inputs = &request.public_inputs;
+    if zkapi_core::v2::authorization_tag(&inputs.request_nullifier, &context)
+        != inputs.authorization_tag
+    {
+        return Err(malformed(
+            "authorization_tag does not match the request id and payload",
+        ));
     }
     Ok((request, value))
 }

@@ -519,6 +519,30 @@ async fn two_concurrent_requests_that_together_exceed_the_bound_cannot_both_go()
     drop(first);
 }
 
+/// What a finished request cost still counts against the day until its lease settles, so a
+/// burst of short leases cannot spend past the limit before the first one settles.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_finished_request_still_counts_against_the_day_until_settlement() {
+    let rig = Rig::new(proxy_setup(|_| {})).await;
+    let l = open(&rig, 1).await;
+    let before: u64 = rig.status().await["daily_budget"]["used"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (status, _, _) = chat(&rig, &l, &body(Some(100), false)).await;
+    assert_eq!(status, 200);
+    let after: u64 = rig.status().await["daily_budget"]["used"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        after > before,
+        "the finished request counts: {before} -> {after}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_request_with_neither_field_is_reserved_at_the_models_output_cap() {
     let rig = Rig::new(proxy_setup(|_| {})).await;
@@ -535,6 +559,59 @@ async fn a_request_with_neither_field_is_reserved_at_the_models_output_cap() {
     // 8 payload bytes x 80 + 4096 cap tokens x 500 = 2_048_640 nano -> 2_049 micro-USD.
     assert_eq!(rig.status().await["daily_budget"]["used"], "2049");
     drop(held);
+}
+
+/// The forwarded request is held to the cap it was reserved at, and the client's key order
+/// survives: the gateway signs the bytes it receives and clients hash the bytes they sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_without_a_limit_is_forwarded_with_the_cap_and_keeps_its_key_order() {
+    let rig = Rig::new(proxy_setup(|_| {})).await;
+    let l = open(&rig, 1).await;
+    // Keys deliberately not in alphabetical order.
+    let raw = r#"{"stream":false,"model":"z-ai/glm-5.3-flash","messages":[{"role":"user","content":"hi"}]}"#;
+    let (status, _, _) = {
+        let response = post(&rig, &l, raw.as_bytes().to_vec())
+            .send()
+            .await
+            .unwrap();
+        (response.status(), (), ())
+    };
+    assert_eq!(status, 200);
+    let calls = rig.provider.chat_calls();
+    let sent = String::from_utf8(calls.last().expect("one call").body.to_vec()).unwrap();
+    assert!(
+        sent.starts_with(r#"{"stream":false,"model":"#),
+        "key order changed: {sent}"
+    );
+    assert!(sent.contains(r#""max_tokens":4096"#), "no cap: {sent}");
+    assert!(
+        sent.contains(r#""stream_options":{"include_usage":true}"#),
+        "{sent}"
+    );
+}
+
+/// The lease token is checked before the body is read: a caller with a wrong token and a body
+/// over the limit is told about the token (or the server closes on the unread body), never
+/// about the body size, which it could only know by buffering the body first.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wrong_token_is_refused_before_the_body_is_read() {
+    let rig = Rig::new(proxy_setup(|_| {})).await;
+    let mut l = open(&rig, 1).await;
+    l.token = "not-the-token".into();
+    let huge = vec![b'x'; 5 * 1024 * 1024];
+    match post(&rig, &l, huge).send().await {
+        // The server answered and closed while the client was still writing.
+        Err(_) => {}
+        Ok(response) => {
+            let (status, bytes) = (response.status().as_u16(), response.bytes().await.unwrap());
+            assert_ne!(
+                err_code(&bytes),
+                "body_too_large",
+                "the body was read first"
+            );
+            assert!(status == 401 || status == 403, "{status}");
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

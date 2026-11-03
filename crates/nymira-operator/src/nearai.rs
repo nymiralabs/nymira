@@ -210,6 +210,11 @@ impl NearAiAdapter {
                 issued_at: now,
             };
         } else {
+            // The expiry slides to a week after each exchange, so the lifetime to measure the
+            // warning against starts at the last exchange, not at the first sight of the token.
+            if expires_at.is_some() {
+                session.login.issued_at = now;
+            }
             session.login.expires_at = expires_at.or(session.login.expires_at);
         }
         // The old token may be dead already, so the new one is on disk before anything else

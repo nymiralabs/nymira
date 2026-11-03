@@ -487,10 +487,18 @@ async fn the_signer_refuses_a_nullifier_in_an_exit() {
         Err(SignerError::Refused(reason)) => assert!(reason.contains("exit"), "{reason}"),
         other => panic!("{other:?}"),
     }
-    // The operator's own settlement is refused the same way: the lease stays unsettled.
+    // The operator settles the lease without a next state: its bound leaves the admission ledger
+    // and the credit is not held for ever by an exit someone filed on an open lease.
+    let open_before = rig.op.ledger().open_bounds();
+    assert!(open_before > 0);
     rig.op.tick().await;
-    assert_eq!(row(&rig, &l).await.status, "retired");
-    assert_eq!(request_status(&rig, &l).await.1["status"], "pending");
+    assert_eq!(row(&rig, &l).await.status, "settled");
+    assert_eq!(
+        rig.op.ledger().open_bounds(),
+        0,
+        "the bound is still booked"
+    );
+    assert_ne!(request_status(&rig, &l).await.1["status"], "pending");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -615,14 +623,14 @@ async fn the_signer_sends_a_heartbeat_every_thirty_minutes() {
     rig.clock.advance_secs(1);
     rig.heartbeat.set_failing(true);
     rig.signer.tick().await;
-    assert_eq!(
-        rig.heartbeat.sent(),
-        1,
-        "a failed send is retried on the next tick"
-    );
+    assert_eq!(rig.heartbeat.sent(), 1, "the send failed");
     rig.heartbeat.set_failing(false);
+    // A failed send backs off for a minute: the next tick does not ask the node again.
     rig.signer.tick().await;
-    assert_eq!(rig.heartbeat.sent(), 2);
+    assert_eq!(rig.heartbeat.sent(), 1, "backing off");
+    rig.clock.advance_secs(60);
+    rig.signer.tick().await;
+    assert_eq!(rig.heartbeat.sent(), 2, "retried after the back-off");
 }
 
 // ---------------------------------------------------------------- start-up
