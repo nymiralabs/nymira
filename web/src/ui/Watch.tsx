@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { due, noticeLevel, noticeText, remaining, watched } from '../leave/guard';
 import { leaveStore } from '../leave/store';
 import { isUnlocked } from '../crypto/wrap';
@@ -13,16 +13,23 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
   const s = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
   const wallet = useWallet();
 
+  // The app unlocks on whichever screen asks for the passphrase; the guard starts when it does.
+  const [unlocked, setUnlocked] = useState(isUnlocked());
+  useEffect(() => {
+    const timer = setInterval(() => setUnlocked(isUnlocked()), 500);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     void leaveStore.tick();
-  }, [screen, wallet.connected]);
+  }, [screen, wallet.connected, unlocked]);
 
   useEffect(() => {
     const timer = setInterval(() => void leaveStore.tick(), 60_000);
     return () => clearInterval(timer);
   }, []);
 
-  if (!isUnlocked()) return null;
+  if (!unlocked) return null;
   const advice = leaveStore.emergencyAdvice();
   const now = Math.floor(Date.now() / 1000);
   const near = s.rows.filter(

@@ -102,7 +102,6 @@ function BackupAfterClose({ ids }: { ids: string[] }) {
           throw new Error('The file does not hold this note. Download a new one.');
       }
       setTested(true);
-      for (const id of ids) leaveStore.dismissBackup(id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -151,7 +150,14 @@ function BackupAfterClose({ ids }: { ids: string[] }) {
       )}
       {tested && (
         <p className="ok" data-testid="close-backup-tested">
-          The backup opened and holds this note’s state.
+          The backup opened and holds this note’s state.{' '}
+          <button
+            type="button"
+            data-testid="close-backup-done"
+            onClick={() => ids.forEach((id) => leaveStore.dismissBackup(id))}
+          >
+            Done
+          </button>
         </p>
       )}
       {error && (
@@ -225,7 +231,7 @@ function NoteCard({
             <button
               type="button"
               data-testid="close-operator"
-              disabled={!canAct || !connected}
+              disabled={!canAct}
               onClick={() => void leaveStore.close(record, 'operator')}
             >
               Close through the operator (it pays the gas and takes the close fee)

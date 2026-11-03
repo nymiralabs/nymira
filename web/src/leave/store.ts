@@ -63,7 +63,6 @@ class LeaveStore {
   private listeners = new Set<() => void>();
   private emergencyAt = 0;
   private ticking = false;
-  private settingsLoaded = false;
   /** Overridable in tests of the store. */
   now: () => number = Date.now;
 
@@ -90,10 +89,7 @@ class LeaveStore {
       this.set({ rows: [] });
       return [];
     }
-    if (!this.settingsLoaded) {
-      this.settingsLoaded = true;
-      this.state = { ...this.state, settings: await loadGuardSettings() };
-    }
+    this.state = { ...this.state, settings: await loadGuardSettings() };
     const key = requireKey();
     const records = (await loadNotes()).filter((n) => n.kind === 'state' && n.phase === 'accepted');
     const rows = await Promise.all(
