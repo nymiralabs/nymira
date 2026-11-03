@@ -159,8 +159,18 @@ async fn an_oversize_body_is_refused_before_anything_else() {
     }
     assert_eq!(calls.0.load(Ordering::SeqCst), 0);
     assert_eq!(rig.op.attempt_entries(), 0);
-    // Just at the limit it is parsed (and fails as malformed).
-    let (status, v, _) = rig.post_lease(vec![b' '; 64 * 1024]).await;
+    // Just at the limit it is parsed (and fails as malformed). A fresh client: the server may have
+    // closed the pooled connection after the 413, and a reused one then fails with
+    // IncompleteMessage.
+    let response = reqwest::Client::new()
+        .post(format!("{}/v2/openrouter/leases", rig.url))
+        .header("content-type", "application/json")
+        .body(vec![b' '; 64 * 1024])
+        .send()
+        .await
+        .unwrap();
+    let status = response.status().as_u16();
+    let v: Value = response.json().await.unwrap_or(Value::Null);
     json_error(status, &v, 400, "malformed_request");
 }
 
