@@ -6,7 +6,7 @@ use near_workspaces::result::ExecutionFinalResult;
 use near_workspaces::types::NearToken;
 use near_workspaces::{Account, AccountId, Contract, Worker};
 use nymira_testkit::build::contract_wasm_with_features;
-use nymira_testkit::clock::{advance_to, now_seconds};
+use nymira_testkit::clock::{advance_past, advance_to, now_seconds};
 use nymira_testkit::mock_usdc::MockUsdc;
 use nymira_testkit::proofs::{canonical_verifying_key, signing_key, Kind};
 use serde_json::{json, Value};
@@ -1503,7 +1503,7 @@ async fn finalize_gas_after_a_one_day_exit_window() -> Result<()> {
         .transact()
         .await?;
     assert!(early.is_failure());
-    advance_to(&env.worker, deadline_ns / 1_000_000_000 + 1).await?;
+    advance_past(&env.worker, deadline_ns / 1_000_000_000 + 1).await?;
     let before = env.usdc.balance_of(env.alice.id()).await;
     let least = env
         .alice
