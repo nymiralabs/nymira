@@ -38,7 +38,10 @@ fn a_mainnet_config_has_quorum_three_and_an_archival_endpoint() {
     assert!(load(&two).unwrap_err().contains("at least 3 rpc_urls"));
 
     let mut no_archive = mainnet();
-    no_archive.as_object_mut().unwrap().remove("archival_rpc_url");
+    no_archive
+        .as_object_mut()
+        .unwrap()
+        .remove("archival_rpc_url");
     assert!(load(&no_archive).unwrap_err().contains("archival_rpc_url"));
 }
 
@@ -54,6 +57,7 @@ fn the_testnet_quorum_stays_two() {
 
 #[test]
 fn the_watcher_role_asks_for_the_config_quorum() {
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/roles.rs")).unwrap();
+    let text =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/roles.rs")).unwrap();
     assert!(text.contains("quorum: cfg.watcher_quorum()"));
 }
