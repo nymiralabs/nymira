@@ -1,6 +1,6 @@
 # web
 
-The Nymira web app. Funding (#36) gives the landing page, wallet connection, vault checks, the Fund screen, note storage, backup and restore. Chat (#37) adds the Chat screen. Close and exit (#38) and hosting (#39) build on both.
+The Nymira web app. Funding (#36) gives the landing page, wallet connection, vault checks, the Fund screen, note storage, backup and restore. Chat (#37) adds the Chat screen. Close and exit (#38) adds the Close screen and the expiry guard. Hosting (#39) builds on all three.
 
 The app is a static bundle: Vite 8, React 19, TypeScript. It has no backend and no third-party script, font or analytics. Everything below says what it does and what it cannot promise.
 
@@ -49,6 +49,9 @@ web/
     note/core.ts                   everything that touches a plain note secret (funding, backup)
     note/lease.ts                  the same for a chat: request proof, signed successor, lease
                                    records. rawjson.ts keeps u64 digits intact.
+    note/exit.ts                   the exit proofs (ownership, close, escape) and the exit lock
+    leave/                         flow.ts (close, exit, finalize, claim), guard.ts (expiry rules),
+                                   store.ts (what the screens share), text.ts (fixed wording)
     worker/                        the note worker that runs note/core.ts, its protocol and client
     backup/                        format.ts (the file), ics.ts (calendar reminder)
     funding/                       flow.ts (the funding steps), oneclick.ts (dry quotes)
@@ -143,19 +146,53 @@ The mock profile's reports carry a test quote (`chat/attest/testquote.ts`) so Pl
 
 `build-wasm.sh` builds five modules: the ceremony-setup wallet core (`zkapi-browser`), the dev-setup one (`zkapi-browser-dev`, mock profile), `near-codec`, `web-checks` (status signature and Intel quote) and `web-checks-test` (a test operator: its state key and signed responses; Node tests only). The unit tests run a real proof with the dev setup (about 10 s).
 
-Profiles with no published setup (`testnet`, `mainnet`) carry `provingKey: null`, and the Chat screen says chat is off. Fill it with the setup's key URL and SHA-256 when the setup is published.
+Profiles with no published setup (`testnet`, `mainnet`) carry `provingKey: null` and `withdrawalKey: null`, and the Chat and Close screens say they are off. Fill both with the setup's key URLs and SHA-256 hashes when the setup is published.
 
-## For the next tickets (#38 close and exit, #39 hosting)
+## Close and exit
 
-- `ChatSession` (`chat/session.ts`) owns a note's sealed payload during a conversation. Close and exit act on the note when no lease is open. `session.view()` and the worker operation `readNote` give the balance, `boundAtState`, whether a request is pending, the lease in progress and the finished records.
-- Worker operations (`worker/protocol.ts`): `loadProver`, `prepareLease`, `leaseOpened`, `recordExchange`, `completeLease`, `discardPending`, `readNote`, `solvePuzzle`. For #38, add `prepareWithdrawal` in the same style (the wasm export is `browser_prepare_withdrawal`; it needs the withdrawal key, which loads like the request key). Exit with concession 0 when no request left the state and with `boundAtState` otherwise. Refuse to start a lease after an exit proof left the worker.
-- Sealed payload shape: `{state, extra}`. `extra` is JSON text of `NoteExtra` (`note/lease.ts`): `journal` (a prepared request without an installed response), `active` (the lease in progress, with its token) and `leases` (finished records). The backup carries both (`BackupNote.extra`).
-- `pending` in `readNote` means a lease request was proven, and maybe sent, and its response is not installed. `ChatSession.end()` resolves it. A note in that state has to be settled before anything else.
-- `chat/runtime.ts` `chatDeps()` builds the dependencies (operator client, policy, quote verifier, signature check). `warmProver()` is the proving key load. The hosts the chat connects to come from the profile (`gatewayUrl`, `pccsUrl`, `operatorUrl`) through `headers.ts`.
-- Tests: `e2e/chat-support.ts` has `fundNote` (funding through the UI, then the tree views the app reads), `scriptTree` and a worker-scoped `stack` (`MockStack`, `e2e/mock-operator.ts`) with scenario switches: puzzle, `root_stale`, limits, an inflated charge, signature mode, TCB, an unbound key, a bad status signature, an emergency notice. A close and exit test can extend `MockStack` with `/v1/close` and the clearance route.
+The Close screen (`ui/Close.tsx`, flows in `leave/flow.ts`) leaves a note by one of two ways. Both follow `nymirad` (`gateway/close.rs`, `expiry.rs`), and the numbers are the same.
 
-From the funding ticket, still true:
+**Close.** The worker makes a kind-2 ownership proof (valid 3,300 s) and the app posts it to `POST /v2/withdraw/clearance`. The operator signs a clearance only for a note with no lease open. The worker checks that signature against the pinned clearance key and makes the kind-1 close proof, valid for 3 hours. `mutual_close` goes out from the user's wallet (no close fee), or, for a user without NEAR, to the operator's `POST /v1/close`, which sends it and takes the close fee. The app then asks the vault (`note_records`) whether the note shows `Closed`; a failed payout receipt does not make a close look failed, because the vault, not the outcome, decides.
 
-- `walletClient` (`wallet/client.ts`): `connect(id)`, `send(receiver, action)` for any function call (`FunctionCallAction`), `connected.accountId`. #38 sends `mutual_close`, `request_exit`, `finalize_exit` and `claim_payout` through `send`; `GAS` and the outcome handling are the caller's.
-- `makeBackupFile`, `loadNotes`, `backupScope` (`funding/flow.ts`): the backup after every retire and close is `makeBackupFile` plus `download`. Backup records carry whatever `NoteRecord` and the sealed payload carry; add the lease record to the payload (not to the public fields) so it travels with the backup.
+**Exit.** `request_exit` needs no clearance. The escape proof concedes the state's `bound_at_state`: 0 when no request proof was made at the state, the stored bound otherwise (the wallet core records the bound before a request leaves). A request that was proven and maybe sent is not guessed at: the exit concedes its bound. The exit window runs 7 days by the chain's clock. The screen shows the deadline and enables `finalize_exit` once the chain's latest final block is past it. "Claim payout" calls `claim_payout` for the payout account when a payout is pending.
+
+**The lock** (`note/exit.ts`). The wallet core's exit lock lives in the sealed payload (`extra.exit`) with every proof that left or may have left. It is written before a proof is returned and the page stores it before the proof is sent. While it exists the worker refuses `prepareLease`, so no request is made on a note after an exit proof left the worker; the Chat screen hides the note and `ChatSession` refuses it too. A mutual lock can switch to escape; an escape lock does not go back to mutual. One ownership proof is live at a time and a retry resends it. The app has no cancel: once a close or exit starts, the note leaves.
+
+**Times.** The ownership proof uses the operator's signed status time (so a wrong local clock cannot push it past the operator's 3,300 s window). The close and exit proofs and the exit deadline use the chain's final block time, which is what the vault judges. The local clock is used for the expiry guard only.
+
+**Gas.** The wallet account must hold about 0.005 NEAR before any proof is made, so a half-started exit never waits on gas. `request_exit`, `finalize_exit` and `claim_payout` can be sent by any account; the screen says so.
+
+**What the vault tripwire does here.** It does not block leaving: a vault that changed is exactly when a user may want out, and the proofs bind the chain, the vault address and the pinned keys.
+
+**What it shows on chain and to whom** is in `THREAT_MODEL.md` ("What closing and exiting show, from the web app") and on the screen: the note ID, total spend and payout account next to the sending account; the RPC provider sees the IP address with each read. The web app adds no delay before a close (`nymirad` waits one to twenty minutes).
+
+### Expiry guard (`leave/guard.ts`, `leave/store.ts`, `ui/Watch.tsx`)
+
+A note that reaches its expiry goes to the treasury. The banner shows every open note within 14 days of expiry. With the guard on (the default; a switch on the Close screen) and the app open:
+
+- 5 days or fewer: no new lease on the note (the Chat screen and `ChatSession` both refuse), and a mutual close starts;
+- 3 days or fewer, when the close did not go through: `request_exit` starts. The guard runs the exit in the same pass as the failed close, as `nymirad` does;
+- "starts" means the proofs are made and the wallet is asked. Nothing is sent that the wallet did not sign. A refused signature or a failure waits an hour before the next try;
+- the guard needs the app unlocked and a wallet connected. Without a wallet it says what is waiting. It cannot run while the app is closed;
+- closing at the end of a session is off by default. When switched on, ending a conversation starts a close that waits for the wallet. A browser cannot sign while a page unloads.
+
+On the operator's emergency notice (`/v1/status`, read when the Chat or Close screen opens and every five minutes), the app opens no lease, shows the notice on every screen and suggests an exit for each open note. The operator signs no clearance in an emergency, so the Close button says to exit.
+
+After a close or a finalized exit the app prompts for an encrypted backup and tests it: the file must be downloaded and chosen again, and its note must match the sealed one.
+
+### Tests and what is real
+
+`leave.spec.ts` (Playwright, Chromium; the close test also on WebKit) and `test/exit.test.ts` (Node, the real wallet core with the development setup).
+
+Real: the app, every proof (development setup), the operator mock's verification of the ownership proof and the clearance it signs with a real clearance key, the test wallet's signed transactions to the fake RPC, and the check of every `mutual_close`, `request_exit` and `/v1/close` call under the development withdrawal verifying key from its 16 statement words, the way the vault checks them.
+
+Mocked: the vault. The fake RPC runs no contract, so after each call the test scripts the views the vault would show (`note_records`, `exit_requests`, `pending_payout`). The chain's clock is the fake chain's, moved by the test: the sandbox cannot move seven days. No call from this app has run against the real vault or a sandbox vault.
+
+## For the hosting ticket (#39)
+
+- No new host: the Close screen talks to the operator, the RPC endpoints and the wallet frame, all already in `headers.ts`. The withdrawal proving key is a second file next to the request key (`profile.withdrawalKey`); if its URL is not on this origin, its host goes into `connect-src` too.
+- New files: `src/leave/` (flow, guard, store, wording), `src/chain/leave.ts`, `src/note/exit.ts`, `src/ui/Close.tsx`, `Watch.tsx`, `WalletConnect.tsx`, and the worker operations `loadWithdrawalProver` and `prepareWithdrawal`. The mock build serves `dist/setup/withdrawal.pk` (development key, mock profile only; `check:bundle` refuses `setup/` in a deployed bundle).
+- `nymira-web-wasm` exports `withdrawal_words` (the 16 statement words of a withdrawal) in the shipped build; its `test_operator_*` exports exist only in the test build.
 - Header set: `headers.ts` is the only place that knows the policy. Keep new hosts there.
+
+From the funding and chat tickets, still true: `walletClient.send(receiver, FunctionCallAction)` is how every vault call goes out, and the sealed payload is `{state, extra}` as JSON text read with `note/rawjson.ts`, never `JSON.parse` for numbers.

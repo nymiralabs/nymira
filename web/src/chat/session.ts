@@ -48,6 +48,8 @@ import {
   type QuoteVerifier,
 } from './attest/verify';
 import { badgeLabel, verifyCompletionSignature, weakest, type Trust } from './attest/signature';
+import { leaseBlocked } from '../leave/guard';
+import { loadGuardSettings } from '../leave/settings';
 
 export interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -316,6 +318,20 @@ export class ChatSession {
     if (bound === null)
       throw new ChatError('bound_class_missing', 'The vault lists no lease class of that size.');
     const view = await this.view();
+    // A close or exit began: no new request is made on this note (web spec story 45).
+    if (view.exit || this.note.leave) {
+      throw new ChatError(
+        'leaving',
+        'This note is closing or exiting, so it opens no new lease. Finish the close or exit on the Close screen.',
+      );
+    }
+    // No new lease in the last 5 days before expiry (the expiry guard, on by default).
+    if ((await loadGuardSettings()).enabled && leaseBlocked(view.expiry, this.nowSecs())) {
+      throw new ChatError(
+        'near_expiry',
+        'This note expires within 5 days, so it opens no new lease. Close it, or request an exit, on the Close screen.',
+      );
+    }
     if (view.pending && !allowPending)
       throw new ChatError(
         'lease_pending',

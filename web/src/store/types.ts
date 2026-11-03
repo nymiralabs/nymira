@@ -15,6 +15,25 @@ export type NotePhase = 'prepared' | 'backed_up' | 'sending' | 'sent' | 'accepte
 export type SealedKind = 'pending' | 'state';
 
 /**
+ * Where a note stands on its way out (public values only):
+ *  closing   close proofs made (a clearance may have been issued); the vault does not show it closed
+ *  closed    the vault shows the note closed by a mutual close
+ *  exiting   an exit proof was made; `deadline` is set once `request_exit` shows in the vault
+ *  exited    `finalize_exit` went through (a payout that failed waits for `claim_payout`)
+ * A note with `leave` set opens no new lease, here or in any restored copy.
+ */
+export interface LeaveInfo {
+  state: 'closing' | 'closed' | 'exiting' | 'exited';
+  /** How the close was sent: the user's wallet, or the operator's `POST /v1/close`. */
+  via?: 'wallet' | 'operator';
+  txHash?: string;
+  /** Unix seconds after which `finalize_exit` works. */
+  deadline?: number;
+  /** Unix seconds the state last changed. */
+  at: number;
+}
+
+/**
  * One note in IndexedDB. Everything except `sealed` is public information (it is on chain or it
  * is what the user typed); the note secret exists only inside `sealed`.
  */
@@ -37,6 +56,9 @@ export interface NoteRecord {
   expiry?: number;
   createdAt: number;
   updatedAt: number;
+  leave?: LeaveInfo;
+  /** What the expiry guard has shown or tried (`leave/guard.ts`). */
+  guard?: { notice?: number; closeFailed?: boolean; lastTry?: number };
   kind: SealedKind;
   sealed: Sealed;
 }

@@ -100,6 +100,8 @@ export interface Profile {
    * published: chat then stays off and says so.
    */
   provingKey: { url: string; sha256: string } | null;
+  /** The withdrawal proving key (close and exit proofs), published with the same setup. */
+  withdrawalKey: { url: string; sha256: string } | null;
   /** The mock profile's reports carry test quotes (Playwright only, never in a deployed bundle). */
   testEvidence: boolean;
 }

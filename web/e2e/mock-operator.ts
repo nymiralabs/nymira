@@ -51,6 +51,9 @@ const vault = JSON.parse(readFileSync(new URL('test-fixtures/mock-vault.json', r
 const requestVk = readFileSync(
   new URL('../vendor/zkapi/protocol/setup/v2-concession-dev/request.vk', root),
 );
+const withdrawalVk = readFileSync(
+  new URL('../vendor/zkapi/protocol/setup/v2-concession-dev/withdrawal.vk', root),
+);
 const CHAIN_ID = BigInt(vault.pins.config.chain_id as string);
 
 let ready = false;
@@ -86,6 +89,10 @@ export interface Scenario {
   /** The status nonce is signed with another key. */
   badStatusSignature: boolean;
   emergency: string;
+  /** An error code the clearance route answers with instead of a signature (HTTP 409). */
+  clearanceError: string;
+  /** An error code `POST /v1/close` answers with (HTTP 429). */
+  closeError: string;
   /** Overrides of the lease parameters the status repeats. */
   params: Record<string, unknown>;
 }
@@ -101,6 +108,8 @@ const fresh = (): Scenario => ({
   unboundKey: false,
   badStatusSignature: false,
   emergency: '',
+  clearanceError: '',
+  closeError: '',
   params: {},
 });
 
@@ -121,6 +130,50 @@ export interface Lease {
     completion: number;
     stream: boolean;
   }[];
+}
+
+/** What a close or exit call carries, read back the way the vault reads it. */
+export interface DecodedCall {
+  /** The proof verifies for these statement words under the development withdrawal key. */
+  valid: boolean;
+  /** 0 escape, 1 mutual close, 2 ownership. */
+  kind: number;
+  noteId: number;
+  finalBalance: bigint;
+  conceded: bigint;
+  validUntil: number;
+  /** The 20-byte destination, 40 hex digits. */
+  destination: string;
+  nullifier: string;
+  nextNullifier: string;
+}
+
+export interface CloseRecord extends DecodedCall {
+  args: { proof: string; inputs: string[] };
+}
+
+/** `{proof, inputs}` as `mutual_close`, `request_exit` and `POST /v1/close` take them. */
+export function decodeCall(args: { proof: string; inputs: string[] }): DecodedCall {
+  initWasm();
+  const words = args.inputs.map((w) => Buffer.from(w, 'base64').toString('hex'));
+  if (words.length !== 16 || words.some((w) => w.length !== 64))
+    throw new Error('a call carries 16 words of 32 bytes');
+  const big = (i: number) => BigInt(`0x${words[i]}`);
+  return {
+    valid: op.test_operator_verify_withdrawal_words(
+      withdrawalVk,
+      JSON.stringify(words),
+      args.proof,
+    ),
+    kind: Number(big(12)),
+    noteId: Number(big(8) >> 192n),
+    finalBalance: big(9),
+    conceded: big(14),
+    validUntil: Number(big(15)),
+    destination: words[10]!.slice(24),
+    nullifier: `0x${words[11]}`,
+    nextNullifier: `0x${words[13]}`,
+  };
 }
 
 export interface Seen {
@@ -144,6 +197,11 @@ export class MockStack {
   statusTimes: number[] = [];
   /** Plaintext the mock operator could see on the wire: it must never include message text. */
   wire: string[] = [];
+  /** Nullifiers the operator signed a clearance for, and the closes it took through /v1/close. */
+  clearances: string[] = [];
+  closes: CloseRecord[] = [];
+  /** Called when the operator "sends" a close, so a test can change what the chain shows. */
+  onClose?: (record: CloseRecord) => Promise<void>;
   private servers: Server[] = [];
   private nonces: string[] = [];
   private issuedCount = 0;
@@ -155,6 +213,9 @@ export class MockStack {
     this.requestTimes = [];
     this.statusTimes = [];
     this.wire = [];
+    this.clearances = [];
+    this.closes = [];
+    this.onClose = undefined;
     this.issuedCount = 0;
   }
 
@@ -283,7 +344,10 @@ export class MockStack {
       path: url.pathname,
       headers: { ...req.headers },
       body:
-        url.pathname === '/v1/chat/completions' || url.pathname === '/v2/openrouter/leases'
+        url.pathname === '/v1/chat/completions' ||
+        url.pathname === '/v2/openrouter/leases' ||
+        url.pathname === '/v2/withdraw/clearance' ||
+        url.pathname === '/v1/close'
           ? body
           : undefined,
     });
@@ -345,6 +409,10 @@ export class MockStack {
 
       if (req.method === 'POST' && url.pathname === '/v1/chat/completions')
         return this.chat(req, res, body);
+      if (req.method === 'POST' && url.pathname === '/v2/withdraw/clearance')
+        return this.clearance(res, body);
+      if (req.method === 'POST' && url.pathname === '/v1/close')
+        return await this.closeRoute(res, body);
 
       const leasePath = /^\/v2\/openrouter\/leases\/([^/]+)$/.exec(url.pathname);
       if (leasePath) {
@@ -400,6 +468,63 @@ export class MockStack {
       contractHex(),
       this.charge(lease),
     );
+  }
+
+  // ---- clearance and close ----
+
+  /** `POST /v2/withdraw/clearance`: a verified kind-2 proof gets a clearance from the clearance key. */
+  private clearance(res: ServerResponse, body: string) {
+    const s = this.scenario;
+    if (s.emergency) return this.error(res, 503, 'emergency');
+    if (s.clearanceError) return this.error(res, 409, s.clearanceError, s.clearanceError);
+    const parts = splitObject(body);
+    if (Object.keys(parts).sort().join() !== 'ownership_proof,withdrawal_nullifier')
+      return this.error(res, 400, 'malformed_request', 'unexpected fields');
+    const own = splitObject(parts.ownership_proof!);
+    if (Object.keys(own).sort().join() !== 'proof,public_inputs')
+      return this.error(res, 400, 'malformed_request', 'unexpected fields');
+    const publicInputs = own.public_inputs!;
+    const proof = (JSON.parse(own.proof!) as { proof: string }).proof;
+    const inputs = splitObject(publicInputs);
+    const nullifier = JSON.parse(inputs.withdrawal_nullifier!) as string;
+    if (JSON.parse(parts.withdrawal_nullifier!) !== nullifier)
+      return this.error(res, 400, 'malformed_request', 'the nullifier differs from the proof’s');
+    if (Number(inputs.kind) !== 2 || Number(inputs.conceded) !== 0)
+      return this.error(res, 422, 'proof_invalid', 'not an ownership proof');
+    const now = Math.floor(Date.now() / 1000);
+    const validUntil = Number(inputs.valid_until);
+    if (validUntil < now || validUntil > now + 3300)
+      return this.error(
+        res,
+        422,
+        'proof_expired',
+        'an ownership proof must end within 3,300 seconds',
+      );
+    if (!op.test_operator_verify_withdrawal(withdrawalVk, publicInputs, proof))
+      return this.error(res, 422, 'proof_invalid', 'Groth16 verification failed');
+    this.clearances.push(nullifier);
+    this.json(
+      res,
+      200,
+      null,
+      op.test_operator_sign_clearance(2n, nullifier, CHAIN_ID, contractHex()),
+    );
+  }
+
+  /** `POST /v1/close`: the closer's intake. The proof is verified; the chain effect is the test's. */
+  private async closeRoute(res: ServerResponse, body: string) {
+    if (this.scenario.closeError)
+      return this.error(res, 429, this.scenario.closeError, 'limited', 30);
+    const parsed = JSON.parse(body) as { proof?: string; inputs?: string[] };
+    if (Object.keys(parsed).sort().join() !== 'inputs,proof' || !parsed.proof || !parsed.inputs)
+      return this.error(res, 400, 'malformed_request', 'a close carries proof and inputs only');
+    const decoded = decodeCall({ proof: parsed.proof, inputs: parsed.inputs });
+    if (!decoded.valid || decoded.kind !== 1)
+      return this.error(res, 422, 'proof_invalid', 'not a valid close proof');
+    const record = { ...decoded, args: { proof: parsed.proof, inputs: parsed.inputs } };
+    this.closes.push(record);
+    await this.onClose?.(record);
+    this.json(res, 200, { tx_hash: `operator-close-${this.closes.length}` });
   }
 
   // ---- chat ----

@@ -10,8 +10,12 @@ import init, {
   browser_complete_response,
   browser_confirm_deposit,
   browser_generate_deposit,
+  browser_prepare_withdrawal,
 } from '@zkapi/zkapi_browser.js';
-import initCodec, { contractAddress } from '../wasm/near-codec/nymira_near_codec_wasm.js';
+import initCodec, {
+  contractAddress,
+  destination,
+} from '../wasm/near-codec/nymira_near_codec_wasm.js';
 import { importAesKey } from '../crypto/aead';
 import { b64decode, toHex } from '../crypto/bytes';
 import { deriveKeyBytes, type Argon2Params } from '../crypto/kdf';
@@ -33,6 +37,7 @@ import {
   type LeaseConfig,
   type LeaseWasm,
 } from '../note/lease';
+import { prepareWithdrawal, type WithdrawalWasm } from '../note/exit';
 import { solvePuzzle } from '../chat/puzzle';
 import { sha256Hex } from '../crypto/bytes';
 import type { LeaseConfigInput, WorkerRequest, WorkerResponse } from './protocol';
@@ -53,6 +58,24 @@ const leaseWasm: LeaseWasm = {
   treePath: (snapshot, noteId) => BrowserNoteTree.from_state(snapshot).path(noteId),
   completeResponse: browser_complete_response,
 };
+
+// The withdrawal proving key (about 4 MB) is read once too, after its SHA-256 matches.
+let withdrawalKey: Uint8Array | null = null;
+const exitWasm: WithdrawalWasm = {
+  prepareWithdrawal(config, state, args) {
+    if (!withdrawalKey) throw new Error('the withdrawal proving key is not loaded yet');
+    return browser_prepare_withdrawal(config, state, args, withdrawalKey);
+  },
+};
+
+async function loadKey(url: string, sha256: string, what: string): Promise<Uint8Array> {
+  const response = await fetch(url, { credentials: 'omit', cache: 'force-cache' });
+  if (!response.ok) throw new Error(`the ${what} could not be loaded (HTTP ${response.status})`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if ((await sha256Hex(bytes)) !== sha256)
+    throw new Error(`the ${what} does not match the SHA-256 this build pins; it is refused`);
+  return bytes;
+}
 
 const leaseConfig = (c: LeaseConfigInput): LeaseConfig => ({
   chainId: c.chainId,
@@ -106,6 +129,20 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       }
       prover = new BrowserRequestProver(bytes);
       return { bytes: bytes.length, ms: Math.round(performance.now() - started) };
+    }
+    case 'loadWithdrawalProver': {
+      const started = performance.now();
+      withdrawalKey = await loadKey(request.url, request.sha256, 'withdrawal proving key');
+      return { bytes: withdrawalKey.length, ms: Math.round(performance.now() - started) };
+    }
+    case 'prepareWithdrawal': {
+      const { input } = request;
+      const { payout, ...rest } = input;
+      return prepareWithdrawal(exitWasm, request.key, request.aad, request.sealed, {
+        ...rest,
+        config: leaseConfig(input.config),
+        ...(payout ? { destination: '0x' + toHex(destination(payout)) } : {}),
+      });
     }
     case 'prepareLease': {
       const { input } = request;

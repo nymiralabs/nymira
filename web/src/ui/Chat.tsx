@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
@@ -13,6 +13,8 @@ import { ChatError, ChatSession, type Answer, type Message, type Settled } from 
 import { badgeLabel } from '../chat/attest/signature';
 import type { NoteView } from '../note/lease';
 import { download, formatUnits } from './format';
+import { leaseBlocked } from '../leave/guard';
+import { leaveStore } from '../leave/store';
 import { Unlock } from './Unlock';
 import type { VaultCheck } from '../chain/vault';
 
@@ -26,6 +28,7 @@ type PickerWindow = Window & {
   showSaveFilePicker?: (o: unknown) => Promise<FsHandle>;
 };
 
+const nowSecs = () => Math.floor(Date.now() / 1000);
 const fsAccess = () => typeof (window as PickerWindow).showSaveFilePicker === 'function';
 
 function Badge({ settled }: { settled: Settled }) {
@@ -71,14 +74,21 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
   const [passphrase, setPassphrase] = useState('');
   const [fileHandle, setFileHandle] = useState<FsHandle | null>(null);
   const session = useRef<ChatSession | null>(null);
+  const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
 
   useEffect(() => {
     warmProver().then(setProver);
   }, []);
 
+  useEffect(() => {
+    if (unlocked) void leaveStore.checkEmergency(true);
+  }, [unlocked]);
+
   const refresh = useCallback(async () => {
     if (!isUnlocked()) return;
-    const all = (await loadNotes()).filter((n) => n.kind === 'state' && n.phase === 'accepted');
+    const all = (await loadNotes()).filter(
+      (n) => n.kind === 'state' && n.phase === 'accepted' && !n.leave,
+    );
     const key = requireKey();
     const withView = await Promise.all(
       all.map(async (record) => ({
@@ -177,6 +187,12 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
 
   const afterRetire = async (result: Settled) => {
     await refresh();
+    // Closing at the end of a session is off by default: every close shows the note ID and the
+    // total spend on chain. When the user switched it on, the close starts here and waits for the
+    // wallet's signature.
+    if (leave.settings.closeAtSessionEnd && session.current) {
+      void leaveStore.close(session.current.record, 'wallet');
+    }
     const leases = (await session.current?.view())?.leases.length ?? 0;
     const balance = BigInt(result.balance);
     const needed = backupDue(balance, leases);
@@ -272,6 +288,12 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
           The vault differs from what this build expects, so no new lease will open.
         </p>
       )}
+      {leave.emergency && !selected && (
+        <p className="warning" role="alert" data-testid="chat-emergency">
+          The operator posted an emergency notice. No new lease is opened. Use the Close screen to
+          request an exit.
+        </p>
+      )}
       {!selected && (
         <div data-testid="chat-notes">
           {notes.length === 0 && <p>No funded note yet. Fund one first.</p>}
@@ -292,11 +314,21 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
                   <button
                     type="button"
                     data-testid="chat-use-note"
-                    disabled={prover.status !== 'ready'}
+                    disabled={
+                      prover.status !== 'ready' ||
+                      leave.emergency !== null ||
+                      (leave.settings.enabled && leaseBlocked(view.expiry, nowSecs()))
+                    }
                     onClick={() => start(record)}
                   >
                     Chat with this note
                   </button>
+                )}
+                {leave.settings.enabled && leaseBlocked(view.expiry, nowSecs()) && (
+                  <em data-testid="note-near-expiry">
+                    {' '}
+                    (expires within 5 days: no new lease; close it or request an exit)
+                  </em>
                 )}
               </li>
             ))}

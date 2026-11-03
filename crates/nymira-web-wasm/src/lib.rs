@@ -54,6 +54,19 @@ pub fn status_signature_valid(
     verify_signature(&pk, &status_message(nonce, host, ts), &sig).map_err(|e| e.to_string())
 }
 
+/// The 16 public input words of a withdrawal statement, in circuit order, each 32 big-endian
+/// bytes as 64 hex digits. This is what `mutual_close`, `request_exit` and `POST /v1/close` carry
+/// as `inputs` (base64 of each word), built by the same call `nymirad` uses.
+pub fn withdrawal_words(public_json: &str) -> Result<Vec<String>, String> {
+    let public: zkapi_types::WithdrawalPublicInputsV2C =
+        serde_json::from_str(public_json).map_err(|e| e.to_string())?;
+    Ok(public
+        .to_field_elements()
+        .iter()
+        .map(|word| hex::encode(word.as_bytes()))
+        .collect())
+}
+
 /// What a verified quote carries; values are lower-case hex.
 #[derive(Serialize, Debug, PartialEq, Eq)]
 pub struct QuoteFacts {
@@ -165,6 +178,63 @@ pub mod test_operator {
         };
         serde_json::to_string(&response).map_err(|e| e.to_string())
     }
+
+    /// The clearance an operator whose clearance key is made from `seed` returns for the
+    /// withdrawal nullifier `nullifier_hex` (`ClearanceResponseV2` as JSON).
+    pub fn sign_clearance(
+        seed: u64,
+        nullifier_hex: &str,
+        chain_id: u64,
+        contract_hex: &str,
+    ) -> Result<String, String> {
+        let nullifier = Felt252::from_hex(nullifier_hex)?;
+        let contract = Felt252::from_hex(contract_hex)?;
+        let message =
+            zkapi_core::v2::clearance_message(PROTOCOL_VERSION, chain_id, &contract, &nullifier);
+        serde_json::to_string(&zkapi_types::wire::ClearanceResponseV2 {
+            status: "signed".into(),
+            withdrawal_nullifier: nullifier,
+            signature: signer(seed).sign(&message),
+        })
+        .map_err(|e| e.to_string())
+    }
+
+    fn proof_wire(proof_b64: &str) -> zkapi_types::wire::Groth16ProofWire {
+        zkapi_types::wire::Groth16ProofWire {
+            backend: zkapi_types::wire::ProofBackendWire::Groth16Bn254,
+            proof: proof_b64.to_string(),
+        }
+    }
+
+    /// Verifies a withdrawal proof against its public inputs (what the operator does for an
+    /// ownership proof) under the withdrawal verifying key file `vk`.
+    pub fn verify_withdrawal(
+        vk: &[u8],
+        public_json: &str,
+        proof_b64: &str,
+    ) -> Result<bool, String> {
+        let public: zkapi_types::WithdrawalPublicInputsV2C =
+            serde_json::from_str(public_json).map_err(|e| e.to_string())?;
+        zkapi_proof::compact::WithdrawalVerifier::from_bytes(vk)
+            .and_then(|v| v.verify(&public, &proof_wire(proof_b64)))
+            .map_err(|e| format!("{e:#}"))
+    }
+
+    /// Verifies a withdrawal proof against raw statement words (64 hex digits each), as the vault
+    /// does with the `inputs` of a call.
+    pub fn verify_withdrawal_words(
+        vk: &[u8],
+        words_hex: &[String],
+        proof_b64: &str,
+    ) -> Result<bool, String> {
+        let words = words_hex
+            .iter()
+            .map(|w| Felt252::from_hex(w))
+            .collect::<Result<Vec<_>, _>>()?;
+        zkapi_proof::compact::WithdrawalVerifier::from_bytes(vk)
+            .and_then(|v| v.verify_field_elements(&words, &proof_wire(proof_b64)))
+            .map_err(|e| format!("{e:#}"))
+    }
 }
 
 mod wasm {
@@ -193,6 +263,50 @@ mod wasm {
     ) -> Result<String, JsValue> {
         super::test_operator::respond(seed, request_json, chain_id, contract_hex, charge)
             .map_err(|e| JsValue::from_str(&e))
+    }
+
+    #[cfg(feature = "test-operator")]
+    #[wasm_bindgen]
+    pub fn test_operator_sign_clearance(
+        seed: u64,
+        nullifier_hex: &str,
+        chain_id: u64,
+        contract_hex: &str,
+    ) -> Result<String, JsValue> {
+        super::test_operator::sign_clearance(seed, nullifier_hex, chain_id, contract_hex)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    #[cfg(feature = "test-operator")]
+    #[wasm_bindgen]
+    pub fn test_operator_verify_withdrawal(
+        vk: &[u8],
+        public_json: &str,
+        proof_b64: &str,
+    ) -> Result<bool, JsValue> {
+        super::test_operator::verify_withdrawal(vk, public_json, proof_b64)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// `words_json` is the JSON array `withdrawal_words` returns.
+    #[cfg(feature = "test-operator")]
+    #[wasm_bindgen]
+    pub fn test_operator_verify_withdrawal_words(
+        vk: &[u8],
+        words_json: &str,
+        proof_b64: &str,
+    ) -> Result<bool, JsValue> {
+        let words: Vec<String> =
+            serde_json::from_str(words_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        super::test_operator::verify_withdrawal_words(vk, &words, proof_b64)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// The statement words of a withdrawal as a JSON array of 64-digit hex strings.
+    #[wasm_bindgen]
+    pub fn withdrawal_words(public_json: &str) -> Result<String, JsValue> {
+        let words = super::withdrawal_words(public_json).map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&words).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     #[wasm_bindgen]
@@ -234,6 +348,37 @@ mod wasm {
 mod tests {
     use super::*;
     use zkapi_proof::compact::CompactSigner;
+
+    #[test]
+    fn withdrawal_words_follow_the_circuit_order() {
+        let felt = |n: u64| Felt252::from_u64(n).to_hex();
+        let json = format!(
+            r#"{{"protocol_version":2,"chain_id":7718972759422244814,"contract_address":"{}","note_leaf":"{}","state_signing_key_x":"{}","state_signing_key_y":"{}","clearance_signing_key_x":"{}","clearance_signing_key_y":"{}","note_id":3,"deposit_amount":1000000,"expiry_ts":1900000000,"final_balance":900000,"destination":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9],"withdrawal_nullifier":"{}","kind":1,"next_nullifier":"{}","conceded":0,"valid_until":1800010800}}"#,
+            felt(1),
+            felt(2),
+            felt(3),
+            felt(4),
+            felt(5),
+            felt(6),
+            felt(7),
+            felt(0)
+        );
+        let words = withdrawal_words(&json).unwrap();
+        assert_eq!(words.len(), 16);
+        assert!(words.iter().all(|w| w.len() == 64));
+        let n = |i: usize| u128::from_str_radix(&words[i][32..], 16).unwrap();
+        assert_eq!(n(0), 2); // protocol version
+        assert_eq!(words[1], format!("{:064x}", 7_718_972_759_422_244_814u64));
+        assert_eq!(n(2), 1); // contract
+        assert_eq!(n(3), 2); // note leaf
+        assert_eq!(n(9), 900_000); // final balance
+        assert_eq!(n(10), 9); // destination, left padded
+        assert_eq!(n(11), 7); // nullifier
+        assert_eq!(n(12), 1); // kind
+        assert_eq!(n(13), 0); // next nullifier
+        assert_eq!(n(15), 1_800_010_800); // valid until
+        assert!(withdrawal_words("{}").is_err());
+    }
 
     #[test]
     fn a_status_nonce_signed_by_the_state_key_verifies_and_a_changed_host_does_not() {

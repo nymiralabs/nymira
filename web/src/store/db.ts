@@ -50,6 +50,12 @@ export const getWrapMeta = () =>
   run<WrapMeta | undefined>('meta', 'readonly', (s) => s.get('wrap'));
 export const putWrapMeta = (meta: WrapMeta) => run('meta', 'readwrite', (s) => s.put(meta, 'wrap'));
 
+/** Small public settings (the expiry guard's switches). Never a key or a secret. */
+export const getSetting = <T>(name: string) =>
+  run<T | undefined>('meta', 'readonly', (s) => s.get(`setting:${name}`));
+export const putSetting = (name: string, value: unknown) =>
+  run('meta', 'readwrite', (s) => s.put(value, `setting:${name}`));
+
 export const putNote = (note: NoteRecord) => run('notes', 'readwrite', (s) => s.put(note));
 export const getNote = (id: string) =>
   run<NoteRecord | undefined>('notes', 'readonly', (s) => s.get(id));

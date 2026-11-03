@@ -35,6 +35,10 @@ function headerPlugin(profile: Profile): Plugin {
       const key = resolve(__dirname, '../vendor/zkapi/protocol/setup/v2-concession-dev/request.pk');
       mkdirSync(resolve(__dirname, 'dist/setup'), { recursive: true });
       copyFileSync(key, resolve(__dirname, 'dist/setup/request.pk'));
+      copyFileSync(
+        resolve(__dirname, '../vendor/zkapi/protocol/setup/v2-concession-dev/withdrawal.pk'),
+        resolve(__dirname, 'dist/setup/withdrawal.pk'),
+      );
     },
   };
 }

@@ -148,6 +148,33 @@ export class OperatorClient {
     return { status, responseJson: response && response !== 'null' ? response : undefined };
   }
 
+  /**
+   * `POST /v2/withdraw/clearance`: the ownership proof for a nullifier with no lease open. Returns
+   * the operator's `ClearanceResponseV2` as JSON text, which the wallet core checks against the
+   * pinned clearance key.
+   */
+  async clearance(bodyJson: string): Promise<string> {
+    const r = await this.send('/v2/withdraw/clearance', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: bodyJson,
+    });
+    if (!r.ok) return OperatorClient.fail(r);
+    return r.text();
+  }
+
+  /** `POST /v1/close`: the operator sends `mutual_close` and takes the close fee. Returns the hash. */
+  async close(proof: string, inputs: string[]): Promise<string> {
+    const r = await this.send('/v1/close', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ proof, inputs }),
+    });
+    if (!r.ok) return OperatorClient.fail(r);
+    const body = (await r.json()) as { tx_hash?: unknown };
+    return typeof body.tx_hash === 'string' ? body.tx_hash : '';
+  }
+
   /** `POST /v1/chat/completions` with an already sealed body. The caller reads the bytes. */
   chat(body: string, leaseId: string, token: string, clientPub: string, modelPub: string) {
     return this.send('/v1/chat/completions', {
@@ -186,8 +213,9 @@ export function describeOperatorError(e: OperatorError | OperatorUnreachable): s
       return 'The operator asked for a proof of work and the answer was not accepted.';
     case 'root_stale':
       return 'The note tree changed while the proof was made.';
-    case 'nullifier_seen':
     case 'nullifier_in_exit':
+      return 'This note is in an exit. It cannot be closed with the operator; finalize the exit after its deadline.';
+    case 'nullifier_seen':
     case 'clearance_signed':
       return 'This note state was already used by another request or is being closed. Reload the note.';
     case 'nullifier_rate_limited':
@@ -216,6 +244,12 @@ export function describeOperatorError(e: OperatorError | OperatorUnreachable): s
       return `The operator is not signing new leases right now (${e.code}).${wait}`;
     case 'emergency':
       return 'The operator stopped new leases after a key problem. Close your note or request an exit.';
+    case 'lease_open':
+      return 'A lease is still open on this note at the operator. Wait for it to settle, then try again.';
+    case 'note_not_active':
+      return 'The vault does not show this note as open (it may be closed or already in an exit).';
+    case 'close_rate_limited':
+      return `The operator’s close service is limited.${wait}`;
     case 'provider_error':
       return 'The model provider returned an error.';
     case 'provider_timeout':
