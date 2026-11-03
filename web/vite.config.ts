@@ -1,9 +1,10 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
-import type { Plugin } from 'vite';
+import type { Plugin, ResolvedConfig } from 'vite';
 import { defineConfig } from 'vitest/config';
-import { headersFor } from './headers';
+import { cloudflareHeaders, headerClasses, headersFor } from './headers';
+import { canonicalHeaderSet } from './scripts/lib/integrity.mjs';
 import { profile as mainnet } from './src/profiles/mainnet';
 import { profile as mock } from './src/profiles/mock';
 import { profile as testnet } from './src/profiles/testnet';
@@ -43,6 +44,29 @@ function headerPlugin(profile: Profile): Plugin {
   };
 }
 
+// Next to a deployable bundle (`<outDir>-meta/`) the build writes the header output that the
+// release step signs: the Cloudflare `_headers` file and the canonical header set (INTEGRITY.md).
+// The mock bundle is never deployed and gets none.
+function metaPlugin(profile: Profile): Plugin {
+  let config: ResolvedConfig;
+  return {
+    name: 'nymira-meta',
+    apply: 'build',
+    configResolved(c) {
+      config = c;
+    },
+    closeBundle() {
+      if (profile.id === 'mock') return;
+      const outDir = resolve(config.root, config.build.outDir);
+      const rootFiles = readdirSync(outDir).filter((n) => statSync(resolve(outDir, n)).isFile());
+      const meta = `${outDir}-meta`;
+      mkdirSync(meta, { recursive: true });
+      writeFileSync(resolve(meta, '_headers'), cloudflareHeaders(profile, rootFiles));
+      writeFileSync(resolve(meta, 'headers.txt'), canonicalHeaderSet(headerClasses(profile)));
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   // Vitest runs with mode "test": it uses the mock profile.
   const profileId = process.env.VITEST ? 'mock' : mode;
@@ -51,7 +75,7 @@ export default defineConfig(({ mode }) => {
     throw new Error(`unknown mode "${mode}": expected one of ${Object.keys(PROFILES).join(', ')}`);
   }
   return {
-    plugins: [react(), headerPlugin(profile)],
+    plugins: [react(), headerPlugin(profile), metaPlugin(profile)],
     resolve: {
       alias: {
         '@profile': resolve(__dirname, `src/profiles/${profileId}.ts`),
