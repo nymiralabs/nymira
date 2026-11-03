@@ -161,7 +161,7 @@ impl Drop for Hold<'_> {
     }
 }
 
-fn words(public: &WithdrawalPublicInputsV2C) -> Vec<String> {
+pub fn words(public: &WithdrawalPublicInputsV2C) -> Vec<String> {
     let b64 = base64::engine::general_purpose::STANDARD;
     public
         .to_field_elements()

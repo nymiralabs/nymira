@@ -767,18 +767,15 @@ impl Gateway {
         self.transport
             .ensure_ready()
             .map_err(|e| net_error("operator_unreachable", e))?;
-        let sent = http
+        let mut builder = http
             .post(format!("{}/v1/chat/completions", self.cfg.operator_url))
             .header("content-type", "application/json")
             .header("x-nymira-lease-id", &lease.id)
-            .header(lease::TOKEN_HEADER, lease.token.expose())
-            .header("x-signing-algo", "ed25519")
-            .header("x-client-pub-key", keys.public_hex())
-            .header("x-model-pub-key", hex::encode(identity.model_pub))
-            .header("x-encryption-version", "2")
-            .body(body.clone())
-            .send()
-            .await;
+            .header(lease::TOKEN_HEADER, lease.token.expose());
+        for (name, value) in e2ee::request_headers(&keys.public_hex(), &identity.model_pub) {
+            builder = builder.header(name, value);
+        }
+        let sent = builder.body(body.clone()).send().await;
         let release = |this: &Arc<Self>| {
             let (this, key) = (this.clone(), key.clone());
             async move {

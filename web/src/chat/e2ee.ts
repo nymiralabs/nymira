@@ -62,15 +62,28 @@ function cipher(shared: Uint8Array, nonce: Uint8Array) {
 
 /** Encrypts `plaintext` to the Ed25519 public key `modelPub`; hex. */
 export function encrypt(modelPub: Uint8Array, plaintext: Uint8Array): string {
+  return encryptWith(
+    modelPub,
+    plaintext,
+    crypto.getRandomValues(new Uint8Array(32)),
+    crypto.getRandomValues(new Uint8Array(24)),
+  );
+}
+
+/** `encrypt` with the ephemeral secret and the nonce given; only for known-answer tests. */
+export function encryptWith(
+  modelPub: Uint8Array,
+  plaintext: Uint8Array,
+  eph: Uint8Array,
+  nonce: Uint8Array,
+): string {
   let x: Uint8Array;
   try {
     x = ed25519.utils.toMontgomery(modelPub);
   } catch {
     throw new E2eeError('model_key', 'the model’s key is not a valid Ed25519 public key');
   }
-  const eph = crypto.getRandomValues(new Uint8Array(32));
   const shared = x25519.getSharedSecret(eph, x);
-  const nonce = crypto.getRandomValues(new Uint8Array(24));
   const ct = cipher(shared, nonce).encrypt(plaintext);
   return toHex(new Uint8Array([...x25519.getPublicKey(eph), ...nonce, ...ct]));
 }
