@@ -5,7 +5,7 @@ use crate::{
     mode::Mode,
     oneclick::{validate_quote, FundingClient},
     pins::{Pins, Tripwire},
-    rpc::Rpc,
+    rpc::{complete_receipts, Rpc},
     secrets::{new_secret, NoteEntry, NoteStatus, NoteStore},
 };
 use nymira_operator::clock::Clock;
@@ -58,12 +58,12 @@ pub enum Booking {
 }
 
 impl Booking {
-    pub fn report(&self, commitment: &str) -> String {
+    pub fn report(&self) -> String {
         match self {
             Self::Dust { amount, reason } => format!("Dust: {amount} USDC base units ({reason}) went to the treasury balance; this amount cannot be claimed."),
             Self::Unclaimed { amount, .. } => format!("Unclaimed: {amount} USDC base units. The vault could not read the message or found no valid payout account, so the amount went to the treasury balance. No note was confirmed."),
             Self::PayoutPending { account, amount, reason } => format!(
-                "Pending payout: {amount} USDC base units for {account} ({reason}). Run nymirad claim-payout --intents {commitment}. The submitter needs NEAR for gas."
+                "Receipt booked payout: {amount} USDC base units for {account} ({reason})."
             ),
         }
     }
@@ -428,7 +428,7 @@ impl Funding {
     async fn pending_report(&self, rpc: &Rpc, note: &NoteEntry) -> Option<String> {
         match rpc.view(&self.pins.vault, "pending_payout", json!({"account_id": note.payout})).await {
             Ok(value) => match number(&value) {
-                Ok(0) => None,
+                Ok(0) => Some(format!("No payout is currently pending for {}; there is nothing to claim.", note.payout)),
                 Ok(amount) => Some(format!("Current pending payout for {}: {amount} USDC base units (account total across deposits). Run nymirad claim-payout --intents {}. This balance alone does not confirm a note.", note.payout, note.commitment)),
                 Err(e) => Some(format!("Pending payout check not verified: {e}")),
             },
@@ -554,16 +554,14 @@ impl Funding {
         attempt.bookings = self.bookings(&booking_events, attempt, &note, accepted_id)?;
         if matching.is_empty() && !attempt.bookings.is_empty() {
             attempt.phase = Phase::Booked;
-            self.notes
-                .save_funding(attempt)
-                .map_err(|e| e.to_string())?;
-            self.back_up()?;
-            let mut reports: Vec<_> = attempt
-                .bookings
-                .iter()
-                .map(|b| b.report(&attempt.commitment))
-                .collect();
+            let mut reports: Vec<_> = attempt.bookings.iter().map(Booking::report).collect();
             reports.extend(pending_report);
+            if let Err(error) = self.notes.save_funding(attempt) {
+                reports.push(format!("funding journal after delivery: {error}"));
+            }
+            if let Err(error) = self.back_up() {
+                reports.push(format!("backup after delivery: {error}"));
+            }
             return Err(reports.join("\n"));
         }
         if matching.len() != 1 {
@@ -630,9 +628,6 @@ impl Funding {
             return Err("deposit receipt failed; the note is not accepted".into());
         }
         attempt.receipt = Some(receipt.into());
-        self.notes
-            .save_funding(attempt)
-            .map_err(|e| e.to_string())?;
         let mut blocked = false;
         self.notes
             .update(&attempt.commitment, |n| {
@@ -653,14 +648,11 @@ impl Funding {
             );
         }
         attempt.phase = Phase::Accepted;
-        self.notes
-            .save_funding(attempt)
-            .map_err(|e| e.to_string())?;
-        let mut warnings: Vec<String> = attempt
-            .bookings
-            .iter()
-            .map(|b| b.report(&attempt.commitment))
-            .collect();
+        let journal_error = self.notes.save_funding(attempt).err();
+        let mut warnings: Vec<String> = attempt.bookings.iter().map(|b| b.report()).collect();
+        if let Some(error) = journal_error {
+            warnings.push(format!("funding journal after acceptance: {error}"));
+        }
         warnings.extend(pending_report);
         if expiry <= self.clock.now_secs() {
             warnings.push("The note has expired. It cannot open a lease; use an exit to recover the remaining balance.".into());
@@ -692,31 +684,6 @@ impl Funding {
             warnings,
         }))
     }
-}
-
-fn complete_receipts(outcome: &Value) -> bool {
-    if outcome["final_execution_status"] != "FINAL" {
-        return false;
-    }
-    let Some(receipts) = outcome["receipts_outcome"].as_array() else {
-        return false;
-    };
-    let ids: std::collections::BTreeSet<_> =
-        receipts.iter().filter_map(|r| r["id"].as_str()).collect();
-    if ids.len() != receipts.len() {
-        return false;
-    }
-    std::iter::once(&outcome["transaction_outcome"])
-        .chain(receipts.iter())
-        .all(|r| {
-            r["outcome"]["receipt_ids"]
-                .as_array()
-                .is_some_and(|children| {
-                    children
-                        .iter()
-                        .all(|id| id.as_str().is_some_and(|id| ids.contains(id)))
-                })
-        })
 }
 
 pub const SOURCES_FILE: &str = "intents-sources.json";

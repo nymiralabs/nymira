@@ -20,6 +20,7 @@ use zkapi_types::{Felt252, SchnorrSignature, WithdrawalPublicInputsV2C};
 use super::*;
 use crate::direct::DirectClient;
 use crate::exits::Left;
+use crate::rpc::complete_receipts;
 use crate::submitter::{Submitter, PERSONAL};
 
 /// Gas attached to every submitter call: `mutual_close` needs 80 Tgas and the payouts 30.
@@ -769,7 +770,12 @@ impl Gateway {
             .map_or_else(|| "not recorded".to_string(), |l| l.spent);
         let route = self.route(note_id, &spent, ask).await?;
         let hash = self
-            .claim_from(&entry, &sub, &route, format!("claim:{note_id}"))
+            .claim_from(
+                &entry,
+                &sub,
+                &route,
+                format!("claim:{note_id}:{}", crate::net::identity()),
+            )
             .await?;
         Ok(Paid {
             note_id,
@@ -851,6 +857,44 @@ impl Gateway {
             .await?;
         if !end.success {
             return Err(Self::refused("claim_payout", &end));
+        }
+        let result = route
+            .rpc
+            .call(
+                "EXPERIMENTAL_tx_status",
+                json!({
+                    "tx_hash": end.hash, "sender_account_id": sub.account, "wait_until": "FINAL"
+                }),
+            )
+            .await
+            .map_err(|e| {
+                failed(format!(
+                    "claim transaction {}: payout not verified: {e}",
+                    end.hash
+                ))
+            })?;
+        if !complete_receipts(&result) {
+            return Err(failed(format!("claim transaction {}: the final payout receipts are not available; check the pending payout before retrying", end.hash)));
+        }
+        let mut successful = result;
+        successful["receipts_outcome"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|r| {
+                let status = &r["outcome"]["status"];
+                status.get("SuccessValue").is_some() || status.get("SuccessReceiptId").is_some()
+            });
+        let events = crate::deposit::events_in(&successful, &self.cfg.vault);
+        let paid = events
+            .iter()
+            .filter(|e| {
+                e["event"] == "payout_claimed"
+                    && e["data"]["account"].as_str() == Some(&entry.payout)
+                    && e["data"]["amount"].as_str() == Some(&amount.to_string())
+            })
+            .count();
+        if paid != 1 {
+            return Err(failed(format!("claim transaction {} did not confirm the payout; check the pending payout before retrying", end.hash)));
         }
         Ok(end.hash)
     }

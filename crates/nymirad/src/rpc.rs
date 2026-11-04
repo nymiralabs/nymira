@@ -305,6 +305,31 @@ impl Rpc {
     }
 }
 
+pub(crate) fn complete_receipts(outcome: &Value) -> bool {
+    if outcome["final_execution_status"] != "FINAL" {
+        return false;
+    }
+    let Some(receipts) = outcome["receipts_outcome"].as_array() else {
+        return false;
+    };
+    let ids: std::collections::BTreeSet<_> =
+        receipts.iter().filter_map(|r| r["id"].as_str()).collect();
+    if ids.len() != receipts.len() {
+        return false;
+    }
+    std::iter::once(&outcome["transaction_outcome"])
+        .chain(receipts.iter())
+        .all(|r| {
+            r["outcome"]["receipt_ids"]
+                .as_array()
+                .is_some_and(|children| {
+                    children
+                        .iter()
+                        .all(|id| id.as_str().is_some_and(|id| ids.contains(id)))
+                })
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

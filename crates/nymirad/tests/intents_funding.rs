@@ -422,20 +422,39 @@ async fn success_without_a_matching_deposit_receipt_never_accepts_the_note() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_intents_payout_without_a_note_id_is_claimed_over_the_owner_socket() {
-    use nymirad::ownersock::{bind, request, serve, Command as OwnerCommand};
+async fn refused_verifier_deliveries_are_found_and_claimed_without_a_note_id() {
+    use nymira_testkit::proofs::{canonical_verifying_key, Kind};
+    use nymirad::intents::{Attempt, Funding, Phase};
+    use nymirad::mode::Mode;
+    use nymirad::oneclick::FundingClient;
+    use nymirad::ownersock::{bind, serve};
     use nymirad::secrets::{new_secret, NoteEntry};
-    let s = stack::build(Transport::Direct, false).await;
-    s.vault
-        .as_account()
-        .deploy(&nymira_testkit::build::contract_wasm_with_features(
+    use std::sync::Mutex;
+
+    let mut s = stack::build(Transport::Direct, false).await;
+    let vault = s
+        .worker
+        .dev_deploy(&nymira_testkit::build::contract_wasm_with_features(
             "contracts/vault",
             &["dev-setup", "test-intents-account"],
         ))
         .await
-        .unwrap()
-        .into_result()
         .unwrap();
+    vault.call("new").args_json(json!({
+        "operator_pk": stack::point(1), "clearance_pk": stack::point(2), "token": s.usdc.contract.id(),
+        "denominations": ["1000000"], "tvl_cap": "1050000",
+        "request_vk": stack::b64(&canonical_verifying_key(Kind::Request)),
+        "withdrawal_vk": stack::b64(&canonical_verifying_key(Kind::Withdrawal)),
+        "treasury": s.treasury.id(), "note_fee": "50000", "exit_delay_secs": 604800,
+        "note_ttl": 2592000, "bound_classes": ["100000", "500000"],
+        "charge_step": "1000", "min_charge": "2000", "slot_rate": 1000,
+        "owner": s.worker.root_account().unwrap().id(), "operator_account": s.alice.id(),
+    })).max_gas().transact().await.unwrap().into_result().unwrap();
+    s.usdc.register_id(vault.id()).await;
+    s.vault = vault;
+    s.parts.vault_id = s.vault.id().to_string();
+    s.gateway =
+        stack::make_gateway(s.home.path(), &s.parts, Transport::Direct, s.clock.clone()).await;
     let verifier = nymira_testkit::intents::deploy_verifier(&s.worker, "intents", "wrap.test.near")
         .await
         .unwrap();
@@ -444,64 +463,26 @@ async fn an_intents_payout_without_a_note_id_is_claimed_over_the_owner_socket() 
         .ft_transfer_call(
             &s.alice,
             verifier.id(),
-            500_000,
+            10_000_000,
             &json!({"receiver_id": s.alice.id()}).to_string(),
         )
         .await
         .unwrap();
-    let (secret, commitment) = new_secret("near-mainnet");
-    let commitment = format!("0x{}", hex::encode(commitment.0));
-    let notes = NoteStore::open(&s.home.path().join("notes.sealed"), stack::PASS, 10).unwrap();
-    notes
-        .add(NoteEntry {
-            chain_label: "near-mainnet".into(),
-            secret: hex::encode(secret.0),
-            commitment: commitment.clone(),
-            denomination: "1000000".into(),
-            payout: s.alice.id().to_string(),
-            status: NoteStatus::Pending,
-            note_id: None,
-            expiry_ns: None,
-            deposit_amount: None,
-            tx_hash: None,
-            created_at: 1,
-        })
-        .unwrap();
-    notes
-        .save_funding(&nymirad::intents::Attempt {
-            commitment: commitment.clone(),
-            request: json!({"amount": "1050000"}),
-            quote: json!({}),
-            receipt: None,
-            phase: Default::default(),
-            destination: None,
-            bookings: vec![],
-            notice: None,
-        })
-        .unwrap();
-    s.alice
-        .call(verifier.id(), "ft_withdraw")
-        .args_json(json!({
-            "token": s.usdc.contract.id(), "receiver_id": s.vault.id(), "amount": "500000",
+
+    let (occupied_secret, occupied) = new_secret("near-mainnet");
+    let occupied = format!("0x{}", hex::encode(occupied.0));
+    let deliver = |amount: u128, commitment: &str| {
+        s.alice.call(verifier.id(), "ft_withdraw").args_json(json!({
+            "token": s.usdc.contract.id(), "receiver_id": s.vault.id(), "amount": amount.to_string(),
             "msg": json!({"commitment": commitment, "withdraw_to": s.alice.id()}).to_string()
-        }))
-        .deposit(NearToken::from_yoctonear(1))
-        .max_gas()
+        })).deposit(NearToken::from_yoctonear(1)).max_gas()
+    };
+    deliver(1_050_000, &occupied)
         .transact()
         .await
         .unwrap()
         .into_result()
         .unwrap();
-    let pending: Value = s
-        .vault
-        .view("pending_payout")
-        .args_json(json!({"account_id": s.alice.id()}))
-        .await
-        .unwrap()
-        .json()
-        .unwrap();
-    assert_eq!(pending, "500000");
-    let before = s.usdc.balance_of(s.alice.id()).await;
     let sub = stack::submitter(&s, "personal", NearToken::from_near(5)).await;
     let key = s
         .gateway
@@ -514,48 +495,167 @@ async fn an_intents_payout_without_a_note_id_is_claimed_over_the_owner_socket() 
     let mut finalized = false;
     for _ in 0..30 {
         if rpc.call("query", json!({"request_type": "view_access_key", "finality": "final", "account_id": sub.id(), "public_key": key})).await.is_ok() {
-            finalized = true;
-            break;
+            finalized = true; break;
         }
         s.worker.fast_forward(5).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     assert!(
         finalized,
-        "the submitter key must be readable at final finality before claiming"
+        "the submitter key must be readable at final finality"
     );
     let listener = bind(s.home.path()).unwrap();
     let task = tokio::spawn(serve(listener, s.gateway.clone()));
-    let command = OwnerCommand::ClaimIntentsPayout {
-        commitment: commitment.clone(),
-        family: None,
-    };
-    let dir = s.home.path().to_path_buf();
-    let output = tokio::task::spawn_blocking(move || {
-        cli(
-            &dir,
-            &["claim-payout".into(), "--intents".into(), commitment],
-            "",
-        )
-    })
-    .await
-    .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let status = Arc::new(Mutex::new(json!({})));
+    let edited_status = status.clone();
+    let app = axum::Router::new().route(
+        "/v0/status",
+        axum::routing::get(move || {
+            let value = edited_status.lock().unwrap().clone();
+            async move { axum::Json(value) }
+        }),
     );
-    let result = String::from_utf8_lossy(&output.stdout);
-    assert!(result.contains("Pending payout claimed"), "{result}");
-    assert_eq!(s.usdc.balance_of(s.alice.id()).await, before + 500_000);
-    assert_eq!(s.usdc.balance_of(sub.id()).await, 0);
-    assert_eq!(notes.list().unwrap()[0].status, NoteStatus::Pending);
-    assert_eq!(notes.list().unwrap()[0].note_id, None);
-    let again = request(s.home.path(), &command, |_| {}, |_| false)
-        .await
-        .unwrap_err();
-    assert!(again.contains("nothing is pending"), "{again}");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = FundingClient::mock(
+        &format!("http://{}", listener.local_addr().unwrap()),
+        Mode::Mainnet,
+        true,
+    )
+    .unwrap();
+    let status_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (_, public) = backup::generate_identity();
+    let funding = Funding {
+        mode: Mode::Mainnet,
+        home: s.home.path().into(),
+        pins: nymirad::pins::read_live(&rpc, s.vault.id().as_str())
+            .await
+            .unwrap(),
+        rpc,
+        archival: None,
+        notes: NoteStore::open(&s.home.path().join("notes.sealed"), stack::PASS, 10).unwrap(),
+        backup: backup::Target::new(
+            backup::parse_recipient(&public).unwrap(),
+            vec![s.home.path().join("backup")],
+        ),
+        clock: s.clock.clone(),
+    };
+    for (case, amount) in [
+        ("short_by_one_unit", 1_049_999),
+        ("below_smallest_denomination", 900_000),
+        ("repeated_commitment", 1_050_000),
+        ("full_cap", 1_050_000),
+    ] {
+        let (secret, commitment) = new_secret("near-mainnet");
+        let commitment = if case == "repeated_commitment" {
+            occupied.clone()
+        } else {
+            format!("0x{}", hex::encode(commitment.0))
+        };
+        funding
+            .notes
+            .add(NoteEntry {
+                chain_label: "near-mainnet".into(),
+                secret: hex::encode(if case == "repeated_commitment" {
+                    occupied_secret.0
+                } else {
+                    secret.0
+                }),
+                commitment: commitment.clone(),
+                denomination: "1000000".into(),
+                payout: s.alice.id().to_string(),
+                status: NoteStatus::Pending,
+                note_id: None,
+                expiry_ns: None,
+                deposit_amount: None,
+                tx_hash: None,
+                created_at: 1,
+            })
+            .unwrap();
+        let mut attempt = Attempt {
+            commitment: commitment.clone(),
+            request: json!({"amount": "1050000"}),
+            quote: json!({"quote": {"depositAddress": "fake"}}),
+            receipt: None,
+            phase: Phase::AddressReady,
+            destination: None,
+            bookings: vec![],
+            notice: None,
+        };
+        funding.notes.save_funding(&attempt).unwrap();
+        funding.back_up().unwrap();
+        let result = deliver(amount, &commitment).transact().await.unwrap();
+        let hash = result.outcome().transaction_hash.to_string();
+        result.into_result().unwrap();
+        *status.lock().unwrap() = json!({"status": "SUCCESS", "swapDetails": {
+            "nearTxHashes": [hash], "destinationSigner": s.alice.id(), "amountOut": amount.to_string()
+        }});
+        let report = funding.progress(&client, &mut attempt).await.unwrap_err();
+        assert!(
+            report.contains(&format!("Receipt booked payout: {amount}"))
+                && report.contains("claim-payout"),
+            "{case}: {report}"
+        );
+        assert_eq!(attempt.phase, Phase::Booked);
+        assert_eq!(
+            funding
+                .notes
+                .list()
+                .unwrap()
+                .iter()
+                .find(|n| n.commitment == commitment)
+                .unwrap()
+                .status,
+            NoteStatus::Pending
+        );
+        let claim_args = vec![
+            "claim-payout".into(),
+            "--intents".into(),
+            commitment.clone(),
+        ];
+        let before = s.usdc.balance_of(s.alice.id()).await;
+        if case == "short_by_one_unit" {
+            s.usdc.set_paused(true).await;
+            let dir = s.home.path().to_path_buf();
+            let args = claim_args.clone();
+            let failed = tokio::task::spawn_blocking(move || cli(&dir, &args, ""))
+                .await
+                .unwrap();
+            assert!(
+                !failed.status.success(),
+                "a failed token transfer must not report a claim"
+            );
+            assert_eq!(s.usdc.balance_of(s.alice.id()).await, before);
+            let pending: Value = s
+                .vault
+                .view("pending_payout")
+                .args_json(json!({"account_id": s.alice.id()}))
+                .await
+                .unwrap()
+                .json()
+                .unwrap();
+            assert_eq!(pending, amount.to_string());
+            s.usdc.set_paused(false).await;
+        }
+        let dir = s.home.path().to_path_buf();
+        let output = tokio::task::spawn_blocking(move || cli(&dir, &claim_args, ""))
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Pending payout claimed"));
+        assert_eq!(s.usdc.balance_of(s.alice.id()).await, before + amount);
+        assert_eq!(s.usdc.balance_of(sub.id()).await, 0);
+        let after = funding.progress(&client, &mut attempt).await.unwrap_err();
+        assert!(
+            after.contains("nothing to claim") && !after.contains("Run nymirad claim-payout"),
+            "{case}: {after}"
+        );
+    }
     task.abort();
+    status_task.abort();
 }
 
 #[tokio::test(flavor = "multi_thread")]

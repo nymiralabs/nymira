@@ -90,7 +90,12 @@ async fn fixture(note_status: NoteStatus, success: bool, expiry: u64) -> Fixture
                     _ => {
                         let data = match body["params"]["method_name"].as_str() {
                             Some("config") => config.lock().unwrap().clone(),
-                            Some("pending_payout") => json!("1050000"),
+                            Some("pending_payout") => config
+                                .lock()
+                                .unwrap()
+                                .get("pending")
+                                .cloned()
+                                .unwrap_or(json!("1050000")),
                             Some("note_records") => {
                                 json!([{"note_id": 7, "deposit_amount": "1000000", "expiry": expiry}])
                             }
@@ -361,12 +366,17 @@ async fn an_accepted_note_also_reports_its_excess_pending_payout() {
         .unwrap()
         .unwrap();
     assert!(
-        accepted.warnings.iter().any(|s| s.contains("100000")
-            && s.contains("intents_excess")
-            && s.contains("claim-payout")),
+        accepted
+            .warnings
+            .iter()
+            .any(|s| s.contains("100000") && s.contains("intents_excess")),
         "{:?}",
         accepted.warnings
     );
+    assert!(accepted
+        .warnings
+        .iter()
+        .any(|s| s.contains("claim-payout") && s.contains("account total")));
 }
 
 #[tokio::test]
@@ -484,7 +494,7 @@ async fn a_short_delivery_matches_the_actual_settled_amount_instead_of_the_quote
         .progress(&f.client, &mut f.attempt)
         .await
         .unwrap_err();
-    assert!(report.contains("Pending payout: 500000"), "{report}");
+    assert!(report.contains("Receipt booked payout: 500000"), "{report}");
     assert_eq!(
         f.funding.notes.list().unwrap()[0].status,
         NoteStatus::Pending
@@ -524,12 +534,13 @@ async fn a_failed_deposit_cannot_borrow_success_from_another_vault_receipt() {
     let event = json!({"standard": "nymira", "event": "payout_pending", "data": {
         "account": "alice.near", "amount": "50000", "reason": "intents_excess", "commitment": f.attempt.commitment
     }});
-    let mut outcome = f.outcome.lock().unwrap();
-    outcome["transaction_outcome"]["outcome"]["receipt_ids"] = json!(["other", "receipt"]);
-    outcome["receipts_outcome"].as_array_mut().unwrap().insert(0, json!({"id": "other", "outcome": {
+    {
+        let mut outcome = f.outcome.lock().unwrap();
+        outcome["transaction_outcome"]["outcome"]["receipt_ids"] = json!(["other", "receipt"]);
+        outcome["receipts_outcome"].as_array_mut().unwrap().insert(0, json!({"id": "other", "outcome": {
         "executor_id": "vault.near", "logs": [format!("EVENT_JSON:{event}")], "receipt_ids": [], "status": {"SuccessValue": ""}
     }}));
-    drop(outcome);
+    }
     let result = f.funding.progress(&f.client, &mut f.attempt).await;
     assert!(
         result.is_err(),
@@ -609,21 +620,23 @@ async fn unrelated_malformed_failed_and_ambiguous_bookings_are_never_attributed(
 async fn the_whole_final_receipt_tree_is_required_before_any_booking_or_acceptance() {
     for incomplete in ["missing_child", "not_final", "duplicate_receipt"] {
         let mut f = fixture(NoteStatus::Pending, true, 300).await;
-        let mut outcome = f.outcome.lock().unwrap();
-        match incomplete {
-            "missing_child" => {
-                outcome["receipts_outcome"][0]["outcome"]["receipt_ids"] = json!(["not_returned"])
-            }
-            "not_final" => outcome["final_execution_status"] = "EXECUTED_OPTIMISTIC".into(),
-            _ => {
-                let receipt = outcome["receipts_outcome"][0].clone();
-                outcome["receipts_outcome"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(receipt);
+        {
+            let mut outcome = f.outcome.lock().unwrap();
+            match incomplete {
+                "missing_child" => {
+                    outcome["receipts_outcome"][0]["outcome"]["receipt_ids"] =
+                        json!(["not_returned"])
+                }
+                "not_final" => outcome["final_execution_status"] = "EXECUTED_OPTIMISTIC".into(),
+                _ => {
+                    let receipt = outcome["receipts_outcome"][0].clone();
+                    outcome["receipts_outcome"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(receipt);
+                }
             }
         }
-        drop(outcome);
         assert!(f
             .funding
             .progress(&f.client, &mut f.attempt)
@@ -716,13 +729,13 @@ async fn supported_payout_reasons_and_the_dust_boundary_keep_base_units_as_strin
             "payout_pending",
             "below_note_fee",
             "49999",
-            "Pending payout: 49999",
+            "Receipt booked payout: 49999",
         ),
         (
             "payout_pending",
             "transfer_failed",
             "1050000",
-            "Pending payout: 1050000",
+            "Receipt booked payout: 1050000",
         ),
         ("dust", "below_note_fee", "49999", "Dust: 49999"),
         ("dust", "below_note_fee", "50000", "no unique matching"),
@@ -766,5 +779,55 @@ async fn recovery_with_dead_tor_never_falls_back_to_a_direct_archival_endpoint()
     assert_eq!(
         f.funding.notes.list().unwrap()[0].status,
         NoteStatus::Pending
+    );
+}
+
+#[tokio::test]
+async fn a_claimed_payout_is_reported_as_history_without_a_new_claim_action() {
+    let mut f = fixture(NoteStatus::Pending, true, 300).await;
+    f.config.lock().unwrap()["pending"] = "0".into();
+    f.attempt.request = json!({"amount": "1050000"});
+    let event = json!({"standard": "nymira", "event": "payout_pending", "data": {
+        "account": "alice.near", "amount": "1050000", "reason": "intents_excess", "commitment": null
+    }});
+    f.outcome.lock().unwrap()["receipts_outcome"][0]["outcome"]["logs"] =
+        json!([format!("EVENT_JSON:{event}")]);
+    let report = f
+        .funding
+        .progress(&f.client, &mut f.attempt)
+        .await
+        .unwrap_err();
+    assert!(
+        report.contains("1050000") && report.contains("nothing to claim"),
+        "{report}"
+    );
+    assert!(!report.contains("Run nymirad claim-payout"), "{report}");
+}
+
+#[tokio::test]
+async fn a_journal_failure_after_note_acceptance_is_a_warning_not_a_failed_deposit() {
+    let mut f = fixture(NoteStatus::Pending, true, 300).await;
+    f.attempt.destination = Some(
+        serde_json::from_value(json!({"hash": "destination", "signer": "intents.near"})).unwrap(),
+    );
+    std::fs::create_dir(f.dir.path().join("notes.sealed.funding")).unwrap();
+    let accepted = f
+        .funding
+        .progress(&f.client, &mut f.attempt)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted.note_id, 7);
+    assert_eq!(
+        f.funding.notes.list().unwrap()[0].status,
+        NoteStatus::Accepted
+    );
+    assert!(
+        accepted
+            .warnings
+            .iter()
+            .any(|w| w.contains("funding journal")),
+        "{:?}",
+        accepted.warnings
     );
 }
