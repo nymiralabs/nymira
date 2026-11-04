@@ -542,15 +542,7 @@ impl Funding {
             .collect();
         let pending_report = self.pending_report(reading_rpc, &note).await;
         let accepted_id = matching.first().and_then(|e| e["data"]["note_id"].as_u64());
-        let mut successful = outcome.clone();
-        successful["receipts_outcome"]
-            .as_array_mut()
-            .unwrap()
-            .retain(|r| {
-                let status = &r["outcome"]["status"];
-                status.get("SuccessValue").is_some() || status.get("SuccessReceiptId").is_some()
-            });
-        let booking_events = crate::deposit::events_in(&successful, &self.pins.vault);
+        let booking_events = crate::deposit::successful_events_in(&outcome, &self.pins.vault);
         attempt.bookings = self.bookings(&booking_events, attempt, &note, accepted_id)?;
         if matching.is_empty() && !attempt.bookings.is_empty() {
             attempt.phase = Phase::Booked;

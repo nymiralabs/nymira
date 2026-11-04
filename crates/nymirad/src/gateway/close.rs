@@ -876,15 +876,7 @@ impl Gateway {
         if !complete_receipts(&result) {
             return Err(failed(format!("claim transaction {}: the final payout receipts are not available; check the pending payout before retrying", end.hash)));
         }
-        let mut successful = result;
-        successful["receipts_outcome"]
-            .as_array_mut()
-            .unwrap()
-            .retain(|r| {
-                let status = &r["outcome"]["status"];
-                status.get("SuccessValue").is_some() || status.get("SuccessReceiptId").is_some()
-            });
-        let events = crate::deposit::events_in(&successful, &self.cfg.vault);
+        let events = crate::deposit::successful_events_in(&result, &self.cfg.vault);
         let paid = events
             .iter()
             .filter(|e| {

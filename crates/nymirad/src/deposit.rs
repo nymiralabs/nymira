@@ -195,6 +195,17 @@ pub fn events_in(status: &Value, executor: &str) -> Vec<Value> {
     events
 }
 
+pub(crate) fn successful_events_in(status: &Value, executor: &str) -> Vec<Value> {
+    let mut successful = status.clone();
+    if let Some(receipts) = successful["receipts_outcome"].as_array_mut() {
+        receipts.retain(|r| {
+            let status = &r["outcome"]["status"];
+            status.get("SuccessValue").is_some() || status.get("SuccessReceiptId").is_some()
+        });
+    }
+    events_in(&successful, executor)
+}
+
 pub async fn tx_events(
     rpc: &Rpc,
     tx_hash: &str,
