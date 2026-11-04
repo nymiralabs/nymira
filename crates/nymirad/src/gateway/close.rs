@@ -24,8 +24,11 @@ use crate::submitter::{Submitter, PERSONAL};
 
 /// Gas attached to every submitter call: `mutual_close` needs 80 Tgas and the payouts 30.
 const GAS: u64 = 100_000_000_000_000;
-/// A submitter with less than this (0.005 NEAR) is treated as having no NEAR.
-const MIN_SUBMITTER_YOCTO: u128 = 5_000_000_000_000_000_000_000;
+/// A submitter with less than this (0.02 NEAR) is treated as having no NEAR. A call prepays its
+/// attached gas: 100 Tgas at the minimum gas price (0.0001 NEAR per Tgas) is 0.01 NEAR, which is
+/// refunded when unused but must be there when the transaction is made; the margin covers a
+/// higher gas price.
+const MIN_SUBMITTER_YOCTO: u128 = 20_000_000_000_000_000_000_000;
 /// How long a random close delay lasts at most, in seconds. The ownership proof lives 55
 /// minutes; the delay must leave it room.
 pub const MAX_CLOSE_DELAY_SECS: u64 = 1_200;

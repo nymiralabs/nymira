@@ -37,15 +37,25 @@ for arg in "$@"; do
   esac
 done
 
-if cargo tree -p nymirad --locked -e normal,build,features | grep -q 'nymirad feature "mock"'; then
+# `{f}` prints the features each package is built with: `mock` on nymirad itself, `dev-setup` on
+# zkapi-proof. (The `-e features` edges also list dev-dependency edges, so a grep on those would
+# match every graph, or none.)
+graph() { cargo tree -p nymirad --locked -e normal,build "$@" -f '{p} [{f}]'; }
+if graph | grep -E '^nymirad v[^[]*\[[^]]*mock' >/dev/null; then
   echo "the release feature graph of nymirad enables \`mock\`" >&2
   exit 1
 fi
 
 # The development keys load only with zkapi-proof's `dev-setup`: a release graph must not switch
 # it on, or the binary would accept keys nobody ran a ceremony for.
-if cargo tree -p nymirad --locked -e normal,build,features | grep -q 'zkapi-proof feature "dev-setup"'; then
+if graph | grep -E 'zkapi-proof v[^[]*\[[^]]*dev-setup' >/dev/null; then
   echo "the release feature graph of nymirad enables zkapi-proof's dev-setup" >&2
+  exit 1
+fi
+# The same greps must see a mock graph, or they check nothing.
+if ! graph --features mock | grep -E 'zkapi-proof v[^[]*\[[^]]*dev-setup' >/dev/null \
+  || ! graph --features mock | grep -E '^nymirad v[^[]*\[[^]]*mock' >/dev/null; then
+  echo "the graph check does not see \`mock\` or \`dev-setup\` in a mock build: it is broken" >&2
   exit 1
 fi
 
