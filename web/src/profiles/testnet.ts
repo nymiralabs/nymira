@@ -51,8 +51,15 @@ export const profile: Profile = {
   pins: null,
   gatewayUrl: 'https://cloud-api.near.ai',
   pccsUrl: 'https://pccs.phala.network',
-  // Set with the published setup (the ceremony's `mpc-1` or Nymira's fallback key) and its hash.
-  provingKey: null,
-  withdrawalKey: null,
+  // The ceremony's final keys (`mpc-1`), served from the signed bundle under `setup/`; the hashes
+  // equal the ones `nymirad` compiles in (`scripts/check-pins.sh`).
+  provingKey: {
+    url: '/setup/request.pk',
+    sha256: 'b5cdb12000cf51cf566375aadbc2a27cf875438f646f751fa857371cd6cb7022',
+  },
+  withdrawalKey: {
+    url: '/setup/withdrawal.pk',
+    sha256: '89e03ac8f9d6e90d189e9a3eb6b0c9c0126e1b121e78955a11f0f70a44d0161d',
+  },
   testEvidence: false,
 };

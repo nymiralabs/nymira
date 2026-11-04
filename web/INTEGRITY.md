@@ -212,16 +212,22 @@ control (the rebuilder's own repository, a gist, a signed post).
 
 ## Release procedure (human)
 
-1. Merge the release commit; tag it (`web-v<version>`).
-2. CI builds; the `reproducible` job is green. Note the hashes it prints.
-3. Offline machine: check out the tag, run `web/scripts/rebuild-in-container.sh`, copy
+1. Make the profile final first: operator URL, pins, proving-key hashes. They change the bundle
+   and, through `connect-src`, the header-set hash, so they cannot change after signing. Merge
+   that commit (call it A).
+2. CI builds A; the `reproducible` job is green. Note the hashes it prints.
+3. Offline machine: check out A, run `web/scripts/rebuild-in-container.sh` (it downloads the
+   ceremony's keys, or reads them from `NYMIRA_SETUP_DIR`), copy
    `rebuilt-site/manifest.json` out, then sign:
    `minisign -S -s <offline.key> -m manifest.json -t "nymira-web-manifest v1 profile=<p> version=<v>"`.
 4. Commit `manifest.json` and `manifest.json.minisig` as `web/releases/<profile>-<version>/`, in a
-   pull request. The deploy workflow refuses to run without them.
-5. Run the `web-deploy` workflow on the tag. It rebuilds, compares the manifest with the committed
-   one, verifies the signature with `web/pins/release-signing.pub`, deploys, and runs
-   `check-live.mjs` against the live site.
+   pull request, and merge it (commit B). The bundle hash does not cover `web/releases/`, so B
+   builds to the same manifest as A. Tag B (`web-v<version>`). The deploy workflow refuses to run
+   without the signature files, so the tag must sit on B, not A.
+5. Run the `web-deploy` workflow with `ref` = the tag on B. It rebuilds, compares the manifest with
+   the committed one, verifies the signature with `web/pins/release-signing.pub`, deploys, and runs
+   `check-live.mjs` against the live site. A dry run first: the same workflow on a throwaway
+   `ref` stops at "unsigned build" and shows that the build step itself passes.
 6. Publish the bundle hash and the key fingerprint (below). Fill in
    `web/releases/RELEASE_NOTES_TEMPLATE.md` for the release.
 

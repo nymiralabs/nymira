@@ -7,7 +7,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-const [dist = 'dist', profile = 'testnet'] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const requireKeys = args.includes('--require-keys');
+const [dist = 'dist', profile = 'testnet'] = args.filter((a) => !a.startsWith('--'));
 const forbidden = [
   'fake-wallet',
   '127.0.0.1',
@@ -53,11 +55,38 @@ try {
 } catch {
   // Absent, as it should be.
 }
-// The development-setup wallet core and its keys are for the mock profile only: a deployed bundle
-// carries the ceremony-setup build and no setup directory.
-if (existsSync(join(dist, 'setup'))) {
-  console.error('setup/ (development proving keys) is in the bundle');
-  bad += 1;
+// The development-setup wallet core and its keys are for the mock profile only. A deployed bundle
+// carries the ceremony-setup build, and under `setup/` only the two proving keys the profile pins,
+// byte for byte (the hash is read from the profile file, not from the bundle).
+const profileText = readFileSync(new URL(`../src/profiles/${profile}.ts`, import.meta.url), 'utf8');
+const pinned = {};
+for (const [field, file] of [
+  ['provingKey', 'request.pk'],
+  ['withdrawalKey', 'withdrawal.pk'],
+]) {
+  const m = profileText.match(new RegExp(`${field}:\\s*\\{[^}]*sha256:\\s*'([0-9a-f]{64})'`));
+  if (m) pinned[file] = m[1];
+}
+const setup = join(dist, 'setup');
+const present = existsSync(setup) ? readdirSync(setup) : [];
+for (const name of present) {
+  const hash = pinned[name]
+    ? createHash('sha256')
+        .update(readFileSync(join(setup, name)))
+        .digest('hex')
+    : null;
+  if (hash !== pinned[name]) {
+    console.error(`setup/${name} is not a key the ${profile} profile pins (or its hash differs)`);
+    bad += 1;
+  }
+}
+if (requireKeys) {
+  for (const name of Object.keys(pinned)) {
+    if (!present.includes(name)) {
+      console.error(`setup/${name} is missing from the bundle`);
+      bad += 1;
+    }
+  }
 }
 const devWasm = new URL('../src/wasm/zkapi-browser-dev/zkapi_browser_bg.wasm', import.meta.url);
 if (existsSync(devWasm)) {

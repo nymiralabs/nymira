@@ -20,6 +20,8 @@ COPY . .
 ARG PROFILE=testnet
 ARG VERSION=0.0.0
 ENV PROFILE=${PROFILE} VERSION=${VERSION}
+# The rebuild script puts the ceremony's proving keys in ceremony-keys/ (the build checks their hashes).
+ENV NYMIRA_SETUP_DIR=/src/ceremony-keys
 RUN web/scripts/build-wasm.sh \
  && cd web \
  && npm ci --ignore-scripts \

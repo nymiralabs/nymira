@@ -38,16 +38,24 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      - name: Fetch the ceremony's proving keys (the build checks their hashes against the profile)
+        run: |
+          mkdir -p "$RUNNER_TEMP/setup"
+          for f in request.pk withdrawal.pk; do
+            curl -fsSL -o "$RUNNER_TEMP/setup/$f" \
+              "https://github.com/nymiralabs/nymira-ceremony/releases/download/final/$f"
+          done
       - name: Build and assemble
         env:
           PROFILE: ${{ inputs.profile }}
           VERSION: ${{ inputs.version }}
         run: |
+          export NYMIRA_SETUP_DIR="$RUNNER_TEMP/setup"
           web/scripts/build-wasm.sh
           cd web
           npm ci --ignore-scripts
           node node_modules/vite/bin/vite.js build --mode "$PROFILE" --outDir "dist-$PROFILE"
-          npm run check:bundle -- "dist-$PROFILE" "$PROFILE"
+          npm run check:bundle -- "dist-$PROFILE" "$PROFILE" --require-keys
           node scripts/integrity.mjs assemble --dist "dist-$PROFILE" --meta "dist-$PROFILE-meta" \
             --out "site-$PROFILE" --version "$VERSION" --profile "$PROFILE"
       - name: Add the offline signature and refuse an unsigned or mismatching build
