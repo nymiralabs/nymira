@@ -48,6 +48,22 @@ pub fn expiry_event(note_id: u32, expiry_secs: u64, now_secs: u64) -> String {
     lines.join("\r\n") + "\r\n"
 }
 
+/// A shareable reminder without a note identifier or funding details.
+pub fn private_expiry_event(expiry_secs: u64, now_secs: u64) -> String {
+    expiry_event(0, expiry_secs, now_secs)
+        .lines()
+        .map(|line| {
+            if line.starts_with("UID:") {
+                format!("UID:{}@local", crate::net::identity())
+            } else {
+                line.replace("Nymira note 0 expires", "Nymira note expires")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n")
+        + "\r\n"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

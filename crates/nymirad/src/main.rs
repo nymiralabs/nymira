@@ -38,6 +38,8 @@ commands:
   status
   verify-web [--socks HOST:PORT]    checks the web hosts against the signed manifest, over Tor and (after a yes) directly
   deposit --key-file FILE --amount BASE_UNITS [--payout ACCOUNT]
+  deposit --source list|ethereum-usdc|base-usdc --amount BASE_UNITS --payout ACCOUNT --refund SOURCE_WALLET [--backup-key-file FILE]
+  recover --intents COMMITMENT       resumes a saved funding attempt after a new direct-access confirmation
   recover --key-file FILE           finds notes again after a crash
   close --note ID [--delay SECS] [--family NAME] [--via-operator]
   exit --note ID [--family NAME]    files request_exit; finalize follows after the window
@@ -316,8 +318,17 @@ async fn main() {
     let Some(command) = (!args.is_empty()).then(|| args.remove(0)) else {
         die(USAGE)
     };
+    if command == "deposit" && args.iter().any(|a| a == "--source") && !mode.intents_enabled() {
+        die("Intents has no testnet. Quote only; fund with testnet USDC from the Circle faucet.");
+    }
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
 
+    if (command == "deposit" && args.iter().any(|a| a == "--source"))
+        || (command == "recover" && args.iter().any(|a| a == "--intents"))
+    {
+        intents_command(&home, mode, &source, &mut args, clock).await;
+        return;
+    }
     match command.as_str() {
         "init" => {
             let mut cfg = Config {
@@ -484,6 +495,40 @@ async fn main() {
             {
                 println!("{}", status::lease_line(r));
             }
+            let deposit_amount: Option<u128> = if command == "deposit" {
+                Some(
+                    flag(&mut args, "--amount")
+                        .and_then(|a| a.parse().ok())
+                        .unwrap_or_else(|| die(USAGE)),
+                )
+            } else {
+                None
+            };
+            if mode == Mode::Testnet {
+                if let Some(amount) = deposit_amount {
+                    let config = rpc
+                        .view(&pins.vault, "config", serde_json::json!({}))
+                        .await
+                        .unwrap_or_else(|e| die(e));
+                    let fee: u128 = config["note_fee"]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_else(|| die("invalid vault note fee"));
+                    let total = amount
+                        .checked_add(fee)
+                        .unwrap_or_else(|| die("amount overflow"));
+                    let quote_source = OneClick::new(BASE_URL, &transport)
+                        .ok()
+                        .map(|q| Arc::new(q.with_amount(total)) as Arc<dyn QuoteSource>);
+                    if let nymirad::quotes::View::Lines(lines) =
+                        Board::new(mode, quote_source, clock.clone()).view().await
+                    {
+                        for line in lines {
+                            println!("{}: {} source tokens for {} NEAR USDC base units. Quote only. Intents has no testnet, so no cross-chain payment is made here. Fund with testnet USDC from the Circle faucet.", line.label, line.text, total);
+                        }
+                    }
+                }
+            }
             let key = funding_key(&flag(&mut args, "--key-file").unwrap_or_else(|| die(USAGE)));
             let tx_store = Store::open(&home.join("tx.db")).unwrap_or_else(|e| die(e));
             let token = rpc
@@ -523,9 +568,7 @@ async fn main() {
                 }
                 return;
             }
-            let amount: u128 = flag(&mut args, "--amount")
-                .and_then(|a| a.parse().ok())
-                .unwrap_or_else(|| die(USAGE));
+            let amount = deposit_amount.unwrap_or_else(|| die(USAGE));
             let payout = flag(&mut args, "--payout");
             match ctx.deposit(amount, payout.as_deref(), &Terminal).await {
                 Ok(a) => {
@@ -798,4 +841,146 @@ impl Terminal {
         };
         read && line.trim() == "yes"
     }
+}
+
+async fn intents_command(
+    home: &std::path::Path,
+    mode: Mode,
+    source: &PassphraseSource,
+    args: &mut Vec<String>,
+    clock: Arc<dyn Clock>,
+) {
+    use nymirad::{
+        intents,
+        oneclick::{FundingClient, DIRECT_QUESTION},
+    };
+    if !mode.intents_enabled() {
+        die("Intents has no testnet. Quote only; fund with testnet USDC from the Circle faucet.");
+    }
+    let cfg = Config::load(home).unwrap_or_else(|e| die(e));
+    let confirmed = Terminal.confirm_text(DIRECT_QUESTION);
+    if !confirmed {
+        die("1Click direct access was not confirmed; nothing sent");
+    }
+    let client = FundingClient::new(mode, confirmed);
+    #[cfg(feature = "mock")]
+    let client = match &cfg.oneclick_base {
+        Some(base) => FundingClient::mock(base, mode, confirmed),
+        None => client,
+    };
+    let client = client.unwrap_or_else(|e| die(e));
+    let passphrase = source.read().unwrap_or_else(|e| die(e));
+    let transport = connect(&cfg, home, TOR_WAIT).await;
+    let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
+    let pinned = pins::compiled(mode);
+    #[cfg(feature = "mock")]
+    let pinned = pinned.or_else(|| pins::demo(home));
+    let funding = intents::Funding {
+        mode,
+        home: home.to_path_buf(),
+        rpc,
+        pins: pinned.unwrap_or_else(|| die("no vault is pinned in this build; deposits are off")),
+        notes: NoteStore::open(&home.join("notes.sealed"), &passphrase, ROUNDS)
+            .unwrap_or_else(|e| die(e)),
+        backup: cfg
+            .backup_target()
+            .filter(|b| !b.places.is_empty())
+            .unwrap_or_else(|| die("set up an encrypted backup before Intents funding")),
+        clock,
+    };
+    let resumed = flag(args, "--intents");
+    let is_resume = resumed.is_some();
+    let mut attempt = if let Some(commitment) = resumed {
+        funding
+            .notes
+            .funding_attempts()
+            .unwrap_or_else(|e| die(e))
+            .into_iter()
+            .find(|a| a.commitment == commitment)
+            .unwrap_or_else(|| die("no saved Intents attempt for that commitment"))
+    } else {
+        let chosen = flag(args, "--source").unwrap_or_else(|| die(USAGE));
+        let amount = flag(args, "--amount")
+            .and_then(|v| v.parse::<u128>().ok())
+            .unwrap_or_else(|| die(USAGE));
+        let config = funding.check(amount).await.unwrap_or_else(|e| die(e));
+        let offered = funding
+            .sources(&client, amount)
+            .await
+            .unwrap_or_else(|e| die(e));
+        println!(
+            "Available sources: {}",
+            offered
+                .iter()
+                .map(|s| s.name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        if chosen == "list" {
+            return;
+        }
+        let asset = offered
+            .iter()
+            .find(|s| s.name == chosen)
+            .map(|s| s.asset)
+            .unwrap_or_else(|| {
+                die("the source has no valid dry quote or its minimum exceeds this payment")
+            });
+        let payout = flag(args, "--payout")
+            .unwrap_or_else(|| die("--payout NEAR_ACCOUNT is required for Intents funding"));
+        let refund =
+            flag(args, "--refund").unwrap_or_else(|| die("--refund SOURCE_WALLET is required"));
+        let registered = funding
+            .payout(&payout, &config)
+            .await
+            .unwrap_or_else(|e| die(e));
+        println!("Payout account {} (fingerprint {}). USDC registered: {}. Consider a fresh payout account.\nDenomination {} base units + non-refundable note fee {} base units.\nRefund to your own source wallet: {}.\nA close through the operator costs {} USDC base units. An exit or payout claim needs a little NEAR for gas on the submitter account.", payout, nymirad::deposit::fingerprint(&payout), registered, amount, config["note_fee"], refund.escape_default(), config["close_fee"]);
+        if !Terminal.confirm_text("Type yes to confirm this payout account and refund address: ") {
+            die("payout account not confirmed; no quote requested");
+        }
+        let backup_key = flag(args, "--backup-key-file")
+            .map(|p| {
+                PassphraseSource::File(p.into())
+                    .read()
+                    .unwrap_or_else(|e| die(e))
+            })
+            .unwrap_or_else(|| secret_input(None, "Backup private key or passphrase: "));
+        funding
+            .prepare(&client, amount, asset, &refund, &payout, &backup_key)
+            .await
+            .unwrap_or_else(|e| die(e))
+    };
+    if !is_resume {
+        let q = &attempt.quote["quote"];
+        println!("{}", intents::PRIVACY);
+        println!("Pay {} source tokens ({} source base units); delivered {} NEAR USDC ({} base units) (denomination plus note fee). This is the all-in cost. The documented keyless fee is 25 basis points of the amount delivered and is part of that cost; the quote does not itemise it.\nDeadline: {}.\nOther listed fees: refundFee={}, withdrawFee={}, appFees={}.\nThe signature shows only that 1Click issued this quote. 1Click and its solvers hold the funds in transit; the refund address is the only way back.", q["amountInFormatted"].as_str().unwrap_or("unknown").escape_default(), q["amountIn"], q["amountOutFormatted"].as_str().unwrap_or("unknown").escape_default(), q["amountOut"], q["deadline"].as_str().unwrap_or("unknown").escape_default(), q["refundFee"], q["withdrawFee"], attempt.quote["quoteRequest"]["appFees"]);
+        println!("Deposit address: {}\nDeposit memo: {}\nPending note saved and encrypted backup restored successfully.\nTo resume after restart: recover --intents {}", q["depositAddress"].as_str().unwrap_or("missing").escape_default(), q["depositMemo"].as_str().unwrap_or("none").escape_default(), attempt.commitment);
+        if !Terminal.confirm_text("Pay from your own source wallet. Type yes to check progress: ") {
+            die("payment not confirmed; the pending note and quote remain stored");
+        }
+        #[cfg(feature = "mock")]
+        if switch(args, "--mock-pay") {
+            client
+                .mock_pay(q["depositAddress"].as_str().unwrap_or(""))
+                .await
+                .unwrap_or_else(|e| die(e));
+        }
+    }
+    for _ in 0..120 {
+        match funding.progress(&client, &mut attempt).await {
+            Ok(Some(accepted)) => {
+                println!("{}", accepted.report());
+                for warning in accepted.warnings {
+                    eprintln!("warning: {warning}");
+                }
+                println!("Deposit receipt: https://nearblocks.io/txns/{}#{}\nRead the payout account in that receipt.", accepted.tx_hash, attempt.receipt.as_deref().unwrap_or(""));
+                return;
+            }
+            Ok(None) => {
+                println!("Waiting for the destination transaction and final vault receipt.")
+            }
+            Err(e) => die(e),
+        }
+    }
+    die("still pending; resume with recover --intents COMMITMENT");
 }

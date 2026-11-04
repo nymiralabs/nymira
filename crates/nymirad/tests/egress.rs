@@ -188,3 +188,45 @@ async fn the_funding_transaction_goes_through_the_proxy() {
         "the transaction did not reach the proxy by name: {seen:?}"
     );
 }
+
+#[tokio::test]
+async fn oneclick_direct_access_needs_confirmation_and_mainnet_and_refuses_redirects() {
+    use axum::http::{header, StatusCode};
+    use axum::{routing::post, Router};
+    use nymirad::{mode::Mode, oneclick::FundingClient};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server_addr = listener.local_addr().unwrap();
+    let base = format!("http://localhost:{}", server_addr.port());
+    let app = Router::new().route(
+        "/v0/quote",
+        post(|| async {
+            (
+                StatusCode::FOUND,
+                [(header::LOCATION, "http://unallowed.example/quote")],
+            )
+        }),
+    );
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    assert!(FundingClient::mock(&base, Mode::Mainnet, false).is_err());
+    assert!(FundingClient::mock(&base, Mode::Testnet, true).is_err());
+    let proxy = FakeSocks::start(Behavior::Tunnel(server_addr)).await;
+    let (ready, _) = Tor::for_tests(proxy.addr, TorState::Ready);
+    let transport = Transport::Tor(Arc::new(ready));
+    let _ = Rpc::new("http://rpc.nymira.example", &transport)
+        .unwrap()
+        .call("status", json!({}))
+        .await;
+    let funding = FundingClient::mock(&base, Mode::Mainnet, true).unwrap();
+    assert!(funding.quote(&json!({})).await.unwrap_err().contains("302"));
+    assert!(funding.names_asked().iter().all(|s| s == "localhost"));
+    assert!(!proxy.seen().is_empty());
+    assert!(proxy
+        .seen()
+        .iter()
+        .all(|s| s.host == "rpc.nymira.example" && s.atyp == 3));
+    let (tor, _) = Tor::for_tests(
+        "127.0.0.1:1".parse().unwrap(),
+        TorState::Failed("down".into()),
+    );
+    assert!(client(&Transport::Tor(Arc::new(tor))).is_err());
+}

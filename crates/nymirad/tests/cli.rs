@@ -141,3 +141,25 @@ fn a_passphrase_file_others_can_read_stops_note_secret() {
         text(&out.stderr)
     );
 }
+
+#[test]
+fn testnet_refuses_intents_before_loading_keys_or_contacting_services() {
+    let home = initialized();
+    let out = run(
+        home.path(),
+        "yes\n",
+        &[
+            "deposit",
+            "--source",
+            "ethereum-usdc",
+            "--amount",
+            "1000000",
+        ],
+    );
+    assert!(!out.status.success());
+    assert!(
+        text(&out.stderr).contains("Intents has no testnet"),
+        "{}",
+        text(&out.stderr)
+    );
+}

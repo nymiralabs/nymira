@@ -109,6 +109,22 @@ impl DirectClient {
         Ok((status, body))
     }
 
+    pub async fn get_json(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<(u16, Value), DirectError> {
+        let reply = self
+            .http
+            .get(self.url(path)?)
+            .query(query)
+            .send()
+            .await
+            .map_err(|e| DirectError::Send(e.without_url().to_string()))?;
+        let status = reply.status().as_u16();
+        Ok((status, reply.json().await.unwrap_or(Value::Null)))
+    }
+
     /// The underlying client, for a caller that builds its own requests (the NEAR transaction
     /// sender). It keeps this client's rules: one resolvable host, no redirect, no proxy.
     pub fn http(&self) -> reqwest::Client {

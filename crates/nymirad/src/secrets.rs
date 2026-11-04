@@ -95,13 +95,24 @@ pub enum StoreError {
 /// The sealed list of notes.
 pub struct NoteStore {
     file: SealedFile,
+    funding: SealedFile,
+    lock_path: PathBuf,
 }
 
 impl NoteStore {
     pub fn open(path: &Path, passphrase: &str, rounds: u32) -> Result<Self, StoreError> {
         let file = SealedFile::open(path, passphrase, rounds)?;
         file.read()?; // a wrong passphrase fails here, not at the first write
-        Ok(Self { file })
+        let mut funding_path = path.as_os_str().to_owned();
+        funding_path.push(".funding");
+        let mut lock_path = path.as_os_str().to_owned();
+        lock_path.push(".lock");
+        let funding = SealedFile::open(Path::new(&funding_path), passphrase, rounds)?;
+        Ok(Self {
+            file,
+            funding,
+            lock_path: lock_path.into(),
+        })
     }
 
     pub fn list(&self) -> Result<Vec<NoteEntry>, StoreError> {
@@ -114,7 +125,55 @@ impl NoteStore {
         }
     }
 
+    fn lock(&self) -> Result<std::fs::File, StoreError> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(&self.lock_path)
+            .map_err(|e| StoreError::Format(e.to_string()))?;
+        // SAFETY: the descriptor is live for the call; closing the returned file releases the lock.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            return Err(StoreError::Format(
+                std::io::Error::last_os_error().to_string(),
+            ));
+        }
+        Ok(file)
+    }
+
+    pub fn funding_attempts(&self) -> Result<Vec<crate::intents::Attempt>, StoreError> {
+        match self.funding.read()? {
+            None => Ok(vec![]),
+            Some(bytes) => serde_json::from_slice(&Zeroizing::new(bytes))
+                .map_err(|e| StoreError::Format(e.to_string())),
+        }
+    }
+    pub fn restore_funding(&self, attempts: &[crate::intents::Attempt]) -> Result<(), StoreError> {
+        let _lock = self.lock()?;
+        self.write_funding(attempts)
+    }
+    pub fn save_funding(&self, attempt: &crate::intents::Attempt) -> Result<(), StoreError> {
+        let _lock = self.lock()?;
+        let mut attempts = self.funding_attempts()?;
+        attempts.retain(|a| a.commitment != attempt.commitment);
+        attempts.push(attempt.clone());
+        self.write_funding(&attempts)
+    }
+    fn write_funding(&self, attempts: &[crate::intents::Attempt]) -> Result<(), StoreError> {
+        let bytes = Zeroizing::new(
+            serde_json::to_vec(attempts).map_err(|e| StoreError::Format(e.to_string()))?,
+        );
+        Ok(self.funding.write(&bytes)?)
+    }
     pub fn save(&self, notes: &[NoteEntry]) -> Result<(), StoreError> {
+        let _lock = self.lock()?;
+        self.write_notes(notes)
+    }
+    fn write_notes(&self, notes: &[NoteEntry]) -> Result<(), StoreError> {
         let bytes = Zeroizing::new(
             serde_json::to_vec(notes).map_err(|e| StoreError::Format(e.to_string()))?,
         );
@@ -123,9 +182,10 @@ impl NoteStore {
 
     /// Adds one entry and writes the file (synced) before returning.
     pub fn add(&self, entry: NoteEntry) -> Result<(), StoreError> {
+        let _lock = self.lock()?;
         let mut notes = self.list()?;
         notes.push(entry);
-        self.save(&notes)
+        self.write_notes(&notes)
     }
 
     /// Changes the entry with `commitment`.
@@ -134,13 +194,14 @@ impl NoteStore {
         commitment: &str,
         change: impl FnOnce(&mut NoteEntry),
     ) -> Result<(), StoreError> {
+        let _lock = self.lock()?;
         let mut notes = self.list()?;
         let entry = notes
             .iter_mut()
             .find(|n| n.commitment == commitment)
             .ok_or_else(|| StoreError::Format("no such note".into()))?;
         change(entry);
-        self.save(&notes)
+        self.write_notes(&notes)
     }
 }
 

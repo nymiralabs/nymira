@@ -56,6 +56,23 @@ fn write_private(path: &std::path::Path, text: &str) {
     f.write_all(text.as_bytes()).unwrap();
 }
 
+struct IntentsDelivery {
+    signer: near_workspaces::Account,
+    token: String,
+    vault: String,
+}
+#[async_trait::async_trait]
+impl nymirad::fake_oneclick::Delivery for IntentsDelivery {
+    async fn deliver(&self, request: &Value) -> Result<(String, String), String> {
+        let result = self.signer.call(self.signer.id(), "ft_withdraw")
+            .args_json(json!({"token": self.token, "receiver_id": self.vault, "amount": request["amount"], "msg": request["customRecipientMsg"]}))
+            .deposit(NearToken::from_yoctonear(1)).max_gas().transact().await.map_err(|e| e.to_string())?;
+        let hash = result.outcome().transaction_hash.to_string();
+        result.into_result().map_err(|e| e.to_string())?;
+        Ok((hash, self.signer.id().to_string()))
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let home = std::env::temp_dir().join("nymira-demo");
@@ -80,7 +97,7 @@ async fn main() {
         .unwrap()
         .deploy(&contract_wasm_with_features(
             "contracts/vault",
-            &["dev-setup"],
+            &["dev-setup", "test-intents-account"],
         ))
         .await
         .unwrap()
@@ -108,6 +125,21 @@ async fn main() {
     usdc.register(&treasury).await;
     usdc.register(&alice).await;
     usdc.mint(alice.id(), 100_000_000).await;
+
+    let intents = nymira_testkit::intents::deploy_standin(&worker)
+        .await
+        .unwrap();
+    usdc.register_id(intents.id()).await;
+    usdc.mint(intents.id(), 100_000_000).await;
+    let oneclick = nymirad::fake_oneclick::start(Arc::new(IntentsDelivery {
+        signer: intents.as_account().clone(),
+        token: usdc.contract.id().to_string(),
+        vault: vault.id().to_string(),
+    }))
+    .await
+    .unwrap();
+    let (backup_key, backup_recipient) = nymirad::backup::generate_identity();
+    write_private(&home.join("backup.key"), &backup_key);
 
     // The demo account's key, written for the CLI.
     let key = SigningKey::from_bytes(&rand::random::<[u8; 32]>());
@@ -266,6 +298,9 @@ async fn main() {
         }),
         // The sandbox node and the operator are on this machine: no Tor (a `mock` build only).
         direct: true,
+        oneclick_base: Some(oneclick.url()),
+        backup_recipient: Some(backup_recipient),
+        backup_places: vec![home.join("backup")],
         ..Default::default()
     }
     .save(&home)
@@ -288,6 +323,9 @@ async fn main() {
         "  {run} deposit --key-file {}/funding.key --amount 1000000",
         home.display()
     );
+    println!("  fake 1Click   {}", oneclick.url());
+    println!("  {run} deposit --source ethereum-usdc --amount 1000000 --payout {} --refund 0x2222222222222222222222222222222222222222 --backup-key-file {}/backup.key --mock-pay", alice.id(), home.display());
+    println!("The Intents command pays a fake deposit address through a sandbox stand-in. No real funds move.");
     println!("\nCtrl-C stops everything.");
     std::future::pending::<()>().await;
 }

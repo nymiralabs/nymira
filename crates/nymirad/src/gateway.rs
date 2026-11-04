@@ -1096,6 +1096,7 @@ impl Gateway {
             version: VERSION,
             taken_at: self.clock.now_secs(),
             notes: self.notes.list().map_err(|e| state_err(&e))?,
+            funding: self.notes.funding_attempts().map_err(|e| state_err(&e))?,
             wallets: self.vault.export_all().map_err(|e| state_err(&e))?,
             submitters: Some(
                 String::from_utf8_lossy(&self.submitters.export_json().map_err(|e| state_err(&e))?)
