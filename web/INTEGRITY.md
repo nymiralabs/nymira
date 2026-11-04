@@ -249,6 +249,27 @@ of those proves nothing. Copies to make (each is a human task):
 
 If the fingerprint here and one of those copies differ, treat the site as compromised.
 
+## The `nymirad` release
+
+`nymirad` is signed with the same release key as the web manifest (minisign key ID
+`934C176AF34D794D`, shown in `pins/release-signing.pub`). `scripts/release-nymirad.sh` runs the steps;
+only `sign` needs the key, and it only calls `minisign`, which asks for the passphrase itself.
+
+1. Tag the commit `nymirad-vX.Y.Z` and push the tag.
+2. `scripts/release-nymirad.sh build nymirad-vX.Y.Z`. It builds the tag twice in the container of
+   `Dockerfile.repro` (same image digest, `--locked`, paths remapped, `SOURCE_DATE_EPOCH` set to the
+   commit time), stops if the two binaries differ, runs `scripts/check-release-binary.sh` on the
+   result (no `mock` feature, no demo strings), and writes `dist/nymirad-vX.Y.Z/` with the binary,
+   `attestation-policy.json`, `TERMS.md` and `SHA256SUMS`.
+3. Offline machine, in a clone that has `dist/`: `scripts/release-nymirad.sh sign nymirad-vX.Y.Z`
+   writes `SHA256SUMS.minisig`.
+4. `scripts/release-nymirad.sh publish nymirad-vX.Y.Z` verifies the signature with
+   `pins/release-signing.pub`, checks the hashes, then creates the GitHub release with the five files.
+
+A user checks a download with `minisign -V -p release-signing.pub -m SHA256SUMS` and
+`shasum -a 256 -c SHA256SUMS`. Only the linux x86_64 binary is built this way; other platforms
+build from source.
+
 ## Dependencies
 
 `npm ci --ignore-scripts` is the only install (`.npmrc` sets `ignore-scripts=true`; CI passes the

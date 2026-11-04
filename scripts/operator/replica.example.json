@@ -1,0 +1,30 @@
+{
+  "profile": "testnet",
+  "network": "testnet",
+  "vault_account": "vault.nymira.testnet",
+  "operator_account": "operator.nymira.testnet",
+  "answer_account": "answer.nymira.testnet",
+  "host": "operator.example.org",
+  "web_origin": "https://app.example.org",
+  "listen": "127.0.0.1:8080",
+  "run_dir": "/var/lib/nymira/run",
+  "data_dir": "/var/lib/nymira/data",
+  "secrets_dir": "/var/lib/nymira/secrets",
+  "setup_dir": "/var/lib/nymira/setup",
+  "rpc_urls": ["https://rpc.testnet.near.org", "https://test.rpc.fastnear.com"],
+  "usage_public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+  "budget": "hackathon",
+  "near_ai": {
+    "base_url": "https://cloud-api.near.ai",
+    "org_id": "ORG_ID",
+    "workspace_id": "WORKSPACE_ID"
+  },
+  "replica_node": {
+    "listen": "100.64.0.2:9090",
+    "entry_public_key": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "deadman_status_url": "https://operator.example.org/v1/status",
+  "alarms": {
+    "telegram": { "token_file": "/var/lib/nymira/secrets/telegram_token", "chat_id": "CHAT_ID" }
+  }
+}

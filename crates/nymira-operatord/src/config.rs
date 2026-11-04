@@ -191,6 +191,17 @@ mod tests {
         let cfg = Config::load(&path).expect("the example config loads");
         assert_eq!(cfg.profile, "testnet");
         assert!(cfg.rpc_urls.len() >= 2);
+        assert!(cfg.replica.is_some() && cfg.replica_node.is_none());
+        // The second machine's file: the replica node and the dead-man switch read these.
+        let path = dir.join("replica.json");
+        std::fs::write(
+            &path,
+            include_str!("../../../scripts/operator/replica.example.json"),
+        )
+        .unwrap();
+        let second = Config::load(&path).expect("the second machine's example config loads");
+        assert!(second.replica_node.is_some() && second.deadman_status_url.is_some());
+        assert!(second.rpc_urls.len() >= second.watcher_quorum());
         std::fs::remove_dir_all(dir).ok();
     }
 }
