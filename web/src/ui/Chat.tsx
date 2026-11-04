@@ -7,6 +7,7 @@ import { loadNotes, makeBackupFile } from '../funding/flow';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { backupDue } from '../chat/backup-policy';
+import { retireBackup } from '../chat/retire-backup';
 import { DEFAULT_MODEL, MODELS } from '../chat/models';
 import { chatDeps, warmProver, type ProverState } from '../chat/runtime';
 import { ChatError, ChatSession, type Answer, type Message, type Settled } from '../chat/session';
@@ -70,7 +71,7 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
   const [error, setError] = useState('');
   const [settled, setSettled] = useState<Settled | null>(null);
   const [attestation, setAttestation] = useState('');
-  const [backup, setBackup] = useState<{ needed: boolean; leases: number } | null>(null);
+  const backup = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state);
   const [passphrase, setPassphrase] = useState('');
   const [fileHandle, setFileHandle] = useState<FsHandle | null>(null);
   const session = useRef<ChatSession | null>(null);
@@ -119,7 +120,11 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
   useEffect(
     () => () => {
       const s = session.current;
-      if (s?.lease?.token) void s.end().catch(() => undefined);
+      if (s?.lease?.token)
+        void s
+          .end()
+          .then(() => retireBackup.set({ needed: true, leases: 0 }))
+          .catch(() => undefined);
       else void s?.abandon();
     },
     [],
@@ -201,9 +206,9 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
       const w = await fileHandle.createWritable();
       await w.write(bytes as BlobPart);
       await w.close();
-      setBackup({ needed: false, leases });
+      retireBackup.set({ needed: false, leases });
     } else {
-      setBackup({ needed, leases });
+      retireBackup.set({ needed, leases });
     }
   };
 
@@ -228,7 +233,7 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
     try {
       const bytes = await makeBackupFile(passphrase);
       download(bytes as BlobPart, backupFileName(new Date()), 'application/octet-stream');
-      setBackup(null);
+      retireBackup.clear();
     } catch (e) {
       fail(e);
     }
@@ -261,6 +266,7 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
       } else {
         setSelected(record.id);
         setSettled(result);
+        await afterRetire(result);
       }
       await refresh();
     } catch (e) {
