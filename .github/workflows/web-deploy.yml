@@ -31,44 +31,32 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
-      - run: rustup show active-toolchain
-      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
-        with:
-          tool: wasm-bindgen@0.2.117
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - name: Fetch the ceremony's proving keys (the build checks their hashes against the profile)
-        run: |
-          mkdir -p "$RUNNER_TEMP/setup"
-          for f in request.pk withdrawal.pk; do
-            curl -fsSL -o "$RUNNER_TEMP/setup/$f" \
-              "https://github.com/nymiralabs/nymira-ceremony/releases/download/final/$f"
-          done
-      - name: Build and assemble
+      - name: Refuse an unsigned release
         env:
           PROFILE: ${{ inputs.profile }}
           VERSION: ${{ inputs.version }}
         run: |
-          export NYMIRA_SETUP_DIR="$RUNNER_TEMP/setup"
-          web/scripts/build-wasm.sh
-          cd web
-          npm ci --ignore-scripts
-          node node_modules/vite/bin/vite.js build --mode "$PROFILE" --outDir "dist-$PROFILE"
-          npm run check:bundle -- "dist-$PROFILE" "$PROFILE" --require-keys
-          node scripts/integrity.mjs assemble --dist "dist-$PROFILE" --meta "dist-$PROFILE-meta" \
-            --out "site-$PROFILE" --version "$VERSION" --profile "$PROFILE"
-      - name: Add the offline signature and refuse an unsigned or mismatching build
+          test -f "web/releases/$PROFILE-$VERSION/manifest.json.minisig" || { echo "unsigned build: web/releases/$PROFILE-$VERSION/manifest.json.minisig is missing" >&2; exit 1; }
+      # The release is rebuilt in the pinned container of web/Dockerfile.repro, the same one an
+      # outside rebuilder uses (web/INTEGRITY.md), so the signed manifest is the one every rebuild gives.
+      - name: Rebuild in the pinned container and compare with the signed manifest
         env:
           PROFILE: ${{ inputs.profile }}
           VERSION: ${{ inputs.version }}
         run: |
-          cd web
-          signed="releases/$PROFILE-$VERSION"
-          test -f "$signed/manifest.json.minisig" || { echo "unsigned build: $signed/manifest.json.minisig is missing" >&2; exit 1; }
-          cmp "$signed/manifest.json" "site-$PROFILE/manifest.json" \
+          web/scripts/rebuild-in-container.sh HEAD "$PROFILE" "$VERSION" "web/site-$PROFILE"
+          cmp "web/releases/$PROFILE-$VERSION/manifest.json" "web/site-$PROFILE/manifest.json" \
             || { echo "the rebuilt manifest is not the signed one" >&2; exit 1; }
-          cp "$signed/manifest.json.minisig" "site-$PROFILE/"
+      - name: Add the offline signature and verify it
+        env:
+          PROFILE: ${{ inputs.profile }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          cd web
+          cp "releases/$PROFILE-$VERSION/manifest.json.minisig" "site-$PROFILE/"
           node scripts/integrity.mjs verify --site "site-$PROFILE" --pubkey pins/release-signing.pub
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
