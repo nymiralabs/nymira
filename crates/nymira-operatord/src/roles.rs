@@ -380,6 +380,34 @@ pub async fn watcher(cfg: &Config) -> Result<(), Failure> {
         euid(),
     ));
 
+    run_watcher(cfg, store, clock, alarms, "laptop").await
+}
+
+/// The second machine's watcher: the same duties as `watcher`, on the replica node's own
+/// database (the entries the laptop pushed), under the id "replica". It owns no replication log
+/// of its own, so it opens no replica socket and needs no `replica` section.
+pub async fn second_watcher(cfg: &Config) -> Result<(), Failure> {
+    if cfg.replica_node.is_none() {
+        return Err("this config has no replica_node section: run it on the second machine".into());
+    }
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    run_watcher(
+        cfg,
+        store(cfg)?,
+        clock.clone(),
+        alarms(cfg, clock)?,
+        "replica",
+    )
+    .await
+}
+
+async fn run_watcher(
+    cfg: &Config,
+    store: Store,
+    clock: Arc<dyn Clock>,
+    alarms: Arc<Alarms>,
+    id: &str,
+) -> Result<(), Failure> {
     let providers: Vec<Arc<dyn VaultView>> = cfg.rpc_urls.iter().map(|u| vault(cfg, u)).collect();
     let calls = NearCalls {
         answer: tx(
@@ -412,7 +440,7 @@ pub async fn watcher(cfg: &Config) -> Result<(), Failure> {
                 ..WatcherConfig::default()
             },
         )?
-        .with_id("laptop"),
+        .with_id(id),
     );
     watcher.spawn_background();
     tokio::signal::ctrl_c().await.map_err(|e| e.to_string())?;
