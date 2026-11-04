@@ -1,22 +1,36 @@
 // Reads a deployed vault over public RPC and prints the `pins` object a profile carries:
 //
 //   node scripts/pin-vault.mjs --rpc https://rpc.testnet.near.org --vault vault.nymira.testnet
+//   node scripts/pin-vault.mjs --network testnet --vault vault.nymira.testnet   (default public RPC)
 //
 // Review the output against the deployment record (code hash from the reproducible build, the
 // ceremony's verifying key hashes, the accounts the team set up), then paste it into
 // src/profiles/<profile>.ts as `pins`. The tool only reads; it cannot make a vault trustworthy.
 // `teamNoteIds` stays empty here: the team's published note IDs come from the launch record.
 
-function argument(name) {
+const USAGE =
+  'usage: node scripts/pin-vault.mjs (--rpc <url> | --network testnet|mainnet) --vault <account>';
+const NETWORK_RPC = {
+  testnet: 'https://rpc.testnet.near.org',
+  mainnet: 'https://rpc.mainnet.near.org',
+};
+
+function argument(name, optional = false) {
   const at = process.argv.indexOf(`--${name}`);
   if (at < 0 || !process.argv[at + 1]) {
-    console.error(`usage: node scripts/pin-vault.mjs --rpc <url> --vault <account>`);
+    if (optional) return undefined;
+    console.error(USAGE);
     process.exit(2);
   }
   return process.argv[at + 1];
 }
 
-const rpc = argument('rpc');
+const network = argument('network', true);
+if (network !== undefined && !(network in NETWORK_RPC)) {
+  console.error(USAGE);
+  process.exit(2);
+}
+const rpc = argument('rpc', true) ?? (network ? NETWORK_RPC[network] : argument('rpc'));
 const vault = argument('vault');
 
 async function call(method, params) {

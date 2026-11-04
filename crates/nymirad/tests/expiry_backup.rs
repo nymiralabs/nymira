@@ -185,6 +185,9 @@ async fn make_gateway(
         proving_key_sha256: hex::encode(Sha256::digest(
             std::fs::read(format!("{SETUP_DIR}/request.pk")).unwrap(),
         )),
+        withdrawal_key_sha256: hex::encode(Sha256::digest(
+            std::fs::read(format!("{SETUP_DIR}/withdrawal.pk")).unwrap(),
+        )),
         models: ProxyConfig::default()
             .models
             .into_iter()

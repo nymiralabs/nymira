@@ -61,6 +61,9 @@ pub struct GatewayConfig {
     pub setup_dir: String,
     /// SHA-256 (hex) of `request.pk`, compiled into a release build.
     pub proving_key_sha256: String,
+    /// SHA-256 (hex) of `withdrawal.pk`, compiled into a release build: the close and exit
+    /// proofs are made with it.
+    pub withdrawal_key_sha256: String,
     pub models: Vec<ModelSpec>,
     pub rounds: u32,
     /// Seconds of silence after which a lease is retired.
@@ -225,6 +228,7 @@ impl Gateway {
         clock: Arc<dyn Clock>,
     ) -> Result<Self, String> {
         check_proving_key(&cfg.setup_dir, &cfg.proving_key_sha256)?;
+        check_withdrawal_key(&cfg.setup_dir, &cfg.withdrawal_key_sha256)?;
         let vault = WalletVault::new(&cfg.home, passphrase, cfg.rounds);
         vault.seal_leftovers().map_err(|e| e.to_string())?;
         let submitters =
@@ -540,6 +544,8 @@ impl Gateway {
             ));
         }
         check_proving_key(&self.cfg.setup_dir, &self.cfg.proving_key_sha256)
+            .map_err(|e| unavailable("proving_key_changed", e))?;
+        check_withdrawal_key(&self.cfg.setup_dir, &self.cfg.withdrawal_key_sha256)
             .map_err(|e| unavailable("proving_key_changed", e))?;
         let classes = self.bound_classes();
         let bound = lease::choose_bound(&classes, opts.max_lease_usd).ok_or_else(|| {
@@ -1168,15 +1174,24 @@ fn sampling_of(request: &Value) -> Value {
 
 /// The proving key's SHA-256 against the value pinned in this build.
 pub fn check_proving_key(setup_dir: &str, expected_hex: &str) -> Result<(), String> {
+    check_key_file(setup_dir, "request.pk", expected_hex)
+}
+
+/// The same for the withdrawal key, which the close and exit proofs use.
+pub fn check_withdrawal_key(setup_dir: &str, expected_hex: &str) -> Result<(), String> {
+    check_key_file(setup_dir, "withdrawal.pk", expected_hex)
+}
+
+fn check_key_file(setup_dir: &str, file: &str, expected_hex: &str) -> Result<(), String> {
     use sha2::{Digest, Sha256};
-    let bytes = std::fs::read(std::path::Path::new(setup_dir).join("request.pk"))
-        .map_err(|e| format!("the proving key could not be read: {e}"))?;
+    let bytes = std::fs::read(std::path::Path::new(setup_dir).join(file))
+        .map_err(|e| format!("the proving key {file} could not be read: {e}"))?;
     let have = hex::encode(Sha256::digest(&bytes));
     if have.eq_ignore_ascii_case(expected_hex) {
         Ok(())
     } else {
         Err(format!(
-            "the proving key does not match the pinned hash (found {have})"
+            "the proving key {file} does not match the pinned hash (found {have})"
         ))
     }
 }
@@ -1367,6 +1382,26 @@ pub async fn models_handler(State(gw): State<Arc<Gateway>>) -> axum::Json<Value>
 #[cfg(test)]
 mod settled_tests {
     use super::*;
+
+    #[test]
+    fn a_changed_withdrawal_key_is_refused_like_a_changed_proving_key() {
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("withdrawal.pk");
+        std::fs::write(&path, b"withdrawal key bytes").unwrap();
+        let pinned = hex::encode(Sha256::digest(b"withdrawal key bytes"));
+        let dir_str = dir.path().to_str().unwrap();
+        assert!(check_withdrawal_key(dir_str, &pinned).is_ok());
+        std::fs::write(&path, b"withdrawal key bytes!").unwrap();
+        let err = check_withdrawal_key(dir_str, &pinned).unwrap_err();
+        assert!(
+            err.contains("withdrawal.pk") && err.contains("pinned"),
+            "{err}"
+        );
+        // A key file that is missing is an error too, not a pass.
+        std::fs::remove_file(&path).unwrap();
+        assert!(check_withdrawal_key(dir_str, &pinned).is_err());
+    }
 
     #[test]
     fn a_settled_lease_tells_the_trust_label_the_charge_and_each_warning() {
