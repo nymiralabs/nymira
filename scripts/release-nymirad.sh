@@ -58,21 +58,28 @@ build)
   # Colima shares only $HOME with its VM, so the build directory must live there.
   if [ "$(uname)" = Darwin ]; then export TMPDIR="$HOME/.cache/nymira-tmp"; mkdir -p "$TMPDIR"; fi
   work="$(mktemp -d "${TMPDIR:-/tmp}/nymirad-release.XXXXXX")"; trap 'rm -rf "$work"' EXIT
-  mkdir -p "$work/src" "$work/cargo-registry" "$dist"
+  mkdir -p "$work/src" "$dist"
   git -C "$ROOT" archive "$tag" | tar -x -C "$work/src"
   commit="$(git -C "$ROOT" rev-parse "$tag^{commit}")"
   epoch="$(git -C "$ROOT" log -1 --format=%ct "$commit")"
+  # Each build gets its own empty cargo registry. A second build that reuses the first one's
+  # warm registry gives a different binary (measured 2026-11-04: two cold builds were equal, the
+  # warm one differed), and anyone rebuilding from scratch starts cold.
   build() { # $1 = output directory
-    mkdir -p "$1"
+    mkdir -p "$1" "$1.registry"
     # Path remapping and a fixed epoch keep the host's paths and clock out of the binary.
     docker run --rm --platform linux/amd64 \
-      -v "$work/src:/src:ro" -v "$work/cargo-registry:/usr/local/cargo/registry" -v "$1:/out" \
-      -e SOURCE_DATE_EPOCH="$epoch" -e CARGO_TARGET_DIR=/tmp/target \
+      -v "$work/src:/src:ro" -v "$1.registry:/usr/local/cargo/registry" -v "$1:/out" \
+      -e SOURCE_DATE_EPOCH="$epoch" -e CARGO_TARGET_DIR=/tmp/target -e CARGO_BUILD_JOBS=2 \
       -e RUSTFLAGS="--remap-path-prefix=/src=/nymira --remap-path-prefix=/usr/local/cargo=/cargo" \
       -w /src "$IMAGE" \
       sh -c 'cargo build --release --locked -p nymirad --bin nymirad && cp /tmp/target/release/nymirad /out/nymirad'
   }
-  build "$work/a"; build "$work/b"
+  # The two builds run side by side (each with two jobs) to halve the wait.
+  build "$work/a" & pid_a=$!
+  build "$work/b" & pid_b=$!
+  wait "$pid_a" || { echo "the first build failed" >&2; exit 1; }
+  wait "$pid_b" || { echo "the second build failed" >&2; exit 1; }
   a="$(shasum -a 256 "$work/a/nymirad" | cut -d' ' -f1)"; b="$(shasum -a 256 "$work/b/nymirad" | cut -d' ' -f1)"
   echo "commit $commit"; echo "first build:  $a"; echo "second build: $b"
   [ "$a" = "$b" ] || { echo "two builds of one commit differ: not publishing" >&2; exit 1; }
