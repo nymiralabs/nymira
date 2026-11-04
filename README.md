@@ -19,7 +19,7 @@ The public testnet vault is not deployed yet. This table is filled in when it is
 
 The proving and verifying keys come from a setup run by the team alone (the log, scripts and the accepted contributions are in [nymira-ceremony](https://github.com/nymiralabs/nymira-ceremony)). They are sound if at least one contributor really was honest, and the team cannot prove that: if every contribution was dishonest or its machine was compromised, proofs can be forged and the vault emptied. zkapi's development keys, whose secrets are public, never run on the final public vault or on mainnet. Until the final vault is up, development and rehearsal keys are used and no privacy claim rests on them. A deposit fee is read from the vault's `config()`; on testnet it is a placeholder in test USDC and is not revenue.
 
-The proving keys are release assets of the ceremony repository (`request.pk`, `withdrawal.pk`, tag `final`). The web app serves them from its own signed bundle and checks their SHA-256 before use. For `nymirad`, download both files into one directory and pass it once: `nymirad init ... --setup-dir DIR`. `init` refuses files whose hash differs from the one compiled into the binary, and without the directory chat and close stay off.
+The proving keys are release assets of the ceremony repository (`request.pk`, `withdrawal.pk`, tag `final`). The web app serves them from its own signed bundle and checks their SHA-256 before use. For `nymirad`, download both files into one directory and pass it once: `nymirad init ... --setup-dir DIR`. `init` refuses files whose hash differs from the one compiled into the binary, and without the directory chat and close stay off. `nymirad terms` prints the terms of use.
 
 ## Limits
 

@@ -141,3 +141,90 @@ fn a_passphrase_file_others_can_read_stops_note_secret() {
         text(&out.stderr)
     );
 }
+
+#[test]
+fn terms_prints_the_terms_file_and_needs_no_home() {
+    let home = tempfile::tempdir().unwrap();
+    let out = run(home.path(), "", &["terms"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let terms = include_str!("../../../TERMS.md");
+    assert_eq!(text(&out.stdout), terms);
+    assert!(!home.path().join("config.json").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn print_pins_writes_the_format_of_the_compiled_pin_file() {
+    use nymira_fake_near_rpc::{AccessKeySpec, AccountSpec, ArgsMatch, FakeRpc, ViewResult};
+    use serde_json::json;
+
+    let rpc = FakeRpc::start().await;
+    let vault = "vault.nymira.testnet";
+    rpc.set_account(
+        vault,
+        AccountSpec {
+            code_hash: "9xCodeHash".into(),
+            ..AccountSpec::default()
+        },
+    );
+    rpc.set_access_keys(
+        vault,
+        vec![AccessKeySpec {
+            public_key: "ed25519:Key".into(),
+            nonce: 0,
+            permission: json!("FullAccess"),
+        }],
+    );
+    rpc.set_view(
+        vault,
+        "config",
+        ArgsMatch::Any,
+        ViewResult::json(json!({ "owner": "owner.testnet", "slot_rate": "5", "tvl_cap": "1" })),
+    );
+    rpc.set_view(
+        vault,
+        "vk_hashes",
+        ArgsMatch::Any,
+        ViewResult::json(json!({ "request": "aa", "withdrawal": "bb" })),
+    );
+
+    let home = tempfile::tempdir().unwrap();
+    let url = rpc.url();
+    let out = run(
+        home.path(),
+        "",
+        &[
+            "print-pins",
+            "--network",
+            "testnet",
+            "--rpc",
+            &url,
+            "--vault",
+            vault,
+        ],
+    );
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let pins: nymirad::pins::Pins = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(pins.vault, vault);
+    assert_eq!(pins.code_hash, "9xCodeHash");
+    assert_eq!(pins.vk_hashes["request"], "aa");
+    assert_eq!(pins.config["owner"], "owner.testnet");
+    assert!(
+        pins.config.get("tvl_cap").is_none(),
+        "moving values are not pinned"
+    );
+    assert_eq!(pins.access_keys[0]["public_key"], "ed25519:Key");
+    assert!(text(&out.stderr).contains("proving-key.sha256"));
+}
+
+#[test]
+fn print_pins_needs_a_vault_and_a_known_network() {
+    let home = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["print-pins", "--network", "testnet"],
+        vec!["print-pins", "--network", "devnet", "--vault", "v.testnet"],
+    ] {
+        let out = run(home.path(), "", &args);
+        assert!(!out.status.success());
+        assert!(text(&out.stderr).contains("usage"), "{}", text(&out.stderr));
+    }
+}

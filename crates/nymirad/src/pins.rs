@@ -72,6 +72,11 @@ pub async fn read_live(rpc: &Rpc, vault: &str) -> Result<Pins, RpcError> {
     })
 }
 
+/// The text of a pin file (`pins/<network>.json`).
+pub fn render(pins: &Pins) -> String {
+    serde_json::to_string_pretty(pins).expect("pins serialize")
+}
+
 /// The differences, by name; empty when the vault matches.
 pub fn diff(pinned: &Pins, live: &Pins) -> Vec<String> {
     let mut out = Vec::new();
