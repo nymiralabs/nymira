@@ -39,6 +39,23 @@ The first sentence holds while you keep your latest state; see the first point b
 
 Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum/zkapi) (`ethereum/zkapi`), vendored at a pinned commit in `vendor/zkapi/`. `NOTICE` lists the exact commit and every patch we apply. `PINS.md` records the pins and the toolchain.
 
+## Download `nymirad`
+
+Each `nymirad-vX.Y.Z` release on GitHub has a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in `web/pins/release-signing.pub`) that lists every file. Check the signature with `minisign -V -p web/pins/release-signing.pub -m SHA256SUMS`, then run `shasum -a 256 -c SHA256SUMS`.
+
+- **Linux x86_64** (`nymirad-X.Y.Z-x86_64-linux`): reproducible. Anyone can rebuild it from the tag with the pinned container and get the same bytes (`scripts/release-nymirad.sh build`).
+- **macOS arm64** (`nymirad-X.Y.Z-aarch64-macos`): built by a GitHub Actions workflow on a macOS runner. The signature shows that the project published these exact bytes. It does not show that the binary matches the source, because the macOS toolchain's output is not byte-stable and nobody can rebuild it to the same hash. If that matters to you, build from the tag yourself or use the Linux binary.
+
+`nymirad` starts its own Tor, and it runs only a Tor executable whose SHA-256 is compiled into the build. A build pins one hash per platform. Today the only pinned package is Homebrew's `tor` 0.4.9.15 for macOS arm64 (`c0dcd5d18c534d1e7049c5105bfc39189527b33be65b3d064052c213e7404a46`). No Linux package is pinned yet, and `arti` is not pinned.
+
+On a Mac with Apple silicon:
+
+1. `brew install tor`, then check `shasum -a 256 "$(brew --prefix tor)/bin/tor"` prints the hash above. Homebrew moves to newer versions; a different version has a different hash and `nymirad` refuses to start it. In that case use option 3.
+2. Copy that file to `~/.nymira/tor/package/tor` (or set `tor_package` in `config.json` to its path). Without a pinned Tor package or your own SOCKS proxy, chat and `close` do not start.
+3. Or run a Tor you trust yourself and give `nymirad` its loopback SOCKS port: `nymirad init ... --socks 127.0.0.1:9050`. Then `nymirad` does not check the Tor executable; you do.
+
+On Linux the same applies: no Tor package is pinned, so use option 3 until one is.
+
 ## Build
 
 The toolchain is pinned in `rust-toolchain.toml` (rustc 1.99.0, `wasm32-unknown-unknown`). Install cargo-near 0.22.0, then:
