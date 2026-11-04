@@ -13,6 +13,17 @@ ctx="$(mktemp -d)"
 trap 'rm -rf "$ctx"' EXIT
 
 git -C "$root" archive "$ref" | tar -x -C "$ctx"
+# A profile that pins proving keys serves them from the bundle: the rebuild needs the same bytes.
+# NYMIRA_SETUP_DIR points at the ceremony's final directory; otherwise they come from its release.
+mkdir -p "$ctx/ceremony-keys"
+for f in request.pk withdrawal.pk; do
+  if [ -n "${NYMIRA_SETUP_DIR:-}" ]; then
+    cp "$NYMIRA_SETUP_DIR/$f" "$ctx/ceremony-keys/$f"
+  else
+    curl -fsSL -o "$ctx/ceremony-keys/$f" \
+      "https://github.com/nymiralabs/nymira-ceremony/releases/download/final/$f"
+  fi
+done
 docker build --platform linux/amd64 -f "$ctx/web/Dockerfile.repro" \
   --build-arg "PROFILE=$profile" --build-arg "VERSION=$version" -t "nymira-web-rebuild:$version-$profile" "$ctx"
 cid="$(docker create "nymira-web-rebuild:$version-$profile")"

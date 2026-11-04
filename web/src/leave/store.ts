@@ -219,6 +219,7 @@ class LeaveStore {
       return requestExit(d, (await getNote(note.id)) ?? n, { step });
     });
     if (result) {
+      this.backupDue(note.id);
       this.set({
         message: `The exit request for note #${note.noteId} is filed. It concedes ${result.conceded} base units. finalize_exit works after ${new Date(result.deadline * 1000).toISOString()}.`,
       });

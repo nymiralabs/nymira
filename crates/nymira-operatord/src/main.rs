@@ -9,6 +9,7 @@ use nymira_operatord::{config::Config, hardening, roles};
 
 const USAGE: &str = "usage: nymira-operatord <command> --config FILE
 processes:  api | minter | signer | closer | watcher | replica | deadman (second machine)
+            second-watcher (second machine: the watcher on the replica's own database)
 tools:      emergency set <notice> | emergency show | emergency clear
             recovery hold | recovery clear | recovery show
                                put this machine on recovery hold (after a restore from a backup
@@ -53,6 +54,7 @@ async fn main() {
         "signer" => roles::signer(&cfg).await,
         "closer" => roles::closer(&cfg).await,
         "watcher" => roles::watcher(&cfg).await,
+        "second-watcher" => roles::second_watcher(&cfg).await,
         "replica" => roles::replica(&cfg).await,
         "deadman" => roles::deadman(&cfg).await,
         "emergency" => emergency(&cfg, &args[1..]).await,

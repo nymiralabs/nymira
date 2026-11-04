@@ -212,16 +212,22 @@ control (the rebuilder's own repository, a gist, a signed post).
 
 ## Release procedure (human)
 
-1. Merge the release commit; tag it (`web-v<version>`).
-2. CI builds; the `reproducible` job is green. Note the hashes it prints.
-3. Offline machine: check out the tag, run `web/scripts/rebuild-in-container.sh`, copy
+1. Make the profile final first: operator URL, pins, proving-key hashes. They change the bundle
+   and, through `connect-src`, the header-set hash, so they cannot change after signing. Merge
+   that commit (call it A).
+2. CI builds A; the `reproducible` job is green. Note the hashes it prints.
+3. Offline machine: check out A, run `web/scripts/rebuild-in-container.sh` (it downloads the
+   ceremony's keys, or reads them from `NYMIRA_SETUP_DIR`), copy
    `rebuilt-site/manifest.json` out, then sign:
    `minisign -S -s <offline.key> -m manifest.json -t "nymira-web-manifest v1 profile=<p> version=<v>"`.
 4. Commit `manifest.json` and `manifest.json.minisig` as `web/releases/<profile>-<version>/`, in a
-   pull request. The deploy workflow refuses to run without them.
-5. Run the `web-deploy` workflow on the tag. It rebuilds, compares the manifest with the committed
-   one, verifies the signature with `web/pins/release-signing.pub`, deploys, and runs
-   `check-live.mjs` against the live site.
+   pull request, and merge it (commit B). The bundle hash does not cover `web/releases/`, so B
+   builds to the same manifest as A. Tag B (`web-v<version>`). The deploy workflow refuses to run
+   without the signature files, so the tag must sit on B, not A.
+5. Run the `web-deploy` workflow with `ref` = the tag on B. It rebuilds, compares the manifest with
+   the committed one, verifies the signature with `web/pins/release-signing.pub`, deploys, and runs
+   `check-live.mjs` against the live site. A dry run first: the same workflow on a throwaway
+   `ref` stops at "unsigned build" and shows that the build step itself passes.
 6. Publish the bundle hash and the key fingerprint (below). Fill in
    `web/releases/RELEASE_NOTES_TEMPLATE.md` for the release.
 
@@ -242,6 +248,27 @@ of those proves nothing. Copies to make (each is a human task):
   `nymirad` from source gets it from a second path.
 
 If the fingerprint here and one of those copies differ, treat the site as compromised.
+
+## The `nymirad` release
+
+`nymirad` is signed with the same release key as the web manifest (minisign key ID
+`934C176AF34D794D`, shown in `pins/release-signing.pub`). `scripts/release-nymirad.sh` runs the steps;
+only `sign` needs the key, and it only calls `minisign`, which asks for the passphrase itself.
+
+1. Tag the commit `nymirad-vX.Y.Z` and push the tag.
+2. `scripts/release-nymirad.sh build nymirad-vX.Y.Z`. It builds the tag twice in the container of
+   `Dockerfile.repro` (same image digest, `--locked`, paths remapped, `SOURCE_DATE_EPOCH` set to the
+   commit time), stops if the two binaries differ, runs `scripts/check-release-binary.sh` on the
+   result (no `mock` feature, no demo strings), and writes `dist/nymirad-vX.Y.Z/` with the binary,
+   `attestation-policy.json`, `TERMS.md` and `SHA256SUMS`.
+3. Offline machine, in a clone that has `dist/`: `scripts/release-nymirad.sh sign nymirad-vX.Y.Z`
+   writes `SHA256SUMS.minisig`.
+4. `scripts/release-nymirad.sh publish nymirad-vX.Y.Z` verifies the signature with
+   `pins/release-signing.pub`, checks the hashes, then creates the GitHub release with the five files.
+
+A user checks a download with `minisign -V -p release-signing.pub -m SHA256SUMS` and
+`shasum -a 256 -c SHA256SUMS`. Only the linux x86_64 binary is built this way; other platforms
+build from source.
 
 ## Dependencies
 

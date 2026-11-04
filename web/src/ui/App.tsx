@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { retireBackup } from '../chat/retire-backup';
 import { warmProver } from '../chat/runtime';
 import { PROFILE } from '../profile';
 import { BundleHash } from './BundleHash';
@@ -15,6 +16,7 @@ type Screen = 'landing' | 'fund' | 'chat' | 'close' | 'notes';
 export function App() {
   const [screen, setScreen] = useState<Screen>('landing');
   const { check, recheck } = useVaultCheck();
+  const owed = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state?.needed);
 
   // The proving key loads into the worker when the page opens, so the first lease does not wait
   // for it. A copy served from another origin loads nothing.
@@ -62,6 +64,14 @@ export function App() {
         <p className="banner" data-testid="ip-banner">
           This web app cannot hide your IP address from the operator. Use Tor Browser or{' '}
           <code>nymirad</code> for that.
+        </p>
+      )}
+      {owed && screen !== 'chat' && (
+        <p className="warning" role="alert" data-testid="backup-owed">
+          A lease ended and your note changed.{' '}
+          <button type="button" onClick={() => setScreen('chat')}>
+            Back up now
+          </button>
         </p>
       )}
       {screen !== 'landing' && <Watch screen={screen} onClose={() => setScreen('close')} />}

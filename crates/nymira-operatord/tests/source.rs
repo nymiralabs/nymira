@@ -42,18 +42,30 @@ fn each_role_loads_only_its_own_keys() {
     assert_eq!(loads(&role("minter")), ["usage"]);
     assert_eq!(loads(&role("signer")), ["heartbeat"]);
     assert_eq!(loads(&role("closer")), ["mutual_close"]);
-    let mut watcher = loads(&role("watcher"));
+    // Both watchers share `run_watcher`, which loads the answer and upkeep keys.
+    let shared = {
+        let text = source("roles.rs");
+        let start = text.find("async fn run_watcher(").expect("no run_watcher");
+        let rest = &text[start..];
+        rest[..rest.find("\npub async fn ").unwrap_or(rest.len())].to_string()
+    };
+    let mut watcher = loads(&format!("{}{shared}", role("watcher")));
     watcher.sort();
     assert_eq!(watcher, ["answer", "entry", "upkeep"]);
+    // `role` runs on to the next `pub` function, so it already holds `run_watcher` here.
+    let mut second = loads(&format!("{}{shared}", role("second_watcher")));
+    second.sort();
+    second.dedup();
+    assert_eq!(second, ["answer", "upkeep"]);
     // The NEAR AI login is built in the minter and nowhere else.
-    for other in ["api", "signer", "closer", "watcher"] {
+    for other in ["api", "signer", "closer", "watcher", "second_watcher"] {
         assert!(
             !role(other).contains("NearAiAdapter"),
             "{other} holds the login"
         );
     }
     // Passphrases are asked for in the signer and the minter only.
-    for other in ["api", "closer", "watcher"] {
+    for other in ["api", "closer", "watcher", "second_watcher"] {
         assert!(
             !role(other).contains("passphrase("),
             "{other} asks for a passphrase"

@@ -1,4 +1,13 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  copyFileSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import type { Plugin, ResolvedConfig } from 'vite';
@@ -14,7 +23,26 @@ const PROFILES: Record<string, Profile> = { mock, testnet, mainnet };
 
 // Serves `vite preview` with the production header set, so the e2e tests run the app under the
 // strict policy. It also copies the test-only wallet executor into mock builds.
+// A deployed profile that pins proving keys ships them inside the signed bundle under `setup/`.
+// NYMIRA_SETUP_DIR names the ceremony's final directory; every file is hash-checked against the
+// profile before it is copied. Without the variable (CI builds, local checks) nothing is copied
+// and `check-bundle --require-keys` is what refuses such a bundle at release time.
+function copyCeremonyKeys(profile: Profile, outDir: string) {
+  const dir = process.env.NYMIRA_SETUP_DIR;
+  if (!dir) return;
+  for (const key of [profile.provingKey, profile.withdrawalKey]) {
+    if (!key) continue;
+    const name = key.url.replace(/^\/setup\//, '');
+    const bytes = readFileSync(resolve(dir, name));
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    if (hash !== key.sha256) throw new Error(`${name}: SHA-256 ${hash} is not the profile's pin`);
+    mkdirSync(resolve(outDir, 'setup'), { recursive: true });
+    copyFileSync(resolve(dir, name), resolve(outDir, 'setup', name));
+  }
+}
+
 function headerPlugin(profile: Profile): Plugin {
+  let outDir = '';
   return {
     name: 'nymira-headers',
     configurePreviewServer(server) {
@@ -26,8 +54,14 @@ function headerPlugin(profile: Profile): Plugin {
         next();
       });
     },
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
     closeBundle() {
-      if (profile.id !== 'mock') return;
+      if (profile.id !== 'mock') {
+        copyCeremonyKeys(profile, outDir);
+        return;
+      }
       const out = resolve(__dirname, 'dist/executors');
       mkdirSync(out, { recursive: true });
       const from = resolve(__dirname, 'test-fixtures/executors/fake-wallet.js');

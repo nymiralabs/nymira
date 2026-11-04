@@ -1,0 +1,27 @@
+# Outside check on the operator: GitHub emails the repository admins when this run fails.
+# Set the repository variable OPERATOR_STATUS_URL (the public /v1/status URL) to arm it.
+name: operator-status
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: The operator answers and its heartbeat is recent
+        env:
+          URL: ${{ vars.OPERATOR_STATUS_URL }}
+        run: |
+          if [ -z "$URL" ]; then echo "OPERATOR_STATUS_URL is not set: nothing to check"; exit 0; fi
+          body="$(curl -fsS --max-time 20 --retry 2 "$URL")" || { echo "operator unreachable" >&2; exit 1; }
+          age="$(printf '%s' "$body" | jq -r '.heartbeat_age_secs // "none"')"
+          echo "heartbeat_age_secs=$age"
+          if [ "$age" = "none" ] || [ "$age" -gt 7200 ]; then
+            echo "heartbeat is missing or older than 2 hours" >&2
+            exit 1
+          fi
