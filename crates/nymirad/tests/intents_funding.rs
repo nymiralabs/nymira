@@ -198,6 +198,10 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         .await
         .unwrap();
     assert!(!out.status.success());
+    let shown = String::from_utf8_lossy(&out.stdout);
+    assert!(shown.contains("On this path 1Click and the Intents explorer pair your source wallet with this deposit. The proofs are designed to keep the vault and the operator from tying your spending to this deposit, but while few notes are open, and without Tor, your spending can still be matched to it by time and network address. Wait a while between depositing and your first chat."));
+    assert!(shown.contains(&format!("Payout account {} (fingerprint ", s.alice.id())));
+    assert!(shown.contains("non-refundable note fee"));
     assert!(String::from_utf8_lossy(&out.stdout).contains("Deposit address: fake-deposit-"));
     assert!(String::from_utf8_lossy(&out.stdout)
         .contains("Pay 1.065000 source tokens (1065000 source base units)"));
