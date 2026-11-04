@@ -53,6 +53,9 @@ pub struct Config {
     /// Demo builds only: the proving key hash to expect. A release build uses the one compiled in.
     #[serde(default)]
     pub proving_key_sha256: Option<String>,
+    /// Demo builds only: the same for `withdrawal.pk`.
+    #[serde(default)]
+    pub withdrawal_key_sha256: Option<String>,
     /// Seconds of silence after which a lease is retired. Default 120.
     #[serde(default)]
     pub idle_secs: Option<u64>,

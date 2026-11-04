@@ -125,6 +125,14 @@ struct Env {
 }
 
 async fn setup(tvl_cap: u128) -> Result<Env> {
+    // `NYMIRA_VAULT_RELEASE=1` builds the vault without `dev-setup`, as it ships; with
+    // `NYMIRA_SETUP_DIR` pointing at the ceremony's setup directory the proofs and verifying keys
+    // of the tests are then the ceremony's. This is how a release build is shown to accept the
+    // final keys: `NYMIRA_VAULT_RELEASE=1 NYMIRA_SETUP_DIR=<final-setup> cargo test -p
+    // nymira-vault --test sandbox close::`.
+    if std::env::var_os("NYMIRA_VAULT_RELEASE").is_some() {
+        return setup_with(tvl_cap, &[]).await;
+    }
     setup_with(tvl_cap, &["dev-setup"]).await
 }
 

@@ -163,6 +163,7 @@ async fn build_gateway(
         None
     })?;
     let proving_key_sha256 = compiled_proving_key_hash(cfg);
+    let withdrawal_key_sha256 = compiled_withdrawal_key_hash(cfg);
     let network = match mode {
         Mode::Testnet => nymira_near_codec::Network::Testnet,
         Mode::Mainnet => nymira_near_codec::Network::Mainnet,
@@ -180,6 +181,7 @@ async fn build_gateway(
             network,
             setup_dir,
             proving_key_sha256,
+            withdrawal_key_sha256,
             models: nymira_operator::proxy::ProxyConfig::default().models,
             rounds: ROUNDS,
             idle_secs: cfg.idle_secs.unwrap_or(120),
@@ -207,6 +209,19 @@ async fn build_gateway(
     }
     gateway.spawn_background(std::time::Duration::from_secs(5));
     Some(gateway)
+}
+
+/// The withdrawal key's SHA-256 pinned in this build. Demo builds may take it from `config.json`.
+fn compiled_withdrawal_key_hash(cfg: &Config) -> String {
+    #[cfg(feature = "mock")]
+    if let Some(hash) = &cfg.withdrawal_key_sha256 {
+        return hash.clone();
+    }
+    #[cfg(not(feature = "mock"))]
+    let _ = cfg;
+    include_str!("../pins/withdrawal-key.sha256")
+        .trim()
+        .to_string()
 }
 
 /// The proving key's SHA-256 pinned in this build. Demo builds may take it from `config.json`.

@@ -258,6 +258,12 @@ async fn main() {
                 std::fs::read(format!("{SETUP_DIR}/request.pk")).unwrap(),
             ))
         }),
+        withdrawal_key_sha256: Some({
+            use sha2::{Digest, Sha256};
+            hex::encode(Sha256::digest(
+                std::fs::read(format!("{SETUP_DIR}/withdrawal.pk")).unwrap(),
+            ))
+        }),
         // The sandbox node and the operator are on this machine: no Tor (a `mock` build only).
         direct: true,
         ..Default::default()

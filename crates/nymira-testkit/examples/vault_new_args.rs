@@ -1,9 +1,12 @@
-//! Prints the JSON arguments of the vault's `new()` for a development-keys build, for the
-//! deploy runbook: `cargo run -q -p nymira-testkit --example vault_new_args -- <token> <treasury>
-//! <owner> <operator_account>`.
+//! Prints the JSON arguments of the vault's `new()` for the deploy runbook:
+//! `cargo run -q -p nymira-testkit --example vault_new_args -- <token> <treasury> <owner>
+//! <operator_account> [--pubkeys-file FILE]`.
 //!
-//! The keys are zkapi's development keys (public seeds): a vault made from them is for
-//! measurements only and must never hold anything of value.
+//! Without options the verifying keys are zkapi's development keys and the operator and
+//! clearance keys are the public dev seeds: a vault made from them is for measurements only and
+//! must never hold anything of value, and a release build refuses it. For a release vault set
+//! `NYMIRA_SETUP_DIR` to the ceremony's setup directory and pass the JSON that
+//! `nymira-operatord pubkeys` printed as `--pubkeys-file`.
 
 use base64::Engine;
 use nymira_testkit::proofs::{canonical_verifying_key, signing_key, Kind};
@@ -23,17 +26,47 @@ fn point(seed: u64) -> serde_json::Value {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let pubkeys: Option<serde_json::Value> =
+        args.iter().position(|a| a == "--pubkeys-file").map(|at| {
+            args.remove(at);
+            let path = if at < args.len() {
+                args.remove(at)
+            } else {
+                eprintln!("--pubkeys-file needs a file");
+                std::process::exit(2)
+            };
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                eprintln!("{path}: {e}");
+                std::process::exit(2)
+            });
+            serde_json::from_str(&text).unwrap_or_else(|e| {
+                eprintln!("{path}: {e}");
+                std::process::exit(2)
+            })
+        });
     let [token, treasury, owner, operator] = args.as_slice() else {
-        eprintln!("usage: vault_new_args <token> <treasury> <owner> <operator_account>");
+        eprintln!(
+            "usage: vault_new_args <token> <treasury> <owner> <operator_account> [--pubkeys-file FILE]"
+        );
         std::process::exit(2);
+    };
+    if pubkeys.is_none() {
+        eprintln!("warning: the operator and clearance keys are the public development seeds");
+    }
+    if std::env::var_os("NYMIRA_SETUP_DIR").is_none() {
+        eprintln!("warning: the verifying keys are zkapi's development keys");
+    }
+    let (operator_pk, clearance_pk) = match &pubkeys {
+        Some(v) => (v["operator_pk"].clone(), v["clearance_pk"].clone()),
+        None => (point(1), point(2)),
     };
     let b64 = |bytes: Vec<u8>| base64::engine::general_purpose::STANDARD.encode(bytes);
     println!(
         "{}",
         json!({
-            "operator_pk": point(1),
-            "clearance_pk": point(2),
+            "operator_pk": operator_pk,
+            "clearance_pk": clearance_pk,
             "token": token,
             "denominations": ["1000000", "5000000"],
             "tvl_cap": "100000000",

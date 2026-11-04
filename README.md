@@ -17,7 +17,7 @@ The public testnet vault is not deployed yet. This table is filled in when it is
 | Web bundle hash | not published yet |
 | Keys the vault uses | not deployed yet |
 
-The proving and verifying keys come from a setup run by the team alone. They are sound if at least one contributor really was honest, and the team cannot prove that. Until the final vault is up, development and rehearsal keys are used and no privacy claim rests on them. A deposit fee is read from the vault's `config()`; on testnet it is a placeholder in test USDC and is not revenue.
+The proving and verifying keys come from a setup run by the team alone (the log, scripts and the accepted contributions are in [nymira-ceremony](https://github.com/nymiralabs/nymira-ceremony)). They are sound if at least one contributor really was honest, and the team cannot prove that: if every contribution was dishonest or its machine was compromised, proofs can be forged and the vault emptied. zkapi's development keys, whose secrets are public, never run on the final public vault or on mainnet. Until the final vault is up, development and rehearsal keys are used and no privacy claim rests on them. A deposit fee is read from the vault's `config()`; on testnet it is a placeholder in test USDC and is not revenue.
 
 ## Limits
 

@@ -133,9 +133,15 @@ pub struct ProofGen {
     withdrawal_verifier: WithdrawalVerifier,
 }
 
+/// The setup directory the proofs use: zkapi's development setup, or the directory named by
+/// `NYMIRA_SETUP_DIR` (a ceremony or rehearsal setup, to build `new()` arguments and proofs for
+/// a release vault).
 fn setup_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../vendor/zkapi/protocol/setup/v2-concession-dev")
+    match std::env::var_os("NYMIRA_SETUP_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../vendor/zkapi/protocol/setup/v2-concession-dev"),
+    }
 }
 
 fn seeded(seed: u64) -> CompactSigner {
