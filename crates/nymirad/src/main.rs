@@ -23,7 +23,10 @@ use nymirad::{backup, guard, hardening, status};
 const USAGE: &str =
     "usage: nymirad [--home DIR] [--passphrase-file FILE | --passphrase-stdin] <command>
 commands:
-  init --rpc URL --operator URL --account ID [--socks HOST:PORT] [backup options | --no-backup]
+  init --rpc URL --operator URL --account ID [--socks HOST:PORT] [--setup-dir DIR]
+       [backup options | --no-backup]
+      --setup-dir: the directory with the ceremony's request.pk and withdrawal.pk; both are
+      checked against the hashes pinned in this build, and chat and close stay off without it
   backup-setup [backup options]     sets up the encrypted backup
       backup options: --place DIR (the second place; repeat for more) | --local-only,
       and --backup-passphrase [--backup-passphrase-file FILE] to use a passphrase of 12 or
@@ -327,6 +330,14 @@ async fn main() {
                 socks: flag(&mut args, "--socks"),
                 ..Config::default()
             };
+            if let Some(dir) = flag(&mut args, "--setup-dir") {
+                let request = compiled_proving_key_hash(&cfg);
+                let withdrawal = compiled_withdrawal_key_hash(&cfg);
+                nymirad::gateway::check_proving_key(&dir, &request).unwrap_or_else(|e| die(e));
+                nymirad::gateway::check_withdrawal_key(&dir, &withdrawal)
+                    .unwrap_or_else(|e| die(e));
+                cfg.setup_dir = Some(dir);
+            }
             // Backups are on by default: the state is lost with the machine otherwise.
             if switch(&mut args, "--no-backup") {
                 eprintln!("warning: no backup. If this machine is lost, an exit can be defeated and the note expire to the treasury.");
