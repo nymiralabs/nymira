@@ -209,6 +209,11 @@ jobs:
         run: scripts/check-profiles.sh
       - name: The fuzz target builds
         run: cargo check --locked --manifest-path contracts/vault/fuzz/Cargo.toml
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: The vault key watcher
+        run: make watch-test
 
   # nymirad in Tor mode: every connect() of the egress test stays on loopback (issue 32).
   egress:

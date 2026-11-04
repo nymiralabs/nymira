@@ -172,3 +172,25 @@ impl Config {
         self.profile == "sandbox"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The example file operators copy must stay loadable: every field name and the checks.
+    #[test]
+    fn the_example_config_loads() {
+        let dir = std::env::temp_dir().join(format!("nymira-example-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("operator.json");
+        std::fs::write(
+            &path,
+            include_str!("../../../scripts/operator/operator.example.json"),
+        )
+        .unwrap();
+        let cfg = Config::load(&path).expect("the example config loads");
+        assert_eq!(cfg.profile, "testnet");
+        assert!(cfg.rpc_urls.len() >= 2);
+        std::fs::remove_dir_all(dir).ok();
+    }
+}
