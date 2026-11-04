@@ -1,1 +1,44 @@
-null
+{
+  "vault": "vault.nymira.testnet",
+  "code_hash": "71QXP9FT4eiRcaqjZtsHi7mXMCAexXjCFgQ338p8tur4",
+  "vk_hashes": {
+    "request": "0xf3092e0d550f696a6507f279862afb43d0c22663de56f1b47160b5db6fc6fa1b",
+    "withdrawal": "0x3469ebb3245101549343dbe5939427d3dc7706c314f281f9b5935416fc720c8d"
+  },
+  "config": {
+    "operator_pk": {
+      "x": "0x2ab6e2f4c85c60832e5fecaa0d88ea9f2b55cbff4261e9b6be5853afc09d812b",
+      "y": "0x2d8216aefd1ad4c183ffcb8d2238f55b3779baee9dbb938cf10842641cbb7bc1"
+    },
+    "clearance_pk": {
+      "x": "0x2a84bf617974bb652505359591945b716533cf7d322cfa4f184100398fdc8b03",
+      "y": "0x06bbae77669b94f3da01e7378dab520adbfb17fc1393c67e7cb94b4eae8adcac"
+    },
+    "operator_account": "operator.nymira.testnet",
+    "token": "3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af",
+    "treasury": "treasury.nymira.testnet",
+    "owner": "owner.nymira.testnet",
+    "chain_id": "7718972759422244814",
+    "denominations": [
+      "1000000",
+      "5000000"
+    ],
+    "note_fee": "50000",
+    "close_fee": "30000",
+    "exit_delay_secs": 604800,
+    "note_ttl": 2592000,
+    "bound_classes": [
+      "100000",
+      "500000"
+    ],
+    "charge_step": "1000",
+    "min_charge": "2000",
+    "slot_rate": 1000
+  },
+  "access_keys": [
+    {
+      "public_key": "ed25519:DJc2C6WWveyUY1VvLEdUPjBggzKrMuEwx7GGp1BLHMze",
+      "permission": "FullAccess"
+    }
+  ]
+}
