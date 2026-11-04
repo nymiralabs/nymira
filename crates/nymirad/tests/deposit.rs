@@ -287,10 +287,16 @@ async fn a_changed_vault_stops_the_deposit_before_anything_is_sent() {
         pins = original;
         std::fs::remove_file(e.dir.path().join("notes.sealed")).ok();
     }
-    // No vault is pinned in this build for the testnet profile yet.
+    // The testnet profile pins the launch vault; the sandbox vault is a different one.
     let tripwire = Tripwire::default();
     let diffs = tripwire
         .check(Mode::Testnet, &rpc, e.vault.id().as_str())
+        .await
+        .unwrap_err();
+    assert!(diffs.contains(&"code hash".to_string()), "{diffs:?}");
+    // No vault is pinned in this build for the mainnet profile yet.
+    let diffs = tripwire
+        .check(Mode::Mainnet, &rpc, e.vault.id().as_str())
         .await
         .unwrap_err();
     assert!(diffs[0].contains("no vault is pinned"));
