@@ -20,13 +20,17 @@ use nymirad::token::OwnerToken;
 use nymirad::tor::Tor;
 use nymirad::{backup, guard, hardening, status};
 
+/// The terms of use, as of this build.
+const TERMS: &str = include_str!("../../../TERMS.md");
+
 const USAGE: &str =
     "usage: nymirad [--home DIR] [--passphrase-file FILE | --passphrase-stdin] <command>
 commands:
   init --rpc URL --operator URL --account ID [--socks HOST:PORT] [--setup-dir DIR]
        [backup options | --no-backup]
       --setup-dir: the directory with the ceremony's request.pk and withdrawal.pk; both are
-      checked against the hashes pinned in this build, and chat and close stay off without it
+      checked against the hashes pinned in this build, and chat and close stay off without it.
+      Get both files from the `final` release of github.com/nymiralabs/nymira-ceremony
   backup-setup [backup options]     sets up the encrypted backup
       backup options: --place DIR (the second place; repeat for more) | --local-only,
       and --backup-passphrase [--backup-passphrase-file FILE] to use a passphrase of 12 or
@@ -39,6 +43,12 @@ commands:
   note-secret --note ID             shows a note's secret after a confirmation on the terminal
   serve                             the local gateway on 127.0.0.1:8788
   status
+  terms                             prints the terms of use (the same file as TERMS.md in the repository)
+  print-pins --network testnet|mainnet --vault ACCOUNT [--rpc URL]
+                                    maintainers: reads the vault over public RPC (directly, no Tor)
+                                    and prints the pins for crates/nymirad/pins/<network>.json;
+                                    the proving-key hashes are in pins/proving-key.sha256 and
+                                    pins/withdrawal-key.sha256 and are not printed
   verify-web [--socks HOST:PORT]    checks the web hosts against the signed manifest, over Tor and (after a yes) directly
   deposit --key-file FILE --amount BASE_UNITS [--payout ACCOUNT]
   recover --key-file FILE           finds notes again after a crash
@@ -373,6 +383,25 @@ async fn main() {
             }
             println!("{}", entry.secret);
         }
+        "terms" => print!("{TERMS}"),
+        "print-pins" => {
+            let network = flag(&mut args, "--network").unwrap_or_else(|| die(USAGE));
+            let default_rpc = match network.as_str() {
+                "testnet" => "https://rpc.testnet.near.org",
+                "mainnet" => "https://rpc.mainnet.near.org",
+                _ => die(USAGE),
+            };
+            let vault = flag(&mut args, "--vault").unwrap_or_else(|| die(USAGE));
+            let url = flag(&mut args, "--rpc").unwrap_or_else(|| default_rpc.into());
+            let rpc = Rpc::new(url, &Transport::Direct).unwrap_or_else(|e| die(e));
+            let live = pins::read_live(&rpc, &vault)
+                .await
+                .unwrap_or_else(|e| die(format!("the vault could not be read: {e}")));
+            println!("{}", pins::render(&live));
+            eprintln!(
+                "Review these against the deployment record before committing them. The proving-key hashes are separate files: crates/nymirad/pins/proving-key.sha256 and withdrawal-key.sha256."
+            );
+        }
         "verify-web" => {
             let (key, origins) = nymirad::webverify::compiled().unwrap_or_else(|e| die(e));
             let cfg = match flag(&mut args, "--socks") {
@@ -534,6 +563,7 @@ async fn main() {
                 }
                 return;
             }
+            eprintln!("Terms of use: run `nymirad terms`.");
             let amount: u128 = flag(&mut args, "--amount")
                 .and_then(|a| a.parse().ok())
                 .unwrap_or_else(|| die(USAGE));
