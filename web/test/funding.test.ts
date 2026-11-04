@@ -154,3 +154,47 @@ describe('amounts', () => {
     expect(formatUnits(50_000n, 6)).toBe('0.05');
   });
 });
+
+describe('restoring a backup over a note the browser already holds', () => {
+  const rec = (id: string, updatedAt: number, leave?: object) =>
+    ({
+      id,
+      updatedAt,
+      ...(leave ? { leave } : {}),
+    }) as unknown as import('../src/store/types').NoteRecord;
+
+  it('keeps the newer state, takes a newer backup and an unknown note, and never replaces a note that is leaving', async () => {
+    const { mergeRestored } = await import('../src/store/merge');
+    const held = [rec('a', 200), rec('b', 100), rec('c', 100, { phase: 'exit' })];
+    const incoming = [rec('a', 100), rec('b', 300), rec('c', 900), rec('d', 50)];
+    const { take, skipped } = mergeRestored(held, incoming);
+    expect(take.map((n) => n.id).sort()).toEqual(['b', 'd']);
+    expect(skipped.map((n) => n.id).sort()).toEqual(['a', 'c']);
+  });
+});
+
+describe('looking a deposit up by a typed hash', () => {
+  it('leaves the note pending when the hash is another transaction of the account, instead of marking it rejected', async () => {
+    const { confirmDeposit } = await import('../src/funding/flow');
+    const record = {
+      id: 'n1',
+      commitment: '0x' + '11'.repeat(32),
+      denomination: '1000000',
+      payout: 'alice.testnet',
+      sender: 'alice.testnet',
+      phase: 'pending',
+    } as unknown as import('../src/store/types').NoteRecord;
+    // A complete transaction of the same account that holds no `deposit` event (a storage
+    // registration, say): it proves nothing about this note.
+    const rpc = {
+      txStatus: async () => ({
+        final_execution_status: 'FINAL',
+        status: { SuccessValue: '' },
+        transaction: { signer_id: 'alice.testnet' },
+        receipts_outcome: [],
+      }),
+    } as unknown as import('../src/chain/rpc').RpcClient;
+    const result = await confirmDeposit(rpc, record, null, { waitMs: 0, sleep: async () => {} });
+    expect(result.status).toBe('pending');
+  });
+});

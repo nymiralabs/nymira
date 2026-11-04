@@ -34,8 +34,12 @@ import type { TxStatus } from '../chain/rpc';
 
 /** 100 Tgas: `mutual_close` needs 80 and the payouts 30 (the same figure `nymirad` attaches). */
 export const GAS = '100000000000000';
-/** A wallet account with less than 0.005 NEAR is treated as having none (`nymirad`'s figure). */
-export const MIN_NEAR_YOCTO = 5_000_000_000_000_000_000_000n;
+/**
+ * A wallet account with less than 0.02 NEAR is treated as having none (`nymirad`'s figure). A call
+ * prepays its attached gas: 100 Tgas at the minimum gas price (0.0001 NEAR per Tgas) is 0.01
+ * NEAR, refunded when unused but needed up front; the margin covers a higher gas price.
+ */
+export const MIN_NEAR_YOCTO = 20_000_000_000_000_000_000_000n;
 
 export interface LeaveDeps {
   profile: Profile;
@@ -137,7 +141,7 @@ async function needNear(d: LeaveDeps): Promise<string> {
   if (amount < MIN_NEAR_YOCTO) {
     throw new LeaveError(
       'no_near',
-      `${account} holds too little NEAR to pay gas (it needs about 0.005 NEAR). Connect an account that has some; any account can send this, and the payout still goes to your payout account.`,
+      `${account} holds too little NEAR to pay gas (it needs about 0.02 NEAR). Connect an account that has some; any account can send this, and the payout still goes to your payout account.`,
     );
   }
   return account;

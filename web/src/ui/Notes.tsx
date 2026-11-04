@@ -4,7 +4,8 @@ import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
 import { isUnlocked, requireKey } from '../crypto/wrap';
 import { attachHash, confirmDeposit, loadNotes, makeBackupFile } from '../funding/flow';
-import { putNote } from '../store/db';
+import { listNotes, putNote } from '../store/db';
+import { mergeRestored } from '../store/merge';
 import type { NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { download, formatDate, formatUnits, readFile } from './format';
@@ -130,9 +131,14 @@ export function Notes() {
         passphrase: pass,
         scope: { network: PROFILE.network, vault: PROFILE.vaultAccount },
       });
-      for (const record of result.records) await putNote(record);
+      // A note this browser already holds keeps its newer state: a backup is older by definition.
+      const { take, skipped } = mergeRestored(await listNotes(), result.records);
+      for (const record of take) await putNote(record);
       setMsg(
-        `Restored ${result.records.length} note${result.records.length === 1 ? '' : 's'}` +
+        `Restored ${take.length} note${take.length === 1 ? '' : 's'}` +
+          (skipped.length > 0
+            ? `; ${skipped.length} kept the newer state this browser already holds`
+            : '') +
           (result.foreign > 0
             ? `; ${result.foreign} belonged to another network or vault and were skipped`
             : '') +

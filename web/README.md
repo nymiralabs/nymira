@@ -163,7 +163,7 @@ The Close screen (`ui/Close.tsx`, flows in `leave/flow.ts`) leaves a note by one
 
 **Times.** The ownership proof uses the operator's signed status time (so a wrong local clock cannot push it past the operator's 3,300 s window). The close and exit proofs and the exit deadline use the chain's final block time, which is what the vault judges. The local clock is used for the expiry guard only.
 
-**Gas.** The wallet account must hold about 0.005 NEAR before any proof is made, so a half-started exit never waits on gas. `request_exit`, `finalize_exit` and `claim_payout` can be sent by any account; the screen says so.
+**Gas.** The wallet account must hold about 0.02 NEAR before any proof is made, so a half-started exit never waits on gas. `request_exit`, `finalize_exit` and `claim_payout` can be sent by any account; the screen says so.
 
 **What the vault tripwire does here.** It does not block leaving: a vault that changed is exactly when a user may want out, and the proofs bind the chain, the vault address and the pinned keys.
 

@@ -247,6 +247,10 @@ export async function confirmDeposit(
       reason: 'the wallet gave no transaction hash: enter it to look the note up',
     };
   }
+  // A hash typed by the user (nothing came from the wallet in this flow) can be any transaction
+  // of the account. A transaction that is not this deposit says nothing about the note, which
+  // may well be funded under another hash: such a lookup never marks the note rejected.
+  const supplied = walletOutcome == null;
   options.onRpcRead?.();
   const deadline = Date.now() + (options.waitMs ?? 60_000);
   const sleep = options.sleep ?? delay;
@@ -255,6 +259,12 @@ export async function confirmDeposit(
       const status = await rpc.txStatus(hash, record.sender);
       const found = check(status, 'rpc');
       if (found.ok) return finalize({ ...record, txHash: hash }, found.event, 'rpc');
+      if (supplied) {
+        return {
+          status: 'pending',
+          reason: `${found.reason}: this transaction does not show the deposit of this note; check the hash and try again`,
+        };
+      }
       if (
         found.reason.startsWith('the event does not match') ||
         found.reason.startsWith('the transaction was signed')
