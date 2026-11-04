@@ -198,7 +198,9 @@ fn key_kinds_and_setup_ids() {
     let setup_id = manifest().setup_id;
     let pins = CEREMONY_VK_KECCAK256;
     for (file, kind) in [
-        ("request.pk", KeyKind::Request),
+        // Nymira patch: both are verifying keys (upstream read `request.pk` here, which is a
+        // proving key and only ever reached the refusal branch).
+        ("request.vk", KeyKind::Request),
         ("withdrawal.vk", KeyKind::Withdrawal),
     ] {
         let vk_hash = verifying_key_keccak256(&read(kind.verifying_key_file()), kind).unwrap();

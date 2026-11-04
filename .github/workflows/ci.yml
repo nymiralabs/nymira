@@ -100,6 +100,9 @@ jobs:
       - name: Vendored zkapi tests
         working-directory: vendor/zkapi/protocol/rust
         run: cargo test --locked -p zkapi-types -p zkapi-core -p zkapi-proof -p zkapi-browser -p zkapi-client --lib
+      - name: Setup import gate and key checks (release)
+        working-directory: vendor/zkapi/protocol/rust
+        run: cargo test --release --locked -p zkapi-proof --test proofs --test zkey_import
 
   # The test wallet and the browser build of the NEAR codec (issue 86).
   web-testkit:
