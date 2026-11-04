@@ -768,36 +768,91 @@ impl Gateway {
             .get(&entry.commitment)
             .map_or_else(|| "not recorded".to_string(), |l| l.spent);
         let route = self.route(note_id, &spent, ask).await?;
+        let hash = self
+            .claim_from(&entry, &sub, &route, format!("claim:{note_id}"))
+            .await?;
+        Ok(Paid {
+            note_id,
+            tx_hash: hash,
+        })
+    }
+
+    /// Claims the payout account of a saved Intents attempt, including one that made no note.
+    pub async fn claim_intents_payout(
+        &self,
+        commitment: &str,
+        family: Option<&str>,
+    ) -> Result<String, LeaveError> {
+        if !self
+            .notes
+            .funding_attempts()
+            .map_err(failed)?
+            .iter()
+            .any(|a| a.commitment == commitment)
+        {
+            return Err(failed("no saved Intents attempt for that commitment"));
+        }
+        let entry = self
+            .notes
+            .list()
+            .map_err(failed)?
+            .into_iter()
+            .find(|n| n.commitment == commitment)
+            .ok_or_else(|| failed("pending note missing"))?;
+        let sub = self.submitter(&entry, family)?;
+        self.transport.ensure_ready().map_err(|e| match e {
+            RpcError::TorDown(message) => LeaveError::TorDown(message),
+            other => failed(other),
+        })?;
+        let route = Route {
+            http: client(&self.transport).map_err(failed)?,
+            rpc: self.rpc.clone(),
+        };
+        self.claim_from(
+            &entry,
+            &sub,
+            &route,
+            format!("claim-intents:{commitment}:{}", crate::net::identity()),
+        )
+        .await
+    }
+
+    async fn claim_from(
+        &self,
+        entry: &NoteEntry,
+        sub: &Submitter,
+        route: &Route,
+        idem: String,
+    ) -> Result<String, LeaveError> {
         let pending = route
             .rpc
             .view(
                 &self.cfg.vault,
                 "pending_payout",
-                json!({ "account_id": entry.payout }),
+                json!({"account_id": entry.payout}),
             )
             .await
             .map_err(failed)?;
-        if pending.as_str().is_none_or(|p| p == "0") {
-            return Err(LeaveError::NothingPending(entry.payout.clone()));
-        }
-        let tx = self.sender(&sub, &route);
-        self.funded(&tx, &sub).await?;
+        let amount = pending
+            .as_str()
+            .and_then(|s| s.parse::<u128>().ok())
+            .filter(|n| *n > 0)
+            .ok_or_else(|| LeaveError::NothingPending(entry.payout.clone()))?;
+        let tx = self.sender(sub, route);
+        self.funded(&tx, sub).await?;
         let end = self
             .send(
                 &tx,
                 "claim",
                 "claim_payout",
-                json!({ "account_id": entry.payout }),
-                format!("claim:{note_id}:{}", pending.as_str().unwrap_or("")),
+                json!({"account_id": entry.payout}),
+                format!("{idem}:{amount}"),
             )
             .await?;
         if !end.success {
             return Err(Self::refused("claim_payout", &end));
         }
-        Ok(Paid {
-            note_id,
-            tx_hash: end.hash,
-        })
+        Ok(end.hash)
     }
 
     /// Exits whose deadline has passed and whose `finalize_exit` is due, sent without asking:

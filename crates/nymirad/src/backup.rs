@@ -380,22 +380,30 @@ pub fn load(from: &[PathBuf], secret: &str) -> Result<StateBackup, RestoreError>
         }
     }
     states.sort_by_key(|b| b.taken_at);
+    extra.sort_by_key(|b| b.taken_at);
     let mut base = match states.pop() {
         Some(b) => b,
         None => extra
             .pop()
             .ok_or_else(|| RestoreError::NoFile(from[0].clone()))?,
     };
+    let mut funding_at: BTreeMap<_, _> = base
+        .funding
+        .iter()
+        .map(|a| (a.commitment.clone(), (base.taken_at, a.phase)))
+        .collect();
     for other in extra {
         for (name, bytes) in other.files {
             base.files.entry(name).or_insert(bytes);
         }
         for attempt in other.funding {
-            if !base
-                .funding
-                .iter()
-                .any(|a| a.commitment == attempt.commitment)
+            let version = (other.taken_at, attempt.phase);
+            if funding_at
+                .get(&attempt.commitment)
+                .is_none_or(|old| version >= *old)
             {
+                funding_at.insert(attempt.commitment.clone(), version);
+                base.funding.retain(|a| a.commitment != attempt.commitment);
                 base.funding.push(attempt);
             }
         }

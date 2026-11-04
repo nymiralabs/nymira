@@ -17,7 +17,57 @@ pub const DESTINATION: &str =
     "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 pub const PLACEHOLDER: &str = "nymira.near";
 pub const DUMMY: &str = "0x1111111111111111111111111111111111111111";
+pub const ROUTE_FALLBACK: &str = "Route screening can delay or block delivery. For a future deposit, fund with NEAR USDC directly; do not pay twice while this attempt is unresolved.";
 pub const PRIVACY: &str = "On this path 1Click and the Intents explorer pair your source wallet with this deposit. The proofs are designed to keep the vault and the operator from tying your spending to this deposit, but while few notes are open, and without Tor, your spending can still be matched to it by time and network address. Wait a while between depositing and your first chat.";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    #[default]
+    AddressReady,
+    PaymentPending,
+    ReceiptPending,
+    Booked,
+    Accepted,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Destination {
+    pub hash: String,
+    pub signer: String,
+    #[serde(default)]
+    pub amount: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum Booking {
+    Dust {
+        amount: String,
+        reason: String,
+    },
+    Unclaimed {
+        amount: String,
+        reason: String,
+    },
+    PayoutPending {
+        account: String,
+        amount: String,
+        reason: String,
+    },
+}
+
+impl Booking {
+    pub fn report(&self, commitment: &str) -> String {
+        match self {
+            Self::Dust { amount, reason } => format!("Dust: {amount} USDC base units ({reason}) went to the treasury balance; this amount cannot be claimed."),
+            Self::Unclaimed { amount, .. } => format!("Unclaimed: {amount} USDC base units. The vault could not read the message or found no valid payout account, so the amount went to the treasury balance. No note was confirmed."),
+            Self::PayoutPending { account, amount, reason } => format!(
+                "Pending payout: {amount} USDC base units for {account} ({reason}). Run nymirad claim-payout --intents {commitment}. The submitter needs NEAR for gas."
+            ),
+        }
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Attempt {
@@ -25,6 +75,14 @@ pub struct Attempt {
     pub quote: Value,
     pub request: Value,
     pub receipt: Option<String>,
+    #[serde(default)]
+    pub phase: Phase,
+    #[serde(default)]
+    pub destination: Option<Destination>,
+    #[serde(default)]
+    pub bookings: Vec<Booking>,
+    #[serde(default)]
+    pub notice: Option<String>,
 }
 
 pub fn request(
@@ -49,6 +107,7 @@ pub struct Funding {
     pub mode: Mode,
     pub home: PathBuf,
     pub rpc: Rpc,
+    pub archival: Option<Rpc>,
     pub pins: Pins,
     pub notes: NoteStore,
     pub backup: backup::Target,
@@ -184,13 +243,20 @@ impl Funding {
             false,
             self.clock.now_secs(),
         );
-        let quote = client.quote(&request).await?;
+        let quote = client
+            .quote(&request)
+            .await
+            .map_err(|e| format!("{}. {ROUTE_FALLBACK}", e.escape_default()))?;
         validate_quote(&quote, &request, self.clock.now_secs())?;
         let attempt = Attempt {
             commitment,
             quote,
             request,
             receipt: None,
+            phase: Phase::AddressReady,
+            destination: None,
+            bookings: vec![],
+            notice: None,
         };
         self.notes
             .save_funding(&attempt)
@@ -238,73 +304,233 @@ impl Funding {
         Ok(())
     }
 
+    fn bookings(
+        &self,
+        events: &[Value],
+        attempt: &Attempt,
+        note: &NoteEntry,
+        accepted_id: Option<u64>,
+    ) -> Result<Vec<Booking>, String> {
+        let delivered = attempt
+            .destination
+            .as_ref()
+            .and_then(|d| d.amount.as_deref())
+            .map(|a| Value::String(a.into()))
+            .unwrap_or_else(|| attempt.request["amount"].clone());
+        let expected = number(&delivered).ok().and_then(|total| {
+            if accepted_id.is_some() {
+                total
+                    .checked_sub(note.denomination.parse::<u128>().ok()?)?
+                    .checked_sub(number(&self.pins.config["note_fee"]).ok()?)
+            } else {
+                Some(total)
+            }
+        });
+        let mut bookings = vec![];
+        for event in events {
+            let d = &event["data"];
+            let Some(kind) = event["event"]
+                .as_str()
+                .filter(|e| matches!(*e, "payout_pending" | "dust" | "unclaimed"))
+            else {
+                continue;
+            };
+            if kind == "payout_pending" && d["account"].as_str() != Some(&note.payout) {
+                continue;
+            }
+            let Some(amount) = d["amount"]
+                .as_str()
+                .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            else {
+                continue;
+            };
+            let Ok(value) = amount.parse::<u128>() else {
+                continue;
+            };
+            if value == 0 {
+                continue;
+            }
+            match &d["commitment"] {
+                Value::String(c) if c == &attempt.commitment => {}
+                Value::Null if Some(value) == expected => {}
+                _ => continue,
+            }
+            if d["note_id"]
+                .as_u64()
+                .is_some_and(|id| accepted_id.is_some_and(|ours| id != ours))
+            {
+                continue;
+            }
+            let Some(reason) = d["reason"].as_str() else {
+                continue;
+            };
+            let booking = match (kind, reason) {
+                ("payout_pending", "below_note_fee" | "transfer_failed" | "intents_excess") => {
+                    Booking::PayoutPending {
+                        account: note.payout.clone(),
+                        amount: amount.into(),
+                        reason: reason.into(),
+                    }
+                }
+                ("dust", "below_note_fee") if value < number(&self.pins.config["note_fee"])? => {
+                    Booking::Dust {
+                        amount: amount.into(),
+                        reason: reason.into(),
+                    }
+                }
+                ("unclaimed", "intents_bad_msg") if accepted_id.is_none() => Booking::Unclaimed {
+                    amount: amount.into(),
+                    reason: reason.into(),
+                },
+                _ => continue,
+            };
+            bookings.push(booking);
+        }
+        if bookings.len() > 1 {
+            return Err("ambiguous vault delivery events; the note is not accepted".into());
+        }
+        Ok(bookings)
+    }
+
+    async fn destination_outcome(
+        &self,
+        destination: &Destination,
+    ) -> Result<(Value, &Rpc), String> {
+        let params = json!({"tx_hash": destination.hash, "sender_account_id": destination.signer, "wait_until": "FINAL"});
+        let regular = self
+            .rpc
+            .call("EXPERIMENTAL_tx_status", params.clone())
+            .await;
+        match regular {
+            Ok(ref value)
+                if !value.is_null() && (complete_receipts(value) || self.archival.is_none()) =>
+            {
+                return Ok((value.clone(), &self.rpc))
+            }
+            Err(crate::rpc::RpcError::TorDown(e)) => return Err(format!("Tor is down: {e}")),
+            _ => {}
+        }
+        let archive = self.archival.as_ref().ok_or_else(||
+            "destination receipt unavailable; set archival_rpc_url and resume with recover --intents COMMITMENT".to_string())?;
+        let outcome = archive
+            .call("EXPERIMENTAL_tx_status", params)
+            .await
+            .map_err(|e| e.to_string())?;
+        if outcome.is_null() {
+            return Err(
+                "destination receipt unavailable from both RPC endpoints; no note was confirmed"
+                    .into(),
+            );
+        }
+        Ok((outcome, archive))
+    }
+
+    async fn pending_report(&self, rpc: &Rpc, note: &NoteEntry) -> Option<String> {
+        match rpc.view(&self.pins.vault, "pending_payout", json!({"account_id": note.payout})).await {
+            Ok(value) => match number(&value) {
+                Ok(0) => None,
+                Ok(amount) => Some(format!("Current pending payout for {}: {amount} USDC base units (account total across deposits). Run nymirad claim-payout --intents {}. This balance alone does not confirm a note.", note.payout, note.commitment)),
+                Err(e) => Some(format!("Pending payout check not verified: {e}")),
+            },
+            Err(e) => Some(format!("Pending payout check not verified: {}", e.to_string().escape_default())),
+        }
+    }
+
     pub async fn progress(
         &self,
         client: &FundingClient,
         attempt: &mut Attempt,
     ) -> Result<Option<Accepted>, String> {
-        let q = &attempt.quote["quote"];
-        let status = client
-            .status(
-                q["depositAddress"]
-                    .as_str()
-                    .ok_or("quote has no deposit address")?,
-                q["depositMemo"].as_str(),
-            )
-            .await?;
-        if status["status"] != "SUCCESS" {
-            match status["status"].as_str() {
-                Some("REFUNDED" | "FAILED") => {
-                    return Err(format!(
-                        "1Click {}; note stays pending until a vault receipt is checked",
-                        status["status"]
-                    ))
+        if attempt.destination.is_none() {
+            let q = &attempt.quote["quote"];
+            let status = client
+                .status(
+                    q["depositAddress"]
+                        .as_str()
+                        .ok_or("quote has no deposit address")?,
+                    q["depositMemo"].as_str(),
+                )
+                .await?;
+            if status["status"] != "SUCCESS" {
+                match status["status"].as_str() {
+                    Some("REFUNDED" | "FAILED") => {
+                        return Err(format!(
+                            "1Click {}: {}. The note stays pending until a vault receipt is checked. {ROUTE_FALLBACK}",
+                            status["status"], status["swapDetails"]["refundReason"].as_str().unwrap_or("check the source-wallet refund status").escape_default()
+                        ))
+                    }
+                    Some(
+                        "KNOWN_DEPOSIT_TX" | "PENDING_DEPOSIT" | "INCOMPLETE_DEPOSIT"
+                        | "PROCESSING",
+                    ) => {
+                        if attempt.phase != Phase::PaymentPending {
+                            attempt.phase = Phase::PaymentPending;
+                            attempt.notice = Some(format!("1Click has not completed delivery. {ROUTE_FALLBACK}"));
+                            self.notes.save_funding(attempt).map_err(|e| e.to_string())?;
+                            self.back_up()?;
+                        }
+                        return Ok(None);
+                    },
+                    _ => return Err("unknown 1Click status".into()),
                 }
-                Some(
-                    "KNOWN_DEPOSIT_TX" | "PENDING_DEPOSIT" | "INCOMPLETE_DEPOSIT" | "PROCESSING",
-                ) => return Ok(None),
-                _ => return Err("unknown 1Click status".into()),
             }
+            let hashes = status["swapDetails"]["nearTxHashes"]
+                .as_array()
+                .ok_or("SUCCESS has no NEAR destination transaction")?;
+            if hashes.len() != 1 {
+                return Err("ambiguous NEAR destination transaction list".into());
+            }
+            let hash = hashes[0].as_str().ok_or("invalid NEAR transaction hash")?;
+            // The live signer lookup and batched transfer shape are gated by the mainnet probe (#50).
+            let signer = "intents.near";
+            #[cfg(feature = "mock")]
+            let signer = status["swapDetails"]["destinationSigner"]
+                .as_str()
+                .unwrap_or(signer);
+            let amount = match &status["swapDetails"]["amountOut"] {
+                Value::Null => None,
+                value => {
+                    let amount = number(value).map_err(|_| "invalid settled destination amount")?;
+                    if amount == 0 {
+                        return Err("invalid settled destination amount".into());
+                    }
+                    Some(amount.to_string())
+                }
+            };
+            attempt.destination = Some(Destination {
+                hash: hash.into(),
+                signer: signer.into(),
+                amount,
+            });
+            attempt.phase = Phase::ReceiptPending;
+            attempt.notice = None;
+            self.notes
+                .save_funding(attempt)
+                .map_err(|e| e.to_string())?;
+            self.back_up()?;
         }
-        let hashes = status["swapDetails"]["nearTxHashes"]
-            .as_array()
-            .ok_or("SUCCESS has no NEAR destination transaction")?;
-        if hashes.len() != 1 {
-            return Err("ambiguous NEAR destination transaction list".into());
-        }
-        let hash = hashes[0].as_str().ok_or("invalid NEAR transaction hash")?;
-        // The live signer lookup and batched transfer shape are gated by the mainnet probe (#50).
-        let signer = "intents.near";
-        #[cfg(feature = "mock")]
-        let signer = status["swapDetails"]["destinationSigner"]
-            .as_str()
-            .unwrap_or(signer);
-        let outcome = self
-            .rpc
-            .call(
-                "EXPERIMENTAL_tx_status",
-                json!({"tx_hash": hash, "sender_account_id": signer, "wait_until": "FINAL"}),
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-        if outcome["final_execution_status"] != "FINAL" {
+        let destination = attempt.destination.clone().ok_or("destination missing")?;
+        let hash = destination.hash.as_str();
+        let note = self
+            .notes
+            .list()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|n| n.commitment == attempt.commitment)
+            .ok_or("pending note missing")?;
+        let (outcome, reading_rpc) = match self.destination_outcome(&destination).await {
+            Ok(found) => found,
+            Err(error) => {
+                let diagnostic = self
+                    .pending_report(&self.rpc, &note)
+                    .await
+                    .map(|p| format!("\n{p}"))
+                    .unwrap_or_default();
+                return Err(format!("{error}{diagnostic}"));
+            }
+        };
+        if !complete_receipts(&outcome) {
             return Ok(None);
-        }
-        let all: std::collections::BTreeSet<_> = outcome["receipts_outcome"]
-            .as_array()
-            .ok_or("missing receipts")?
-            .iter()
-            .filter_map(|r| r["id"].as_str())
-            .collect();
-        for r in std::iter::once(&outcome["transaction_outcome"])
-            .chain(outcome["receipts_outcome"].as_array().unwrap().iter())
-        {
-            if r["outcome"]["receipt_ids"].as_array().is_some_and(|ids| {
-                ids.iter()
-                    .any(|id| !all.contains(id.as_str().unwrap_or("")))
-            }) {
-                return Ok(None);
-            }
         }
         let events = crate::deposit::events_in(&outcome, &self.pins.vault);
         let matching: Vec<_> = events
@@ -314,20 +540,39 @@ impl Funding {
                     && e["data"]["commitment"].as_str() == Some(&attempt.commitment)
             })
             .collect();
+        let pending_report = self.pending_report(reading_rpc, &note).await;
+        let accepted_id = matching.first().and_then(|e| e["data"]["note_id"].as_u64());
+        let mut successful = outcome.clone();
+        successful["receipts_outcome"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|r| {
+                let status = &r["outcome"]["status"];
+                status.get("SuccessValue").is_some() || status.get("SuccessReceiptId").is_some()
+            });
+        let booking_events = crate::deposit::events_in(&successful, &self.pins.vault);
+        attempt.bookings = self.bookings(&booking_events, attempt, &note, accepted_id)?;
+        if matching.is_empty() && !attempt.bookings.is_empty() {
+            attempt.phase = Phase::Booked;
+            self.notes
+                .save_funding(attempt)
+                .map_err(|e| e.to_string())?;
+            self.back_up()?;
+            let mut reports: Vec<_> = attempt
+                .bookings
+                .iter()
+                .map(|b| b.report(&attempt.commitment))
+                .collect();
+            reports.extend(pending_report);
+            return Err(reports.join("\n"));
+        }
         if matching.len() != 1 {
-            return Err(
-                "SUCCESS has no unique matching vault deposit receipt; the note is not accepted"
-                    .into(),
-            );
+            return Err(format!(
+                "SUCCESS has no unique matching vault deposit receipt; the note is not accepted{}",
+                pending_report.map(|p| format!("\n{p}")).unwrap_or_default()
+            ));
         }
         let data = &matching[0]["data"];
-        let note = self
-            .notes
-            .list()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|n| n.commitment == attempt.commitment)
-            .ok_or("pending note missing")?;
         let note_id: u32 = data["note_id"]
             .as_u64()
             .and_then(|v| v.try_into().ok())
@@ -341,8 +586,7 @@ impl Funding {
         {
             return Err("deposit receipt amount or payout differs".into());
         }
-        let records = self
-            .rpc
+        let records = reading_rpc
             .view(
                 &self.pins.vault,
                 "note_records",
@@ -364,8 +608,12 @@ impl Funding {
             .find(|r| {
                 r["outcome"]["executor_id"] == self.pins.vault
                     && r["outcome"]["logs"].as_array().is_some_and(|logs| {
-                        logs.iter()
-                            .any(|l| l.as_str().is_some_and(|l| l.contains(&attempt.commitment)))
+                        logs.iter().any(|l| {
+                            l.as_str()
+                                .and_then(|l| l.strip_prefix("EVENT_JSON:"))
+                                .and_then(|l| serde_json::from_str::<Value>(l).ok())
+                                .is_some_and(|event| &event == matching[0])
+                        })
                     })
             })
             .and_then(|r| r["id"].as_str())
@@ -404,7 +652,16 @@ impl Funding {
                 "the note has already closed or entered an exit; its status is unchanged".into(),
             );
         }
-        let mut warnings = vec![];
+        attempt.phase = Phase::Accepted;
+        self.notes
+            .save_funding(attempt)
+            .map_err(|e| e.to_string())?;
+        let mut warnings: Vec<String> = attempt
+            .bookings
+            .iter()
+            .map(|b| b.report(&attempt.commitment))
+            .collect();
+        warnings.extend(pending_report);
         if expiry <= self.clock.now_secs() {
             warnings.push("The note has expired. It cannot open a lease; use an exit to recover the remaining balance.".into());
         }
@@ -435,6 +692,31 @@ impl Funding {
             warnings,
         }))
     }
+}
+
+fn complete_receipts(outcome: &Value) -> bool {
+    if outcome["final_execution_status"] != "FINAL" {
+        return false;
+    }
+    let Some(receipts) = outcome["receipts_outcome"].as_array() else {
+        return false;
+    };
+    let ids: std::collections::BTreeSet<_> =
+        receipts.iter().filter_map(|r| r["id"].as_str()).collect();
+    if ids.len() != receipts.len() {
+        return false;
+    }
+    std::iter::once(&outcome["transaction_outcome"])
+        .chain(receipts.iter())
+        .all(|r| {
+            r["outcome"]["receipt_ids"]
+                .as_array()
+                .is_some_and(|children| {
+                    children
+                        .iter()
+                        .all(|id| id.as_str().is_some_and(|id| ids.contains(id)))
+                })
+        })
 }
 
 pub const SOURCES_FILE: &str = "intents-sources.json";

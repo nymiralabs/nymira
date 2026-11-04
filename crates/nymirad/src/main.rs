@@ -58,6 +58,7 @@ commands:
   exit --note ID [--family NAME]    files request_exit; finalize follows after the window
   finalize --note ID [--family NAME]
   claim-payout --note ID [--family NAME]
+  claim-payout --intents COMMITMENT [--family NAME]  claims the saved payout account even when no note ID exists
   submitter add --family NAME --account ACCOUNT | list | assign --note ID --family NAME
 The last group talks to `nymirad serve` over the owner socket in <home>/run.";
 
@@ -658,9 +659,12 @@ async fn owner_command(home: &std::path::Path, command: &str, args: &mut Vec<Str
             note: note_id(args),
             family,
         },
-        "claim-payout" => Command::ClaimPayout {
-            note: note_id(args),
-            family,
+        "claim-payout" => match flag(args, "--intents") {
+            Some(commitment) => Command::ClaimIntentsPayout { commitment, family },
+            None => Command::ClaimPayout {
+                note: note_id(args),
+                family,
+            },
         },
         "backup" => Command::Backup,
         _ => match (args.first().map(String::as_str), family) {
@@ -922,6 +926,10 @@ async fn intents_command(
         mode,
         home: home.to_path_buf(),
         rpc,
+        archival: cfg
+            .archival_rpc_url
+            .as_ref()
+            .map(|url| Rpc::new(url, &transport).unwrap_or_else(|e| die(e))),
         pins: pinned.unwrap_or_else(|| die("no vault is pinned in this build; deposits are off")),
         notes: NoteStore::open(&home.join("notes.sealed"), &passphrase, ROUNDS)
             .unwrap_or_else(|e| die(e)),
@@ -1020,7 +1028,12 @@ async fn intents_command(
                 return;
             }
             Ok(None) => {
-                println!("Waiting for the destination transaction and final vault receipt.")
+                println!(
+                    "{}",
+                    attempt.notice.as_deref().unwrap_or(
+                        "Waiting for the destination transaction and final vault receipt."
+                    )
+                )
             }
             Err(e) => die(e),
         }

@@ -51,6 +51,10 @@ pub enum Command {
         note: u32,
         family: Option<String>,
     },
+    ClaimIntentsPayout {
+        commitment: String,
+        family: Option<String>,
+    },
     SubmitterAdd {
         family: String,
         account: String,
@@ -266,6 +270,15 @@ pub async fn run(gw: &Gateway, command: Command, ask: &SocketAsk) -> Result<Stri
             Ok(format!(
                 "Payout of note {} claimed. Transaction {}.",
                 p.note_id, p.tx_hash
+            ))
+        }
+        Command::ClaimIntentsPayout { commitment, family } => {
+            let hash = gw
+                .claim_intents_payout(&commitment, family.as_deref())
+                .await
+                .map_err(err)?;
+            Ok(format!(
+                "Pending payout claimed to the saved payout account. Transaction {hash}."
             ))
         }
         Command::SubmitterAdd { family, account } => {
