@@ -239,3 +239,18 @@ fn the_published_team_note_list_loads() {
     std::fs::write(&other, "{\"ids\": []}").unwrap();
     assert!(nymira_operator::operator::load_team_note_ids(&other).is_err());
 }
+
+#[test]
+fn the_status_message_matches_the_web_apps_for_a_fixed_vector() {
+    // The same vector and value sit in `nymira-web-wasm/src/lib.rs`: a change to either copy of
+    // the message breaks one of the two tests.
+    let m = status_message(
+        "00112233445566778899aabbccddeeff00",
+        "operator.test",
+        1_800_000_005,
+    );
+    assert_eq!(
+        m.to_string(),
+        "0x1c90442f314e0887d663fcbf573c421721b57fe1b502f50e9fd1e9e7c051d25c"
+    );
+}
