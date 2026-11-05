@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "attestation_root_pk": "",
   "accepted_measurements": [],
   "deployments": [
@@ -31,5 +31,17 @@
   "accepted_tcb_statuses": [
     "UpToDate"
   ],
-  "signature": "7101b05c4650de2d1b774d44225bc5c4fd4a4b2b3e9217e608f17ad9c4eebaffbbd3a29fdf70d3a98ee0ef4b700b994b5f24bfa9b624318b565b33d66d63820f"
+  "nvidia_pins": [
+    {
+      "name": "NVIDIA Attestation Service GPU Intermediate 005",
+      "sha256": "38e3daf3cdbd5243bb15dd7993edcdd83a7238cb6745b980f8f3bf0a31a0d343",
+      "official_source_verified": false
+    },
+    {
+      "name": "NVIDIA Attestation Service GPU Intermediate 004",
+      "sha256": "2df8907cf4d6c277b855d407ec178a649930a8e73f7294e8fce66e6ee27c5175",
+      "official_source_verified": false
+    }
+  ],
+  "signature": "328d76c1d07c566ebc23cd50d3391f9680abc6c915ca3acf7059c6ea8d8858e022c57f09dad580c9977267fd3c42e5c6385d0f42507661421f4271b201ebc40f"
 }
