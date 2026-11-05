@@ -33,6 +33,10 @@ pub const NRAS_URL: &str = "https://nras.attestation.nvidia.com/v3/attest/gpu";
 pub const JWKS_URL: &str = "https://nras.attestation.nvidia.com/.well-known/jwks.json";
 const ISSUER: &str = "https://nras.attestation.nvidia.com";
 const NONCE_BYTES: usize = 32;
+/// The largest NRAS or JWKS answer read. A real key set of 200+ keys is well under this.
+pub const MAX_BODY: usize = 1 << 20;
+/// Seconds of clock skew allowed for the token's `iat`, `nbf` and `exp`. Certificates get none.
+const TOKEN_SKEW_SECS: u64 = 60;
 
 /// Submits GPU evidence to `url`, fetches the keys from `jwks_url`, and checks the verdict
 /// against the pins.
@@ -119,10 +123,7 @@ impl GpuEvidenceVerifier for NrasChain {
                 retryable: retryable(status),
             });
         }
-        let answer: Value = response
-            .json()
-            .await
-            .map_err(|_| invalid_response("invalid_json"))?;
+        let answer: Value = read_json(response, "invalid_json").await?;
         let jwt = overall_token(&answer)?;
         let response = self.client.get(&self.jwks_url).send().await.map_err(|_| {
             VerificationError::NvidiaJwksRequestFailed {
@@ -139,12 +140,34 @@ impl GpuEvidenceVerifier for NrasChain {
                 retryable: retryable(status),
             });
         }
-        let jwks: Value = response
-            .json()
-            .await
-            .map_err(|_| invalid_response("invalid_jwks"))?;
+        let jwks: Value = read_json(response, "invalid_jwks").await?;
         check_token(jwt, &jwks, &nonce, &self.pins, self.clock.now_secs())
     }
+}
+
+/// The body as JSON, read at most [`MAX_BODY`] bytes deep.
+async fn read_json(
+    mut response: reqwest::Response,
+    invalid: &'static str,
+) -> Result<Value, VerificationError> {
+    if response
+        .content_length()
+        .is_some_and(|l| l > MAX_BODY as u64)
+    {
+        return Err(invalid_response("too_large"));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| invalid_response(invalid))?
+    {
+        if body.len() + chunk.len() > MAX_BODY {
+            return Err(invalid_response("too_large"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).map_err(|_| invalid_response(invalid))
 }
 
 /// The first NRAS entry is `["JWT", "<token>", ...]`; later entries are opaque.
@@ -240,10 +263,11 @@ fn check_token(
             _ => fail("invalid_claims"),
         })?
         .claims;
-    if claims.exp <= now {
+    if claims.exp.saturating_add(TOKEN_SKEW_SECS) <= now {
         return Err(fail("expired"));
     }
-    if claims.nbf > now || claims.iat > now {
+    let ahead = now.saturating_add(TOKEN_SKEW_SECS);
+    if claims.nbf > ahead || claims.iat > ahead {
         return Err(fail("not_yet_valid"));
     }
     let actual = hex::decode(&claims.eat_nonce).map_err(|_| fail("invalid_claims"))?;
@@ -259,9 +283,14 @@ fn check_token(
     Ok(())
 }
 
-/// Walks from the leaf up to the first certificate whose DER hash is pinned. Every certificate
-/// on the way, the pinned one included, must be valid at `now`; every other one must be signed by
-/// the next and the next must be a CA. A chain that ends before a pin is refused.
+/// Walks from the leaf up to the first certificate whose DER hash is pinned. Every certificate on
+/// the way, the pinned one included, must be valid at `now`, with no skew. Every other one must
+/// carry its issuer's name, be signed by the next certificate, and that issuer must be a CA, allow
+/// `keyCertSign` if it has a `keyUsage` extension, and have a `pathLenConstraint` (if any) that
+/// covers the intermediates below it. A leaf with a `keyUsage` extension must allow signatures.
+///
+/// A pin at index 0 pins the leaf itself: it is trusted as it is, with no issuer, and still has to
+/// be valid at `now`. A chain that ends before a pin is refused.
 fn check_chain(
     certs: &[X509Certificate],
     ders: &[Vec<u8>],
@@ -282,13 +311,35 @@ fn check_chain(
                 "intermediate_expired"
             }));
         }
+        if i == 0 {
+            let usage = cert.key_usage().map_err(|_| fail("x5c_invalid"))?;
+            if usage.is_some_and(|u| !u.value.digital_signature()) {
+                return Err(fail("leaf_key_usage"));
+            }
+        }
         let hash: [u8; 32] = Sha256::digest(&ders[i]).into();
         if pins.contains(&hash) {
             return Ok(());
         }
         let issuer = certs.get(i + 1).ok_or_else(|| fail("chain_untrusted"))?;
+        if cert.issuer() != issuer.subject() {
+            return Err(fail("issuer_name_mismatch"));
+        }
         if !issuer.is_ca() {
-            return Err(fail("chain_untrusted"));
+            return Err(fail("issuer_not_ca"));
+        }
+        let usage = issuer.key_usage().map_err(|_| fail("x5c_invalid"))?;
+        if usage.is_some_and(|u| !u.value.key_cert_sign()) {
+            return Err(fail("issuer_key_usage"));
+        }
+        let constraints = issuer
+            .basic_constraints()
+            .map_err(|_| fail("x5c_invalid"))?;
+        // `i` certificates sit between the leaf (not counted) and this issuer.
+        if let Some(max) = constraints.and_then(|c| c.value.path_len_constraint) {
+            if i as u64 > u64::from(max) {
+                return Err(fail("path_length_exceeded"));
+            }
         }
         cert.verify_signature(Some(issuer.public_key()))
             .map_err(|_| fail("chain_untrusted"))?;

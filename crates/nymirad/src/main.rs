@@ -343,28 +343,38 @@ fn signed_policy(home: &std::path::Path) -> Result<nymirad::attest::Policy, Stri
 
 /// The line `status` prints about the GPU certificate chain.
 #[cfg(not(feature = "mock"))]
-fn gpu_chain_line(home: &std::path::Path) -> String {
-    match signed_policy(home) {
-        Ok(policy) => {
-            let direct = nymirad::nearai::saved_mode_is_direct(home);
-            let note = if direct {
-                " (set by the last `serve`)"
-            } else {
-                ""
-            };
+fn gpu_chain_line(home: &std::path::Path) -> (String, bool) {
+    let policy = match signed_policy(home) {
+        Ok(p) => p,
+        Err(why) => return (format!("GPU chain: unknown ({why})"), true),
+    };
+    let chain = nymirad::nearai::gpu_chain_line(&policy);
+    match nymirad::nearai::read_mode(home) {
+        // No serve is running: the default applies to the next one.
+        Ok(None) => (
             format!(
-                "{}\n{}{note}",
-                nymirad::nearai::gpu_chain_line(&policy),
+                "{chain}\n{} (no serve is running; this is what the next serve does)",
+                nymirad::nearai::nras_mode_line(&policy, false)
+            ),
+            true,
+        ),
+        Ok(Some(direct)) => (
+            format!(
+                "{chain}\n{} (the running serve)",
                 nymirad::nearai::nras_mode_line(&policy, direct)
-            )
-        }
-        Err(why) => format!("GPU chain: unknown ({why})"),
+            ),
+            true,
+        ),
+        Err(why) => (
+            format!("{chain}\nERROR: GPU evidence mode unknown: {why}"),
+            false,
+        ),
     }
 }
 
 #[cfg(feature = "mock")]
-fn gpu_chain_line(_: &std::path::Path) -> String {
-    "GPU chain: not applicable (demo build)".into()
+fn gpu_chain_line(_: &std::path::Path) -> (String, bool) {
+    ("GPU chain: not applicable (demo build)".into(), true)
 }
 
 /// Whether a policy with no pinned NVIDIA certificate is refused. Off while the signed policy
@@ -516,9 +526,6 @@ async fn main() {
             if nras_direct {
                 eprintln!("warning: --nras-direct is on: NVIDIA's attestation service sees your IP address and the time of every GPU check");
             }
-            if let Err(e) = nymirad::nearai::save_mode(&home, nras_direct) {
-                eprintln!("warning: could not record the GPU evidence mode for `status`: {e}");
-            }
             let gateway =
                 build_gateway(&cfg, &home, mode, &source, clock.clone(), nras_direct).await;
             if let Some(gw) = &gateway {
@@ -529,9 +536,15 @@ async fn main() {
                 );
                 tokio::spawn(nymirad::ownersock::serve(listener, gw.clone()));
             }
-            guard::serve(Arc::new(token), gateway)
-                .await
-                .unwrap_or_else(|e| die(e));
+            // The mode file is written once the port is bound, so a second `serve` that cannot
+            // bind leaves the first one's file alone; it is removed when this one stops.
+            let mode_home = home.clone();
+            let served = guard::serve(Arc::new(token), gateway, guard::PORT, move || {
+                nymirad::nearai::save_mode(&mode_home, nras_direct)
+            })
+            .await;
+            nymirad::nearai::clear_mode(&home);
+            served.unwrap_or_else(|e| die(e));
         }
         "status" | "deposit" | "recover" => {
             let cfg = Config::load(&home).unwrap_or_else(|e| die(e));
@@ -557,10 +570,11 @@ async fn main() {
                         .map(|q| Arc::new(q) as Arc<dyn QuoteSource>),
                 };
                 let board = Board::new(mode, quote_source, clock.clone());
+                let gpu = gpu_chain_line(&home);
                 println!(
                     "{}",
                     status::render(
-                        &format!("{}\n{}", transport.status_line(), gpu_chain_line(&home)),
+                        &format!("{}\n{}", transport.status_line(), gpu.0),
                         operator.as_ref(),
                         &notes.list().unwrap_or_else(|e| die(e)),
                         &tripwire,
@@ -584,6 +598,10 @@ async fn main() {
                 }
                 if cfg.backup_target().is_some() {
                     println!("{}", backup_line(&cfg, clock.now_secs()));
+                }
+                // A mode nobody can read is an error, not a default.
+                if !gpu.1 {
+                    std::process::exit(1);
                 }
                 return;
             }

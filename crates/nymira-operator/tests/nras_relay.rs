@@ -397,3 +397,70 @@ async fn nothing_of_the_payload_is_kept() {
     assert!(!dump.contains(marker), "the payload reached the database");
     assert!(rig.sink.sent().iter().all(|a| !a.body.contains(marker)));
 }
+
+#[tokio::test]
+async fn a_body_that_is_not_a_gpu_evidence_payload_is_refused_and_does_not_count() {
+    let (host, url) = nvidia().await;
+    let rig = rig_for(&url).await;
+    let n = "11".repeat(32);
+    let junk = [
+        "{}".to_string(),
+        json!({"nonce": n}).to_string(),
+        json!({"evidence_list": []}).to_string(),
+        json!({"nonce": "11".repeat(31), "evidence_list": []}).to_string(),
+        json!({"nonce": "zz".repeat(32), "evidence_list": []}).to_string(),
+        json!({"nonce": format!("{n}00"), "evidence_list": []}).to_string(),
+        json!({"nonce": 7, "evidence_list": []}).to_string(),
+        json!({"nonce": n, "evidence_list": {}}).to_string(),
+        json!({"nonce": n, "evidence_list": "x"}).to_string(),
+    ];
+    // More junk than the limit: none of it reaches NVIDIA or uses up the minute.
+    for _ in 0..(RELAYS_PER_MINUTE / junk.len() + 2) {
+        for body in &junk {
+            let r = post_evidence(&rig, Some("application/json"), body.clone().into_bytes()).await;
+            assert_eq!(r.status(), 400, "{body}");
+        }
+    }
+    assert_eq!(host.evidence.lock().unwrap().len(), 0);
+    for _ in 0..RELAYS_PER_MINUTE {
+        let r = post_evidence(&rig, Some("application/json"), payload().into_bytes()).await;
+        assert_eq!(r.status(), 200, "the junk did not use up the minute");
+    }
+}
+
+#[tokio::test]
+async fn calls_turned_away_for_capacity_do_not_count_against_the_minute() {
+    let (host, url) = nvidia().await;
+    let gate = Arc::new(Notify::new());
+    *host.gate.lock().unwrap() = Some(gate.clone());
+    let rig = Arc::new(rig_for(&url).await);
+    let mut held = Vec::new();
+    for _ in 0..MAX_IN_FLIGHT {
+        let rig = rig.clone();
+        held.push(tokio::spawn(async move {
+            post_evidence(&rig, Some("application/json"), payload().into_bytes())
+                .await
+                .status()
+        }));
+    }
+    while host.evidence.lock().unwrap().len() < MAX_IN_FLIGHT {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    // Far more turned-away calls than the minute allows.
+    for _ in 0..(RELAYS_PER_MINUTE * 2) {
+        let r = post_evidence(&rig, Some("application/json"), payload().into_bytes()).await;
+        assert_eq!(r.status(), 429);
+    }
+    *host.gate.lock().unwrap() = None;
+    gate.notify_waiters();
+    for h in held {
+        assert_eq!(h.await.unwrap(), 200);
+    }
+    // The 8 that went through are the only ones counted.
+    for i in 0..(RELAYS_PER_MINUTE - MAX_IN_FLIGHT) {
+        let r = post_evidence(&rig, Some("application/json"), payload().into_bytes()).await;
+        assert_eq!(r.status(), 200, "call {i}");
+    }
+    let r = post_evidence(&rig, Some("application/json"), payload().into_bytes()).await;
+    assert_eq!(r.status(), 429);
+}

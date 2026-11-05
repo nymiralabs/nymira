@@ -57,27 +57,102 @@ fn params(name: &str, ca: bool, not_before: Date, not_after: Date) -> Certificat
     p
 }
 
+/// How a test chain is built. The default is a sound chain: root, CA intermediate, leaf.
+#[derive(Clone)]
+struct Spec {
+    leaf_start: Date,
+    leaf_end: Date,
+    inter_end: Date,
+    /// The intermediate carries basicConstraints `cA`.
+    inter_ca: bool,
+    inter_usages: Vec<KeyUsagePurpose>,
+    root_usages: Vec<KeyUsagePurpose>,
+    leaf_usages: Vec<KeyUsagePurpose>,
+    /// `pathLenConstraint` of the root.
+    root_path_len: Option<u8>,
+    /// The intermediate is signed by another key that has the root's name.
+    forged_inter: bool,
+    /// The leaf names an issuer other than the intermediate's subject, signed with its key.
+    wrong_issuer_name: bool,
+}
+
+impl Default for Spec {
+    fn default() -> Self {
+        Self {
+            leaf_start: (2020, 1, 1),
+            leaf_end: LONG,
+            inter_end: LONG,
+            inter_ca: true,
+            inter_usages: vec![KeyUsagePurpose::KeyCertSign],
+            root_usages: vec![KeyUsagePurpose::KeyCertSign],
+            leaf_usages: vec![],
+            root_path_len: None,
+            forged_inter: false,
+            wrong_issuer_name: false,
+        }
+    }
+}
+
 impl Pki {
     fn new(leaf_end: Date, inter_end: Date) -> Self {
-        Self::with_dates((2020, 1, 1), leaf_end, inter_end)
+        Self::build(Spec {
+            leaf_end,
+            inter_end,
+            ..Spec::default()
+        })
     }
 
     fn with_dates(leaf_start: Date, leaf_end: Date, inter_end: Date) -> Self {
+        Self::build(Spec {
+            leaf_start,
+            leaf_end,
+            inter_end,
+            ..Spec::default()
+        })
+    }
+
+    fn build(spec: Spec) -> Self {
         let alg = &PKCS_ECDSA_P384_SHA384;
         let root_key = KeyPair::generate_for(alg).unwrap();
-        let root_params = params("Test Root", true, (2020, 1, 1), LONG);
+        let mut root_params = params("Test Root", true, (2020, 1, 1), LONG);
+        root_params.key_usages = spec.root_usages.clone();
+        if let Some(n) = spec.root_path_len {
+            root_params.is_ca = IsCa::Ca(BasicConstraints::Constrained(n));
+        }
         let root = root_params.self_signed(&root_key).unwrap();
-        let root_issuer = Issuer::new(root_params, root_key);
+        let root_issuer = Issuer::new(root_params.clone(), root_key);
+
+        // The signer of the intermediate: the root, or an impostor with the root's name.
+        let impostor = Issuer::new(root_params, KeyPair::generate_for(alg).unwrap());
+        let signer = if spec.forged_inter {
+            &impostor
+        } else {
+            &root_issuer
+        };
 
         let inter_key = KeyPair::generate_for(alg).unwrap();
-        let inter_params = params("Test Intermediate", true, (2020, 1, 1), inter_end);
-        let inter = inter_params.signed_by(&inter_key, &root_issuer).unwrap();
-        let inter_issuer = Issuer::new(inter_params, inter_key);
+        let mut inter_params = params(
+            "Test Intermediate",
+            spec.inter_ca,
+            (2020, 1, 1),
+            spec.inter_end,
+        );
+        inter_params.key_usages = spec.inter_usages.clone();
+        let inter = inter_params.signed_by(&inter_key, signer).unwrap();
+        let mut named = inter_params;
+        if spec.wrong_issuer_name {
+            named.distinguished_name = {
+                let mut dn = rcgen::DistinguishedName::new();
+                dn.push(DnType::CommonName, "Some Other Intermediate");
+                dn
+            };
+        }
+        let inter_issuer = Issuer::new(named, inter_key);
 
         let leaf_key = KeyPair::generate_for(alg).unwrap();
-        let leaf = params("Test Leaf", false, leaf_start, leaf_end)
-            .signed_by(&leaf_key, &inter_issuer)
-            .unwrap();
+        let mut leaf_params = params("Test Leaf", false, spec.leaf_start, spec.leaf_end);
+        leaf_params.key_usages = spec.leaf_usages.clone();
+        let leaf = leaf_params.signed_by(&leaf_key, &inter_issuer).unwrap();
         Self {
             root: root.der().to_vec(),
             inter: inter.der().to_vec(),
@@ -387,8 +462,12 @@ async fn a_token_for_another_nonce_a_false_verdict_and_an_expired_token_are_refu
 
     let pki = Pki::new(LONG, LONG);
     let p = [pin("intermediate", &pki.inter)];
-    // exp = now - 60 + 3600 - 3600: the token expired a minute ago.
-    refused(check(pki, |k| k.exp = 0, &p, NOW).await, "expired");
+    // The token expired ten minutes ago.
+    let expired = |k: &mut Knobs| {
+        k.now = NOW - 600;
+        k.exp = 0;
+    };
+    refused(check(pki, expired, &p, NOW).await, "expired");
 }
 
 // ---- through verify_model ----
@@ -535,12 +614,10 @@ async fn the_shipped_policy_still_loads_and_the_gpu_check_still_passes_with_it()
     k.x5c = None;
     k.now = real_now;
     let url = nras_host(Box::new(move |n| answer(&pki, &k, n))).await;
-    let at = recorded_at();
     let attestor = NearAiAttestor::replaying(shipped, replay())
         .with_nras(format!("{url}/v3/attest/gpu"), format!("{url}/jwks"));
     // The Intel collateral is checked at its recorded time inside the replay; only the GPU step
     // runs live here.
-    let _ = at;
     verify_model(attestor).await.unwrap();
 }
 
@@ -725,10 +802,230 @@ fn status_names_the_mode() {
             "{direct}"
         );
     }
-    let home = tempfile::tempdir().unwrap();
-    assert!(!nymirad::nearai::saved_mode_is_direct(home.path()));
-    nymirad::nearai::save_mode(home.path(), true).unwrap();
-    assert!(nymirad::nearai::saved_mode_is_direct(home.path()));
-    nymirad::nearai::save_mode(home.path(), false).unwrap();
-    assert!(!nymirad::nearai::saved_mode_is_direct(home.path()));
+}
+
+// ---- chain rules, skew, pin position, body size ----
+
+async fn pinned_root(spec: Spec, knobs: impl FnOnce(&mut Knobs)) -> Result<(), VerificationError> {
+    let pki = Pki::build(spec);
+    let pins = [pin("root", &pki.root)];
+    check(pki, knobs, &pins, NOW).await
+}
+
+#[tokio::test]
+async fn an_intermediate_signed_by_another_key_is_refused_though_the_real_root_is_pinned() {
+    let spec = Spec {
+        forged_inter: true,
+        ..Spec::default()
+    };
+    refused(pinned_root(spec, |_| {}).await, "chain_untrusted");
+}
+
+#[tokio::test]
+async fn an_intermediate_that_is_not_a_ca_is_refused() {
+    let spec = Spec {
+        inter_ca: false,
+        ..Spec::default()
+    };
+    refused(pinned_root(spec, |_| {}).await, "issuer_not_ca");
+}
+
+#[tokio::test]
+async fn key_usage_path_length_and_issuer_names_are_enforced() {
+    // An issuer with a keyUsage extension must allow keyCertSign.
+    let spec = Spec {
+        inter_usages: vec![KeyUsagePurpose::DigitalSignature],
+        ..Spec::default()
+    };
+    refused(pinned_root(spec, |_| {}).await, "issuer_key_usage");
+    // The pinned root is an issuer too.
+    let spec = Spec {
+        root_usages: vec![KeyUsagePurpose::DigitalSignature],
+        ..Spec::default()
+    };
+    refused(pinned_root(spec, |_| {}).await, "issuer_key_usage");
+    // A root that allows no intermediate under it.
+    let spec = Spec {
+        root_path_len: Some(0),
+        ..Spec::default()
+    };
+    refused(pinned_root(spec, |_| {}).await, "path_length_exceeded");
+    let spec = Spec {
+        root_path_len: Some(1),
+        ..Spec::default()
+    };
+    pinned_root(spec, |_| {}).await.unwrap();
+    // A leaf with a keyUsage extension must allow signatures.
+    let spec = Spec {
+        leaf_usages: vec![KeyUsagePurpose::KeyEncipherment],
+        ..Spec::default()
+    };
+    refused(pinned_root(spec, |_| {}).await, "leaf_key_usage");
+    let spec = Spec {
+        leaf_usages: vec![KeyUsagePurpose::DigitalSignature],
+        ..Spec::default()
+    };
+    pinned_root(spec, |_| {}).await.unwrap();
+    // The leaf's issuer name must be the intermediate's subject.
+    let spec = Spec {
+        wrong_issuer_name: true,
+        ..Spec::default()
+    };
+    refused(pinned_root(spec, |_| {}).await, "issuer_name_mismatch");
+}
+
+#[tokio::test]
+async fn a_pin_at_the_leaf_trusts_it_as_it_is() {
+    // The walk stops at the first pinned certificate, so a pinned leaf needs no issuer.
+    let pki = Pki::new(LONG, LONG);
+    let pins = [pin("leaf", &pki.leaf)];
+    check(pki, |k| k.x5c = None, &pins, NOW)
+        .await
+        .expect_err("a key without x5c still has no chain");
+    let pki = Pki::new(LONG, LONG);
+    let pins = [pin("leaf", &pki.leaf)];
+    let leaf_only = vec![pki.leaf.clone()];
+    check(pki, |k| k.x5c = Some(leaf_only), &pins, NOW)
+        .await
+        .unwrap();
+    // It is still checked for validity.
+    let pki = Pki::new(PAST, LONG);
+    let pins = [pin("leaf", &pki.leaf)];
+    let leaf_only = vec![pki.leaf.clone()];
+    refused(
+        check(pki, |k| k.x5c = Some(leaf_only), &pins, NOW).await,
+        "leaf_expired",
+    );
+}
+
+#[tokio::test]
+async fn token_times_allow_a_minute_of_clock_skew_and_certificates_allow_none() {
+    let pins = |pki: &Pki| [pin("intermediate", &pki.inter)];
+    // A token issued 30 s ahead of our clock passes; 140 s ahead does not.
+    let pki = Pki::new(LONG, LONG);
+    let p = pins(&pki);
+    check(pki, |k| k.now = NOW + 90, &p, NOW).await.unwrap();
+    let pki = Pki::new(LONG, LONG);
+    let p = pins(&pki);
+    refused(
+        check(pki, |k| k.now = NOW + 200, &p, NOW).await,
+        "not_yet_valid",
+    );
+    // A token that expired 30 s ago passes; 120 s ago does not.
+    let pki = Pki::new(LONG, LONG);
+    let p = pins(&pki);
+    check(
+        pki,
+        |k| {
+            k.now = NOW - 30;
+            k.exp = 0;
+        },
+        &p,
+        NOW,
+    )
+    .await
+    .unwrap();
+    let pki = Pki::new(LONG, LONG);
+    let p = pins(&pki);
+    refused(
+        check(
+            pki,
+            |k| {
+                k.now = NOW - 120;
+                k.exp = 0;
+            },
+            &p,
+            NOW,
+        )
+        .await,
+        "expired",
+    );
+    // A certificate that expired a second ago is refused all the same.
+    let pki = Pki::new((2026, 11, 5), LONG);
+    let p = pins(&pki);
+    refused(check(pki, |_| {}, &p, NOW + 1).await, "leaf_expired");
+}
+
+#[tokio::test]
+async fn an_oversized_answer_from_nvidia_is_refused() {
+    use nymirad::nras::MAX_BODY;
+    let big = "x".repeat(MAX_BODY + 1);
+    let pki = Pki::new(LONG, LONG);
+    let p = [pin("intermediate", &pki.inter)];
+    let mut k = Knobs::new(&pki);
+    k.now = NOW;
+    let good = Arc::new(move |n: &str| answer(&pki, &k, n));
+    // The evidence answer is too big.
+    let (g, b) = (good.clone(), big.clone());
+    let app = Router::new()
+        .route("/e", post(move || async move { Json(json!([["JWT", b]])) }))
+        .route("/k", get(move || async move { Json(g(NONCE).1) }));
+    let url = serve_router(app).await;
+    let chain = NrasChain::new(
+        reqwest::Client::new(),
+        format!("{url}/e"),
+        format!("{url}/k"),
+        &p,
+        Arc::new(ManualClock::new(NOW * 1000)),
+    );
+    let payload = json!({"nonce": NONCE, "evidence_list": []}).to_string();
+    let e = chain.verify(&payload).await.unwrap_err();
+    assert!(e.to_string().contains("too_large"), "{e}");
+    // The key set is too big.
+    let g2 = good.clone();
+    let app = Router::new()
+        .route("/e", post(move || async move { Json(g2(NONCE).0) }))
+        .route("/k", get(move || async move { big }));
+    let url = serve_router(app).await;
+    let chain = NrasChain::new(
+        reqwest::Client::new(),
+        format!("{url}/e"),
+        format!("{url}/k"),
+        &p,
+        Arc::new(ManualClock::new(NOW * 1000)),
+    );
+    let e = chain.verify(&payload).await.unwrap_err();
+    assert!(e.to_string().contains("too_large"), "{e}");
+}
+
+/// The client `NearAiAttestor` builds when no proxy is in play follows no redirect.
+#[tokio::test]
+async fn the_direct_client_follows_no_redirect() {
+    let r = rig().await;
+    let target = format!("{}/v3/attest/gpu", r.good);
+    let redirect = Router::new().fallback(move || {
+        let target = target.clone();
+        async move { axum::response::Redirect::temporary(&target) }
+    });
+    let url = serve_router(redirect).await;
+    let e = verify_model(pinned_attestor(r.pins.clone(), NrasMode::Direct, &url))
+        .await
+        .unwrap_err();
+    assert!(e.contains("gpu.nras_request_failed"), "{e}");
+}
+
+/// The client built when no proxy is in play follows no redirect, for the chain check and for
+/// the old key check alike (the default relay mode with an unpinned policy).
+#[tokio::test]
+async fn the_plain_client_follows_no_redirect() {
+    let at = recorded_at();
+    let pki = Pki::new(LONG, LONG);
+    let pins = vec![pin("intermediate", &pki.inter)];
+    let mut k = Knobs::new(&pki);
+    k.now = at;
+    let good = nras_host(Box::new(move |n| answer(&pki, &k, n))).await;
+    let target = format!("{good}/v3/attest/gpu");
+    let redirect = Router::new().fallback(move || {
+        let target = target.clone();
+        async move { axum::response::Redirect::temporary(&target) }
+    });
+    let url = serve_router(redirect).await;
+    for pins in [vec![], pins] {
+        let attestor = NearAiAttestor::replaying(policy(pins), replay())
+            .with_nras_mode(NrasMode::Direct)
+            .with_nras(format!("{url}/v3/attest/gpu"), format!("{url}/jwks"))
+            .with_clock(Arc::new(ManualClock::new(at * 1000)));
+        let e = verify_model(attestor).await.unwrap_err();
+        assert!(e.contains("gpu.nras_request_failed"), "{e}");
+    }
 }
