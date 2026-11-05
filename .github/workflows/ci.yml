@@ -179,6 +179,8 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3, 4]
     name: web (${{ matrix.shard == 0 && 'static' || format('e2e {0}/4', matrix.shard) }})
+    # The longest shard takes about 15 minutes; a stalled job is cut off instead of waiting six hours.
+    timeout-minutes: 30
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
@@ -207,7 +209,14 @@ jobs:
       - name: Install the browsers
         if: matrix.shard != 0
         working-directory: web
-        run: npx playwright install --with-deps chromium webkit
+        # The download or the apt step stalls now and then (two jobs sat on it for over 30 minutes on
+        # 5 November 2026): a stalled try is killed after 5 minutes and repeated.
+        run: |
+          for try in 1 2 3; do
+            timeout 300 npx playwright install --with-deps chromium webkit && exit 0
+            echo "browser install attempt $try failed or timed out" >&2
+          done
+          exit 1
       - name: Typecheck, format, executor pins
         if: matrix.shard == 0
         working-directory: web
