@@ -22,7 +22,7 @@ import { OperatorClient } from './operator';
 import type { Deps } from './session';
 
 /** The oldest policy this build accepts. Raise it with each signed release. */
-export const MIN_POLICY_VERSION = 4;
+export const MIN_POLICY_VERSION = 5;
 
 let ready: Promise<unknown> | null = null;
 const checksReady = () => (ready ??= initChecks());

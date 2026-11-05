@@ -383,7 +383,7 @@ fn gpu_chain_line(_: &std::path::Path) -> (String, bool) {
 const ENFORCE_NVIDIA_PINS: bool = true;
 
 /// Policies older than this are refused.
-const MIN_POLICY_VERSION: u32 = 4;
+const MIN_POLICY_VERSION: u32 = 5;
 
 #[tokio::main]
 async fn main() {

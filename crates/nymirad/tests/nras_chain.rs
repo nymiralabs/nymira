@@ -600,10 +600,21 @@ fn the_shipped_policy_pins_the_two_nvidia_intermediates_and_says_they_are_unveri
     let shipped = Policy::load(
         include_bytes!("../pins/attestation-policy.json"),
         &signer,
-        4,
+        5,
     )
     .expect("signed by the pinned key");
-    assert_eq!(shipped.version, 4);
+    assert_eq!(shipped.version, 5);
+    // The gateway accepts any compose hash; the model keeps exact pinning.
+    let compose = |role: &str| {
+        shipped
+            .deployments
+            .iter()
+            .find(|d| d.role == role)
+            .map(|d| d.compose_hashes.clone())
+            .unwrap()
+    };
+    assert_eq!(compose("gateway"), ["*"]);
+    assert!(compose("model").iter().all(|h| h != "*") && compose("model").len() >= 2);
     shipped
         .require_nvidia_pins()
         .expect("the policy pins NVIDIA certificates");
