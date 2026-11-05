@@ -120,7 +120,15 @@ pub struct Policy {
 ///
 /// One machine image runs on many VMs, and each VM's compose file differs in small ways (an
 /// instance label), so the compose hash differs per VM while `mr_td`, `rtmr0-2` and the OS image
-/// hash do not. An entry therefore lists every compose hash seen for that image.
+/// hash do not. A `model` entry therefore lists every compose hash seen for that image: plaintext
+/// prompts are decrypted there, so each compose file is one a person reviewed.
+///
+/// A `gateway` entry may instead hold the single entry [`ANY_COMPOSE`] in `compose_hashes`. NEAR
+/// AI redeploys the gateway often and each deployment changes its compose file (new container
+/// image digests, port policy), so pinning one hash breaks chat after every redeploy. The entry
+/// then accepts any compose hash, and everything else stays pinned: the OS image hash, `mr_td`,
+/// `rtmr0-2`, the TCB status, the Intel quote and the nonce. The sentinel is part of the signed
+/// text like any other value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Deployment {
     /// `model` for a model-serving VM, `gateway` for the gateway's.
@@ -131,6 +139,22 @@ pub struct Deployment {
     pub rtmr0: String,
     pub rtmr1: String,
     pub rtmr2: String,
+}
+
+/// The single `compose_hashes` entry of a `gateway` deployment that accepts any compose hash.
+pub const ANY_COMPOSE: &str = "*";
+
+impl Deployment {
+    /// Whether this entry takes a VM with this compose hash (lower-case hex, no `0x`).
+    pub fn accepts_compose(&self, hash: &str) -> bool {
+        self.is_compose_wildcard() || self.compose_hashes.iter().any(|h| h == hash)
+    }
+
+    /// Whether this is a gateway entry that accepts any compose hash. `Policy::load` refuses the
+    /// sentinel anywhere else, so for a loaded policy this is true only for such an entry.
+    pub fn is_compose_wildcard(&self) -> bool {
+        self.role == "gateway" && self.compose_hashes == [ANY_COMPOSE]
+    }
 }
 
 /// A pinned NVIDIA certificate: the SHA-256 of its DER form, as lower-case hex.
@@ -289,7 +313,12 @@ impl Policy {
                     && v.bytes()
                         .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             };
-            if d.compose_hashes.is_empty() || !d.compose_hashes.iter().all(|h| is_hex(h, 32)) {
+            // The wildcard is the only entry of a gateway deployment; anywhere else it is refused,
+            // so a mistake cannot weaken the check on the model.
+            let wildcard = d.role == "gateway" && d.compose_hashes == [ANY_COMPOSE];
+            if !wildcard
+                && (d.compose_hashes.is_empty() || !d.compose_hashes.iter().all(|h| is_hex(h, 32)))
+            {
                 return Err(PolicyError::BadDeployment("compose_hashes".into()));
             }
             let sizes = [
