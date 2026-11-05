@@ -74,8 +74,19 @@ impl NrasRelay {
         }
     }
 
+    /// A slot for one call to NVIDIA, then one count against the minute. A call turned away for
+    /// either reason uses up neither: the slot is given back when the count is refused, and the
+    /// count is taken only once the slot is held.
+    fn admit(&self, now: u64) -> Result<tokio::sync::SemaphorePermit<'_>, ApiError> {
+        let slot = self.slots.try_acquire().map_err(|_| {
+            ApiError::new(Code::OperatorCapacity, "relay calls in flight").retry_after(1)
+        })?;
+        self.count(now)?;
+        Ok(slot)
+    }
+
     /// Counts one call against the minute, or says how long to wait.
-    fn admit(&self, now: u64) -> Result<(), ApiError> {
+    fn count(&self, now: u64) -> Result<(), ApiError> {
         let mut recent = self.recent.lock().unwrap_or_else(|e| e.into_inner());
         while recent.front().is_some_and(|t| *t + 60 <= now) {
             recent.pop_front();
@@ -94,6 +105,18 @@ impl NrasRelay {
     }
 }
 
+/// A JSON object with a `nonce` of 64 hex characters and an `evidence_list` array: the shape of
+/// what NRAS takes. Nothing else is forwarded.
+fn is_evidence_payload(body: &[u8]) -> bool {
+    let Ok(serde_json::Value::Object(o)) = serde_json::from_slice(body) else {
+        return false;
+    };
+    o.get("nonce")
+        .and_then(|n| n.as_str())
+        .is_some_and(|n| n.len() == 64 && n.bytes().all(|b| b.is_ascii_hexdigit()))
+        && o.get("evidence_list").is_some_and(|l| l.is_array())
+}
+
 /// Whether an NVIDIA answer says the relay itself cannot get through: the service is down, or it
 /// turns the operator's address away. A 400 for a bad payload is the caller's, not an outage.
 fn upstream_trouble(status: StatusCode) -> bool {
@@ -107,17 +130,16 @@ impl crate::operator::Operator {
     /// Forwards one evidence payload to NVIDIA. `body` has passed the size cap; this checks that
     /// it is a JSON object, then returns NVIDIA's status and body as they came.
     pub async fn relay_evidence(&self, body: Bytes) -> Result<(StatusCode, Bytes), ApiError> {
-        if !serde_json::from_slice::<serde_json::Value>(&body).is_ok_and(|v| v.is_object()) {
+        // Checked before the call counts: what is not an evidence payload never reaches NVIDIA and
+        // never uses up the limit.
+        if !is_evidence_payload(&body) {
             return Err(ApiError::new(
                 Code::MalformedRequest,
-                "the body is not a JSON object",
+                "the body is not a GPU evidence payload",
             ));
         }
         let relay = &self.nras;
-        relay.admit(self.clock.now_secs())?;
-        let _slot = relay.slots.try_acquire().map_err(|_| {
-            ApiError::new(Code::OperatorCapacity, "relay calls in flight").retry_after(1)
-        })?;
+        let _slot = relay.admit(self.clock.now_secs())?;
         let sent = relay
             .client
             .post(&relay.cfg.evidence_url)
@@ -143,10 +165,7 @@ impl crate::operator::Operator {
                 return Ok((*status, body.clone()));
             }
         }
-        relay.admit(now)?;
-        let _slot = relay.slots.try_acquire().map_err(|_| {
-            ApiError::new(Code::OperatorCapacity, "relay calls in flight").retry_after(1)
-        })?;
+        let _slot = relay.admit(now)?;
         let sent = relay.client.get(&relay.cfg.jwks_url).send().await;
         let (status, body) = self.relay_result(sent).await?;
         if status == StatusCode::OK {

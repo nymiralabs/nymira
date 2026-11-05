@@ -140,12 +140,16 @@ pub fn router_with(
         .with_state(token)
 }
 
-/// Serves on `127.0.0.1:8788`.
+/// Serves on `127.0.0.1:port` (`PORT` outside tests). `on_bound` runs once the port is bound and before the first
+/// request; if it fails, so does `serve`.
 pub async fn serve(
     token: Arc<OwnerToken>,
     gateway: Option<Arc<crate::gateway::Gateway>>,
+    port: u16,
+    on_bound: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", PORT)).await?;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
+    on_bound()?;
     let app = router_with(token, gateway.clone());
     axum::serve(
         listener,

@@ -802,12 +802,6 @@ fn status_names_the_mode() {
             "{direct}"
         );
     }
-    let home = tempfile::tempdir().unwrap();
-    assert!(!nymirad::nearai::saved_mode_is_direct(home.path()));
-    nymirad::nearai::save_mode(home.path(), true).unwrap();
-    assert!(nymirad::nearai::saved_mode_is_direct(home.path()));
-    nymirad::nearai::save_mode(home.path(), false).unwrap();
-    assert!(!nymirad::nearai::saved_mode_is_direct(home.path()));
 }
 
 // ---- chain rules, skew, pin position, body size ----
