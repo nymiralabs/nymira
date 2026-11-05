@@ -65,6 +65,7 @@ export async function leaveDeps(getKey: () => CryptoKey): Promise<LeaveDeps> {
     signatureCheck,
     words: withdrawal_words,
     getKey,
+    ...(PROFILE.watch ? { race: PROFILE.watch } : {}),
   };
 }
 

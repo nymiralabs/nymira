@@ -50,4 +50,6 @@ export const profile: Profile = {
     sha256: 'c04e0368a85378c268b68c9c18764b0d1f86bac98fb21d69e6e80918ce2e486f',
   },
   testEvidence: true,
+  // Shorter than a deployed build waits, so a wallet that never answers ends within a test.
+  watch: { pollMs: 1000, graceMs: 6000, maxMs: 25_000 },
 };
