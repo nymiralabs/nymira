@@ -430,6 +430,15 @@ impl NearAiAttestor {
         }
     }
 
+    /// The client for NVIDIA's service when no proxy is in play: no redirect, a timeout.
+    fn plain() -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default()
+    }
+
     /// The GPU check for this run: where its two calls go and what checks the answer.
     fn gpu_verifier(
         &self,
@@ -437,7 +446,7 @@ impl NearAiAttestor {
         socks_url: Option<&str>,
     ) -> Result<Box<dyn GpuEvidenceVerifier>, String> {
         let pinned = !self.policy.nvidia_pins.is_empty();
-        let client = |url: Option<&str>| Self::proxied(url).map(Option::unwrap_or_default);
+        let client = |url: Option<&str>| Self::proxied(url).map(|c| c.unwrap_or_else(Self::plain));
         let (client, url, jwks_url) = match &self.mode {
             NrasMode::Direct => (
                 // No proxy: this is what `--nras-direct` asks for.
@@ -463,7 +472,7 @@ impl NearAiAttestor {
             // Nothing would check a relay's answer: keep the check against NVIDIA's own key,
             // fetched through the proxy.
             NrasMode::Relay { .. } => (
-                proxied.clone().unwrap_or_default(),
+                proxied.clone().unwrap_or_else(Self::plain),
                 self.nras_url.clone(),
                 self.nras_jwks_url.clone(),
             ),
