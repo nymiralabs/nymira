@@ -41,7 +41,9 @@ commands:
   restore-secret --note ID --secret-file FILE [--payout ACCOUNT]
                                     from a note secret alone: the note can be exited, not spent
   note-secret --note ID             shows a note's secret after a confirmation on the terminal
-  serve                             the local gateway on 127.0.0.1:8788
+  serve [--nras-direct]             the local gateway on 127.0.0.1:8788
+      --nras-direct: send the GPU evidence straight to NVIDIA instead of through the operator's
+      relay. NVIDIA then sees your IP address; there is no fall back from one to the other
   status
   terms                             prints the terms of use (the same file as TERMS.md in the repository)
   print-pins --network testnet|mainnet --vault ACCOUNT [--rpc URL]
@@ -147,6 +149,7 @@ async fn build_gateway(
     mode: Mode,
     source: &PassphraseSource,
     clock: Arc<dyn Clock>,
+    nras_direct: bool,
 ) -> Option<Arc<Gateway>> {
     if cfg.rpc_url.is_empty() {
         return None;
@@ -181,7 +184,7 @@ async fn build_gateway(
         Mode::Testnet => nymira_near_codec::Network::Testnet,
         Mode::Mainnet => nymira_near_codec::Network::Mainnet,
     };
-    let attestor = attestor(home);
+    let attestor = attestor(home, &cfg.operator_url, nras_direct);
     let gateway = Gateway::new(
         GatewayConfig {
             home: home.to_path_buf(),
@@ -252,7 +255,11 @@ fn compiled_proving_key_hash(cfg: &Config) -> String {
 }
 
 #[cfg(feature = "mock")]
-fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
+fn attestor(
+    home: &std::path::Path,
+    _operator_url: &str,
+    _nras_direct: bool,
+) -> Arc<dyn nymirad::attest::Attestor> {
     // Demo builds check the fake gateway's test evidence against a policy signed by the demo key.
     let signer: [u8; 32] = std::fs::read_to_string(home.join("policy-signer.pub"))
         .ok()
@@ -270,9 +277,23 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
 /// the state directory. Without a pinned policy signer, a readable policy that verifies and is
 /// new enough, chat is refused rather than sent to a key nobody checked.
 #[cfg(not(feature = "mock"))]
-fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
+fn attestor(
+    home: &std::path::Path,
+    operator_url: &str,
+    nras_direct: bool,
+) -> Arc<dyn nymirad::attest::Attestor> {
+    use nymirad::nearai::{NearAiAttestor, NrasMode};
     match signed_policy(home) {
-        Ok(policy) => Arc::new(nymirad::nearai::NearAiAttestor::new(policy)),
+        Ok(policy) => {
+            let mode = if nras_direct {
+                NrasMode::Direct
+            } else {
+                NrasMode::Relay {
+                    operator_url: operator_url.to_string(),
+                }
+            };
+            Arc::new(NearAiAttestor::new(policy).with_nras_mode(mode))
+        }
         Err(why) => {
             eprintln!("warning: {why}; chat requests will be refused");
             Arc::new(nymirad::attest::Unavailable)
@@ -324,7 +345,19 @@ fn signed_policy(home: &std::path::Path) -> Result<nymirad::attest::Policy, Stri
 #[cfg(not(feature = "mock"))]
 fn gpu_chain_line(home: &std::path::Path) -> String {
     match signed_policy(home) {
-        Ok(policy) => nymirad::nearai::gpu_chain_line(&policy),
+        Ok(policy) => {
+            let direct = nymirad::nearai::saved_mode_is_direct(home);
+            let note = if direct {
+                " (set by the last `serve`)"
+            } else {
+                ""
+            };
+            format!(
+                "{}\n{}{note}",
+                nymirad::nearai::gpu_chain_line(&policy),
+                nymirad::nearai::nras_mode_line(&policy, direct)
+            )
+        }
         Err(why) => format!("GPU chain: unknown ({why})"),
     }
 }
@@ -479,7 +512,15 @@ async fn main() {
             if !cfg.guard().enabled {
                 eprintln!("warning: the expiry guard is off: nymirad will not stop leases near expiry, close, exit or remind you");
             }
-            let gateway = build_gateway(&cfg, &home, mode, &source, clock.clone()).await;
+            let nras_direct = switch(&mut args, "--nras-direct");
+            if nras_direct {
+                eprintln!("warning: --nras-direct is on: NVIDIA's attestation service sees your IP address and the time of every GPU check");
+            }
+            if let Err(e) = nymirad::nearai::save_mode(&home, nras_direct) {
+                eprintln!("warning: could not record the GPU evidence mode for `status`: {e}");
+            }
+            let gateway =
+                build_gateway(&cfg, &home, mode, &source, clock.clone(), nras_direct).await;
             if let Some(gw) = &gateway {
                 let listener = nymirad::ownersock::bind(&home).unwrap_or_else(|e| die(e));
                 println!(

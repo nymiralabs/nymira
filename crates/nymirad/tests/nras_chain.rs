@@ -5,7 +5,10 @@
 //! refusal; and `NearAiAttestor::verify_model` against the recorded Intel evidence and the same
 //! host, for the pass and for the policy that ships today.
 
+mod support;
+
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -17,7 +20,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use nearai_inference_sdk::{GpuEvidenceVerifier, VerificationError};
 use nymira_operator::clock::ManualClock;
 use nymirad::attest::{Attestor, Deployment, NvidiaPin, Policy, ReportRequest};
-use nymirad::nearai::{Collateral, NearAiAttestor, Replay};
+use nymirad::nearai::{Collateral, NearAiAttestor, NrasMode, Replay};
 use nymirad::nras::NrasChain;
 use rcgen::{
     date_time_ymd, BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair,
@@ -165,7 +168,7 @@ fn answer(pki: &Pki, k: &Knobs, nonce: &str) -> (Value, Value) {
 type Make = Box<dyn Fn(&str) -> (Value, Value) + Send + Sync>;
 
 /// A stand-in NRAS host: the evidence POST and the JWKS GET.
-async fn nras_host(make: Make) -> String {
+fn nras_routes(make: Make) -> Router {
     async fn evidence(State(make): State<Arc<Make>>, body: String) -> Json<Value> {
         let nonce = serde_json::from_str::<Value>(&body).unwrap()["nonce"]
             .as_str()
@@ -176,14 +179,38 @@ async fn nras_host(make: Make) -> String {
     async fn jwks(State(make): State<Arc<Make>>) -> Json<Value> {
         Json(make(NONCE).1)
     }
-    let app = Router::new()
+    // The same answer at NVIDIA's paths and at the operator relay's.
+    Router::new()
         .route("/v3/attest/gpu", post(evidence))
         .route("/jwks", get(jwks))
-        .with_state(Arc::new(make));
+        .route("/v1/nras/attest", post(evidence))
+        .route("/v1/nras/jwks", get(jwks))
+        .with_state(Arc::new(make))
+}
+
+async fn serve_router(app: Router) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     url
+}
+
+async fn nras_host(make: Make) -> String {
+    serve_router(nras_routes(make)).await
+}
+
+/// A host that answers every request with `status` and counts them.
+async fn status_host(status: u16) -> (Arc<AtomicUsize>, String) {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counter = hits.clone();
+    let app = Router::new().fallback(move || {
+        let counter = counter.clone();
+        async move {
+            counter.fetch_add(1, Ordering::SeqCst);
+            axum::http::StatusCode::from_u16(status).unwrap()
+        }
+    });
+    (hits, serve_router(app).await)
 }
 
 async fn check(
@@ -400,8 +427,8 @@ fn replay() -> Replay {
     }
 }
 
-/// The recorded reports behind a local server.
-async fn gateway() -> String {
+/// The recorded reports, as routes.
+fn gateway_routes() -> Router {
     use axum::extract::Query;
     async fn report(
         State(b): State<Arc<(String, String)>>,
@@ -417,13 +444,13 @@ async fn gateway() -> String {
         String::from_utf8(fixture("model-report.json")).unwrap(),
         String::from_utf8(fixture("gateway-report.json")).unwrap(),
     );
-    let app = Router::new()
+    Router::new()
         .route("/v1/attestation/report", get(report))
-        .with_state(Arc::new(bodies));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    url
+        .with_state(Arc::new(bodies))
+}
+
+async fn gateway() -> String {
+    serve_router(gateway_routes()).await
 }
 
 fn policy(pins: Vec<NvidiaPin>) -> Policy {
@@ -468,7 +495,9 @@ async fn verify_model_passes_with_a_pinned_chain_and_refuses_an_unpinned_one() {
     let url = nras_host(Box::new(move |n| answer(&pki, &k, n))).await;
     let attestor = |pins: Vec<NvidiaPin>| {
         NearAiAttestor::replaying(policy(pins), replay())
-            .with_nras(format!("{url}/v3/attest/gpu"), format!("{url}/jwks"))
+            .with_nras_mode(NrasMode::Relay {
+                operator_url: url.clone(),
+            })
             .with_clock(Arc::new(ManualClock::new(at * 1000)))
     };
     verify_model(attestor(pins)).await.unwrap();
@@ -520,12 +549,186 @@ fn status_says_whether_the_gpu_chain_is_pinned() {
     let none = nymirad::nearai::gpu_chain_line(&policy(vec![]));
     assert!(none.starts_with("GPU chain: not pinned"), "{none}");
     let pki = Pki::new(LONG, LONG);
-    let pinned = nymirad::nearai::gpu_chain_line(&policy(vec![
-        pin("a", &pki.inter),
-        pin("b", &pki.root),
-    ]));
+    let pinned =
+        nymirad::nearai::gpu_chain_line(&policy(vec![pin("a", &pki.inter), pin("b", &pki.root)]));
     assert!(
         pinned.starts_with("GPU chain: pinned (2 certificates, 2 not checked"),
         "{pinned}"
     );
+}
+
+// ---- the relay, --nras-direct and the circuit ----
+
+/// A pinned policy, a stand-in that answers correctly at both the relay's and NVIDIA's paths, and
+/// the clock the recorded Intel evidence is checked at.
+struct Rig {
+    pins: Vec<NvidiaPin>,
+    good: String,
+}
+
+async fn rig() -> Rig {
+    let at = recorded_at();
+    let pki = Pki::new(LONG, LONG);
+    let pins = vec![pin("intermediate", &pki.inter)];
+    let mut k = Knobs::new(&pki);
+    k.now = at;
+    let good = nras_host(Box::new(move |n| answer(&pki, &k, n))).await;
+    Rig { pins, good }
+}
+
+fn pinned_attestor(pins: Vec<NvidiaPin>, mode: NrasMode, nvidia: &str) -> NearAiAttestor {
+    NearAiAttestor::replaying(policy(pins), replay())
+        .with_nras_mode(mode)
+        .with_nras(format!("{nvidia}/v3/attest/gpu"), format!("{nvidia}/jwks"))
+        .with_clock(Arc::new(ManualClock::new(recorded_at() * 1000)))
+}
+
+#[tokio::test]
+async fn the_relay_passes_where_a_direct_call_gets_403() {
+    let r = rig().await;
+    let (nvidia_hits, nvidia) = status_host(403).await;
+    let relay = NrasMode::Relay {
+        operator_url: r.good.clone(),
+    };
+    verify_model(pinned_attestor(r.pins.clone(), relay, &nvidia))
+        .await
+        .unwrap();
+    assert_eq!(
+        nvidia_hits.load(Ordering::SeqCst),
+        0,
+        "NVIDIA was not asked"
+    );
+
+    // --nras-direct is what contacts NVIDIA, and here NVIDIA answers 403.
+    let e = verify_model(pinned_attestor(r.pins.clone(), NrasMode::Direct, &nvidia))
+        .await
+        .unwrap_err();
+    assert!(
+        e.contains("gpu.nras_request_failed") && e.contains("http_status"),
+        "{e}"
+    );
+    assert_eq!(nvidia_hits.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn direct_mode_passes_only_when_asked_for() {
+    let r = rig().await;
+    // The relay is down; NVIDIA itself would answer. Without the flag nothing goes to NVIDIA.
+    let (relay_hits, relay) = status_host(502).await;
+    let default = NrasMode::Relay {
+        operator_url: relay,
+    };
+    let e = verify_model(pinned_attestor(r.pins.clone(), default, &r.good))
+        .await
+        .unwrap_err();
+    assert!(e.contains("gpu.nras_request_failed"), "{e}");
+    assert_eq!(relay_hits.load(Ordering::SeqCst), 1);
+
+    verify_model(pinned_attestor(r.pins.clone(), NrasMode::Direct, &r.good))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_failing_relay_never_falls_back_to_nvidia() {
+    // NVIDIA's stand-in would pass and counts its visitors; the relay fails.
+    let pki = Pki::new(LONG, LONG);
+    let pins = vec![pin("intermediate", &pki.inter)];
+    let hits = Arc::new(AtomicUsize::new(0));
+    let (counter, mut k) = (hits.clone(), Knobs::new(&pki));
+    k.now = recorded_at();
+    let nvidia = serve_router(nras_routes(Box::new(move |n| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        answer(&pki, &k, n)
+    })))
+    .await;
+    for status in [500, 502, 403] {
+        let (_, relay) = status_host(status).await;
+        let mode = NrasMode::Relay {
+            operator_url: relay,
+        };
+        let e = verify_model(pinned_attestor(pins.clone(), mode, &nvidia))
+            .await
+            .unwrap_err();
+        assert!(e.contains("gpu.nras_request_failed"), "{status}: {e}");
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 0, "NVIDIA was never asked");
+}
+
+/// The relay call leaves on a circuit of its own: not the identity the report was fetched under,
+/// which is the lease-side attestation attempt's.
+#[tokio::test]
+async fn the_relay_request_does_not_share_the_identity_of_the_other_calls() {
+    let pki = Pki::new(LONG, LONG);
+    let pins = vec![pin("intermediate", &pki.inter)];
+    let mut k = Knobs::new(&pki);
+    k.now = recorded_at();
+    // One server behind the proxy: the gateway's reports and the relay's routes. Both names
+    // reach it through the proxy.
+    let app = gateway_routes().merge(nras_routes(Box::new(move |n| answer(&pki, &k, n))));
+    let url = serve_router(app).await;
+    let addr: std::net::SocketAddr = url.strip_prefix("http://").unwrap().parse().unwrap();
+    let proxy = support::socks::FakeSocks::start(support::socks::Behavior::Tunnel(addr)).await;
+
+    let lease_side = nymirad::net::identity();
+    let socks_url = format!("socks5h://{lease_side}:x@{}", proxy.addr);
+    let attestor = NearAiAttestor::replaying(policy(pins), replay())
+        .with_nras_mode(NrasMode::Relay {
+            operator_url: "http://operator.test".into(),
+        })
+        .with_clock(Arc::new(ManualClock::new(recorded_at() * 1000)));
+    let http = reqwest::Client::new();
+    attestor
+        .verify_model(&ReportRequest {
+            gateway_url: "http://gateway.test",
+            model: MODEL,
+            nonce: "unused",
+            http: &http,
+            socks_url: Some(&socks_url),
+        })
+        .await
+        .unwrap();
+
+    let seen = proxy.seen();
+    let operator: Vec<_> = seen.iter().filter(|s| s.host == "operator.test").collect();
+    let gateway: Vec<_> = seen.iter().filter(|s| s.host == "gateway.test").collect();
+    assert!(!operator.is_empty() && !gateway.is_empty(), "{seen:?}");
+    assert!(gateway.iter().all(|s| s.user == lease_side));
+    assert!(
+        operator
+            .iter()
+            .all(|s| s.user != lease_side && s.user.len() == 64),
+        "{operator:?}"
+    );
+    // Names, not addresses, so the proxy resolves them.
+    assert!(operator.iter().all(|s| s.atyp == 3));
+}
+
+#[test]
+fn status_names_the_mode() {
+    let none = nymirad::nearai::nras_mode_line(&policy(vec![]), false);
+    assert!(
+        none.contains("through Tor") && none.contains("stays off"),
+        "{none}"
+    );
+    let pki = Pki::new(LONG, LONG);
+    let pinned = policy(vec![pin("a", &pki.inter)]);
+    let relay = nymirad::nearai::nras_mode_line(&pinned, false);
+    assert!(
+        relay.contains("operator relay") && relay.contains("own Tor circuit"),
+        "{relay}"
+    );
+    for p in [&pinned, &policy(vec![])] {
+        let direct = nymirad::nearai::nras_mode_line(p, true);
+        assert!(
+            direct.contains("--nras-direct is ON") && direct.contains("IP address"),
+            "{direct}"
+        );
+    }
+    let home = tempfile::tempdir().unwrap();
+    assert!(!nymirad::nearai::saved_mode_is_direct(home.path()));
+    nymirad::nearai::save_mode(home.path(), true).unwrap();
+    assert!(nymirad::nearai::saved_mode_is_direct(home.path()));
+    nymirad::nearai::save_mode(home.path(), false).unwrap();
+    assert!(!nymirad::nearai::saved_mode_is_direct(home.path()));
 }
