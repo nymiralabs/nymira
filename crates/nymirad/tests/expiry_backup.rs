@@ -166,6 +166,7 @@ async fn make_gateway(
         accepted_measurements: test.accepted_measurements,
         deployments: vec![],
         accepted_tcb_statuses: test.accepted_tcb_statuses,
+        nvidia_pins: vec![],
         signature: String::new(),
     }
     .sign(&signer_key);
