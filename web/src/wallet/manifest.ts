@@ -19,6 +19,10 @@ export interface ExecutorPin {
   source: string;
   manifestVersion: string;
   retrieved: string;
+  /** The wallet approves in a window of its own: the wallet frame opens it early (popup.ts). */
+  opensPopup?: boolean;
+  /** Test-only executors name their permissions here; the real ones are listed below. */
+  permissions?: Record<string, unknown>;
 }
 
 export const EXECUTOR_PINS: Record<string, ExecutorPin> = {
@@ -66,6 +70,9 @@ const PERMISSIONS: Record<string, Record<string, unknown>> = {
   },
 };
 
+export const opensPopup = (walletId: string): boolean =>
+  EXECUTOR_PINS[walletId]?.opensPopup === true;
+
 export function manifestEntry(id: string): WalletManifest {
   const pin = EXECUTOR_PINS[id];
   if (!pin) throw new Error(`no executor pin for wallet ${id}`);
@@ -80,6 +87,6 @@ export function manifestEntry(id: string): WalletManifest {
     type: 'sandbox',
     platform: ['web'],
     features: FEATURES,
-    permissions: PERMISSIONS[id] ?? { storage: true },
+    permissions: pin.permissions ?? PERMISSIONS[id] ?? { storage: true },
   };
 }

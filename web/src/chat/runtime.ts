@@ -51,6 +51,7 @@ export async function chatDeps(getKey: () => CryptoKey): Promise<Deps> {
     quote: await quoteVerifier(),
     signatureCheck,
     getKey,
+    ...(PROFILE.watch ? { race: PROFILE.watch } : {}),
   };
 }
 

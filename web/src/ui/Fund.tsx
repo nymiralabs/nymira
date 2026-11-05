@@ -11,7 +11,8 @@ import {
   makeBackupFile,
   notePrice,
   prepareNote,
-  sendDeposit,
+  sendDepositWatched,
+  acceptFound,
   testRestore,
   type Acceptance,
 } from '../funding/flow';
@@ -21,6 +22,7 @@ import { isAccountId } from '../wallet/client';
 import { download, formatDate, formatUnits, readFile } from './format';
 import { Notices } from './Landing';
 import { rpc, useWallet } from './services';
+import { SessionLost } from './WalletConnect';
 import { ARGON2_SENTENCE, Unlock } from './Unlock';
 
 const units = (v: bigint | string) =>
@@ -234,18 +236,27 @@ export function Fund({ vault, recheck }: { vault: VaultCheck | null; recheck: ()
     });
   };
 
-  const onSend = () =>
-    act('send', async () => {
+  const onSend = () => {
+    // Before any await: the click is fresh, and a wallet that opens a window needs it (popup.ts).
+    wallet.arm();
+    return act('send', async () => {
       if (!note) return;
-      const sent = await sendDeposit(rpc, note, wallet);
-      setNote(sent.record);
-      outcomeRef.current = sent.outcome;
-      const result = await confirmDeposit(rpc, sent.record, sent.outcome, {
-        onRpcRead: () => setRpcRead(true),
-      });
-      setAcceptance(result);
-      if ('record' in result) setNote(result.record);
+      try {
+        const sent = await sendDepositWatched(rpc, note, wallet, PROFILE.watch);
+        setNote(sent.record);
+        outcomeRef.current = sent.outcome;
+        const result = sent.found
+          ? await acceptFound(sent.record, sent.found)
+          : await confirmDeposit(rpc, sent.record, sent.outcome, {
+              onRpcRead: () => setRpcRead(true),
+            });
+        setAcceptance(result);
+        if ('record' in result) setNote(result.record);
+      } finally {
+        wallet.release();
+      }
     });
+  };
 
   const onCalendar = () => {
     if (note?.expiry === undefined) return;
@@ -295,6 +306,7 @@ export function Fund({ vault, recheck }: { vault: VaultCheck | null; recheck: ()
         </p>
       ) : (
         <div>
+          <SessionLost />
           <p>
             On {PROFILE.network}, Meteor and Intear are the supported wallets. Other wallets may
             work and are not promised.
@@ -590,10 +602,20 @@ export function Fund({ vault, recheck }: { vault: VaultCheck | null; recheck: ()
           <h3>Deposit accepted</h3>
           <p>
             Note <strong data-testid="note-id">#{acceptance.event.noteId}</strong>, expires{' '}
-            <strong data-testid="note-expiry">{formatDate(acceptance.event.expiry)}</strong>. The
-            receipt was read{' '}
-            {acceptance.source === 'wallet' ? 'from your wallet' : 'from the RPC provider'}.
+            <strong data-testid="note-expiry">{formatDate(acceptance.event.expiry)}</strong>.{' '}
+            {acceptance.source === 'wallet'
+              ? 'The receipt was read from your wallet.'
+              : acceptance.source === 'rpc'
+                ? 'The receipt was read from the RPC provider.'
+                : 'Your wallet never answered, so the app found the note on the vault itself.'}
           </p>
+          {acceptance.source === 'chain' && (
+            <p className="warning" data-testid="chain-found-warning">
+              Without the wallet’s receipt the app could not check the payout account. Open the
+              transaction in your wallet’s history or the explorer and check that it pays{' '}
+              <strong>{note.payout}</strong>.
+            </p>
+          )}
           {note.txHash && (
             <p>
               <a

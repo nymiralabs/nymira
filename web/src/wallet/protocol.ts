@@ -33,7 +33,14 @@ export type FrameRequest =
       method: 'connect';
       params: { walletId: string; message: string; recipient: string; nonce: number[] };
     }
-  | { method: 'send'; params: { receiverId: string; actions: FunctionCallAction[] } }
+  | {
+      method: 'send';
+      params: { receiverId: string; actions: FunctionCallAction[]; walletId: string };
+    }
+  /** Sent while the user's click is fresh: the frame opens the wallet's window now. */
+  | { method: 'arm'; params: { walletId: string } }
+  /** The request ended without a send: the frame closes a window nobody used. */
+  | { method: 'release'; params: Record<string, never> }
   | { method: 'disconnect'; params: Record<string, never> };
 
 export type FrameMessage =

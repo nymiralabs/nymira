@@ -110,6 +110,16 @@ PROBE_REAL_WALLETS=1 npx playwright test --project=chromium real-wallets
 
 They show that Intear's connect chooser renders in the frame under the production policy, and that Meteor's dialog renders and its Meteor Web button opens the testnet login. Not tested here: signing in with a real account, `signMessage` and a transaction. Do that by hand with Meteor and Intear on testnet. The hosts each wallet needs are in `wallet-hosts.ts`; they came from the policy violations seen at load, so extend them from what the full flow reports. Meteor's interface also asks for two web fonts from third-party hosts. The frame's policy refuses them and the dialog falls back to a system font.
 
+### Wallet windows and wallets that do not answer
+
+A wallet that approves in a window of its own (Meteor) opens that window from its executor after async work, when the click that started the request has expired, and a browser refuses it. The frame therefore opens a blank window while the click is fresh (`wallet/popup.ts`: the Fund and Close click handlers call `walletClient.arm()` before any await), hands it to the next `window.open` call from NEAR Connect and closes it when the request ends. Which wallets get this is the `opensPopup` flag in `pins/executors.json`. The frame's sandbox is unchanged (no `allow-same-origin`).
+
+`e2e/popup.spec.ts` proves the hand-off against a stub executor that opens its window 1.5 s late, with a model of the blocker in the frame (Playwright's browsers block no popups). It cannot show what Safari or Chrome do with a real click. Check by hand, in Safari and in Chrome, with a Meteor testnet account: connect, fund a note and close a note; the approval window must open on its own, nothing must stay open after the wallet answers, and cancelling in Meteor must show "User rejected the transaction" after about 20 seconds.
+
+A wallet may also never answer (Intear with a failing archival RPC). While the app waits it reads the chain (`wallet/watch.ts`): funding finds the note by its leaf (`funding/watch.ts`), a close is seen when the vault shows the note closed. A refusal counts only after 20 seconds in which the chain shows nothing; after three minutes of silence the app stops waiting and points to the Notes recovery. A note found this way has no receipt, so the payout account cannot be checked by the app, and the screen says so.
+
+The wallet connection does not survive a reload on purpose: the frame keeps wallet storage in memory only, because giving it durable storage needs an origin of its own (`allow-same-origin` on a separate origin), which trades the frame's isolation from the app for convenience. The app says so after a reload and offers to connect the same wallet again.
+
 ## What the app does not promise
 
 - It cannot hide the user's IP address from the operator, an RPC provider or 1Click. It says so on every screen and points to Tor Browser or `nymirad`.
@@ -117,7 +127,7 @@ They show that Intear's connect chooser renders in the frame under the productio
 - Anonymity on testnet is small and made of test notes.
 - The web app cannot use Tor and cannot bind the gateway's TLS certificate. The operator, NEAR AI's gateway and the PCCS see the user's IP address and the time. It cannot verify NVIDIA's GPU evidence (see Chat).
 - The main thread never holds a plain note secret, but the worker's memory does, and a script that can run in the page can ask the worker to do what the page can do. The strict policy is what keeps such a script out; see the hosting ticket.
-- Real Meteor and Intear wallets were not driven in the tests (see the pull request). The sandbox path is tested with a test executor.
+- Real Meteor and Intear wallets were not driven in the tests (see the pull request). The sandbox path is tested with a test executor. The popup hand-off is tested against a model of the browser's popup blocker, not a real one.
 
 ## Chat
 

@@ -2,6 +2,7 @@
 // what comes back. The frame is the only place NEAR Connect runs (host.ts explains why).
 import { PROFILE } from '../profile';
 import { verifyNep413 } from './nep413';
+import { opensPopup } from './manifest';
 import type {
   ConnectResult,
   FrameMessage,
@@ -22,6 +23,25 @@ const SIGN_IN_MESSAGE = 'Connect to Nymira. This signature only shows that you h
 
 type Listener = () => void;
 
+// Which wallet the user last connected, for the "connect again" hint after a reload. sessionStorage
+// (this tab only, gone when it closes) and no account id: the hint needs nothing more.
+const LAST_WALLET = 'nymira.lastWallet';
+const rememberedWallet = (): string | null => {
+  try {
+    return sessionStorage.getItem(LAST_WALLET);
+  } catch {
+    return null;
+  }
+};
+const remember = (walletId: string | null) => {
+  try {
+    if (walletId) sessionStorage.setItem(LAST_WALLET, walletId);
+    else sessionStorage.removeItem(LAST_WALLET);
+  } catch {
+    // No storage: the hint is lost, nothing else.
+  }
+};
+
 export class WalletClient {
   private frame: HTMLIFrameElement | null = null;
   private ready: Promise<void> | null = null;
@@ -34,6 +54,11 @@ export class WalletClient {
   wallets: WalletInfo[] = [];
   skipped: { id: string; reason: string }[] = [];
   connected: ConnectedWallet | null = null;
+  /**
+   * The wallet connected before this page loaded, when it is not connected now. A wallet session
+   * lives in the wallet frame's memory (host.ts) and does not survive a reload.
+   */
+  lostWallet: string | null = rememberedWallet();
   /** Changes whenever anything a screen shows changes; the snapshot for useSyncExternalStore. */
   version = 0;
 
@@ -122,6 +147,8 @@ export class WalletClient {
       await this.disconnect().catch(() => undefined);
       throw new Error('the wallet signature on the sign-in message does not verify');
     }
+    remember(walletId);
+    this.lostWallet = null;
     this.connected = {
       accountId: result.accountId,
       publicKey: result.publicKey,
@@ -132,13 +159,36 @@ export class WalletClient {
     return this.connected;
   }
 
-  /** Sends one `ft_transfer_call`-style function call; returns the wallet's outcome object. */
+  /**
+   * Sends one `ft_transfer_call`-style function call; returns the wallet's outcome object. The
+   * outcome may never come (a wallet that hangs): callers that can read the chain race it.
+   */
   send(receiverId: string, action: FunctionCallAction): Promise<unknown> {
-    return this.request({ method: 'send', params: { receiverId, actions: [action] } });
+    const walletId = this.connected?.walletId ?? '';
+    return this.request({ method: 'send', params: { receiverId, actions: [action], walletId } });
+  }
+
+  /**
+   * Call this in the click handler that starts a wallet request, before any await. A wallet that
+   * approves in a window of its own (Meteor) gets that window opened now, while the click is
+   * fresh; the browser blocks it later. No effect for other wallets. Pair it with `release`.
+   */
+  arm(): void {
+    const walletId = this.connected?.walletId;
+    const target = this.frame?.contentWindow;
+    if (!walletId || !opensPopup(walletId) || !target) return;
+    target.postMessage({ id: 0, method: 'arm', params: { walletId } }, '*');
+  }
+
+  /** The request ended: the frame closes a window it opened for it that nobody used. */
+  release(): void {
+    this.frame?.contentWindow?.postMessage({ id: 0, method: 'release', params: {} }, '*');
   }
 
   async disconnect(): Promise<void> {
     await this.request({ method: 'disconnect', params: {} });
+    remember(null);
+    this.lostWallet = null;
     this.connected = null;
     this.emit();
   }

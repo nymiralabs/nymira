@@ -10,6 +10,7 @@ import init, {
   browser_complete_response,
   browser_confirm_deposit,
   browser_generate_deposit,
+  browser_note_leaf_from_fields,
   browser_prepare_withdrawal,
 } from '@zkapi/zkapi_browser.js';
 import initCodec, {
@@ -22,6 +23,7 @@ import { deriveKeyBytes, type Argon2Params } from '../crypto/kdf';
 import {
   confirmNote,
   generateNote,
+  pad32,
   makeBackup,
   restoreBackup,
   testBackup,
@@ -104,6 +106,17 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         config: mapped,
       });
     }
+    case 'noteLeaf':
+      return pad32(
+        JSON.parse(
+          browser_note_leaf_from_fields(
+            request.noteId,
+            request.commitment,
+            request.amount,
+            String(request.expiry),
+          ),
+        ) as string,
+      );
     case 'makeBackup':
       return makeBackup(
         request.key,

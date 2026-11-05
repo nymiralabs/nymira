@@ -9,6 +9,33 @@
       "source": "test-fixtures/executors/fake-wallet.js",
       "manifestVersion": "0.0.0",
       "retrieved": "2026-11-03"
+    },
+    "popup-wallet": {
+      "name": "Popup test wallet",
+      "file": "popup-wallet.js",
+      "sha256": "b25def1923de7272ff5ff56adae9f9924f7723e7094bf3fea74da298bc481a5c",
+      "bytes": 3574,
+      "source": "test-fixtures/executors/popup-wallet.js",
+      "manifestVersion": "0.0.0",
+      "retrieved": "2026-11-05",
+      "permissions": {
+        "storage": true,
+        "allowsOpen": ["http://localhost:4173/popup-approve.html"]
+      },
+      "opensPopup": true
+    },
+    "blocked-wallet": {
+      "name": "Popup test wallet, no hand-off",
+      "file": "popup-wallet.js",
+      "sha256": "b25def1923de7272ff5ff56adae9f9924f7723e7094bf3fea74da298bc481a5c",
+      "bytes": 3574,
+      "source": "test-fixtures/executors/popup-wallet.js",
+      "manifestVersion": "0.0.0",
+      "retrieved": "2026-11-05",
+      "permissions": {
+        "storage": true,
+        "allowsOpen": ["http://localhost:4173/popup-approve.html"]
+      }
     }
   }
 }

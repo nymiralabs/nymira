@@ -104,4 +104,6 @@ export interface Profile {
   withdrawalKey: { url: string; sha256: string } | null;
   /** The mock profile's reports carry test quotes (Playwright only, never in a deployed bundle). */
   testEvidence: boolean;
+  /** How long the app waits for a wallet that does not answer (src/wallet/watch.ts); a test profile shortens it. */
+  watch?: { pollMs: number; graceMs: number; maxMs: number };
 }

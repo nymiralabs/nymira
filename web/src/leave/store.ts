@@ -161,11 +161,14 @@ class LeaveStore {
     note: NoteRecord,
     text: string,
     action: (deps: LeaveDeps, step: (t: string) => void, fresh: NoteRecord) => Promise<T>,
+    usesWallet = false,
   ): Promise<T | undefined> {
     if (this.state.busy) {
       this.set({ error: 'Another close or exit is running. Wait for it to finish.' });
       return undefined;
     }
+    // Before any await: the click is fresh, and a wallet that opens a window needs it (popup.ts).
+    if (usesWallet) walletClient.arm();
     this.set({ busy: { id: note.id, text }, error: '', message: '' });
     try {
       const deps = await this.deps();
@@ -175,14 +178,18 @@ class LeaveStore {
       this.set({ error: describe(e) });
       return undefined;
     } finally {
+      if (usesWallet) walletClient.release();
       this.set({ busy: null });
       await this.refresh().catch(() => undefined);
     }
   }
 
   async close(note: NoteRecord, via: 'wallet' | 'operator') {
-    const result = await this.run(note, 'Starting the close…', (d, step, n) =>
-      closeNote(d, n, { via, step }),
+    const result = await this.run(
+      note,
+      'Starting the close…',
+      (d, step, n) => closeNote(d, n, { via, step }),
+      via === 'wallet',
     );
     if (result) {
       if (result.confirmed) {
@@ -211,13 +218,18 @@ class LeaveStore {
   }
 
   async exit(note: NoteRecord, settle?: () => Promise<void>) {
-    const result = await this.run(note, 'Starting the exit…', async (d, step, n) => {
-      if (settle) {
-        step('Settling the unsettled lease first, if the operator can…');
-        await settle().catch(() => undefined);
-      }
-      return requestExit(d, (await getNote(note.id)) ?? n, { step });
-    });
+    const result = await this.run(
+      note,
+      'Starting the exit…',
+      async (d, step, n) => {
+        if (settle) {
+          step('Settling the unsettled lease first, if the operator can…');
+          await settle().catch(() => undefined);
+        }
+        return requestExit(d, (await getNote(note.id)) ?? n, { step });
+      },
+      true,
+    );
     if (result) {
       this.backupDue(note.id);
       this.set({
@@ -232,8 +244,11 @@ class LeaveStore {
   }
 
   async finalize(note: NoteRecord) {
-    const result = await this.run(note, 'Starting finalize_exit…', (d, step, n) =>
-      finalizeExit(d, n, { step }),
+    const result = await this.run(
+      note,
+      'Starting finalize_exit…',
+      (d, step, n) => finalizeExit(d, n, { step }),
+      true,
     );
     if (result) {
       this.backupDue(note.id);
@@ -255,8 +270,11 @@ class LeaveStore {
   }
 
   async claim(note: NoteRecord) {
-    const result = await this.run(note, 'Starting claim_payout…', (d, step, n) =>
-      claimPayout(d, n, { step }),
+    const result = await this.run(
+      note,
+      'Starting claim_payout…',
+      (d, step, n) => claimPayout(d, n, { step }),
+      true,
     );
     if (result) {
       this.set({

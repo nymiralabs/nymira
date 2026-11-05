@@ -8,6 +8,7 @@
       "bytes": 2002734,
       "source": "https://raw.githubusercontent.com/Meteor-Wallet/meteor_wallet_sdk/data-storage/storage/meteor-near-connect-latest.js",
       "manifestVersion": "1.1.1",
+      "opensPopup": true,
       "retrieved": "2026-11-02"
     },
     "intear-wallet": {

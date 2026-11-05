@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Approve</title>
+  </head>
+  <body>
+    <p id="status">Approve the transaction</p>
+    <script>
+      // What a wallet's approval page does at the end: tell the opener.
+      if (window.opener) window.opener.postMessage({ type: 'approved' }, '*');
+    </script>
+  </body>
+</html>

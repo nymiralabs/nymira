@@ -10,9 +10,10 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { NearConnector } from '@hot-labs/near-connect';
 import { PROFILE } from '../profile';
-import { manifestEntry } from './manifest';
+import { manifestEntry, opensPopup } from './manifest';
 import { installPinnedFetch } from './pinned-fetch';
-import type {
+import { PopupHandoff } from './popup';
+import {
   ConnectResult,
   FrameMessage,
   FrameRequest,
@@ -136,6 +137,10 @@ async function main() {
     return signed;
   }
 
+  // Meteor opens its approval window from its executor after async work, when the click that
+  // started the request has expired. The window is opened here, early, and handed over (popup.ts).
+  const popups = new PopupHandoff(window);
+
   async function sendTransaction(receiverId: string, actions: FunctionCallAction[]) {
     const wallet = await connector.wallet();
     const outcome = await wallet.signAndSendTransaction({
@@ -156,8 +161,19 @@ async function main() {
           ? { type: 'reply', id, ok: true, result: payload }
           : { type: 'reply', id, ok: false, error: String(payload) },
       );
+    // Synchronous, before any await: the click that started this is still fresh here.
+    if ((method === 'arm' || method === 'send') && opensPopup(params.walletId)) {
+      popups.arm();
+    }
+    if (method === 'arm') {
+      reply(true, null);
+      return;
+    }
     const run = async (): Promise<unknown> => {
       switch (method) {
+        case 'release':
+          popups.release();
+          return null;
         case 'list':
           return list();
         case 'connect':
@@ -172,8 +188,12 @@ async function main() {
       }
     };
     run().then(
-      (result) => reply(true, result),
-      (error: unknown) =>
+      (result) => {
+        if (method === 'send') popups.release();
+        reply(true, result);
+      },
+      (error: unknown) => {
+        if (method === 'send') popups.release();
         reply(
           false,
           error instanceof Error
@@ -181,7 +201,8 @@ async function main() {
             : typeof error === 'string'
               ? error
               : JSON.stringify(error),
-        ),
+        );
+      },
     );
   });
 

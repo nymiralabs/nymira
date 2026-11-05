@@ -76,6 +76,11 @@ export class LeaveWallet extends FundingWallet {
   /** The payout a finalize leaves pending (the payout transfer "failed"). */
   pendingAfterFinalize = '0';
   expiry = 0;
+  /**
+   * What a `mutual_close` does: `silent` lands and the wallet never answers; `dead` sends nothing
+   * and never answers; `cancel` is a user who says no.
+   */
+  closeMode: 'normal' | 'silent' | 'dead' | 'cancel' = 'normal';
 
   override async signAndSendTransaction(params: {
     receiverId: string;
@@ -89,6 +94,10 @@ export class LeaveWallet extends FundingWallet {
       deposit: string;
       gas: string;
     };
+    const never = () => new Promise<never>(() => undefined);
+    const closing = action.methodName === 'mutual_close';
+    if (closing && this.closeMode === 'cancel') throw new Error('User rejected the transaction');
+    if (closing && this.closeMode === 'dead') return never();
     if (this.hold) await this.hold;
     this.vaultCalls.push({
       method: action.methodName,
@@ -102,6 +111,7 @@ export class LeaveWallet extends FundingWallet {
     ) => Promise<unknown>;
     const outcome = await send.call(this, params);
     await this.vaultEffect(action.methodName, action.args);
+    if (closing && this.closeMode === 'silent') return never();
     return outcome;
   }
 
