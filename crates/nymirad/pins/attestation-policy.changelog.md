@@ -19,3 +19,10 @@ When NEAR AI deploys a new image or compose file, the new values are not in the 
 - Everything else is as in version 1. Clients refuse a policy under version 2.
 - A test checks every recorded model report against this file, so a shipped policy that rejects evidence we already hold fails the build.
 
+
+## Version 3
+
+- The gateway entry lists a second compose hash, `c579aade...`, seen in NEAR AI's live gateway attestation on 4 November 2026. The OS image hash and the Intel TDX measurements (`mr_td`, `rtmr0`, `rtmr1`, `rtmr2`) are the same as for the first gateway hash (`f571e5da...`). The model entry is unchanged.
+- Without it every chat is refused with `provenance.verification_failed`, because the gateway now runs this compose file.
+- As in version 1, the hash is read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use.
+- Clients refuse a policy under version 3 only when `MIN_POLICY_VERSION` is raised; version 2 stays accepted.

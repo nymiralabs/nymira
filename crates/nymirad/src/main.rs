@@ -401,11 +401,7 @@ async fn main() {
         "terms" => print!("{TERMS}"),
         "print-pins" => {
             let network = flag(&mut args, "--network").unwrap_or_else(|| die(USAGE));
-            let default_rpc = match network.as_str() {
-                "testnet" => "https://rpc.testnet.near.org",
-                "mainnet" => "https://rpc.mainnet.near.org",
-                _ => die(USAGE),
-            };
+            let default_rpc = pins::default_rpc(&network).unwrap_or_else(|| die(USAGE));
             let vault = flag(&mut args, "--vault").unwrap_or_else(|| die(USAGE));
             let url = flag(&mut args, "--rpc").unwrap_or_else(|| default_rpc.into());
             let rpc = Rpc::new(url, &Transport::Direct).unwrap_or_else(|e| die(e));

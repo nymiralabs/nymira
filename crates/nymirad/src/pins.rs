@@ -50,6 +50,16 @@ pub fn compiled(mode: Mode) -> Option<Pins> {
     serde_json::from_str(text).ok()
 }
 
+/// The RPC endpoint `print-pins` reads from when `--rpc` is not given. Testnet uses FastNEAR:
+/// `rpc.testnet.near.org` answers HTTP 429 under load.
+pub fn default_rpc(network: &str) -> Option<&'static str> {
+    match network {
+        "testnet" => Some("https://test.rpc.fastnear.com"),
+        "mainnet" => Some("https://rpc.mainnet.near.org"),
+        _ => None,
+    }
+}
+
 /// Demo builds only: the pins of the vault the demo deployed, written next to the state.
 #[cfg(feature = "mock")]
 pub fn demo(home: &std::path::Path) -> Option<Pins> {
@@ -174,7 +184,17 @@ impl Tripwire {
 
 #[cfg(test)]
 mod tests {
-    use super::warnings;
+    use super::{default_rpc, warnings};
+
+    #[test]
+    fn the_default_rpc_endpoints_are_pinned() {
+        assert_eq!(
+            default_rpc("testnet"),
+            Some("https://test.rpc.fastnear.com")
+        );
+        assert_eq!(default_rpc("mainnet"), Some("https://rpc.mainnet.near.org"));
+        assert_eq!(default_rpc("localnet"), None);
+    }
 
     #[test]
     fn a_parameter_change_says_to_update_and_other_changes_do_not() {
