@@ -11,7 +11,7 @@
   "data_dir": "/var/lib/nymira/data",
   "secrets_dir": "/var/lib/nymira/secrets",
   "setup_dir": "/var/lib/nymira/setup",
-  "rpc_urls": ["https://rpc.testnet.near.org", "https://test.rpc.fastnear.com"],
+  "rpc_urls": ["https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"],
   "usage_public_key": "0000000000000000000000000000000000000000000000000000000000000000",
   "budget": "hackathon",
   "near_ai": {

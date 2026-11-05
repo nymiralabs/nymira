@@ -1,0 +1,51 @@
+name: nymirad-macos
+
+# Builds the macOS arm64 `nymirad` of a release tag, to be added to that release by hand
+# (`scripts/release-nymirad.sh add-macos`). Unlike the linux x86_64 binary this one is NOT
+# reproducible: the macOS toolchain's output is not byte-stable. The signed SHA256SUMS vouches
+# that the project published these bytes, not that anyone can rebuild them. No secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, as in nymirad-v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Check the tag name
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in nymirad-v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "tag must look like nymirad-v0.1.0" >&2; exit 1 ;; esac
+          echo "VERSION=${TAG#nymirad-v}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain
+      - name: Build
+        run: cargo build --release --locked -p nymirad --bin nymirad
+      # No mock feature in the graph, no demo strings in the binary (the same check as the linux release).
+      - name: Release binary check
+        run: scripts/check-release-binary.sh target/release/nymirad
+      - name: Name and hash
+        run: |
+          mkdir out
+          cp target/release/nymirad "out/nymirad-$VERSION-aarch64-macos"
+          file "out/nymirad-$VERSION-aarch64-macos"
+          (cd out && shasum -a 256 "nymirad-$VERSION-aarch64-macos")
+          echo "commit $(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nymirad-${{ env.VERSION }}-aarch64-macos
+          path: out/nymirad-${{ env.VERSION }}-aarch64-macos
+          retention-days: 14
+          if-no-files-found: error

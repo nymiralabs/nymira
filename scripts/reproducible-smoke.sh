@@ -14,8 +14,9 @@ build() {
   file=$(cd "${CARGO_TARGET_DIR:-../../target}/near/nymira_vault" && pwd)/nymira_vault.wasm
   shasum -a 256 "$file" | cut -d' ' -f1
 }
-wasm=$(cd "${CARGO_TARGET_DIR:-../../target}/near/nymira_vault" 2>/dev/null && pwd || true)/nymira_vault.wasm
 first=$(build)
+# Read the path after the first build: on a fresh clone the directory does not exist before it.
+wasm=$(cd "${CARGO_TARGET_DIR:-../../target}/near/nymira_vault" && pwd)/nymira_vault.wasm
 rm -f "$wasm"
 second=$(build)
 echo "commit $(git rev-parse HEAD)"
