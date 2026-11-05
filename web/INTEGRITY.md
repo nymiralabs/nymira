@@ -266,7 +266,6 @@ If the fingerprint here and one of those copies differ, treat the site as compro
   release_key RWRNeU3zahdMk2rmQPahPnpzK1uTMiD3Jv8PaJqgRpAfSQMfROKKxhkV (minisign key id 934C176AF34D794D)
   ```
 
-
 ## The `nymirad` release
 
 `nymirad` is signed with the same release key as the web manifest (minisign key ID
