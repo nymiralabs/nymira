@@ -326,6 +326,8 @@ pub struct Run {
     pub files: usize,
     pub headers_checked: bool,
     pub problems: Vec<String>,
+    /// Differences that were accepted (see [`header_verdict`]); they are not failures.
+    pub notes: Vec<String>,
     seen: Seen,
 }
 
@@ -338,9 +340,46 @@ impl Run {
             files: 0,
             headers_checked: false,
             problems: vec![why],
+            notes: Vec::new(),
             seen: Seen::default(),
         }
     }
+}
+
+/// What one header comparison found when the served value is not the signed one.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Verdict {
+    /// A difference that is accepted and reported, and is not a failure.
+    Note(String),
+    Problem(String),
+}
+
+/// Compares one served header of one probe path with the signed one. Cloudflare Pages adds
+/// `access-control-allow-origin: *` to the HTML documents (`/`, `/wallet-host.html` and
+/// `/wallet-host`, the alias of the same document). That one difference is a note when the signed
+/// set has no such header. Any other header, value or path is a problem, and so is an `/assets/`
+/// path, whose signed set already carries the header.
+pub fn header_verdict(
+    probe: &str,
+    name: &str,
+    got: Option<&str>,
+    want: Option<&str>,
+) -> Option<Verdict> {
+    if got == want {
+        return None;
+    }
+    let shown = format!(
+        "{probe}: {name} is {}, the signed set says {}",
+        got.unwrap_or("(none)"),
+        want.unwrap_or("(none)")
+    );
+    let document = matches!(probe, "/" | "/wallet-host.html" | "/wallet-host");
+    if document && name == "access-control-allow-origin" && want.is_none() && got == Some("*") {
+        return Some(Verdict::Note(format!(
+            "{shown} (added by Cloudflare Pages, accepted)"
+        )));
+    }
+    Some(Verdict::Problem(shown))
 }
 
 /// Fetches and checks one origin through one client.
@@ -458,12 +497,10 @@ async fn check_origin(
             for name in SIGNED_HEADERS {
                 let got = join_values(&r.headers, name);
                 let want = class.and_then(|c| c.get(name));
-                if got.as_ref() != want {
-                    run.problems.push(format!(
-                        "{probe}: {name} is {}, the signed set says {}",
-                        got.as_deref().unwrap_or("(none)"),
-                        want.map_or("(none)", |s| s.as_str())
-                    ));
+                match header_verdict(&probe, name, got.as_deref(), want.map(String::as_str)) {
+                    Some(Verdict::Note(n)) => run.notes.push(n),
+                    Some(Verdict::Problem(p)) => run.problems.push(p),
+                    None => {}
                 }
                 seen.push(format!("{name}={}", got.unwrap_or_default()));
             }
@@ -520,6 +557,17 @@ impl Report {
             for p in &r.problems {
                 out += &format!("  {} via {}: {p}\n", r.origin, r.route);
             }
+        }
+        let mut accepted = 0;
+        for r in &self.runs {
+            for n in &r.notes {
+                out += &format!("note: {} via {}: {n}\n", r.origin, r.route);
+                accepted += 1;
+            }
+        }
+        if accepted > 0 {
+            out +=
+                &format!("note: {accepted} header difference(s) accepted; they are not failures\n");
         }
         for d in &self.disagreements {
             out += &format!("  DISAGREEMENT: {d}\n");
