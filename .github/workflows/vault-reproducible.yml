@@ -1,0 +1,51 @@
+name: vault-reproducible
+
+# Rebuilds the published testnet vault on an amd64 runner, in the pinned cargo-near container,
+# and compares the wasm with the hash published in the README (built on an arm64 Mac). The
+# contract embeds its source revision, so only the tagged commit can give that hash.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/vault-reproducible.yml"
+      - "contracts/vault/Cargo.toml"
+      - "contracts/vault/Cargo.lock"
+      - "rust-toolchain.toml"
+
+permissions:
+  contents: read
+
+env:
+  TAG: vault-testnet-1
+  # README, "Vault code hash": SHA-256 of nymira_vault.wasm at that tag.
+  PUBLISHED: 5940b853e51476c69ab2cd0ffba2fb76ffd3fedb621a2471c9ccd2bdb62ad4f5
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - run: git rev-parse HEAD
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: cargo-near@0.22.0
+      - name: Build in the pinned container, twice
+        working-directory: contracts/vault
+        run: |
+          build() {
+            cargo near build reproducible-wasm >&2
+            sha256sum ../../target/near/nymira_vault/nymira_vault.wasm | cut -d' ' -f1
+          }
+          first=$(build)
+          rm -f ../../target/near/nymira_vault/nymira_vault.wasm
+          second=$(build)
+          echo "tag $TAG commit $(git rev-parse HEAD)"
+          echo "first build:  $first"
+          echo "second build: $second"
+          echo "published:    $PUBLISHED"
+          [ "$first" = "$second" ] || { echo "two builds of one commit differ" >&2; exit 1; }
+          [ "$first" = "$PUBLISHED" ] || { echo "the amd64 build differs from the published hash" >&2; exit 1; }
+          echo "amd64 build equals the published hash"
