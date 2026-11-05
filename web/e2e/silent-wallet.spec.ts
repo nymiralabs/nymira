@@ -117,7 +117,7 @@ test.describe('closing with a wallet that does not answer', () => {
     expect(wallet.vaultCalls.map((c) => c.method)).toEqual(['mutual_close']);
   });
 
-  test('the user really cancelled the close: "User rejected the transaction", the note stays open', async ({
+  test('the user really cancelled the close: "User rejected the transaction", nothing reached the vault', async ({
     context,
     page,
     stack,
@@ -130,7 +130,10 @@ test.describe('closing with a wallet that does not answer', () => {
       timeout: 240_000,
     });
     expect(wallet.vaultCalls).toHaveLength(0);
-    await expect(page.getByTestId('leave-state')).toHaveText('open');
+    // The close is recorded as started before the proof can leave, so a cancel keeps that mark
+    // and the vault can still be asked; the note itself is not closed.
+    await expect(page.getByTestId('leave-state')).toHaveText('close started, not confirmed');
+    await expect(page.getByTestId('close-recheck')).toBeVisible();
   });
 
   test('nothing from the wallet and nothing on chain: a time-out with a pointer, and the vault can be asked', async ({

@@ -51,7 +51,6 @@ export async function chatDeps(getKey: () => CryptoKey): Promise<Deps> {
     quote: await quoteVerifier(),
     signatureCheck,
     getKey,
-    ...(PROFILE.watch ? { race: PROFILE.watch } : {}),
   };
 }
 
@@ -66,6 +65,7 @@ export async function leaveDeps(getKey: () => CryptoKey): Promise<LeaveDeps> {
     signatureCheck,
     words: withdrawal_words,
     getKey,
+    ...(PROFILE.watch ? { race: PROFILE.watch } : {}),
   };
 }
 
