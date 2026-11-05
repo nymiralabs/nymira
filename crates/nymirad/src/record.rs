@@ -333,6 +333,7 @@ pub async fn record(
         accepted_measurements: vec![],
         deployments,
         accepted_tcb_statuses: vec!["UpToDate".into()],
+        nvidia_certificates: vec![],
         signature: String::new(),
     };
     std::fs::write(

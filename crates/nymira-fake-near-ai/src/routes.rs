@@ -661,6 +661,14 @@ async fn attestation(
             "nonce must be at most 128 hex characters",
         ));
     }
+    let recorded = if q.contains_key("model") {
+        &g.switches.recorded_model_report
+    } else {
+        &g.switches.recorded_gateway_report
+    };
+    if let Some(report) = recorded {
+        return Ok(Json(report.clone()));
+    }
     Ok(Json(build_report(
         model,
         &g.switches.measurement,

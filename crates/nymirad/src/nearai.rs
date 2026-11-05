@@ -20,9 +20,9 @@ use nearai_inference_sdk::{
     verify_model_response, AttestationClient, AttestationPolicy, AttestationVerifiers,
     CompletionSignature, CompletionSignatureKind, DeploymentVerifier,
     GatewayAttestationFetchOptions, GpuEvidenceRequirement, GpuEvidenceVerifier,
-    MeasuredDeployment, ModelAttestationPolicy, ModelAttestationVerifiers, NrasGpuEvidenceVerifier,
-    SigningAlgo, SigningIdentity, TcbStatus, TdxQuoteVerificationResult, TdxQuoteVerifier,
-    VerificationError, DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
+    MeasuredDeployment, ModelAttestationPolicy, ModelAttestationVerifiers, SigningAlgo,
+    SigningIdentity, TcbStatus, TdxQuoteVerificationResult, TdxQuoteVerifier, VerificationError,
+    DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -316,7 +316,8 @@ struct WireSignature {
 pub struct Replay {
     pub model_collateral: Collateral,
     pub gateway_collateral: Collateral,
-    pub gpu: Arc<dyn GpuEvidenceVerifier>,
+    /// `None` runs the production NRAS verifier with the recorded Intel evidence.
+    pub gpu: Option<Arc<dyn GpuEvidenceVerifier>>,
     pub nonce_model: String,
     pub nonce_gateway: String,
 }
@@ -325,6 +326,7 @@ pub struct NearAiAttestor {
     policy: Policy,
     pccs_url: String,
     nras_url: String,
+    jwks_url: String,
     replay: Option<Replay>,
 }
 
@@ -334,6 +336,7 @@ impl NearAiAttestor {
             policy,
             pccs_url: DEFAULT_INTEL_PCCS_URL.into(),
             nras_url: DEFAULT_NVIDIA_NRAS_URL.into(),
+            jwks_url: crate::nras::DEFAULT_NVIDIA_JWKS_URL.into(),
             replay: None,
         }
     }
@@ -345,6 +348,13 @@ impl NearAiAttestor {
             replay: Some(replay),
             ..Self::new(policy)
         }
+    }
+
+    #[cfg(feature = "mock")]
+    pub fn with_nras_endpoints(mut self, attest: String, jwks: String) -> Self {
+        self.nras_url = attest;
+        self.jwks_url = jwks;
+        self
     }
 
     fn proxied(socks_url: Option<&str>) -> Result<Option<reqwest::Client>, String> {
@@ -378,16 +388,19 @@ impl Attestor for NearAiAttestor {
             client: http.clone(),
             pccs_url: self.pccs_url.clone(),
         };
-        let nras_live = match &http {
-            Some(c) => NrasGpuEvidenceVerifier::with_client(c.clone(), &self.nras_url),
-            None => NrasGpuEvidenceVerifier::new(&self.nras_url),
-        };
+        let nras_live = crate::nras::PinnedNras::new(
+            http.clone().unwrap_or_else(|| ask.http.clone()),
+            self.nras_url.clone(),
+            self.jwks_url.clone(),
+            self.policy.nvidia_certificates.clone(),
+            ask.at_secs,
+        );
         let (collateral, collateral_gateway, nras): (_, _, &dyn GpuEvidenceVerifier) =
             match &self.replay {
                 Some(r) => (
                     r.model_collateral.clone(),
                     r.gateway_collateral.clone(),
-                    r.gpu.as_ref(),
+                    r.gpu.as_deref().unwrap_or(&nras_live),
                 ),
                 None => (live.clone(), live, &nras_live),
             };

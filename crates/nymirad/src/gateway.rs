@@ -496,6 +496,16 @@ impl Gateway {
                 .transport
                 .socks_url(&identity)
                 .map_err(|e| net_error("attestation_unreachable", e))?;
+            let status = LeaseClient::new(http.clone(), &self.cfg.operator_url)
+                .status()
+                .await
+                .map_err(|e| unavailable("operator_unreachable", e.to_string()))?;
+            let time = crate::gate::verify_status(
+                &status,
+                &self.pins.config["operator_pk"],
+                self.clock.now_secs(),
+            )
+            .map_err(|e| unavailable("operator_time_invalid", e.to_string()))?;
             self.attestor
                 .verify_model(&ReportRequest {
                     gateway_url: &self.cfg.gateway_url,
@@ -503,6 +513,7 @@ impl Gateway {
                     nonce: &nonce,
                     http: &http,
                     socks_url: socks_url.as_deref(),
+                    at_secs: time.ts,
                 })
                 .await
                 .map_err(|e| unavailable("attestation_failed", e))

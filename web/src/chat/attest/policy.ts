@@ -14,12 +14,18 @@ export interface Deployment {
   rtmr2: string;
 }
 
+export interface NvidiaCertificate {
+  der: string;
+  official_source_verified: boolean;
+}
+
 export interface Policy {
   version: number;
   attestation_root_pk: string;
   accepted_measurements: string[];
   deployments: Deployment[];
   accepted_tcb_statuses: string[];
+  nvidia_certificates?: NvidiaCertificate[];
   signature: string;
 }
 
@@ -47,14 +53,17 @@ export function signedText(p: Policy): string {
       ].join(','),
     )
     .join(';');
-  return [
-    'nymira/attestation-policy/v2',
+  const pins = p.nvidia_certificates ?? [];
+  const fields = [
+    pins.length ? 'nymira/attestation-policy/v3' : 'nymira/attestation-policy/v2',
     p.version,
     p.attestation_root_pk,
     p.accepted_measurements.join(','),
     p.accepted_tcb_statuses.join(','),
     deployments,
-  ].join('|');
+  ];
+  if (pins.length) fields.push(pins.map((p) => `${p.der},${p.official_source_verified}`).join(';'));
+  return fields.join('|');
 }
 
 const isHex = (v: unknown, bytes: number): boolean =>
@@ -105,6 +114,19 @@ export function loadPolicy(json: unknown, signerPkHex: string, minVersion: numbe
       !isHex(d.os_image_hash, 32) ||
       ![d.mr_td, d.rtmr0, d.rtmr1, d.rtmr2].every((v) => isHex(v, 48));
     if (bad) throw new PolicyError('the policy lists a deployment with a malformed value');
+  }
+  if (policy.nvidia_certificates !== undefined) {
+    if (
+      !Array.isArray(policy.nvidia_certificates) ||
+      policy.nvidia_certificates.some(
+        (pin) =>
+          typeof pin.der !== 'string' ||
+          !/^[A-Za-z0-9+/]+={0,2}$/.test(pin.der) ||
+          typeof pin.official_source_verified !== 'boolean',
+      )
+    ) {
+      throw new PolicyError('the policy has an invalid NVIDIA certificate authority');
+    }
   }
   return policy;
 }

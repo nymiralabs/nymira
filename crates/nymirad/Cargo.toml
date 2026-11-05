@@ -34,6 +34,10 @@ nymira-operator = { path = "../nymira-operator" }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "socks"] }
 rpassword = "7"
+jsonwebtoken = { version = "10.4.0", default-features = false, features = ["rust_crypto"] }
+x509-cert = { version = "0.2.5", default-features = false }
+rustls-webpki = { version = "0.103", default-features = false, features = ["std", "ring"] }
+rustls-pki-types = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
@@ -60,6 +64,8 @@ name = "record_signature"
 required-features = ["mock"]
 
 [dev-dependencies]
+rcgen = "0.14"
+time = "0.3"
 nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }
 near-workspaces = { workspace = true }
 nymira-testkit = { path = "../nymira-testkit" }

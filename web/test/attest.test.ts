@@ -72,6 +72,22 @@ describe('the signed policy', () => {
     expect(p.deployments.map((d) => d.role)).toEqual(['model', 'gateway']);
   });
 
+  it('covers NVIDIA pins and their provenance with the policy signature', () => {
+    const seed = new Uint8Array(32).fill(9);
+    const pk = toHex(ed25519.getPublicKey(seed));
+    const p: Policy = {
+      ...structuredClone(policyJson),
+      nvidia_certificates: [{ der: 'AA==', official_source_verified: false }],
+    };
+    p.signature = toHex(ed25519.sign(new TextEncoder().encode(signedText(p)), seed));
+    expect(loadPolicy(p, pk, 1).nvidia_certificates).toEqual(p.nvidia_certificates);
+    const changed = structuredClone(p);
+    changed.nvidia_certificates![0]!.official_source_verified = true;
+    expect(() => loadPolicy(changed, pk, 1)).toThrow(/signature/);
+    changed.nvidia_certificates = [];
+    expect(() => loadPolicy(changed, pk, 1)).toThrow(/signature/);
+  });
+
   it('is the file nymirad ships', () => {
     const shipped = readFileSync(
       new URL('../../crates/nymirad/pins/attestation-policy.json', import.meta.url),

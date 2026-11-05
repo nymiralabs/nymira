@@ -94,6 +94,9 @@ pub struct Switches {
     pub measurement: String,
     /// TCB status in the attestation report.
     pub tcb_status: String,
+    /// Recorded real evidence for verification tests (model and gateway endpoints).
+    pub recorded_model_report: Option<serde_json::Value>,
+    pub recorded_gateway_report: Option<serde_json::Value>,
     /// Organisation credit in nano-USD.
     pub balance_nano: i64,
     pub input_price_nano_per_token: u64,
@@ -123,6 +126,8 @@ impl Default for Switches {
             unbound_key: false,
             measurement: default_measurement(),
             tcb_status: "UpToDate".into(),
+            recorded_model_report: None,
+            recorded_gateway_report: None,
             balance_nano: 10_000_000_000,
             input_price_nano_per_token: 80,
             output_price_nano_per_token: 500,

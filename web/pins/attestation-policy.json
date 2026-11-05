@@ -31,5 +31,6 @@
   "accepted_tcb_statuses": [
     "UpToDate"
   ],
+  "nvidia_certificates": [],
   "signature": "7101b05c4650de2d1b774d44225bc5c4fd4a4b2b3e9217e608f17ad9c4eebaffbbd3a29fdf70d3a98ee0ef4b700b994b5f24bfa9b624318b565b33d66d63820f"
 }

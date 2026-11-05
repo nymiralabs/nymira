@@ -244,6 +244,7 @@ async fn stack_with(
         accepted_measurements: test.accepted_measurements,
         deployments: vec![],
         accepted_tcb_statuses: test.accepted_tcb_statuses,
+        nvidia_certificates: vec![],
         signature: String::new(),
     }
     .sign(&signer_key);
@@ -730,11 +731,16 @@ async fn a_new_lease_warms_its_circuit_on_the_identity_the_conversation_then_use
 
     let seen = proxy.seen();
     let to_operator: Vec<_> = seen.iter().filter(|c| c.port == operator_port).collect();
-    // The first connection to the operator is the empty one, and no later one has another identity.
-    assert!(to_operator.len() >= 2, "{seen:?}");
-    let identity = &to_operator[0].user;
+    // Signed time is fetched on the attestation circuit before the conversation warms its own.
+    assert!(to_operator.len() >= 3, "{seen:?}");
+    let attestation_identity = &to_operator[0].user;
+    let identity = &to_operator[1].user;
+    assert_ne!(attestation_identity, identity);
+    assert!(seen
+        .iter()
+        .any(|c| c.port != operator_port && &c.user == attestation_identity));
     assert!(
-        to_operator.iter().all(|c| &c.user == identity),
+        to_operator[1..].iter().all(|c| &c.user == identity),
         "{to_operator:?}"
     );
     // Attestation and the model list use other identities.

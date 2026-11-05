@@ -121,6 +121,7 @@ async fn the_attestor_fetches_the_report_through_the_proxy_by_name() {
         accepted_measurements: vec!["m".into()],
         deployments: vec![],
         accepted_tcb_statuses: vec!["UpToDate".into()],
+        nvidia_certificates: vec![],
         signature: String::new(),
     };
     let http = reqwest::Client::new();
@@ -131,6 +132,7 @@ async fn the_attestor_fetches_the_report_through_the_proxy_by_name() {
             nonce: "unused",
             http: &http,
             socks_url: Some(&socks_url),
+            at_secs: 1_793_643_311,
         })
         .await;
     assert!(result.is_err(), "the sink serves no report");

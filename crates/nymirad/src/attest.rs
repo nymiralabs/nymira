@@ -60,6 +60,8 @@ pub struct ReportRequest<'a> {
     /// The SOCKS5 URL the same identity uses (`socks5h://<identity>:x@127.0.0.1:port`), `None` on
     /// a direct transport. Verifiers that build their own clients (Intel, NVIDIA) use it.
     pub socks_url: Option<&'a str>,
+    /// The timestamp from a status nonce verified against the pinned operator key.
+    pub at_secs: u64,
 }
 
 #[async_trait]
@@ -98,7 +100,7 @@ impl Attestor for Unavailable {
 pub struct Policy {
     pub version: u32,
     /// The key that signs the fake gateway's test evidence. Real evidence is rooted in Intel's and
-    /// NVIDIA's keys, which are built into the verifiers.
+    /// NVIDIA's authorities; the NVIDIA certificates are listed below.
     pub attestation_root_pk: String,
     /// Measurements the fake gateway's test evidence may carry.
     pub accepted_measurements: Vec<String>,
@@ -106,8 +108,18 @@ pub struct Policy {
     #[serde(default)]
     pub deployments: Vec<Deployment>,
     pub accepted_tcb_statuses: Vec<String>,
+    /// NRAS certificate authorities, covered by the policy signature.
+    #[serde(default)]
+    pub nvidia_certificates: Vec<NvidiaCertificate>,
     /// Ed25519 signature (hex) by the policy signer over [`Policy::signed_text`].
     pub signature: String,
+}
+
+/// A DER certificate (standard base64) and its provenance, both signed by the policy signer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NvidiaCertificate {
+    pub der: String,
+    pub official_source_verified: bool,
 }
 
 /// One accepted deployment: the Intel TDX measurements of the confidential VM and the hashes
@@ -142,6 +154,12 @@ pub enum PolicyError {
     Empty,
     #[error("the policy lists a deployment with a malformed value: {0}")]
     BadDeployment(String),
+    #[error(
+        "the policy has no pinned NVIDIA certificate authorities; install a newer signed policy"
+    )]
+    MissingNvidiaCertificates,
+    #[error("the policy has an invalid NVIDIA certificate authority")]
+    BadNvidiaCertificate,
 }
 
 /// The only TCB status a policy may accept. `OutOfDate` and every other status are refused.
@@ -166,14 +184,25 @@ impl Policy {
                 .join(",")
             })
             .collect();
-        format!(
+        let legacy = format!(
             "nymira/attestation-policy/v2|{}|{}|{}|{}|{}",
             self.version,
             self.attestation_root_pk,
             self.accepted_measurements.join(","),
             self.accepted_tcb_statuses.join(","),
             deployments.join(";")
-        )
+        );
+        if self.nvidia_certificates.is_empty() {
+            legacy
+        } else {
+            let pins = self
+                .nvidia_certificates
+                .iter()
+                .map(|p| format!("{},{}", p.der, p.official_source_verified))
+                .collect::<Vec<_>>()
+                .join(";");
+            format!("{}|{}", legacy.replacen("/v2|", "/v3|", 1), pins)
+        }
     }
 
     /// The policy to use when a file in the state directory may be newer than the one compiled
@@ -257,7 +286,42 @@ impl Policy {
                 }
             }
         }
+        for pin in &policy.nvidia_certificates {
+            use base64::Engine;
+            use x509_cert::{
+                der::Decode,
+                ext::pkix::{BasicConstraints, KeyUsage},
+                Certificate,
+            };
+            let der = base64::engine::general_purpose::STANDARD
+                .decode(&pin.der)
+                .map_err(|_| PolicyError::BadNvidiaCertificate)?;
+            let cert =
+                Certificate::from_der(&der).map_err(|_| PolicyError::BadNvidiaCertificate)?;
+            let ca = cert
+                .tbs_certificate
+                .get::<BasicConstraints>()
+                .map_err(|_| PolicyError::BadNvidiaCertificate)?;
+            let ku = cert
+                .tbs_certificate
+                .get::<KeyUsage>()
+                .map_err(|_| PolicyError::BadNvidiaCertificate)?;
+            if !ca.is_some_and(|(_, c)| c.ca) || !ku.is_some_and(|(_, k)| k.key_cert_sign()) {
+                return Err(PolicyError::BadNvidiaCertificate);
+            }
+        }
+        #[cfg(not(feature = "mock"))]
+        policy.require_nvidia_certificates()?;
         Ok(policy)
+    }
+
+    /// Release builds require an NRAS trust anchor, including when loading a legacy policy.
+    pub fn require_nvidia_certificates(&self) -> Result<(), PolicyError> {
+        if self.nvidia_certificates.is_empty() {
+            Err(PolicyError::MissingNvidiaCertificates)
+        } else {
+            Ok(())
+        }
     }
 
     /// Signs a policy (the offline release step; tests).
@@ -431,6 +495,7 @@ mod tests {
             accepted_measurements: vec!["m1".into()],
             deployments: vec![],
             accepted_tcb_statuses: tcb.iter().map(|s| s.to_string()).collect(),
+            nvidia_certificates: vec![],
             signature: String::new(),
         }
         .sign(&signer())
@@ -438,6 +503,68 @@ mod tests {
 
     fn pk() -> [u8; 32] {
         signer().verifying_key().to_bytes()
+    }
+
+    #[test]
+    fn release_policies_require_nvidia_authorities() {
+        let p = policy(3, &["UpToDate"]);
+        assert_eq!(
+            p.require_nvidia_certificates(),
+            Err(PolicyError::MissingNvidiaCertificates)
+        );
+    }
+
+    #[test]
+    fn policy_copies_stay_identical_without_resigning() {
+        assert_eq!(
+            include_bytes!("../pins/attestation-policy.json").as_slice(),
+            include_bytes!("../../../web/pins/attestation-policy.json").as_slice()
+        );
+        let p = Policy::load(
+            include_bytes!("../pins/attestation-policy.json"),
+            &hex::decode(include_str!("../pins/policy-signer.pub").trim())
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            3,
+        )
+        .unwrap();
+        assert_eq!(
+            p.require_nvidia_certificates(),
+            Err(PolicyError::MissingNvidiaCertificates)
+        );
+    }
+
+    #[test]
+    fn certificate_pins_and_their_provenance_are_signed() {
+        use base64::Engine;
+        let mut params = rcgen::CertificateParams::default();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.key_usages = vec![rcgen::KeyUsagePurpose::KeyCertSign];
+        let cert = params
+            .self_signed(&rcgen::KeyPair::generate().unwrap())
+            .unwrap();
+        let mut p = policy(3, &["UpToDate"]);
+        p.nvidia_certificates = vec![NvidiaCertificate {
+            der: base64::engine::general_purpose::STANDARD.encode(cert.der()),
+            official_source_verified: false,
+        }];
+        p = p.sign(&signer());
+        let load = |p: &Policy| Policy::load(&serde_json::to_vec(p).unwrap(), &pk(), 3);
+        load(&p).unwrap().require_nvidia_certificates().unwrap();
+        let mut changed = p.clone();
+        changed.nvidia_certificates[0].official_source_verified = true;
+        assert_eq!(load(&changed), Err(PolicyError::Signature));
+        changed = p.clone();
+        changed.nvidia_certificates.clear();
+        assert_eq!(load(&changed), Err(PolicyError::Signature));
+        changed = p.clone();
+        changed.nvidia_certificates[0].der = "AA==".into();
+        assert_eq!(load(&changed), Err(PolicyError::Signature));
+        assert_eq!(
+            load(&changed.sign(&signer())),
+            Err(PolicyError::BadNvidiaCertificate)
+        );
     }
 
     #[test]
@@ -543,6 +670,7 @@ mod tests {
             nonce: "n",
             http: &http,
             socks_url: None,
+            at_secs: 1_793_643_311,
         };
         assert!(Unavailable
             .verify_model(&ask)
