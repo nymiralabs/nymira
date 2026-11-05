@@ -271,15 +271,25 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
 /// new enough, chat is refused rather than sent to a key nobody checked.
 #[cfg(not(feature = "mock"))]
 fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
-    let refuse = |why: String| -> Arc<dyn nymirad::attest::Attestor> {
-        eprintln!("warning: {why}; chat requests will be refused");
-        Arc::new(nymirad::attest::Unavailable)
-    };
+    match signed_policy(home) {
+        Ok(policy) => Arc::new(nymirad::nearai::NearAiAttestor::new(policy)),
+        Err(why) => {
+            eprintln!("warning: {why}; chat requests will be refused");
+            Arc::new(nymirad::attest::Unavailable)
+        }
+    }
+}
+
+/// The signed policy in force: the one shipped with this build, or a newer signed one in the
+/// state directory. Without a pinned policy signer, a readable policy that verifies and is new
+/// enough, chat is refused rather than sent to a key nobody checked.
+#[cfg(not(feature = "mock"))]
+fn signed_policy(home: &std::path::Path) -> Result<nymirad::attest::Policy, String> {
     let signer: Option<[u8; 32]> = hex::decode(include_str!("../pins/policy-signer.pub").trim())
         .ok()
         .and_then(|b| b.try_into().ok());
     let Some(signer) = signer else {
-        return refuse("this build pins no attestation policy signer".into());
+        return Err("this build pins no attestation policy signer".into());
     };
     // A signed policy in the state directory is used when it is newer than the one signed and
     // shipped with this build (a newer one, downloaded); an older or equal one never replaces it.
@@ -287,7 +297,7 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
     let file = match std::fs::read(home.join("attestation-policy.json")) {
         Ok(f) => Some(f),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return refuse(format!("attestation-policy.json: {e}")),
+        Err(e) => return Err(format!("attestation-policy.json: {e}")),
     };
     match nymirad::attest::Policy::choose(
         file.as_deref(),
@@ -296,12 +306,38 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
         MIN_POLICY_VERSION,
     ) {
         Ok(policy) if policy.deployments.is_empty() => {
-            refuse("attestation-policy.json lists no deployment".into())
+            Err("attestation-policy.json lists no deployment".into())
         }
-        Ok(policy) => Arc::new(nymirad::nearai::NearAiAttestor::new(policy)),
-        Err(e) => refuse(format!("attestation-policy.json: {e}")),
+        Ok(policy) => {
+            // Flip to `true` in the release that ships a signed policy with NVIDIA pins: a
+            // policy without them is then refused instead of checked against the JWKS key alone.
+            if ENFORCE_NVIDIA_PINS {
+                policy.require_nvidia_pins().map_err(|e| e.to_string())?;
+            }
+            Ok(policy)
+        }
+        Err(e) => Err(format!("attestation-policy.json: {e}")),
     }
 }
+
+/// The line `status` prints about the GPU certificate chain.
+#[cfg(not(feature = "mock"))]
+fn gpu_chain_line(home: &std::path::Path) -> String {
+    match signed_policy(home) {
+        Ok(policy) => nymirad::nearai::gpu_chain_line(&policy),
+        Err(why) => format!("GPU chain: unknown ({why})"),
+    }
+}
+
+#[cfg(feature = "mock")]
+fn gpu_chain_line(_: &std::path::Path) -> String {
+    "GPU chain: not applicable (demo build)".into()
+}
+
+/// Whether a policy with no pinned NVIDIA certificate is refused. Off while the signed policy
+/// that ships has none, so the live chat keeps working.
+#[cfg(not(feature = "mock"))]
+const ENFORCE_NVIDIA_PINS: bool = false;
 
 /// Policies older than this are refused.
 const MIN_POLICY_VERSION: u32 = 2;
@@ -483,7 +519,7 @@ async fn main() {
                 println!(
                     "{}",
                     status::render(
-                        &transport.status_line(),
+                        &format!("{}\n{}", transport.status_line(), gpu_chain_line(&home)),
                         operator.as_ref(),
                         &notes.list().unwrap_or_else(|e| die(e)),
                         &tripwire,
