@@ -11,7 +11,7 @@ export type Raced<T> =
   | { by: 'chain'; found: T }
   /** The wallet refused (or failed) and the chain shows nothing after the grace period. */
   | { by: 'rejected'; error: Error }
-  /** The wallet never answered and the chain shows nothing. */
+  /** The result remains unconfirmed when the overall deadline expires. */
   | { by: 'timeout' };
 
 export interface RaceOptions {
@@ -29,7 +29,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * `send` is the wallet's answer; `probe` reads the chain and returns what it shows of the request
- * (a value) or nothing yet (null). A failed read counts as nothing yet.
+ * (a value) or nothing yet (null). A failed read leaves the result unknown.
  */
 export async function raceWallet<T>(
   send: Promise<unknown>,
@@ -37,35 +37,39 @@ export async function raceWallet<T>(
   options: RaceOptions = {},
 ): Promise<Raced<T>> {
   const { pollMs, graceMs, maxMs } = { ...WATCH_DEFAULTS, ...options };
-  type Wallet = { ok: true; outcome: unknown } | { ok: false; error: Error };
-  const box: { answer?: Wallet } = {};
-  const answered = send.then(
-    (outcome) => {
-      box.answer = { ok: true, outcome };
-    },
-    (error: unknown) => {
-      box.answer = {
-        ok: false,
-        error: error instanceof Error ? error : new Error(String(error)),
-      };
-    },
-  );
-  const read = async () => (await probe().catch(() => null)) ?? null;
-  const started = Date.now();
-  let graceEnds = 0;
-  for (;;) {
-    const early = box.answer;
-    if (early?.ok) return { by: 'wallet', outcome: early.outcome };
-    const found = await read();
-    if (found !== null) return { by: 'chain', found };
-    const now = Date.now();
-    const answer = box.answer;
-    if (answer?.ok) return { by: 'wallet', outcome: answer.outcome };
-    if (answer) {
-      graceEnds ||= now + graceMs;
-      if (now >= graceEnds) return { by: 'rejected', error: answer.error };
+  let rejection: { error: Error; graceEnds: number } | undefined;
+  const success = new Promise<Raced<T>>((resolve) => {
+    send.then(
+      (outcome) => resolve({ by: 'wallet', outcome }),
+      (error: unknown) => {
+        rejection = {
+          error: error instanceof Error ? error : new Error(String(error)),
+          graceEnds: Date.now() + graceMs,
+        };
+      },
+    );
+  });
+  let timer: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<Raced<T>>((resolve) => {
+    timer = setTimeout(() => resolve({ by: 'timeout' }), maxMs);
+  });
+  try {
+    for (;;) {
+      const probeStarted = Date.now();
+      const read = probe().then(
+        (found) => ({ by: 'probe' as const, found: found ?? null, readable: true }),
+        () => ({ by: 'probe' as const, found: null, readable: false }),
+      );
+      const result = await Promise.race([read, success, deadline]);
+      if (result.by !== 'probe') return result;
+      if (result.found !== null) return { by: 'chain', found: result.found };
+      if (result.readable && rejection && probeStarted >= rejection.graceEnds) {
+        return { by: 'rejected', error: rejection.error };
+      }
+      const wake = await Promise.race([sleep(pollMs).then(() => null), success, deadline]);
+      if (wake) return wake;
     }
-    if (!answer && Date.now() - started >= maxMs) return { by: 'timeout' };
-    await (answer ? sleep(pollMs) : Promise.race([answered, sleep(pollMs)]));
+  } finally {
+    clearTimeout(timer!);
   }
 }

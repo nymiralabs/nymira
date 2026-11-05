@@ -37,7 +37,7 @@ export type FrameRequest =
       method: 'send';
       params: { receiverId: string; actions: FunctionCallAction[]; walletId: string };
     }
-  /** Sent while the user's click is fresh: the frame opens the wallet's window now. */
+  /** Ask the frame to show its wallet-window approval button. */
   | { method: 'arm'; params: { walletId: string } }
   /** The request ended without a send: the frame closes a window nobody used. */
   | { method: 'release'; params: Record<string, never> }

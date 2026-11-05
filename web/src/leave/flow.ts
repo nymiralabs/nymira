@@ -300,7 +300,7 @@ async function closeNoteRun(
       note = await save(d, note, { leave: leaveOf(d, 'closing', { via: opts.via }) });
       throw new LeaveError(
         'wallet_silent',
-        'The wallet did not answer and the vault does not show the note closed. If you approved in the wallet, the close may still land: use “Ask the vault whether the close landed” on this note, or the Notes tab to look it up by its transaction hash.',
+        'The wallet did not answer with a confirmed transaction, and the app could not confirm whether the note closed. If you approved in the wallet, the close may still land: use “Ask the vault whether the close landed” on this note, or the Notes tab to look it up by its transaction hash.',
       );
     }
     const outcome = raced.by === 'wallet' ? raced.outcome : null;

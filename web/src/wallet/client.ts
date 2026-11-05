@@ -169,9 +169,8 @@ export class WalletClient {
   }
 
   /**
-   * Call this in the click handler that starts a wallet request, before any await. A wallet that
-   * approves in a window of its own (Meteor) gets that window opened now, while the click is
-   * fresh; the browser blocks it later. No effect for other wallets. Pair it with `release`.
+   * Ask the wallet frame to show its approval button while the transaction is prepared. The
+   * user clicks inside that frame to open the window; a parent message has no activation.
    */
   arm(): void {
     const walletId = this.connected?.walletId;

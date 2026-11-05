@@ -1,12 +1,6 @@
-// The popup hand-off (docs/open-items.md rows 110 and 111). Meteor opens its approval window from
-// its executor after async work, when the click that started the request has expired, and the
-// browser refuses it. The wallet frame opens a blank window while the click is fresh and gives it
-// to the executor's later `window.open`.
-//
-// What this proves and what it does not: Playwright's browsers do not block popups, so the test
-// models the blocker. An init script in the wallet frame makes `window.open` return null unless
-// the frame received a message from the app in the last 500 ms (an expired click). It cannot prove
-// what Safari or Chrome do with a real click; the manual list in web/README.md covers that.
+// The wallet frame needs its own trusted click: a parent message carries no user activation.
+// These tests check actual activation before native window.open, rather than treating a message
+// as a click. Real Meteor and Intear services still need a manual test before release.
 import { readFileSync } from 'node:fs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { newFundingWallet, openFund } from './support';
@@ -31,16 +25,8 @@ async function setUp(context: BrowserContext, page: Page, walletId: string) {
   await context.addInitScript(() => {
     if (location.pathname !== '/wallet-host.html') return;
     const native = window.open.bind(window);
-    let lastMessage = 0;
-    window.addEventListener(
-      'message',
-      (event) => {
-        if (event.source === window.parent) lastMessage = Date.now();
-      },
-      true,
-    );
     window.open = (...args: Parameters<typeof window.open>) =>
-      Date.now() - lastMessage < 500 ? native(...args) : null;
+      navigator.userActivation.isActive ? native(...args) : null;
   });
   await openFund(page);
   await page.getByTestId(`connect-${walletId}`).click();
@@ -49,45 +35,58 @@ async function setUp(context: BrowserContext, page: Page, walletId: string) {
 
 /** What a click handler does: `arm` at once, then work for a while, then `send`. */
 async function sendLikeAClick(page: Page, walletId: string, workMs: number) {
-  return page.evaluate(
-    async ({ walletId, workMs }) => {
-      const frame = document.querySelector<HTMLIFrameElement>('iframe.wallet-frame')!;
-      const post = (message: Record<string, unknown>) =>
-        frame.contentWindow!.postMessage(message, '*');
-      const reply = new Promise<{ ok: boolean; result?: unknown; error?: string }>((resolve) => {
+  await page.evaluate(
+    ({ walletId, workMs }) => {
+      const button = document.createElement('button');
+      button.dataset.testid = 'send-like-click';
+      button.textContent = 'Send test transaction';
+      button.onclick = () => {
+        const frame = document.querySelector<HTMLIFrameElement>('iframe.wallet-frame')!;
+        const post = (message: Record<string, unknown>) =>
+          frame.contentWindow!.postMessage(message, '*');
         window.addEventListener('message', (event) => {
           if (
             event.source === frame.contentWindow &&
             event.data?.type === 'reply' &&
             event.data.id === 901
           ) {
-            resolve(event.data);
+            (window as unknown as Record<string, unknown>).walletReply = event.data;
           }
         });
-      });
-      post({ id: 900, method: 'arm', params: { walletId } });
-      await new Promise((r) => setTimeout(r, workMs));
-      post({
-        id: 901,
-        method: 'send',
-        params: {
-          receiverId: 'usdc.test',
-          walletId,
-          actions: [
-            {
-              type: 'FunctionCall',
-              params: { methodName: 'ft_transfer_call', args: {}, gas: '1', deposit: '1' },
-            },
-          ],
-        },
-      });
-      return reply;
+        post({ id: 900, method: 'arm', params: { walletId } });
+        setTimeout(
+          () =>
+            post({
+              id: 901,
+              method: 'send',
+              params: {
+                receiverId: 'usdc.test',
+                walletId,
+                actions: [
+                  {
+                    type: 'FunctionCall',
+                    params: { methodName: 'ft_transfer_call', args: {}, gas: '1', deposit: '1' },
+                  },
+                ],
+              },
+            }),
+          workMs,
+        );
+      };
+      document.body.append(button);
     },
     { walletId, workMs },
   );
+  await page.getByTestId('send-like-click').click();
+  await page.waitForFunction(() => 'walletReply' in window);
+  return page.evaluate(
+    () =>
+      (window as unknown as { walletReply: { ok: boolean; result?: unknown; error?: string } })
+        .walletReply,
+  );
 }
 
-test('a wallet that opens its window late still gets it: the frame opens it while the click is fresh', async ({
+test('a wallet that opens late gets the window from a trusted click inside the frame', async ({
   context,
   page,
 }) => {
@@ -98,8 +97,13 @@ test('a wallet that opens its window late still gets it: the frame opens it whil
   const result = sendLikeAClick(page, 'popup-wallet', 800);
 
   // The blank window is there at once, long before the executor's own 1.5 s of work is over.
-  const popup = await context.waitForEvent('page');
-  expect(Date.now() - started).toBeLessThan(1200);
+  const popupOpened = context.waitForEvent('page');
+  await page
+    .frameLocator('iframe.wallet-frame')
+    .getByRole('button', { name: 'Open wallet window' })
+    .click();
+  const popup = await popupOpened;
+  expect(Date.now() - started).toBeLessThan(2000);
 
   const answer = await result;
   expect(answer.ok).toBe(true);
@@ -110,12 +114,12 @@ test('a wallet that opens its window late still gets it: the frame opens it whil
   expect(context.pages()).toHaveLength(2);
 });
 
-test('without the hand-off the same late open is refused (the model of an expired click)', async ({
+test('without the hand-off an open after browser activation expires is refused', async ({
   context,
   page,
 }) => {
   await setUp(context, page, 'blocked-wallet');
-  const answer = await sendLikeAClick(page, 'blocked-wallet', 800);
+  const answer = await sendLikeAClick(page, 'blocked-wallet', 6000);
   expect(answer.ok).toBe(false);
   expect(answer.error).toContain('blocked the approval window');
   expect(context.pages()).toHaveLength(1);
@@ -131,12 +135,17 @@ test('a window nobody used is closed when the request ends', async ({ context, p
       '*',
     );
   });
+  await page
+    .frameLocator('iframe.wallet-frame')
+    .getByRole('button', { name: 'Open wallet window' })
+    .click();
   const blank = await popup;
+  const closed = blank.waitForEvent('close');
   await page.evaluate(() => {
     const frame = document.querySelector<HTMLIFrameElement>('iframe.wallet-frame')!;
     frame.contentWindow!.postMessage({ id: 901, method: 'release', params: {} }, '*');
   });
-  await blank.waitForEvent('close');
+  await closed;
   expect(context.pages()).toHaveLength(1);
 });
 

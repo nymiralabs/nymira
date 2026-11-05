@@ -12,7 +12,7 @@ import { NearConnector } from '@hot-labs/near-connect';
 import { PROFILE } from '../profile';
 import { manifestEntry, opensPopup } from './manifest';
 import { installPinnedFetch } from './pinned-fetch';
-import { PopupHandoff } from './popup';
+import { ARM_MS, PopupHandoff } from './popup';
 import {
   ConnectResult,
   FrameMessage,
@@ -93,6 +93,7 @@ async function main() {
 
   // Tell the app when a wallet popup is on screen, so it can let clicks through to it.
   const popupVisible = () =>
+    document.querySelector('dialog[data-wallet-approval][open]') !== null ||
     [...document.querySelectorAll<HTMLElement>('.hot-connector-popup')].some(
       (el) => el.style.display !== 'none',
     );
@@ -107,7 +108,7 @@ async function main() {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['style'],
+    attributeFilter: ['style', 'open'],
   });
 
   async function connect(
@@ -141,7 +142,67 @@ async function main() {
   // started the request has expired. The window is opened here, early, and handed over (popup.ts).
   const popups = new PopupHandoff(window);
 
-  async function sendTransaction(receiverId: string, actions: FunctionCallAction[]) {
+  let approval: { ready: Promise<void>; cancel: () => void } | null = null;
+
+  // A parent click does not activate this opaque-origin frame. Ask for a click here instead.
+  function requestPopup(): Promise<void> {
+    if (approval) return approval.ready;
+    const dialog = document.createElement('dialog');
+    dialog.dataset.walletApproval = '';
+    const explanation = document.createElement('p');
+    explanation.textContent = 'Open the wallet window to review your transaction.';
+    const open = document.createElement('button');
+    open.textContent = 'Open wallet window';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    dialog.append(explanation, open, cancel);
+    document.body.append(dialog);
+    let cancelRequest: () => void = () => undefined;
+    const ready = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => cancelRequest(), ARM_MS);
+      const finish = () => {
+        clearTimeout(timer);
+        dialog.close();
+        dialog.remove();
+        cancelRequest = () => undefined;
+      };
+      cancelRequest = () => {
+        finish();
+        reject(new Error('The wallet window was not opened.'));
+      };
+      open.onclick = () => {
+        if (!popups.arm()) {
+          explanation.textContent = 'Your browser blocked the window. Allow popups and try again.';
+          return;
+        }
+        finish();
+        resolve();
+      };
+      cancel.onclick = () => cancelRequest();
+      dialog.oncancel = (event) => {
+        event.preventDefault();
+        cancelRequest();
+      };
+    });
+    approval = { ready, cancel: () => cancelRequest() };
+    // An early arm can be cancelled before the transaction is ready to await it.
+    void ready.catch(() => undefined);
+    dialog.showModal();
+    return ready;
+  }
+
+  function releasePopup() {
+    approval?.cancel();
+    approval = null;
+    popups.release();
+  }
+
+  async function sendTransaction(
+    receiverId: string,
+    actions: FunctionCallAction[],
+    walletId: string,
+  ) {
+    if (opensPopup(walletId)) await requestPopup();
     const wallet = await connector.wallet();
     const outcome = await wallet.signAndSendTransaction({
       receiverId,
@@ -161,10 +222,7 @@ async function main() {
           ? { type: 'reply', id, ok: true, result: payload }
           : { type: 'reply', id, ok: false, error: String(payload) },
       );
-    // Synchronous, before any await: the click that started this is still fresh here.
-    if ((method === 'arm' || method === 'send') && opensPopup(params.walletId)) {
-      popups.arm();
-    }
+    if (method === 'arm' && opensPopup(params.walletId)) void requestPopup();
     if (method === 'arm') {
       reply(true, null);
       return;
@@ -172,14 +230,14 @@ async function main() {
     const run = async (): Promise<unknown> => {
       switch (method) {
         case 'release':
-          popups.release();
+          releasePopup();
           return null;
         case 'list':
           return list();
         case 'connect':
           return connect(params);
         case 'send':
-          return sendTransaction(params.receiverId, params.actions);
+          return sendTransaction(params.receiverId, params.actions, params.walletId);
         case 'disconnect':
           await connector.disconnect().catch(() => undefined);
           return null;
@@ -189,11 +247,11 @@ async function main() {
     };
     run().then(
       (result) => {
-        if (method === 'send') popups.release();
+        if (method === 'send') releasePopup();
         reply(true, result);
       },
       (error: unknown) => {
-        if (method === 'send') popups.release();
+        if (method === 'send') releasePopup();
         reply(
           false,
           error instanceof Error

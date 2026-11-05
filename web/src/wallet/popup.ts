@@ -36,13 +36,14 @@ export class PopupHandoff {
   }
 
   /** Opens the blank window now. Call it while the user's click is fresh. */
-  arm(lifetimeMs: number = ARM_MS): void {
-    if (this.pre && !this.taken && !this.pre.closed) return;
+  arm(lifetimeMs: number = ARM_MS): boolean {
+    if (this.pre && !this.taken && !this.pre.closed) return true;
     this.release();
     // `nativeOpen`: the override must not hand the new blank window to itself.
     this.pre = this.nativeOpen('about:blank', '_blank', FEATURES);
     this.taken = false;
     if (this.pre) this.timer = setTimeout(() => this.release(), lifetimeMs);
+    return this.pre !== null;
   }
 
   /** Ends a request: closes a window nobody used. A window the wallet took is the wallet's. */

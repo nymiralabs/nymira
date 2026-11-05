@@ -187,7 +187,7 @@ export async function sendDeposit(
 export class WalletSilentError extends Error {
   constructor() {
     super(
-      'The wallet did not answer and the vault shows no deposit of this note. If you approved in the wallet, the transfer may still land: open the Notes tab and look the deposit up by its transaction hash (from your wallet’s history or the explorer).',
+      'The wallet did not answer with a confirmed transaction, and the app could not confirm the deposit on the vault. If you approved in the wallet, the transfer may still land: open the Notes tab and look the deposit up by its transaction hash (from your wallet’s history or the explorer).',
     );
   }
 }

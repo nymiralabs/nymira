@@ -6,6 +6,42 @@ const never = () => new Promise<never>(() => undefined);
 const after = <T>(ms: number, value: T) => new Promise<T>((r) => setTimeout(() => r(value), ms));
 
 describe('raceWallet', () => {
+  it('returns wallet success even while a chain read is stuck', async () => {
+    const result = await Promise.race([
+      raceWallet(after(10, 'sent'), never, fast),
+      after(250, 'still waiting'),
+    ]);
+    expect(result).toEqual({ by: 'wallet', outcome: 'sent' });
+  });
+
+  it('times out even while a chain read is stuck', async () => {
+    const result = await Promise.race([
+      raceWallet(never(), never, fast),
+      after(250, 'still waiting'),
+    ]);
+    expect(result).toEqual({ by: 'timeout' });
+  });
+
+  it('does not call a transaction rejected when the chain cannot be read', async () => {
+    const result = await raceWallet(
+      Promise.reject(new Error('User rejected the transaction')),
+      async () => {
+        throw new Error('RPC unavailable');
+      },
+      fast,
+    );
+    expect(result).toEqual({ by: 'timeout' });
+  });
+
+  it('does not reject from an old empty read that finishes after the grace period', async () => {
+    let polls = 0;
+    const result = await raceWallet(
+      Promise.reject(new Error('User rejected the transaction')),
+      () => (++polls === 1 ? after(60, null) : Promise.resolve('landed')),
+      fast,
+    );
+    expect(result).toEqual({ by: 'chain', found: 'landed' });
+  });
   it('returns the wallet outcome when the wallet answers first', async () => {
     const r = await raceWallet(after(10, { hash: 'h' }), async () => null, fast);
     expect(r).toEqual({ by: 'wallet', outcome: { hash: 'h' } });

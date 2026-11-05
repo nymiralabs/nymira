@@ -74,6 +74,9 @@ export async function scriptChain(wallet: NearTestWallet, script: VaultScript = 
     },
   });
   await control({ cmd: 'set_access_keys', account: VAULT, keys: script.accessKeys ?? [] });
+  await view(VAULT, 'leaf_count', 'any', 0);
+  await view(VAULT, 'note_records', 'any', []);
+  await view(VAULT, 'get_leaves', 'any', []);
   await view(VAULT, 'vk_hashes', 'any', script.vkHashes ?? pins.vkHashes);
   await view(VAULT, 'config', 'any', {
     ...pins.config,
