@@ -18,7 +18,10 @@ const sign = (p: Policy): Policy => ({
   signature: toHex(ed25519.sign(new TextEncoder().encode(signedText(p)), seed)),
 });
 const pin = { name: 'Test Intermediate', sha256: 'ab'.repeat(32), official_source_verified: false };
-const base = (): Policy => ({ ...structuredClone(policyJson), nvidia_pins: [structuredClone(pin)] });
+const base = (): Policy => ({
+  ...structuredClone(policyJson),
+  nvidia_pins: [structuredClone(pin)],
+});
 const unpinned = (p: Policy): Policy => {
   const { nvidia_pins: _drop, ...rest } = p;
   return rest;
@@ -52,9 +55,9 @@ describe('a policy that pins NVIDIA certificates', () => {
       { official_source_verified: true },
       { name: 'Other' },
     ]) {
-      expect(() => loadPolicy({ ...pinned, nvidia_pins: [{ ...pin, ...edit }] }, testPk, 1)).toThrow(
-        /signature/,
-      );
+      expect(() =>
+        loadPolicy({ ...pinned, nvidia_pins: [{ ...pin, ...edit }] }, testPk, 1),
+      ).toThrow(/signature/);
     }
   });
 
