@@ -60,6 +60,10 @@ pub struct ReportRequest<'a> {
     /// The SOCKS5 URL the same identity uses (`socks5h://<identity>:x@127.0.0.1:port`), `None` on
     /// a direct transport. Verifiers that build their own clients (Intel, NVIDIA) use it.
     pub socks_url: Option<&'a str>,
+    /// The operator's signed time (the `ts` of a `/v1/status` nonce that verified) in Unix
+    /// seconds, for verifiers that check certificate windows and token times. `None` makes them
+    /// use their own clock. A verifier that has no operator in its path ignores it.
+    pub operator_time: Option<u64>,
 }
 
 #[async_trait]
@@ -67,6 +71,13 @@ pub trait Attestor: Send + Sync {
     /// Fetches the evidence for `ask.model`, checks it against the policy, and returns the key it
     /// binds.
     async fn verify_model(&self, ask: &ReportRequest<'_>) -> Result<ModelIdentity, String>;
+
+    /// Whether `verify_model` reads `ask.operator_time`. The caller then fetches and verifies the
+    /// operator's status first and refuses to attest if it cannot, instead of letting the
+    /// verifier fall back to a clock of its own.
+    fn wants_operator_time(&self) -> bool {
+        false
+    }
 
     /// Checks a `/v1/signature/{id}` answer against the exact bytes exchanged.
     fn verify_signature(
@@ -598,6 +609,7 @@ mod tests {
             nonce: "n",
             http: &http,
             socks_url: None,
+            operator_time: None,
         };
         assert!(Unavailable
             .verify_model(&ask)

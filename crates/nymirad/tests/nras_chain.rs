@@ -554,6 +554,7 @@ async fn verify_model(attestor: NearAiAttestor) -> Result<(), String> {
             nonce: "unused",
             http: &http,
             socks_url: None,
+            operator_time: None,
         })
         .await
         .map(|_| ())
@@ -767,6 +768,7 @@ async fn the_relay_request_does_not_share_the_identity_of_the_other_calls() {
             nonce: "unused",
             http: &http,
             socks_url: Some(&socks_url),
+            operator_time: None,
         })
         .await
         .unwrap();
@@ -1033,4 +1035,150 @@ async fn the_plain_client_follows_no_redirect() {
         let e = verify_model(attestor).await.unwrap_err();
         assert!(e.contains("gpu.nras_request_failed"), "{e}");
     }
+}
+
+// ---- the time the chain is checked at ----
+
+/// 2026-12-15 00:00 UTC.
+const LATER: u64 = 1_797_292_800;
+
+/// `verify_model` with the operator's signed time handed in, or not.
+async fn verify_model_at(
+    attestor: NearAiAttestor,
+    operator_time: Option<u64>,
+) -> Result<(), String> {
+    let url = gateway().await;
+    let http = reqwest::Client::new();
+    attestor
+        .verify_model(&ReportRequest {
+            gateway_url: &url,
+            model: MODEL,
+            nonce: "unused",
+            http: &http,
+            socks_url: None,
+            operator_time,
+        })
+        .await
+        .map(|_| ())
+}
+
+/// A pinned policy, and a relay stand-in whose tokens are made for `token_at`. The leaf is valid
+/// until 1 December 2026.
+async fn timed(token_at: u64, token_exp: u64) -> (Vec<NvidiaPin>, String) {
+    let pki = Pki::new((2026, 12, 1), LONG);
+    let pins = vec![pin("intermediate", &pki.inter)];
+    let mut k = Knobs::new(&pki);
+    k.now = token_at;
+    k.exp = token_exp;
+    (
+        pins,
+        nras_host(Box::new(move |n| answer(&pki, &k, n))).await,
+    )
+}
+
+fn at_local(pins: Vec<NvidiaPin>, url: &str, mode: NrasMode, local: u64) -> NearAiAttestor {
+    let mode = match mode {
+        NrasMode::Relay { .. } => NrasMode::Relay {
+            operator_url: url.to_string(),
+        },
+        direct => direct,
+    };
+    NearAiAttestor::replaying(policy(pins), replay())
+        .with_nras_mode(mode)
+        .with_nras(format!("{url}/v3/attest/gpu"), format!("{url}/jwks"))
+        .with_clock(Arc::new(ManualClock::new(local * 1000)))
+}
+
+fn relay() -> NrasMode {
+    NrasMode::Relay {
+        operator_url: String::new(),
+    }
+}
+
+#[tokio::test]
+async fn the_chain_is_checked_at_the_operator_time_not_the_local_clock() {
+    let at = recorded_at();
+    // Valid at the operator's time, expired at the local clock: passes.
+    let (pins, url) = timed(at, 3600).await;
+    verify_model_at(at_local(pins, &url, relay(), LATER), Some(at))
+        .await
+        .expect("the operator's time rules");
+
+    // Valid at the local clock, expired at the operator's time: refused as an expired leaf.
+    let (pins, url) = timed(LATER, 3600).await;
+    let e = verify_model_at(at_local(pins, &url, relay(), at), Some(LATER))
+        .await
+        .unwrap_err();
+    assert!(e.contains("leaf_expired"), "{e}");
+}
+
+#[tokio::test]
+async fn token_times_follow_the_operator_time_with_a_minute_of_skew() {
+    let at = recorded_at();
+    // The token expired at the operator's time + 0 (exp = iat base): a local clock far ahead would
+    // call it expired, the operator's time does not.
+    let (pins, url) = timed(at, 0).await;
+    verify_model_at(at_local(pins, &url, relay(), at + 1000), Some(at))
+        .await
+        .expect("expiry is read at the operator's time");
+    // The same token is expired for an operator time well past it.
+    let (pins, url) = timed(at, 0).await;
+    let e = verify_model_at(at_local(pins, &url, relay(), at), Some(at + 1000))
+        .await
+        .unwrap_err();
+    assert!(e.contains("expired"), "{e}");
+    // A token issued 30 s after the operator's time passes, 200 s after does not.
+    let (pins, url) = timed(at + 90, 3600).await;
+    verify_model_at(at_local(pins, &url, relay(), at + 5000), Some(at))
+        .await
+        .expect("30 s ahead is inside the skew");
+    let (pins, url) = timed(at + 260, 3600).await;
+    let e = verify_model_at(at_local(pins, &url, relay(), at), Some(at))
+        .await
+        .unwrap_err();
+    assert!(e.contains("not_yet_valid"), "{e}");
+}
+
+#[tokio::test]
+async fn direct_mode_keeps_the_local_clock() {
+    let at = recorded_at();
+    // The operator's time, when one is passed, is ignored: there is no operator in the path.
+    let (pins, url) = timed(at, 3600).await;
+    verify_model_at(at_local(pins, &url, NrasMode::Direct, at), Some(LATER))
+        .await
+        .expect("the local clock is valid");
+    let (pins, url) = timed(at, 3600).await;
+    let e = verify_model_at(at_local(pins, &url, NrasMode::Direct, LATER), Some(at))
+        .await
+        .unwrap_err();
+    assert!(e.contains("leaf_expired"), "{e}");
+}
+
+#[tokio::test]
+async fn without_a_signed_time_the_attestors_own_clock_is_used() {
+    let at = recorded_at();
+    let (pins, url) = timed(at, 3600).await;
+    verify_model_at(at_local(pins.clone(), &url, relay(), at), None)
+        .await
+        .unwrap();
+    let e = verify_model_at(at_local(pins, &url, relay(), LATER), None)
+        .await
+        .unwrap_err();
+    assert!(e.contains("leaf_expired"), "{e}");
+}
+
+#[test]
+fn only_a_relay_attestor_with_pins_asks_for_the_operator_time() {
+    use nymirad::attest::Attestor;
+    let pki = Pki::new(LONG, LONG);
+    let pinned = vec![pin("a", &pki.inter)];
+    let wants = |pins: Vec<NvidiaPin>, mode| {
+        NearAiAttestor::new(policy(pins))
+            .with_nras_mode(mode)
+            .wants_operator_time()
+    };
+    assert!(wants(pinned.clone(), relay()));
+    assert!(!wants(pinned, NrasMode::Direct));
+    // Without pins the old key check runs on the SDK's own clock.
+    assert!(!wants(vec![], relay()));
 }

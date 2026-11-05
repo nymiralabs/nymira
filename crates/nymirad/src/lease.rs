@@ -202,6 +202,18 @@ pub struct Pinned<'a> {
     pub config: &'a Value,
 }
 
+/// The operator's signed time: the `ts` of the nonce in a fresh `/v1/status`, once the nonce
+/// verifies against the pinned state key `operator_pk` at the local time `now_secs` (the same
+/// check as before a lease opens, including the 30 s window on the local clock).
+pub async fn signed_time(
+    client: &LeaseClient,
+    operator_pk: &Value,
+    now_secs: u64,
+) -> Result<u64, LeaseError> {
+    let status = client.status().await?;
+    Ok(gate::verify_status(&status, operator_pk, now_secs)?.ts)
+}
+
 /// Verifies the operator's status, builds the request through `build`, and opens the lease.
 /// `build` gets the `request_time` for the proof: the signed operator time rounded down to the
 /// grid.

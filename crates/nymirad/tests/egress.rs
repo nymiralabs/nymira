@@ -132,6 +132,7 @@ async fn the_attestor_fetches_the_report_through_the_proxy_by_name() {
             nonce: "unused",
             http: &http,
             socks_url: Some(&socks_url),
+            operator_time: None,
         })
         .await;
     assert!(result.is_err(), "the sink serves no report");

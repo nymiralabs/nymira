@@ -362,3 +362,29 @@ async fn the_wallet_proves_the_lease_on_the_operators_time_and_installs_the_next
         "a new state, no bound yet"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_signed_time_is_the_operators_nonce_time_and_only_from_the_pinned_key() {
+    let rig = Rig::new(Setup::default()).await;
+    let c = client(&rig.url);
+    let ts = nymirad::lease::signed_time(&c, &pk_json(1), T0)
+        .await
+        .unwrap();
+    assert!(ts.abs_diff(T0) <= 30, "{ts}");
+
+    // Another key signed it: no time.
+    assert!(matches!(
+        nymirad::lease::signed_time(&c, &pk_json(99), T0).await,
+        Err(LeaseError::Gate(_))
+    ));
+    // The local clock is far from the operator's: the same refusal as before a lease opens.
+    assert!(matches!(
+        nymirad::lease::signed_time(&c, &pk_json(1), T0 + 3600).await,
+        Err(LeaseError::Gate(_))
+    ));
+    // No operator at all.
+    let down = client("http://127.0.0.1:1");
+    assert!(nymirad::lease::signed_time(&down, &pk_json(1), T0)
+        .await
+        .is_err());
+}

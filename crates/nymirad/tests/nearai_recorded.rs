@@ -125,6 +125,7 @@ async fn run(
             nonce: "unused",
             http: &http,
             socks_url: None,
+            operator_time: None,
         })
         .await
 }
@@ -468,6 +469,7 @@ async fn a_real_provider_tee_signature_verifies_as_model_signed() {
             nonce: "unused",
             http: &http,
             socks_url: None,
+            operator_time: None,
         })
         .await
         .expect("the recorded report of the signing VM verifies");
