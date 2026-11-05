@@ -24,8 +24,11 @@ use nearai_inference_sdk::{
     SigningAlgo, SigningIdentity, TcbStatus, TdxQuoteVerificationResult, TdxQuoteVerifier,
     VerificationError, DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
 };
+use nymira_operator::clock::{Clock, SystemClock};
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::nras::NrasChain;
 
 use crate::attest::{Attestor, Deployment, ModelIdentity, Policy, ReportRequest, Trust};
 
@@ -316,7 +319,9 @@ struct WireSignature {
 pub struct Replay {
     pub model_collateral: Collateral,
     pub gateway_collateral: Collateral,
-    pub gpu: Arc<dyn GpuEvidenceVerifier>,
+    /// A recorded verdict in place of NVIDIA's service. `None` runs the attestor's own GPU check
+    /// against its NRAS URLs (a local stand-in).
+    pub gpu: Option<Arc<dyn GpuEvidenceVerifier>>,
     pub nonce_model: String,
     pub nonce_gateway: String,
 }
@@ -325,7 +330,27 @@ pub struct NearAiAttestor {
     policy: Policy,
     pccs_url: String,
     nras_url: String,
+    nras_jwks_url: String,
+    /// The time the GPU certificate chain is checked at.
+    clock: Arc<dyn Clock>,
     replay: Option<Replay>,
+}
+
+/// What `status` says about the GPU check: whether the policy pins NVIDIA certificates.
+pub fn gpu_chain_line(policy: &Policy) -> String {
+    if policy.nvidia_pins.is_empty() {
+        "GPU chain: not pinned (the policy pins no NVIDIA certificate; the verdict is checked against the key NVIDIA's service serves)".into()
+    } else {
+        let unchecked = policy
+            .nvidia_pins
+            .iter()
+            .filter(|p| !p.official_source_verified)
+            .count();
+        format!(
+            "GPU chain: pinned ({} certificates, {unchecked} not checked against an official NVIDIA source)",
+            policy.nvidia_pins.len()
+        )
+    }
 }
 
 impl NearAiAttestor {
@@ -334,8 +359,22 @@ impl NearAiAttestor {
             policy,
             pccs_url: DEFAULT_INTEL_PCCS_URL.into(),
             nras_url: DEFAULT_NVIDIA_NRAS_URL.into(),
+            nras_jwks_url: crate::nras::JWKS_URL.into(),
+            clock: Arc::new(SystemClock),
             replay: None,
         }
+    }
+
+    /// Where the GPU evidence and the signing keys are fetched from (tests).
+    pub fn with_nras(mut self, url: impl Into<String>, jwks_url: impl Into<String>) -> Self {
+        self.nras_url = url.into();
+        self.nras_jwks_url = jwks_url.into();
+        self
+    }
+
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// An attestor that checks recorded evidence served by a local server (tests).
@@ -345,6 +384,15 @@ impl NearAiAttestor {
             replay: Some(replay),
             ..Self::new(policy)
         }
+    }
+
+    /// The client for NVIDIA's service when no proxy is in play: no redirect, a timeout.
+    fn plain() -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default()
     }
 
     fn proxied(socks_url: Option<&str>) -> Result<Option<reqwest::Client>, String> {
@@ -378,18 +426,31 @@ impl Attestor for NearAiAttestor {
             client: http.clone(),
             pccs_url: self.pccs_url.clone(),
         };
-        let nras_live = match &http {
-            Some(c) => NrasGpuEvidenceVerifier::with_client(c.clone(), &self.nras_url),
-            None => NrasGpuEvidenceVerifier::new(&self.nras_url),
+        // A policy with pinned NVIDIA certificates gets the chain check. One without keeps the
+        // check against the JWKS key, so a build does not break on a policy signed before pins.
+        let nras_live: Box<dyn GpuEvidenceVerifier> = if self.policy.nvidia_pins.is_empty() {
+            let client = http.clone().unwrap_or_else(Self::plain);
+            Box::new(
+                NrasGpuEvidenceVerifier::with_client(client, &self.nras_url)
+                    .with_jwks_url(&self.nras_jwks_url),
+            )
+        } else {
+            Box::new(NrasChain::new(
+                http.clone().unwrap_or_else(Self::plain),
+                &self.nras_url,
+                &self.nras_jwks_url,
+                &self.policy.nvidia_pins,
+                self.clock.clone(),
+            ))
         };
         let (collateral, collateral_gateway, nras): (_, _, &dyn GpuEvidenceVerifier) =
             match &self.replay {
                 Some(r) => (
                     r.model_collateral.clone(),
                     r.gateway_collateral.clone(),
-                    r.gpu.as_ref(),
+                    r.gpu.as_deref().unwrap_or(nras_live.as_ref()),
                 ),
-                None => (live.clone(), live, &nras_live),
+                None => (live.clone(), live, nras_live.as_ref()),
             };
 
         let fetched = match &self.replay {

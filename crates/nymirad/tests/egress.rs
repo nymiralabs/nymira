@@ -121,6 +121,7 @@ async fn the_attestor_fetches_the_report_through_the_proxy_by_name() {
         accepted_measurements: vec!["m".into()],
         deployments: vec![],
         accepted_tcb_statuses: vec!["UpToDate".into()],
+        nvidia_pins: vec![],
         signature: String::new(),
     };
     let http = reqwest::Client::new();

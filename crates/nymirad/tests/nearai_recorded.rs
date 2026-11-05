@@ -53,6 +53,7 @@ fn policy(deployments: Vec<Deployment>) -> Policy {
         accepted_measurements: vec![],
         deployments,
         accepted_tcb_statuses: vec!["UpToDate".into()],
+        nvidia_pins: vec![],
         signature: String::new(),
     }
     .sign(&signer())
@@ -103,7 +104,7 @@ fn replay_at(at_secs: u64, nonce_model: Option<String>) -> Replay {
     Replay {
         model_collateral: collateral("collateral-model.json", at_secs),
         gateway_collateral: collateral("collateral-gateway.json", at_secs),
-        gpu: Arc::new(RecordedGpu),
+        gpu: Some(Arc::new(RecordedGpu)),
         nonce_model: nonce_model.unwrap_or_else(|| m["nonce_model"].as_str().unwrap().into()),
         nonce_gateway: m["nonce_gateway"].as_str().unwrap().into(),
     }
@@ -447,7 +448,7 @@ async fn a_real_provider_tee_signature_verifies_as_model_signed() {
     let replay = Replay {
         model_collateral: collateral("collateral-model.json"),
         gateway_collateral: collateral("collateral-gateway.json"),
-        gpu: Arc::new(RecordedGpu),
+        gpu: Some(Arc::new(RecordedGpu)),
         nonce_model: meta["nonce_model"].as_str().unwrap().into(),
         nonce_gateway: meta["nonce_gateway"].as_str().unwrap().into(),
     };

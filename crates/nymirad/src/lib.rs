@@ -22,6 +22,7 @@ pub mod mode;
 pub mod models;
 pub mod nearai;
 pub mod net;
+pub mod nras;
 pub mod openai;
 pub mod ownersock;
 pub mod pins;
