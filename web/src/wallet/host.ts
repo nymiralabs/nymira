@@ -96,13 +96,16 @@ async function main() {
       (el) => el.style.display !== 'none',
     );
   let visible = false;
-  new MutationObserver(() => {
-    const now = popupVisible();
+  // True while the frame asks for the click that opens a late wallet window (askForClick).
+  let asking = false;
+  const syncUi = () => {
+    const now = popupVisible() || asking;
     if (now !== visible) {
       visible = now;
       send({ type: 'ui', visible });
     }
-  }).observe(document.body, {
+  };
+  new MutationObserver(syncUi).observe(document.body, {
     subtree: true,
     childList: true,
     attributes: true,
@@ -136,8 +139,53 @@ async function main() {
     return signed;
   }
 
+  /**
+   * Shows a button in this frame and resolves true when it is clicked, false on Cancel. The click
+   * is the user activation the wallet's `window.open` needs, so the wallet is called straight from
+   * it: nothing slow may sit between the click and `signAndSendTransaction`.
+   */
+  function askForClick(walletName: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const box = document.createElement('div');
+      box.style.cssText =
+        'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);font:16px system-ui,sans-serif';
+      const card = document.createElement('div');
+      card.style.cssText =
+        'background:#fff;color:#111;padding:20px;border-radius:8px;max-width:360px;text-align:center';
+      const text = document.createElement('p');
+      text.textContent = `${walletName} needs one more click to open its approval window.`;
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.dataset.testid = 'approve';
+      open.textContent = `Open ${walletName}`;
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.dataset.testid = 'cancel';
+      cancel.textContent = 'Cancel';
+      for (const b of [open, cancel]) b.style.cssText = 'margin:8px;padding:8px 14px;font:inherit';
+      const done = (answer: boolean) => {
+        box.remove();
+        asking = false;
+        syncUi();
+        resolve(answer);
+      };
+      open.addEventListener('click', () => done(true));
+      cancel.addEventListener('click', () => done(false));
+      card.append(text, open, cancel);
+      box.append(card);
+      document.body.append(box);
+      asking = true;
+      syncUi();
+    });
+  }
+
   async function sendTransaction(receiverId: string, actions: FunctionCallAction[]) {
+    // Resolved before the user is asked, so the click only has to start the wallet.
     const wallet = await connector.wallet();
+    if (PROFILE.clickBeforeSend.includes(wallet.manifest.id)) {
+      if (!(await askForClick(wallet.manifest.name)))
+        throw new Error('cancelled in the wallet frame');
+    }
     const outcome = await wallet.signAndSendTransaction({
       receiverId,
       actions,

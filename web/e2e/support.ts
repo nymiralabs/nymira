@@ -176,11 +176,18 @@ export class FundingWallet extends NearTestWallet {
   }
 }
 
+export const GATED_WALLET_ID = 'nymira-gated-test-wallet';
+
 export async function newFundingWallet(
   context: BrowserContext,
   script: VaultScript = {},
+  options: { gated?: boolean } = {},
 ): Promise<FundingWallet> {
   const wallet = new FundingWallet();
+  // A wallet the mock profile lists under `clickBeforeSend`: the frame asks for a click first.
+  if (options.gated) {
+    wallet.manifest = { ...wallet.manifest, id: GATED_WALLET_ID, name: 'Gated test wallet' };
+  }
   await scriptChain(wallet, script);
   await installTestWallet(context, wallet);
   return wallet;

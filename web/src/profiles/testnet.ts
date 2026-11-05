@@ -18,6 +18,7 @@ export const profile: Profile = {
   explorerTxUrl: (hash) => `https://testnet.nearblocks.io/txns/${hash}`,
   faucetUrl: 'https://faucet.circle.com',
   walletIds: ['meteor-wallet', 'intear-wallet'],
+  clickBeforeSend: ['meteor-wallet'],
   extraExecutors: {},
   walletConnectSrc: [],
   oneClick: {
