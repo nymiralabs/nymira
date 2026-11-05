@@ -4,6 +4,8 @@ Private, prepaid API credits on NEAR.
 
 **This is a testnet project with test funds.** The vault holds Circle's testnet USDC, which has no value. The circuit has had no independent review, and zkapi does not use it on its own mainnet yet. The anonymity set on testnet is small and made of test notes, so a lease can be tied to a note more easily than it could be on a busy network. Read [THREAT_MODEL.md](THREAT_MODEL.md) before you trust any sentence here. Use of the deployment is under the [terms of use](TERMS.md).
 
+Want to try it? [JUDGES.md](JUDGES.md) is a 20-minute path from a new wallet to a first answer and a close.
+
 ## Live deployment
 
 The vault runs on NEAR testnet with Circle's test USDC (token account `3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af`). Every value below can be checked against the chain.
@@ -34,6 +36,7 @@ The first sentence holds while you keep your latest state; see the first point b
 - If the operator is offline for a whole 7-day exit window, a user can leave with an older, higher balance than the real one. The loss falls on the operator, and the 100 USDC cap on open deposits bounds it.
 - Closing shows your note ID, total spend and payout account on chain, next to the account that sends the close.
 - The web app cannot use Tor, so the operator and the RPC provider see your IP address. Use Tor Browser or `nymirad` for IP protection.
+- `nymirad` cannot yet check the model's NVIDIA GPU attestation evidence over Tor: NVIDIA's attestation service (NRAS) answers 403 to Tor exit nodes, so a chat with the default Tor setup fails at the GPU check (`gpu.nras_request_failed`, [issue 165](https://github.com/nymiralabs/nymira/issues/165)). Fetching NRAS directly would show your IP address to NVIDIA, and `nymirad` does not do that by default. The web app does not check NVIDIA GPU evidence either; it checks the Intel TDX quote, the signed policy and the key binding.
 - A compromised host could serve a different web app. `nymirad verify-web` catches that only if you run it and the host does not cloak, so it does not replace trusting the host you load the app from.
 - Everything the other parties see is in [THREAT_MODEL.md](THREAT_MODEL.md).
 
