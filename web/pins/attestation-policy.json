@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "attestation_root_pk": "",
   "accepted_measurements": [],
   "deployments": [
@@ -18,8 +18,7 @@
     {
       "role": "gateway",
       "compose_hashes": [
-        "f571e5dafe8f96baf116a271b4be9cba228b447dd6ebe502bbda81ede7bcc7ce",
-        "c579aadec728a15f18d389d70f6b529302986868afd9ae3a93960b28043ef303"
+        "*"
       ],
       "os_image_hash": "8db40cb23008d6213668b5816702d100b37b859a8a5bfd18d938ae3a1b3715bd",
       "mr_td": "7fe60787222bd394cb516abca2435f22f035ab2cc9c0a4b4b3b148e46297f3d931a237b72f359052c6e657d8c1409173",
@@ -43,5 +42,5 @@
       "official_source_verified": false
     }
   ],
-  "signature": "328d76c1d07c566ebc23cd50d3391f9680abc6c915ca3acf7059c6ea8d8858e022c57f09dad580c9977267fd3c42e5c6385d0f42507661421f4271b201ebc40f"
+  "signature": "ee52d3f65e12248e6888621b11671bc7db1fa2ea5e0c7476265230398126e61836159b835a8e47b405fd962e34ee35b33db203342974863e8270a4e55516980c"
 }
