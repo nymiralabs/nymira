@@ -49,10 +49,12 @@ fn params(name: &str, ca: bool, end: u64) -> CertificateParams {
 struct Case {
     expired_leaf: bool,
     expired_root: bool,
+    expired_first_pin: bool,
     future_leaf: bool,
     future_intermediate: bool,
     tamper_signature: bool,
     at_secs: Option<u64>,
+    jwt_at_secs: Option<u64>,
     expired_intermediate: bool,
     pin_intermediate: bool,
     wrong_root: bool,
@@ -192,6 +194,18 @@ async fn run(case: Case) -> Result<ModelIdentity, String> {
         }),
         official_source_verified: false,
     }];
+    if case.expired_first_pin {
+        let expired = params("test root", true, AT - 1)
+            .self_signed(&root_key)
+            .unwrap();
+        policy.nvidia_certificates.insert(
+            0,
+            NvidiaCertificate {
+                der: STANDARD.encode(expired.der()),
+                official_source_verified: false,
+            },
+        );
+    }
     let signer = ed25519_dalek::SigningKey::from_bytes(&[71; 32]);
     policy = policy.sign(&signer);
     policy = Policy::load(
@@ -226,6 +240,7 @@ async fn run(case: Case) -> Result<ModelIdentity, String> {
     let http = reqwest::Client::builder().no_proxy().build().unwrap();
     let result = NearAiAttestor::replaying(policy, replay)
         .with_nras_endpoints(format!("{nras_url}/attest"), format!("{nras_url}/jwks"))
+        .with_nras_jwt_time(case.jwt_at_secs.unwrap_or(AT))
         .verify_model(&ReportRequest {
             gateway_url: &fake.url(),
             model: MODEL,
@@ -413,3 +428,24 @@ refused!(
     },
     "leaf_expired"
 );
+
+#[tokio::test]
+async fn a_token_minted_after_the_operator_status_still_passes() {
+    run(Case {
+        jwt_at_secs: Some(AT + 20),
+        claim: Some(("iat", json!(AT + 10))),
+        ..Case::default()
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn an_expired_pin_does_not_hide_a_valid_renewed_pin() {
+    run(Case {
+        expired_first_pin: true,
+        ..Case::default()
+    })
+    .await
+    .unwrap();
+}

@@ -6,7 +6,8 @@ use base64::{
     Engine,
 };
 use jsonwebtoken::{
-    decode, decode_header, errors::ErrorKind, jwk::JwkSet, Algorithm, DecodingKey, Validation,
+    decode, decode_header, errors::ErrorKind, get_current_timestamp, jwk::JwkSet, Algorithm,
+    DecodingKey, Validation,
 };
 use nearai_inference_sdk::{GpuEvidenceVerifier, VerificationError};
 use reqwest::Client;
@@ -29,6 +30,8 @@ pub(crate) struct PinnedNras {
     jwks_url: String,
     pins: Vec<NvidiaCertificate>,
     at_secs: u64,
+    #[cfg(feature = "mock")]
+    jwt_at_secs: Option<u64>,
 }
 
 impl PinnedNras {
@@ -45,7 +48,22 @@ impl PinnedNras {
             jwks_url,
             pins,
             at_secs,
+            #[cfg(feature = "mock")]
+            jwt_at_secs: None,
         }
+    }
+    #[cfg(feature = "mock")]
+    pub(crate) fn with_jwt_time(mut self, at_secs: Option<u64>) -> Self {
+        self.jwt_at_secs = at_secs;
+        self
+    }
+
+    fn jwt_now(&self) -> u64 {
+        #[cfg(feature = "mock")]
+        if let Some(at) = self.jwt_at_secs {
+            return at;
+        }
+        get_current_timestamp()
     }
 }
 
@@ -130,7 +148,14 @@ impl GpuEvidenceVerifier for PinnedNras {
             .json()
             .await
             .map_err(|_| invalid_nras_response("invalid_jwks"))?;
-        verify_nras_jwt(&jwt, &jwks, &nonce, &self.pins, self.at_secs)
+        verify_nras_jwt(
+            &jwt,
+            &jwks,
+            &nonce,
+            &self.pins,
+            self.at_secs,
+            self.jwt_now(),
+        )
     }
 }
 
@@ -180,6 +205,7 @@ fn verify_nras_jwt(
     nonce: &[u8],
     pins: &[NvidiaCertificate],
     at_secs: u64,
+    now: u64,
 ) -> Result<(), VerificationError> {
     let header = decode_header(jwt).map_err(map_jwt_error)?;
     if header.alg != Algorithm::ES384 {
@@ -201,7 +227,6 @@ fn verify_nras_jwt(
     let claims = decode::<NrasOverallAttestationJwtClaimsWire>(jwt, &key, &validation)
         .map_err(map_jwt_error)?
         .claims;
-    let now = at_secs;
     if claims.exp <= now {
         return Err(jwt_failure("expired"));
     }
@@ -331,6 +356,7 @@ fn check_chain(
     }
     let end = webpki::EndEntityCert::try_from(&chain[0])
         .map_err(|_| jwt_failure("certificate_invalid"))?;
+    let mut invalid_time = None;
     for pin in pins {
         let der = STANDARD
             .decode(&pin.der)
@@ -353,9 +379,11 @@ fn check_chain(
             .is_ok()
         {
             // Trust anchors are exempt from webpki's validity checks; policy pins are not.
-            check_validity(&cert, at, false)?;
-            return Ok(());
+            match check_validity(&cert, at, false) {
+                Ok(()) => return Ok(()),
+                Err(error) => invalid_time = Some(error),
+            }
         }
     }
-    Err(jwt_failure("chain_wrong_root"))
+    Err(invalid_time.unwrap_or_else(|| jwt_failure("chain_wrong_root")))
 }

@@ -327,6 +327,8 @@ pub struct NearAiAttestor {
     pccs_url: String,
     nras_url: String,
     jwks_url: String,
+    #[cfg(feature = "mock")]
+    nras_jwt_time: Option<u64>,
     replay: Option<Replay>,
 }
 
@@ -337,6 +339,8 @@ impl NearAiAttestor {
             pccs_url: DEFAULT_INTEL_PCCS_URL.into(),
             nras_url: DEFAULT_NVIDIA_NRAS_URL.into(),
             jwks_url: crate::nras::DEFAULT_NVIDIA_JWKS_URL.into(),
+            #[cfg(feature = "mock")]
+            nras_jwt_time: None,
             replay: None,
         }
     }
@@ -354,6 +358,13 @@ impl NearAiAttestor {
     pub fn with_nras_endpoints(mut self, attest: String, jwks: String) -> Self {
         self.nras_url = attest;
         self.jwks_url = jwks;
+        self
+    }
+
+    /// Fixes the JWT validation clock for recorded evidence tests only.
+    #[cfg(feature = "mock")]
+    pub fn with_nras_jwt_time(mut self, at_secs: u64) -> Self {
+        self.nras_jwt_time = Some(at_secs);
         self
     }
 
@@ -395,6 +406,8 @@ impl Attestor for NearAiAttestor {
             self.policy.nvidia_certificates.clone(),
             ask.at_secs,
         );
+        #[cfg(feature = "mock")]
+        let nras_live = nras_live.with_jwt_time(self.nras_jwt_time);
         let (collateral, collateral_gateway, nras): (_, _, &dyn GpuEvidenceVerifier) =
             match &self.replay {
                 Some(r) => (
