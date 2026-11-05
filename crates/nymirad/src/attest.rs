@@ -60,6 +60,10 @@ pub struct ReportRequest<'a> {
     /// The SOCKS5 URL the same identity uses (`socks5h://<identity>:x@127.0.0.1:port`), `None` on
     /// a direct transport. Verifiers that build their own clients (Intel, NVIDIA) use it.
     pub socks_url: Option<&'a str>,
+    /// The operator's signed time (the `ts` of a `/v1/status` nonce that verified) in Unix
+    /// seconds, for verifiers that check certificate windows and token times. `None` makes them
+    /// use their own clock. A verifier that has no operator in its path ignores it.
+    pub operator_time: Option<u64>,
 }
 
 #[async_trait]
@@ -67,6 +71,13 @@ pub trait Attestor: Send + Sync {
     /// Fetches the evidence for `ask.model`, checks it against the policy, and returns the key it
     /// binds.
     async fn verify_model(&self, ask: &ReportRequest<'_>) -> Result<ModelIdentity, String>;
+
+    /// Whether `verify_model` reads `ask.operator_time`. The caller then fetches and verifies the
+    /// operator's status first and refuses to attest if it cannot, instead of letting the
+    /// verifier fall back to a clock of its own.
+    fn wants_operator_time(&self) -> bool {
+        false
+    }
 
     /// Checks a `/v1/signature/{id}` answer against the exact bytes exchanged.
     fn verify_signature(
@@ -106,6 +117,11 @@ pub struct Policy {
     #[serde(default)]
     pub deployments: Vec<Deployment>,
     pub accepted_tcb_statuses: Vec<String>,
+    /// Certificates the signing key of an NVIDIA GPU verdict must chain to. Empty in a policy
+    /// signed before the chain check existed: the verdict is then checked against the JWKS key
+    /// alone. A policy with pins is signed under the `v3` text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nvidia_pins: Vec<NvidiaPin>,
     /// Ed25519 signature (hex) by the policy signer over [`Policy::signed_text`].
     pub signature: String,
 }
@@ -115,7 +131,15 @@ pub struct Policy {
 ///
 /// One machine image runs on many VMs, and each VM's compose file differs in small ways (an
 /// instance label), so the compose hash differs per VM while `mr_td`, `rtmr0-2` and the OS image
-/// hash do not. An entry therefore lists every compose hash seen for that image.
+/// hash do not. A `model` entry therefore lists every compose hash seen for that image: plaintext
+/// prompts are decrypted there, so each compose file is one a person reviewed.
+///
+/// A `gateway` entry may instead hold the single entry [`ANY_COMPOSE`] in `compose_hashes`. NEAR
+/// AI redeploys the gateway often and each deployment changes its compose file (new container
+/// image digests, port policy), so pinning one hash breaks chat after every redeploy. The entry
+/// then accepts any compose hash, and everything else stays pinned: the OS image hash, `mr_td`,
+/// `rtmr0-2`, the TCB status, the Intel quote and the nonce. The sentinel is part of the signed
+/// text like any other value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Deployment {
     /// `model` for a model-serving VM, `gateway` for the gateway's.
@@ -128,8 +152,41 @@ pub struct Deployment {
     pub rtmr2: String,
 }
 
+/// The single `compose_hashes` entry of a `gateway` deployment that accepts any compose hash.
+pub const ANY_COMPOSE: &str = "*";
+
+impl Deployment {
+    /// Whether this entry takes a VM with this compose hash (lower-case hex, no `0x`).
+    pub fn accepts_compose(&self, hash: &str) -> bool {
+        self.is_compose_wildcard() || self.compose_hashes.iter().any(|h| h == hash)
+    }
+
+    /// Whether this is a gateway entry that accepts any compose hash. `Policy::load` refuses the
+    /// sentinel anywhere else, so for a loaded policy this is true only for such an entry.
+    pub fn is_compose_wildcard(&self) -> bool {
+        self.role == "gateway" && self.compose_hashes == [ANY_COMPOSE]
+    }
+}
+
+/// A pinned NVIDIA certificate: the SHA-256 of its DER form, as lower-case hex.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NvidiaPin {
+    /// The certificate's common name, for people. Not matched against anything.
+    pub name: String,
+    pub sha256: String,
+    /// Whether a person checked this certificate against an official NVIDIA source. A pin taken
+    /// from a live response only is `false`, and the policy says so.
+    pub official_source_verified: bool,
+}
+
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PolicyError {
+    #[error(
+        "the policy pins no NVIDIA certificate, so a GPU verdict cannot be checked against a chain"
+    )]
+    NoNvidiaPins,
+    #[error("the policy lists an NVIDIA pin with a malformed value: {0}")]
+    BadNvidiaPin(String),
     #[error("the policy file is not valid: {0}")]
     Format(String),
     #[error("the policy signature does not verify")]
@@ -166,14 +223,33 @@ impl Policy {
                 .join(",")
             })
             .collect();
-        format!(
-            "nymira/attestation-policy/v2|{}|{}|{}|{}|{}",
+        let base = format!(
+            "{}|{}|{}|{}|{}",
             self.version,
             self.attestation_root_pk,
             self.accepted_measurements.join(","),
             self.accepted_tcb_statuses.join(","),
             deployments.join(";")
-        )
+        );
+        if self.nvidia_pins.is_empty() {
+            return format!("nymira/attestation-policy/v2|{base}");
+        }
+        let pins: Vec<String> = self
+            .nvidia_pins
+            .iter()
+            .map(|p| format!("{},{},{}", p.name, p.sha256, p.official_source_verified))
+            .collect();
+        format!("nymira/attestation-policy/v3|{base}|{}", pins.join(";"))
+    }
+
+    /// Fails unless the policy pins at least one NVIDIA certificate. A build that enforces the
+    /// chain check calls this when it loads the policy.
+    pub fn require_nvidia_pins(&self) -> Result<(), PolicyError> {
+        if self.nvidia_pins.is_empty() {
+            Err(PolicyError::NoNvidiaPins)
+        } else {
+            Ok(())
+        }
     }
 
     /// The policy to use when a file in the state directory may be newer than the one compiled
@@ -229,13 +305,31 @@ impl Policy {
         {
             return Err(PolicyError::Empty);
         }
+        for p in &policy.nvidia_pins {
+            let name_ok = !p.name.is_empty() && !p.name.contains([',', ';', '|']);
+            let hash_ok = p.sha256.len() == 64
+                && p.sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+            if !name_ok {
+                return Err(PolicyError::BadNvidiaPin("name".into()));
+            }
+            if !hash_ok {
+                return Err(PolicyError::BadNvidiaPin("sha256".into()));
+            }
+        }
         for d in &policy.deployments {
             let is_hex = |v: &str, bytes: usize| {
                 v.len() == bytes * 2
                     && v.bytes()
                         .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             };
-            if d.compose_hashes.is_empty() || !d.compose_hashes.iter().all(|h| is_hex(h, 32)) {
+            // The wildcard is the only entry of a gateway deployment; anywhere else it is refused,
+            // so a mistake cannot weaken the check on the model.
+            let wildcard = d.role == "gateway" && d.compose_hashes == [ANY_COMPOSE];
+            if !wildcard
+                && (d.compose_hashes.is_empty() || !d.compose_hashes.iter().all(|h| is_hex(h, 32)))
+            {
                 return Err(PolicyError::BadDeployment("compose_hashes".into()));
             }
             let sizes = [
@@ -431,6 +525,7 @@ mod tests {
             accepted_measurements: vec!["m1".into()],
             deployments: vec![],
             accepted_tcb_statuses: tcb.iter().map(|s| s.to_string()).collect(),
+            nvidia_pins: vec![],
             signature: String::new(),
         }
         .sign(&signer())
@@ -543,6 +638,7 @@ mod tests {
             nonce: "n",
             http: &http,
             socks_url: None,
+            operator_time: None,
         };
         assert!(Unavailable
             .verify_model(&ask)
@@ -591,6 +687,68 @@ mod tests {
             assert!(matches!(
                 Policy::load(&serde_json::to_vec(&q).unwrap(), &pk(), 1),
                 Err(PolicyError::BadDeployment(_))
+            ));
+        }
+    }
+
+    fn pin(name: &str, sha256: &str) -> NvidiaPin {
+        NvidiaPin {
+            name: name.into(),
+            sha256: sha256.into(),
+            official_source_verified: false,
+        }
+    }
+
+    #[test]
+    fn a_policy_without_pins_keeps_its_old_signed_text() {
+        let p = policy(3, &["UpToDate"]);
+        assert!(p
+            .signed_text()
+            .starts_with("nymira/attestation-policy/v2|3|"));
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(!json.contains("nvidia_pins"), "{json}");
+        assert_eq!(p.require_nvidia_pins(), Err(PolicyError::NoNvidiaPins));
+    }
+
+    #[test]
+    fn pins_are_signed_under_the_new_text_and_each_value_is_checked() {
+        let mut p = policy(4, &["UpToDate"]);
+        p.nvidia_pins = vec![pin("NVIDIA Test Intermediate", &"ab".repeat(32))];
+        let p = p.sign(&signer());
+        assert!(p
+            .signed_text()
+            .starts_with("nymira/attestation-policy/v3|4|"));
+        assert!(p.signed_text().contains("|NVIDIA Test Intermediate,"));
+        let json = serde_json::to_vec(&p).unwrap();
+        let loaded = Policy::load(&json, &pk(), 1).unwrap();
+        assert_eq!(loaded.nvidia_pins, p.nvidia_pins);
+        assert_eq!(loaded.require_nvidia_pins(), Ok(()));
+
+        // Changing a pin or its verified flag breaks the signature.
+        for edit in [
+            |p: &mut Policy| p.nvidia_pins[0].sha256 = "cd".repeat(32),
+            |p: &mut Policy| p.nvidia_pins[0].official_source_verified = true,
+            |p: &mut Policy| p.nvidia_pins.clear(),
+        ] {
+            let mut t = p.clone();
+            edit(&mut t);
+            assert_eq!(
+                Policy::load(&serde_json::to_vec(&t).unwrap(), &pk(), 1),
+                Err(PolicyError::Signature)
+            );
+        }
+        // A signed pin of the wrong shape is refused all the same.
+        for (name, sha) in [
+            ("x", "ab"),
+            ("", "ab".repeat(32).as_str()),
+            ("a,b", "ab".repeat(32).as_str()),
+        ] {
+            let mut q = policy(4, &["UpToDate"]);
+            q.nvidia_pins = vec![pin(name, sha)];
+            let q = q.sign(&signer());
+            assert!(matches!(
+                Policy::load(&serde_json::to_vec(&q).unwrap(), &pk(), 1),
+                Err(PolicyError::BadNvidiaPin(_))
             ));
         }
     }

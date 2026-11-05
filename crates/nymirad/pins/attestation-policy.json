@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 5,
   "attestation_root_pk": "",
   "accepted_measurements": [],
   "deployments": [
@@ -18,8 +18,7 @@
     {
       "role": "gateway",
       "compose_hashes": [
-        "f571e5dafe8f96baf116a271b4be9cba228b447dd6ebe502bbda81ede7bcc7ce",
-        "c579aadec728a15f18d389d70f6b529302986868afd9ae3a93960b28043ef303"
+        "*"
       ],
       "os_image_hash": "8db40cb23008d6213668b5816702d100b37b859a8a5bfd18d938ae3a1b3715bd",
       "mr_td": "7fe60787222bd394cb516abca2435f22f035ab2cc9c0a4b4b3b148e46297f3d931a237b72f359052c6e657d8c1409173",
@@ -31,5 +30,17 @@
   "accepted_tcb_statuses": [
     "UpToDate"
   ],
-  "signature": "7101b05c4650de2d1b774d44225bc5c4fd4a4b2b3e9217e608f17ad9c4eebaffbbd3a29fdf70d3a98ee0ef4b700b994b5f24bfa9b624318b565b33d66d63820f"
+  "nvidia_pins": [
+    {
+      "name": "NVIDIA Attestation Service GPU Intermediate 005",
+      "sha256": "38e3daf3cdbd5243bb15dd7993edcdd83a7238cb6745b980f8f3bf0a31a0d343",
+      "official_source_verified": false
+    },
+    {
+      "name": "NVIDIA Attestation Service GPU Intermediate 004",
+      "sha256": "2df8907cf4d6c277b855d407ec178a649930a8e73f7294e8fce66e6ee27c5175",
+      "official_source_verified": false
+    }
+  ],
+  "signature": "ee52d3f65e12248e6888621b11671bc7db1fa2ea5e0c7476265230398126e61836159b835a8e47b405fd962e34ee35b33db203342974863e8270a4e55516980c"
 }

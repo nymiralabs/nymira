@@ -10,6 +10,14 @@ pub fn identity() -> String {
     hex::encode(rand::random::<[u8; 32]>())
 }
 
+/// `socks_url` with its identity replaced by `identity`: the same proxy, another circuit.
+/// `None` when the URL is not of the form `scheme://<identity>:x@host:port`.
+pub fn with_identity(socks_url: &str, identity: &str) -> Option<String> {
+    let (scheme, rest) = socks_url.split_once("://")?;
+    let (_, host) = rest.rsplit_once('@')?;
+    Some(format!("{scheme}://{identity}:x@{host}"))
+}
+
 /// How many circuits a fetch tries before it gives up: some destinations (NVIDIA's attestation
 /// service answers 403) turn away most Tor exits and let others through.
 pub const CIRCUIT_TRIES: u32 = 4;
@@ -139,6 +147,15 @@ pub async fn prewarm(socks: &str, identity: &str, host: &str, port: u16) -> std:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn another_identity_keeps_the_proxy_and_changes_the_circuit() {
+        assert_eq!(
+            with_identity("socks5h://aa:x@127.0.0.1:9050", "bb").as_deref(),
+            Some("socks5h://bb:x@127.0.0.1:9050")
+        );
+        assert_eq!(with_identity("http://127.0.0.1:9050", "bb"), None);
+    }
 
     #[tokio::test]
     async fn a_failing_fetch_is_retried_on_new_identities_and_then_gives_up() {

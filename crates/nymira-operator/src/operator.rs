@@ -80,6 +80,8 @@ pub struct Config {
     pub chain_refresh_ms: u64,
     pub balance_refresh_secs: u64,
     pub mint_timeout_secs: u64,
+    /// The two NVIDIA URLs the NRAS relay forwards to.
+    pub nras_relay: crate::nras_relay::RelayConfig,
 }
 
 impl Config {
@@ -111,6 +113,7 @@ impl Config {
             balance_refresh_secs: 300,
             // Above the 12 s the adapter may wait for a new key to start working.
             mint_timeout_secs: 20,
+            nras_relay: crate::nras_relay::RelayConfig::default(),
         }
     }
 }
@@ -219,6 +222,7 @@ pub struct Operator {
     emergency_cache: Mutex<Option<(std::time::Instant, Option<String>)>>,
     /// Seconds of the recent `POST /v2/reconcile` calls, for the global rate limit.
     pub(crate) reconciles: Mutex<std::collections::VecDeque<u64>>,
+    pub(crate) nras: crate::nras_relay::NrasRelay,
 }
 
 /// `POST /v2/reconcile` takes this many calls a minute across all callers: it needs no identity
@@ -289,6 +293,7 @@ impl Operator {
                 NonZeroUsize::new(cfg.attempts_cap.max(1)).expect("non-zero"),
             )),
             verify_slots: Arc::new(Semaphore::new(cfg.max_verifications)),
+            nras: crate::nras_relay::NrasRelay::new(cfg.nras_relay.clone()),
             cfg,
             clock,
             vault,
@@ -566,6 +571,10 @@ impl Operator {
             }
         }
         Ok(revoked)
+    }
+
+    pub fn alarms(&self) -> &Arc<crate::alarm::Alarms> {
+        &self.alarms
     }
 
     pub fn config(&self) -> &Config {

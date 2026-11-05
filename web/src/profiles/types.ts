@@ -77,6 +77,12 @@ export interface Profile {
   faucetUrl: string | null;
   /** Which NEAR Connect executors the wallet list offers (ids in `pins/executors.json`). */
   walletIds: string[];
+  /**
+   * Wallets whose approval window opens after asynchronous work. A browser accepts that window
+   * only when the click that led to it happened in the page that opens it, which for these is the
+   * wallet frame, not the app. The frame shows an "Open the wallet" button for them.
+   */
+  clickBeforeSend: string[];
   /** Executor pins that exist in this profile only (the mock profile's test wallet). */
   extraExecutors: Record<string, unknown>;
   /** Extra hosts the wallet frame may reach (its own CSP). Starting list, checked by hand. */
@@ -104,4 +110,6 @@ export interface Profile {
   withdrawalKey: { url: string; sha256: string } | null;
   /** The mock profile's reports carry test quotes (Playwright only, never in a deployed bundle). */
   testEvidence: boolean;
+  /** How long the app waits for a wallet that does not answer (src/wallet/watch.ts); a test profile shortens it. */
+  watch?: { pollMs: number; graceMs: number; maxMs: number };
 }

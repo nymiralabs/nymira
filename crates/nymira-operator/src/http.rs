@@ -55,6 +55,8 @@ pub fn router(operator: Arc<Operator>) -> Router {
         .route("/v1/chat/completions", post(chat))
         .route("/v2/billing/quote", get(quote))
         .route("/v1/attestation", get(attestation))
+        .route("/v1/nras/attest", post(nras_attest))
+        .route("/v1/nras/jwks", get(nras_jwks))
         .layer(cors)
         .with_state(operator)
 }
@@ -139,6 +141,51 @@ async fn quote() -> Json<serde_json::Value> {
     Json(
         json!({ "status": "ok", "pricing": "usdc_1_to_1", "units_per_usd": "1000000", "quote": null }),
     )
+}
+
+/// The NRAS relay's evidence route: JSON in, NVIDIA's answer out. The content type and the size
+/// are checked before the body is read.
+async fn nras_attest(
+    State(op): State<Arc<Operator>>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    let json = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"));
+    if !json {
+        return ApiError::new(
+            Code::UnsupportedRequest,
+            "the content type must be application/json",
+        )
+        .into_response();
+    }
+    let body = match bounded(request, crate::nras_relay::EVIDENCE_BODY_LIMIT).await {
+        Ok(body) => body,
+        Err(e) => return e.into_response(),
+    };
+    relayed(op.relay_evidence(body).await)
+}
+
+async fn nras_jwks(State(op): State<Arc<Operator>>) -> Response {
+    relayed(op.relay_jwks().await)
+}
+
+fn relayed(result: Result<(StatusCode, axum::body::Bytes), ApiError>) -> Response {
+    match result {
+        Ok((status, body)) => (
+            status,
+            [(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            )],
+            body,
+        )
+            .into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// zkapi's attestation route; the operator runs outside a TEE in this phase.

@@ -53,6 +53,7 @@ fn policy(deployments: Vec<Deployment>) -> Policy {
         accepted_measurements: vec![],
         deployments,
         accepted_tcb_statuses: vec!["UpToDate".into()],
+        nvidia_pins: vec![],
         signature: String::new(),
     }
     .sign(&signer())
@@ -103,7 +104,7 @@ fn replay_at(at_secs: u64, nonce_model: Option<String>) -> Replay {
     Replay {
         model_collateral: collateral("collateral-model.json", at_secs),
         gateway_collateral: collateral("collateral-gateway.json", at_secs),
-        gpu: Arc::new(RecordedGpu),
+        gpu: Some(Arc::new(RecordedGpu)),
         nonce_model: nonce_model.unwrap_or_else(|| m["nonce_model"].as_str().unwrap().into()),
         nonce_gateway: m["nonce_gateway"].as_str().unwrap().into(),
     }
@@ -124,6 +125,7 @@ async fn run(
             nonce: "unused",
             http: &http,
             socks_url: None,
+            operator_time: None,
         })
         .await
 }
@@ -447,7 +449,7 @@ async fn a_real_provider_tee_signature_verifies_as_model_signed() {
     let replay = Replay {
         model_collateral: collateral("collateral-model.json"),
         gateway_collateral: collateral("collateral-gateway.json"),
-        gpu: Arc::new(RecordedGpu),
+        gpu: Some(Arc::new(RecordedGpu)),
         nonce_model: meta["nonce_model"].as_str().unwrap().into(),
         nonce_gateway: meta["nonce_gateway"].as_str().unwrap().into(),
     };
@@ -467,6 +469,7 @@ async fn a_real_provider_tee_signature_verifies_as_model_signed() {
             nonce: "unused",
             http: &http,
             socks_url: None,
+            operator_time: None,
         })
         .await
         .expect("the recorded report of the signing VM verifies");
@@ -492,4 +495,145 @@ async fn a_real_provider_tee_signature_verifies_as_model_signed() {
         attestor.verify_signature(&identity, &bare, MODEL, &request, &response),
         Trust::ModelSigned
     );
+}
+
+// ---- gateway compose wildcard ----
+
+/// The deployments of the draft, with the gateway's compose hashes replaced.
+fn with_gateway_compose(hashes: Vec<String>) -> Vec<Deployment> {
+    let mut d = deployments();
+    d.iter_mut()
+        .find(|d| d.role == "gateway")
+        .unwrap()
+        .compose_hashes = hashes;
+    d
+}
+
+fn wildcard() -> Vec<String> {
+    vec!["*".to_string()]
+}
+
+#[tokio::test]
+async fn a_gateway_wildcard_accepts_any_compose_hash_and_keeps_every_other_check() {
+    let (m, g) = texts();
+    // The recorded gateway's own compose hash is not listed anywhere: the wildcard accepts it.
+    run(
+        policy(with_gateway_compose(wildcard())),
+        replay_at(recorded_at(), None),
+        m.clone(),
+        g.clone(),
+    )
+    .await
+    .expect("the wildcard accepts the recorded gateway");
+
+    // A different machine image is still refused.
+    let mut other_image = with_gateway_compose(wildcard());
+    other_image
+        .iter_mut()
+        .find(|d| d.role == "gateway")
+        .unwrap()
+        .os_image_hash = "00".repeat(32);
+    let e = run(
+        policy(other_image),
+        replay_at(recorded_at(), None),
+        m.clone(),
+        g.clone(),
+    )
+    .await
+    .unwrap_err();
+    assert!(e.contains("provenance"), "{e}");
+
+    // So is a changed measurement.
+    for field in ["rtmr0", "rtmr1", "rtmr2", "mr_td"] {
+        let mut changed = with_gateway_compose(wildcard());
+        let d = changed.iter_mut().find(|d| d.role == "gateway").unwrap();
+        match field {
+            "rtmr0" => d.rtmr0 = "00".repeat(48),
+            "rtmr1" => d.rtmr1 = "00".repeat(48),
+            "rtmr2" => d.rtmr2 = "00".repeat(48),
+            _ => d.mr_td = "00".repeat(48),
+        }
+        let e = run(
+            policy(changed),
+            replay_at(recorded_at(), None),
+            m.clone(),
+            g.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.contains("measurement_not_accepted") || e.contains("quote.verification_failed"),
+            "{field}: {e}"
+        );
+    }
+
+    // The quote checks stay: a collateral past its time is refused with the wildcard in place.
+    let a_year_later = recorded_at() + 366 * 86_400;
+    let e = run(
+        policy(with_gateway_compose(wildcard())),
+        replay_at(a_year_later, None),
+        m,
+        g,
+    )
+    .await
+    .unwrap_err();
+    assert!(e.contains("quote"), "{e}");
+}
+
+#[tokio::test]
+async fn a_gateway_with_real_hashes_that_do_not_match_is_still_refused() {
+    let (m, g) = texts();
+    let e = run(
+        policy(with_gateway_compose(vec!["11".repeat(32)])),
+        replay_at(recorded_at(), None),
+        m,
+        g,
+    )
+    .await
+    .unwrap_err();
+    assert!(e.contains("provenance"), "{e}");
+}
+
+#[test]
+fn the_wildcard_is_for_the_gateway_alone_and_never_mixed_with_hashes() {
+    let pk = signer().verifying_key().to_bytes();
+    let load = |d: Vec<Deployment>| {
+        let signed = policy(d);
+        Policy::load(&serde_json::to_vec(&signed).unwrap(), &pk, 1)
+    };
+    // A gateway wildcard loads, and the signed text carries it as it is.
+    let ok = load(with_gateway_compose(wildcard())).unwrap();
+    assert!(ok.signed_text().contains(",*,"), "{}", ok.signed_text());
+
+    // On the model it is refused, so a mistake cannot weaken the check that guards prompts.
+    let mut model_wild = deployments();
+    model_wild
+        .iter_mut()
+        .find(|d| d.role == "model")
+        .unwrap()
+        .compose_hashes = wildcard();
+    assert!(matches!(
+        load(model_wild),
+        Err(PolicyError::BadDeployment(_))
+    ));
+
+    // Mixed with real hashes, in either order, it is refused.
+    for mixed in [
+        vec!["*".to_string(), "ab".repeat(32)],
+        vec!["ab".repeat(32), "*".to_string()],
+        vec!["*".to_string(), "*".to_string()],
+    ] {
+        assert!(
+            matches!(
+                load(with_gateway_compose(mixed)),
+                Err(PolicyError::BadDeployment(_))
+            ),
+            "mixed"
+        );
+    }
+    // Other junk in place of a hash is still refused.
+    assert!(matches!(
+        load(with_gateway_compose(vec!["**".into()])),
+        Err(PolicyError::BadDeployment(_))
+    ));
 }
