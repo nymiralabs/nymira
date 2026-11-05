@@ -209,14 +209,18 @@ jobs:
       - name: Install the browsers
         if: matrix.shard != 0
         working-directory: web
-        # The download or the apt step stalls now and then (two jobs sat on it for over 30 minutes on
-        # 5 November 2026). apt is told to give up on a silent mirror after 20 seconds and retry; a
-        # try that still hangs is killed after 5 minutes, together with any apt or dpkg process it
-        # left holding the lock, and repeated.
+        # The browsers' system libraries are 181 packages (114 MB). On 5 November 2026 the download
+        # from the Azure Ubuntu mirror stopped after a few files and sat idle until the job was cut
+        # off, on every try of the same job. apt gets no pipelining and short timeouts; a try that
+        # still hangs is killed after 5 minutes together with any apt or dpkg process it left, and
+        # the next try uses Canonical's own mirror.
         run: |
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' \
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::http::Pipeline-Depth "0";\n' \
             | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
           for try in 1 2 3; do
+            if [ "$try" -gt 1 ]; then
+              echo 'http://archive.ubuntu.com/ubuntu/ priority:1' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
             timeout 300 npx playwright install --with-deps chromium webkit && exit 0
             echo "browser install attempt $try failed or timed out" >&2
             sudo pkill -9 -f 'apt-get|dpkg' || true
