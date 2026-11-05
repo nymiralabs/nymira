@@ -122,6 +122,22 @@ describe('profiles and headers', () => {
     expect(walletFrameCsp({ ...testnet, walletIds: [] })).not.toContain('meteorwallet');
   });
 
+  it("lets Meteor reach its network's RPC while it prepares a transaction, and no other network's", () => {
+    // Without this the frame refuses Meteor's RPC calls, and Meteor waits without opening its window.
+    const connect = (p: typeof testnet) =>
+      walletFrameCsp(p)
+        .split('; ')
+        .find((d) => d.startsWith('connect-src')) ?? '';
+    expect(connect(testnet)).toContain('https://test.rpc.fastnear.com');
+    expect(connect(testnet)).not.toContain('free.rpc.fastnear.com');
+    expect(connect(mainnet)).toContain('https://free.rpc.fastnear.com');
+    expect(connect(mainnet)).not.toContain('test.rpc.fastnear.com');
+    // Intear alone does not widen it.
+    expect(connect({ ...testnet, walletIds: ['intear-wallet'] })).not.toContain(
+      'test.rpc.fastnear.com',
+    );
+  });
+
   it('only the wallet frame gets the relaxed policy, and it cannot be embedded elsewhere', () => {
     expect(walletFrameCsp(mock)).toContain("'unsafe-inline'");
     expect(walletFrameCsp(mock)).toContain("frame-ancestors 'self'");

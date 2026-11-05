@@ -65,6 +65,7 @@ export function walletFrameCsp(p: Profile): string {
     origin(p.appOrigin),
     ...p.rpcUrls.map(origin),
     ...hosts((n) => n.connect),
+    ...hosts((n) => n.connectOn?.[p.network as 'testnet' | 'mainnet']),
     ...p.walletConnectSrc,
   ]);
   return [
