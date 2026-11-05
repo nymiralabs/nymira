@@ -24,7 +24,7 @@ use nearai_inference_sdk::{
     SigningAlgo, SigningIdentity, TcbStatus, TdxQuoteVerificationResult, TdxQuoteVerifier,
     VerificationError, DEFAULT_INTEL_PCCS_URL, DEFAULT_NVIDIA_NRAS_URL,
 };
-use nymira_operator::clock::{Clock, SystemClock};
+use nymira_operator::clock::{Clock, ManualClock, SystemClock};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -489,6 +489,7 @@ impl NearAiAttestor {
         &self,
         proxied: &Option<reqwest::Client>,
         socks_url: Option<&str>,
+        operator_time: Option<u64>,
     ) -> Result<Box<dyn GpuEvidenceVerifier>, String> {
         let pinned = !self.policy.nvidia_pins.is_empty();
         let client = |url: Option<&str>| Self::proxied(url).map(|c| c.unwrap_or_else(Self::plain));
@@ -522,13 +523,20 @@ impl NearAiAttestor {
                 self.nras_jwks_url.clone(),
             ),
         };
+        // Certificate windows and token times are read at the operator's signed time when the
+        // call goes through the operator. `--nras-direct` has no operator in the path and keeps
+        // the local clock; so does a caller that passes no time.
+        let clock: Arc<dyn Clock> = match (&self.mode, operator_time) {
+            (NrasMode::Relay { .. }, Some(t)) => Arc::new(ManualClock::new(t.saturating_mul(1000))),
+            _ => self.clock.clone(),
+        };
         Ok(if pinned {
             Box::new(NrasChain::new(
                 client,
                 url,
                 jwks_url,
                 &self.policy.nvidia_pins,
-                self.clock.clone(),
+                clock,
             ))
         } else {
             Box::new(NrasGpuEvidenceVerifier::with_client(client, url).with_jwks_url(jwks_url))
@@ -553,6 +561,11 @@ impl NearAiAttestor {
 
 #[async_trait]
 impl Attestor for NearAiAttestor {
+    /// Only the chain check reads the time, and only through the relay.
+    fn wants_operator_time(&self) -> bool {
+        !self.policy.nvidia_pins.is_empty() && matches!(self.mode, NrasMode::Relay { .. })
+    }
+
     async fn verify_model(&self, ask: &ReportRequest<'_>) -> Result<ModelIdentity, String> {
         let describe = |e: VerificationError| format!("{e} ({})", e.code());
         let base = format!("{}/v1", ask.gateway_url.trim_end_matches('/'));
@@ -568,7 +581,7 @@ impl Attestor for NearAiAttestor {
         };
         // A policy with pinned NVIDIA certificates gets the chain check. One without keeps the
         // check against the JWKS key, so a build does not break on a policy signed before pins.
-        let nras_live = self.gpu_verifier(&http, ask.socks_url)?;
+        let nras_live = self.gpu_verifier(&http, ask.socks_url, ask.operator_time)?;
         let (collateral, collateral_gateway, nras): (_, _, &dyn GpuEvidenceVerifier) =
             match &self.replay {
                 Some(r) => (
