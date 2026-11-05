@@ -133,3 +133,18 @@ describe('profiles and headers', () => {
     expect(headersFor(mock, '/')['Access-Control-Allow-Origin']).toBeUndefined();
   });
 });
+
+describe('wallets whose approval window needs a click inside the wallet frame', () => {
+  it('lists Meteor on every real network and not Intear', () => {
+    for (const p of [testnet, mainnet]) {
+      expect(p.clickBeforeSend).toContain('meteor-wallet');
+      expect(p.clickBeforeSend).not.toContain('intear-wallet');
+      for (const id of p.clickBeforeSend) expect(p.walletIds).toContain(id);
+    }
+  });
+  it('lets the mock profile gate a test wallet and no other build does', () => {
+    expect(mock.clickBeforeSend).toContain('nymira-gated-test-wallet');
+    for (const p of [testnet, mainnet])
+      expect(p.clickBeforeSend).not.toContain('nymira-gated-test-wallet');
+  });
+});

@@ -1,7 +1,9 @@
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
+  GATED_WALLET_ID,
   ONECLICK,
+  SENDER,
   backUpAndTest,
   connectWallet,
   expectNoSecret,
@@ -10,6 +12,7 @@ import {
   pageSurfaces,
   prepare,
   readBackup,
+  setUpPassphrase,
   watch,
   workdir,
 } from './support';
@@ -221,4 +224,64 @@ test('an authenticator without PRF is refused with a clear message', async ({ co
   await openFund(page);
   await page.getByTestId('setup-prf').click();
   await expect(page.getByTestId('setup-error')).toContainText('PRF');
+});
+
+// A wallet such as Meteor opens its approval window after async work, so the browser accepts it
+// only if the click that led to it happened in the frame the wallet runs in.
+async function readyToSend(page: import('@playwright/test').Page, testDir: string) {
+  await page.getByTestId(`connect-${GATED_WALLET_ID}`).click();
+  await expect(page.getByTestId('connected')).toContainText(SENDER);
+  await setUpPassphrase(page);
+  await page.getByTestId('prepare').click();
+  await expect(page.getByTestId('backup-panel')).toBeVisible();
+  await backUpAndTest(page, join(testDir, 'gated.nymira-backup'));
+  await expect(page.getByTestId('send')).toBeEnabled();
+}
+
+test('a gated wallet is asked only after a click inside the wallet frame', async ({
+  context,
+  page,
+}) => {
+  const wallet = await newFundingWallet(context, {}, { gated: true });
+  await openFund(page);
+  await readyToSend(page, workdir());
+
+  await page.getByTestId('send').click();
+  const frame = page.frameLocator('iframe.wallet-frame');
+  await expect(frame.getByTestId('approve')).toBeVisible();
+  // The click on the app's own button did not reach the wallet.
+  await page.waitForTimeout(500);
+  expect(wallet.calls).toHaveLength(0);
+
+  await frame.getByTestId('approve').click();
+  await expect(page.getByTestId('accepted')).toBeVisible();
+  expect(wallet.calls).toHaveLength(1);
+  // The frame goes back to letting clicks through.
+  await expect(page.locator('iframe.wallet-frame')).not.toHaveClass(/active/);
+});
+
+test('cancelling inside the wallet frame sends nothing and the note stays unsent', async ({
+  context,
+  page,
+}) => {
+  const wallet = await newFundingWallet(context, {}, { gated: true });
+  await openFund(page);
+  await readyToSend(page, workdir());
+
+  await page.getByTestId('send').click();
+  await page.frameLocator('iframe.wallet-frame').getByTestId('cancel').click();
+  await expect(page.getByTestId('fund-error')).toBeVisible();
+  expect(wallet.calls).toHaveLength(0);
+  await expect(page.locator('iframe.wallet-frame')).not.toHaveClass(/active/);
+  await expect(page.getByTestId('send')).toBeEnabled();
+});
+
+test('a wallet that is not gated is asked at once, as before', async ({ context, page }) => {
+  const wallet = await newFundingWallet(context);
+  await openFund(page);
+  await prepare(page);
+  await backUpAndTest(page, join(workdir(), 'plain.nymira-backup'));
+  await page.getByTestId('send').click();
+  await expect(page.getByTestId('accepted')).toBeVisible();
+  expect(wallet.calls).toHaveLength(1);
 });
