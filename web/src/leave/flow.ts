@@ -25,6 +25,7 @@ import type { Profile } from '../profiles/types';
 import { putNote } from '../store/db';
 import { noteAad, type LeaveInfo, type NoteRecord } from '../store/types';
 import type { FunctionCallAction } from '../wallet/protocol';
+import { raceWallet, type RaceOptions } from '../wallet/watch';
 import { callWorker } from '../worker/client';
 import type { LeaseConfigInput } from '../worker/protocol';
 import { callArgs, clearanceBody, planParts, ExitError } from '../note/exit';
@@ -59,6 +60,8 @@ export interface LeaveDeps {
   /** How many times, and how far apart, the vault is asked whether a send took effect. */
   polls?: number;
   pollMs?: number;
+  /** How the app waits for a wallet that may never answer (src/wallet/watch.ts). */
+  race?: RaceOptions;
 }
 
 export class LeaveError extends Error {
@@ -283,12 +286,24 @@ async function closeNoteRun(
     }
   } else {
     step('Waiting for your wallet to sign the close…');
-    let outcome: unknown;
-    try {
-      outcome = await d.wallet.send(d.profile.vaultAccount, call('mutual_close', args));
-    } catch (e) {
-      throw new LeaveError('wallet', `The wallet did not send the close: ${describe(e)}`);
+    // The app does not depend on the wallet returning: while it waits it asks the vault whether
+    // the note closed. A refusal counts only when the vault shows nothing after a grace period.
+    const raced = await raceWallet(
+      d.wallet.send(d.profile.vaultAccount, call('mutual_close', args)),
+      async () => ((await isClosed(d, note)) ? true : null),
+      d.race,
+    );
+    if (raced.by === 'rejected') {
+      throw new LeaveError('wallet', `The wallet did not send the close: ${describe(raced.error)}`);
     }
+    if (raced.by === 'timeout') {
+      note = await save(d, note, { leave: leaveOf(d, 'closing', { via: opts.via }) });
+      throw new LeaveError(
+        'wallet_silent',
+        'The wallet did not answer with a confirmed transaction, and the app could not confirm whether the note closed. If you approved in the wallet, the close may still land: use “Ask the vault whether the close landed” on this note, or the Notes tab to look it up by its transaction hash.',
+      );
+    }
+    const outcome = raced.by === 'wallet' ? raced.outcome : null;
     txHash = txHashOf(outcome) ?? '';
     // A failed payout receipt marks the whole transaction failed although the vault closed the
     // note: the vault, not the outcome, says whether it closed.

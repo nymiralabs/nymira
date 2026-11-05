@@ -23,6 +23,8 @@ import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { requireKey } from '../crypto/wrap';
 import type { FunctionCallAction } from '../wallet/protocol';
+import { raceWallet, type RaceOptions } from '../wallet/watch';
+import { findDeposit, scanStart, type FoundDeposit } from './watch';
 
 /** 100 Tgas: the token's own work, the vault's `ft_on_transfer` and the refund callback. */
 export const TRANSFER_GAS = '100000000000000';
@@ -181,7 +183,77 @@ export async function sendDeposit(
   return { record: sent, outcome };
 }
 
-export type AcceptanceSource = 'wallet' | 'rpc';
+/** The wallet never answered and the chain showed nothing: the app stops waiting. */
+export class WalletSilentError extends Error {
+  constructor() {
+    super(
+      'The wallet did not answer with a confirmed transaction, and the app could not confirm the deposit on the vault. If you approved in the wallet, the transfer may still land: open the Notes tab and look the deposit up by its transaction hash (from your wallet’s history or the explorer).',
+    );
+  }
+}
+
+export interface WatchedSend extends SendResult {
+  /** Set when the chain, not the wallet, showed the deposit. */
+  found?: FoundDeposit;
+}
+
+/**
+ * Like `sendDeposit`, but the app does not depend on the wallet returning. While it waits it reads
+ * the vault for this note's leaf; when the leaf appears it goes on without the wallet. A refusal
+ * counts only after a grace period in which the chain shows nothing (a closed window may still
+ * have sent). A wallet that never answers ends in `WalletSilentError`.
+ */
+export async function sendDepositWatched(
+  rpc: RpcClient,
+  record: NoteRecord,
+  wallet: { send(receiver: string, action: FunctionCallAction): Promise<unknown> },
+  race: RaceOptions = {},
+  leafOf: (n: number, c: string, a: string, e: number) => Promise<string> = (
+    noteId,
+    commitment,
+    amount,
+    expiry,
+  ) => callWorker({ op: 'noteLeaf', noteId, commitment, amount, expiry }),
+): Promise<WatchedSend> {
+  const block = await preDepositChecks(rpc, record);
+  if (!block.ok) throw new Error(block.reason);
+  const sending = await update(record, { phase: 'sending' });
+  const from = await scanStart(rpc, record.vault).catch(() => 0);
+  const raced = await raceWallet(
+    wallet.send(record.token, transferAction(record)),
+    () => findDeposit(rpc, record.vault, record, from, leafOf),
+    race,
+  );
+  if (raced.by === 'rejected') throw raced.error;
+  if (raced.by === 'timeout') throw new WalletSilentError();
+  if (raced.by === 'chain') {
+    return {
+      record: await update(sending, { phase: 'sent' }),
+      outcome: null,
+      found: raced.found,
+    };
+  }
+  const hash = txHashOf(raced.outcome) ?? undefined;
+  const sent = await update(sending, { phase: 'sent', ...(hash ? { txHash: hash } : {}) });
+  return { record: sent, outcome: raced.outcome };
+}
+
+/** Accepts a note the chain showed (no receipt): same sealing as a read receipt. */
+export async function acceptFound(record: NoteRecord, found: FoundDeposit): Promise<Acceptance> {
+  return finalize(
+    record,
+    {
+      noteId: found.noteId,
+      commitment: record.commitment,
+      denomination: found.denomination,
+      expiry: found.expiry,
+      withdrawTo: record.payout,
+    },
+    'chain',
+  );
+}
+
+export type AcceptanceSource = 'wallet' | 'rpc' | 'chain';
 
 export type Acceptance =
   | { status: 'accepted'; record: NoteRecord; event: DepositEvent; source: AcceptanceSource }

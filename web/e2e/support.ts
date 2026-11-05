@@ -7,6 +7,11 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 // The test wallet of issue #86 (web-testkit); resolved by the tsconfig path `@testkit`.
 import { NearTestWallet, installTestWallet } from '@testkit';
 import { decryptBackup } from '../src/backup/format';
+import { pad32 } from '../src/note/core';
+import {
+  browser_note_leaf_from_fields,
+  initSync,
+} from '../src/wasm/zkapi-browser/zkapi_browser.js';
 const fixture = JSON.parse(
   readFileSync(new URL('../test-fixtures/mock-vault.json', import.meta.url), 'utf8'),
 );
@@ -69,6 +74,9 @@ export async function scriptChain(wallet: NearTestWallet, script: VaultScript = 
     },
   });
   await control({ cmd: 'set_access_keys', account: VAULT, keys: script.accessKeys ?? [] });
+  await view(VAULT, 'leaf_count', 'any', 0);
+  await view(VAULT, 'note_records', 'any', []);
+  await view(VAULT, 'get_leaves', 'any', []);
   await view(VAULT, 'vk_hashes', 'any', script.vkHashes ?? pins.vkHashes);
   await view(VAULT, 'config', 'any', {
     ...pins.config,
@@ -100,7 +108,35 @@ export function expectedExpiry(nowSeconds = Math.floor(Date.now() / 1000)): numb
   return (Math.floor((nowSeconds + 30 * DAY) / DAY) + 1) * DAY;
 }
 
-export type WalletMode = 'tree' | 'bare' | 'refused' | 'crash';
+let wasmReady = false;
+/** The vault's leaf for a deposit, from the wallet core the app runs (Node build). */
+export function leafFor(noteId: number, commitment: string, amount: string, expiry: number) {
+  if (!wasmReady) {
+    initSync({
+      module: readFileSync(
+        new URL('../src/wasm/zkapi-browser/zkapi_browser_bg.wasm', import.meta.url),
+      ),
+    });
+    wasmReady = true;
+  }
+  return pad32(
+    JSON.parse(browser_note_leaf_from_fields(noteId, commitment, amount, String(expiry))),
+  );
+}
+
+export type WalletMode =
+  | 'tree'
+  | 'bare'
+  | 'refused'
+  | 'crash'
+  /** The transaction lands, the vault shows the note, and the wallet never answers. */
+  | 'silent'
+  /** Like `silent`, then the user closes the wallet window: the wallet rejects. */
+  | 'silent-closed'
+  /** The user cancels in the wallet: nothing is sent. */
+  | 'cancel'
+  /** Nothing is sent and the wallet never answers. */
+  | 'dead';
 
 /**
  * The test wallet plus the chain's side of a deposit: after it sends the real transaction to the
@@ -133,6 +169,8 @@ export class FundingWallet extends NearTestWallet {
   }) {
     const args = params.actions[0]?.params.args as Record<string, string>;
     this.calls.push({ receiverId: params.receiverId, args });
+    if (this.mode === 'cancel') throw new Error('User rejected the transaction');
+    if (this.mode === 'dead') return new Promise<never>(() => undefined);
     const outcome = await super.signAndSendTransaction(params as never);
     const hash: string = outcome.transaction.hash;
     this.lastHash = hash;
@@ -170,6 +208,25 @@ export class FundingWallet extends NearTestWallet {
         ],
       },
     });
+    if (this.mode === 'silent' || this.mode === 'silent-closed') {
+      const data = event.data as { note_id: number; expiry: number };
+      const view = (method: string, result: unknown) =>
+        control({ cmd: 'set_view', account: VAULT, method, args: 'any', result: { json: result } });
+      await view('note_records', [
+        {
+          note_id: data.note_id,
+          deposit_amount: denomination,
+          expiry: data.expiry,
+          status: 'Active',
+          leaf_retired: false,
+        },
+      ]);
+      await view('get_leaves', [leafFor(data.note_id, msg.commitment, denomination, data.expiry)]);
+      if (this.mode === 'silent') return new Promise<never>(() => undefined);
+      // The window stays open for a while, then the user closes it.
+      await new Promise((r) => setTimeout(r, 3000));
+      throw new Error('User rejected the transaction');
+    }
     if (this.mode === 'crash') throw new Error('the wallet window was closed');
     if (this.mode === 'bare') return { transaction: { hash, signer_id: SENDER } };
     return this.rpc('tx', { tx_hash: hash, sender_account_id: SENDER, wait_until: 'FINAL' });

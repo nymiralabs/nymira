@@ -110,6 +110,12 @@ PROBE_REAL_WALLETS=1 npx playwright test --project=chromium real-wallets
 
 They show that Intear's connect chooser renders in the frame under the production policy, and that Meteor's dialog renders and its Meteor Web button opens the testnet login. Not tested here: signing in with a real account, `signMessage` and a transaction. Do that by hand with Meteor and Intear on testnet. The hosts each wallet needs are in `wallet-hosts.ts`; they came from the policy violations seen at load, so extend them from what the full flow reports. Meteor's interface also asks for two web fonts from third-party hosts. The frame's policy refuses them and the dialog falls back to a system font.
 
+### Wallets that do not answer
+
+A wallet can approve a transaction and never return (Intear did when its own archival RPC answered 400). While a request is out, the app reads the vault: funding looks for a new note of the same size whose leaf matches its own commitment (no `note_status` call), and a close looks for the note closed in `note_records`. If the vault shows the effect, the flow finishes without the wallet. A refusal from the wallet counts as "rejected" only if the vault shows nothing for 20 seconds after it. After 3 minutes with no answer and nothing on chain, the app stops waiting and points to the Notes tab and "Ask the vault whether the close landed". A note found this way has no receipt, so the app cannot check its payout account and the screen says so. Exit, finalize and claim are not watched this way.
+
+After a reload the wallet connection is gone (the wallet frame keeps nothing on the device). The app says so and offers "Reconnect with ...". `e2e/silent-wallet.spec.ts` covers a wallet that never returns, a window closed after the send, a real cancel and a dead wallet, for funding and for closing, and the reload notice.
+
 ## What the app does not promise
 
 - It cannot hide the user's IP address from the operator, an RPC provider or 1Click. It says so on every screen and points to Tor Browser or `nymirad`.

@@ -77,7 +77,9 @@ export type WorkerRequest =
       settlement: Settlement;
     }
   | { op: 'discardPending'; key: CryptoKey; aad: string; sealed: Sealed }
-  | { op: 'readNote'; key: CryptoKey; aad: string; sealed: Sealed };
+  | { op: 'readNote'; key: CryptoKey; aad: string; sealed: Sealed }
+  /** The vault's leaf for a deposit, from public fields only (no secret, no key). */
+  | { op: 'noteLeaf'; noteId: number; commitment: string; amount: string; expiry: number };
 
 export interface ResultOf {
   deriveKey: CryptoKey;
@@ -96,6 +98,7 @@ export interface ResultOf {
   completeLease: Completed;
   discardPending: Sealed;
   readNote: NoteView;
+  noteLeaf: string;
 }
 
 export type WorkerResponse =
