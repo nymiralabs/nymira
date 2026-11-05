@@ -588,10 +588,10 @@ async fn verify_model_passes_with_a_pinned_chain_and_refuses_an_unpinned_one() {
     assert!(e.contains("chain_untrusted"), "{e}");
 }
 
-/// The policy that ships carries no NVIDIA pins. It must keep loading, and a chat must keep
-/// verifying against the key NVIDIA's service serves, so a merge does not break production.
-#[tokio::test]
-async fn the_shipped_policy_still_loads_and_the_gpu_check_still_passes_with_it() {
+/// The policy that ships (version 4) pins the two NVIDIA intermediates seen in the public key set
+/// on 5 November 2026, and says that no official source was checked for either.
+#[test]
+fn the_shipped_policy_pins_the_two_nvidia_intermediates_and_says_they_are_unverified() {
     let signer: [u8; 32] = hex::decode(include_str!("../pins/policy-signer.pub").trim())
         .unwrap()
         .try_into()
@@ -599,26 +599,31 @@ async fn the_shipped_policy_still_loads_and_the_gpu_check_still_passes_with_it()
     let shipped = Policy::load(
         include_bytes!("../pins/attestation-policy.json"),
         &signer,
-        2,
+        4,
     )
     .expect("signed by the pinned key");
-    assert!(shipped.nvidia_pins.is_empty());
-
-    // The SDK checks the token against the real clock, so the host follows it.
-    let real_now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let pki = Pki::new(LONG, LONG);
-    let mut k = Knobs::new(&pki);
-    k.x5c = None;
-    k.now = real_now;
-    let url = nras_host(Box::new(move |n| answer(&pki, &k, n))).await;
-    let attestor = NearAiAttestor::replaying(shipped, replay())
-        .with_nras(format!("{url}/v3/attest/gpu"), format!("{url}/jwks"));
-    // The Intel collateral is checked at its recorded time inside the replay; only the GPU step
-    // runs live here.
-    verify_model(attestor).await.unwrap();
+    assert_eq!(shipped.version, 4);
+    shipped
+        .require_nvidia_pins()
+        .expect("the policy pins NVIDIA certificates");
+    let pins: Vec<(&str, bool)> = shipped
+        .nvidia_pins
+        .iter()
+        .map(|p| (p.sha256.as_str(), p.official_source_verified))
+        .collect();
+    assert_eq!(
+        pins,
+        [
+            (
+                "38e3daf3cdbd5243bb15dd7993edcdd83a7238cb6745b980f8f3bf0a31a0d343",
+                false
+            ),
+            (
+                "2df8907cf4d6c277b855d407ec178a649930a8e73f7294e8fce66e6ee27c5175",
+                false
+            ),
+        ]
+    );
 }
 
 #[test]

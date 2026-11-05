@@ -330,8 +330,8 @@ fn signed_policy(home: &std::path::Path) -> Result<nymirad::attest::Policy, Stri
             Err("attestation-policy.json lists no deployment".into())
         }
         Ok(policy) => {
-            // Flip to `true` in the release that ships a signed policy with NVIDIA pins: a
-            // policy without them is then refused instead of checked against the JWKS key alone.
+            // The shipped policy (version 4) pins NVIDIA certificates: a policy without them is
+            // refused instead of checked against the JWKS key alone.
             if ENFORCE_NVIDIA_PINS {
                 policy.require_nvidia_pins().map_err(|e| e.to_string())?;
             }
@@ -380,10 +380,10 @@ fn gpu_chain_line(_: &std::path::Path) -> (String, bool) {
 /// Whether a policy with no pinned NVIDIA certificate is refused. Off while the signed policy
 /// that ships has none, so the live chat keeps working.
 #[cfg(not(feature = "mock"))]
-const ENFORCE_NVIDIA_PINS: bool = false;
+const ENFORCE_NVIDIA_PINS: bool = true;
 
 /// Policies older than this are refused.
-const MIN_POLICY_VERSION: u32 = 2;
+const MIN_POLICY_VERSION: u32 = 4;
 
 #[tokio::main]
 async fn main() {
