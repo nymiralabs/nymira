@@ -294,7 +294,7 @@ impl DeploymentVerifier for DeploymentCheck {
             .unwrap_or_else(|e| e.into_inner());
         let ok = matched.iter().any(|i| {
             let d = &self.accepted.deployments[*i];
-            d.compose_hashes.contains(&compose) && d.os_image_hash == os
+            d.accepts_compose(&compose) && d.os_image_hash == os
         });
         if ok {
             Ok(())

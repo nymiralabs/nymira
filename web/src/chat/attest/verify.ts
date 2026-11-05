@@ -20,7 +20,7 @@
 //  - The gateway's TLS certificate: a browser cannot read or pin it.
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import { fromHex, toHex } from '../../crypto/bytes';
-import { STRICT_TCB, type Deployment, type Policy } from './policy';
+import { STRICT_TCB, acceptsCompose, type Deployment, type Policy } from './policy';
 
 /** What a verified quote carries; values are lower-case hex (`QuoteFacts` of nymira-web-wasm). */
 export interface QuoteFacts {
@@ -224,8 +224,7 @@ export async function verifyEvidence(
   }
   if (
     !matched.some(
-      (d) =>
-        d.compose_hashes.includes(runtime.composeHash!) && d.os_image_hash === runtime.osImageHash,
+      (d) => acceptsCompose(d, runtime.composeHash!) && d.os_image_hash === runtime.osImageHash,
     )
   ) {
     fail('deployment_rejected', 'the compose or OS image hash is not in the signed policy');

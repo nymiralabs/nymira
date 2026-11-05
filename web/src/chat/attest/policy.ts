@@ -4,8 +4,17 @@
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { fromHex } from '../../crypto/bytes';
 
+/**
+ * The single `compose_hashes` entry of a `gateway` deployment that accepts any compose hash. NEAR
+ * AI redeploys the gateway often and each deployment changes its compose file, so pinning one
+ * hash breaks chat after every redeploy. Everything else about the entry stays pinned. The
+ * `model` role keeps exact hashes: plaintext prompts are decrypted there.
+ */
+export const ANY_COMPOSE = '*';
+
 export interface Deployment {
   role: 'model' | 'gateway';
+  /** Exact hashes, or `[ANY_COMPOSE]` for a gateway. */
   compose_hashes: string[];
   os_image_hash: string;
   mr_td: string;
@@ -40,6 +49,18 @@ export class PolicyError extends Error {
     super(message);
     this.name = 'PolicyError';
   }
+}
+
+/** Whether `d` takes a VM with this compose hash. */
+export function acceptsCompose(d: Deployment, hash: string): boolean {
+  return isComposeWildcard(d) || d.compose_hashes.includes(hash);
+}
+
+/** A gateway entry that accepts any compose hash; `loadPolicy` refuses the sentinel elsewhere. */
+export function isComposeWildcard(d: Deployment): boolean {
+  return (
+    d.role === 'gateway' && d.compose_hashes.length === 1 && d.compose_hashes[0] === ANY_COMPOSE
+  );
 }
 
 export function signedText(p: Policy): string {
@@ -123,8 +144,10 @@ export function loadPolicy(json: unknown, signerPkHex: string, minVersion: numbe
   }
   for (const d of deployments) {
     const bad =
-      d.compose_hashes.length === 0 ||
-      !d.compose_hashes.every((h) => isHex(h, 32)) ||
+      !(
+        isComposeWildcard(d) ||
+        (d.compose_hashes.length > 0 && d.compose_hashes.every((h) => isHex(h, 32)))
+      ) ||
       !(d.role === 'model' || d.role === 'gateway') ||
       !isHex(d.os_image_hash, 32) ||
       ![d.mr_td, d.rtmr0, d.rtmr1, d.rtmr2].every((v) => isHex(v, 48));
