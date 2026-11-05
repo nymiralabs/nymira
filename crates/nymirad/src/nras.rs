@@ -207,6 +207,14 @@ fn verify_nras_jwt(
     at_secs: u64,
     now: u64,
 ) -> Result<(), VerificationError> {
+    let header_bytes = URL_SAFE_NO_PAD
+        .decode(jwt.split('.').next().unwrap_or_default())
+        .map_err(|_| jwt_failure("invalid_claims"))?;
+    let raw_header: Value =
+        serde_json::from_slice(&header_bytes).map_err(|_| jwt_failure("invalid_claims"))?;
+    if raw_header["alg"].as_str() != Some("ES384") {
+        return Err(jwt_failure("unsupported_algorithm"));
+    }
     let header = decode_header(jwt).map_err(map_jwt_error)?;
     if header.alg != Algorithm::ES384 {
         return Err(jwt_failure("unsupported_algorithm"));

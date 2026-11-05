@@ -61,6 +61,7 @@ struct Case {
     missing_x5c: bool,
     outside_key: bool,
     es256: bool,
+    header_alg: Option<&'static str>,
     claim: Option<(&'static str, Value)>,
 }
 
@@ -149,6 +150,14 @@ async fn run(case: Case) -> Result<ModelIdentity, String> {
         )
         .unwrap()
     };
+    if let Some(alg) = case.header_alg {
+        let (_, body) = jwt.split_once('.').unwrap();
+        jwt = format!(
+            "{}.{}",
+            URL_SAFE_NO_PAD.encode(json!({"alg":alg, "kid":"test"}).to_string()),
+            body
+        );
+    }
     if case.tamper_signature {
         let at = jwt.rfind('.').unwrap() + 1;
         let c = if &jwt[at..at + 1] == "A" { "B" } else { "A" };
@@ -449,3 +458,20 @@ async fn an_expired_pin_does_not_hide_a_valid_renewed_pin() {
     .await
     .unwrap();
 }
+
+refused!(
+    an_unsigned_algorithm_is_named,
+    Case {
+        header_alg: Some("none"),
+        ..Case::default()
+    },
+    "unsupported_algorithm"
+);
+refused!(
+    a_symmetric_algorithm_is_named,
+    Case {
+        header_alg: Some("HS256"),
+        ..Case::default()
+    },
+    "unsupported_algorithm"
+);
