@@ -14,12 +14,21 @@ export interface Deployment {
   rtmr2: string;
 }
 
+/** A pinned NVIDIA certificate: the SHA-256 of its DER form, lower-case hex. */
+export interface NvidiaPin {
+  name: string;
+  sha256: string;
+  official_source_verified: boolean;
+}
+
 export interface Policy {
   version: number;
   attestation_root_pk: string;
   accepted_measurements: string[];
   deployments: Deployment[];
   accepted_tcb_statuses: string[];
+  /** Absent or empty in a policy signed before the NVIDIA chain check existed. */
+  nvidia_pins?: NvidiaPin[];
   signature: string;
 }
 
@@ -47,14 +56,20 @@ export function signedText(p: Policy): string {
       ].join(','),
     )
     .join(';');
-  return [
-    'nymira/attestation-policy/v2',
+  const base = [
     p.version,
     p.attestation_root_pk,
     p.accepted_measurements.join(','),
     p.accepted_tcb_statuses.join(','),
     deployments,
-  ].join('|');
+  ];
+  const pins = p.nvidia_pins ?? [];
+  // No pins: the text signed before pins existed. Pins: the v3 text, as `nymirad` signs it.
+  if (pins.length === 0) return ['nymira/attestation-policy/v2', ...base].join('|');
+  const pinned = pins
+    .map((n) => [n.name, n.sha256, n.official_source_verified ? 'true' : 'false'].join(','))
+    .join(';');
+  return ['nymira/attestation-policy/v3', ...base, pinned].join('|');
 }
 
 const isHex = (v: unknown, bytes: number): boolean =>
@@ -96,6 +111,15 @@ export function loadPolicy(json: unknown, signerPkHex: string, minVersion: numbe
     policy.accepted_tcb_statuses.length === 0
   ) {
     throw new PolicyError('the policy accepts no measurement or deployment');
+  }
+  for (const n of policy.nvidia_pins ?? []) {
+    const bad =
+      typeof n.name !== 'string' ||
+      n.name.length === 0 ||
+      /[,;|]/.test(n.name) ||
+      !isHex(n.sha256, 32) ||
+      typeof n.official_source_verified !== 'boolean';
+    if (bad) throw new PolicyError('the policy lists an NVIDIA pin with a malformed value');
   }
   for (const d of deployments) {
     const bad =
