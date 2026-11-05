@@ -145,6 +145,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
+    # Normally under a minute; a stalled install is cut off instead of waiting six hours.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup show active-toolchain
@@ -159,9 +161,26 @@ jobs:
         run: web-testkit/build-codec.sh
       - name: Install dependencies and the browser
         working-directory: web-testkit
+        # The browser's system libraries come from the Ubuntu mirror, which stalls now and then (see
+        # the web job): short apt timeouts, Canonical's mirror on the first and third try, and a try
+        # that hangs is killed after 5 minutes together with any apt or dpkg process it left.
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::http::Pipeline-Depth "0";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          sudo cp /etc/apt/apt-mirrors.txt /tmp/apt-mirrors.runner
+          for try in 1 2 3; do
+            if [ "$try" = 2 ]; then
+              sudo cp /tmp/apt-mirrors.runner /etc/apt/apt-mirrors.txt
+            else
+              echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
+            timeout 300 npx playwright install --with-deps chromium && exit 0
+            echo "browser install attempt $try failed or timed out" >&2
+            sudo pkill -9 -f 'apt-get|dpkg' || true
+            sudo dpkg --configure -a || true
+          done
+          exit 1
       - name: Self-tests
         working-directory: web-testkit
         run: npm test
