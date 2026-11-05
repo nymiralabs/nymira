@@ -386,6 +386,15 @@ impl NearAiAttestor {
         }
     }
 
+    /// The client for NVIDIA's service when no proxy is in play: no redirect, a timeout.
+    fn plain() -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default()
+    }
+
     fn proxied(socks_url: Option<&str>) -> Result<Option<reqwest::Client>, String> {
         let Some(url) = socks_url else {
             return Ok(None);
@@ -420,14 +429,14 @@ impl Attestor for NearAiAttestor {
         // A policy with pinned NVIDIA certificates gets the chain check. One without keeps the
         // check against the JWKS key, so a build does not break on a policy signed before pins.
         let nras_live: Box<dyn GpuEvidenceVerifier> = if self.policy.nvidia_pins.is_empty() {
-            let client = http.clone().unwrap_or_default();
+            let client = http.clone().unwrap_or_else(Self::plain);
             Box::new(
                 NrasGpuEvidenceVerifier::with_client(client, &self.nras_url)
                     .with_jwks_url(&self.nras_jwks_url),
             )
         } else {
             Box::new(NrasChain::new(
-                http.clone().unwrap_or_default(),
+                http.clone().unwrap_or_else(Self::plain),
                 &self.nras_url,
                 &self.nras_jwks_url,
                 &self.policy.nvidia_pins,
