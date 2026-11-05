@@ -249,6 +249,24 @@ of those proves nothing. Copies to make (each is a human task):
 
 If the fingerprint here and one of those copies differ, treat the site as compromised.
 
+### Published copies
+
+- **Sigstore Rekor, web 0.1.2 (testnet).** Log index 3700443670,
+  <https://rekor.sigstore.dev/api/v1/log/entries/108e9186e8c5677aef967761d17deed617441a7bb0254a666c6400d91c71e036de173f3e7d17186e>.
+  The entry holds the SHA-256 of the four-line text below (`2aae510b406c3bcc77c2b09a5535f1afa5997c9531a7eaa317aba9739bb3468d`, newline after each line) and a signature by a throwaway
+  P-256 key made for this entry and then deleted. It is not the release key: Rekor's `hashedrekord`
+  type does not accept minisign's prehashed signatures. The entry therefore proves that this text
+  existed on that date, not who wrote it. Check that the hash of the text below matches the entry's
+  `data.hash`, and that the text matches the signed manifest and the key in `web/pins/release-signing.pub`.
+
+  ```
+  nymira web release testnet 0.1.2
+  bundle_hash 3ee5ccb57cdaf2a1fa58cd914b6806909eac98c4dd20c013f6e0af5c926e045f
+  header_set_hash 0a09ba64fb8a576c119a313c52b3ba78fe426454083cfae085cd43b0212e2eb8
+  release_key RWRNeU3zahdMk2rmQPahPnpzK1uTMiD3Jv8PaJqgRpAfSQMfROKKxhkV (minisign key id 934C176AF34D794D)
+  ```
+
+
 ## The `nymirad` release
 
 `nymirad` is signed with the same release key as the web manifest (minisign key ID
