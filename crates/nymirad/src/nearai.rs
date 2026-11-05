@@ -326,7 +326,19 @@ pub struct Replay {
     pub nonce_gateway: String,
 }
 
+/// Where the two NRAS calls go.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NrasMode {
+    /// Through the operator's relay, on a Tor circuit of its own. This is the default. While the
+    /// policy pins no NVIDIA certificate the relay is not used: nothing would check its answer,
+    /// so the calls go to NVIDIA through the proxy as they always did.
+    Relay { operator_url: String },
+    /// `--nras-direct`: straight to NVIDIA, without Tor. NVIDIA sees the user's address.
+    Direct,
+}
+
 pub struct NearAiAttestor {
+    mode: NrasMode,
     policy: Policy,
     pccs_url: String,
     nras_url: String,
@@ -334,6 +346,75 @@ pub struct NearAiAttestor {
     /// The time the GPU certificate chain is checked at.
     clock: Arc<dyn Clock>,
     replay: Option<Replay>,
+}
+
+/// What `status` says about where the GPU evidence goes.
+pub fn nras_mode_line(policy: &Policy, direct: bool) -> String {
+    match (direct, policy.nvidia_pins.is_empty()) {
+        (true, _) => "GPU evidence: --nras-direct is ON. NVIDIA's attestation service sees your IP address and the time of every GPU check, and Tor is not used for it.".into(),
+        (false, false) => "GPU evidence: through the operator relay, on its own Tor circuit. The operator sees that some client asked for a GPU check at some time, and your client checks the verdict.".into(),
+        (false, true) => "GPU evidence: sent to NVIDIA through Tor. The operator relay stays off until the signed policy pins NVIDIA certificates; --nras-direct would send it without Tor.".into(),
+    }
+}
+
+/// The file `serve` leaves for `status`: the mode of the running process and its pid.
+const MODE_FILE: &str = "nras-mode";
+
+/// Records that this process serves with `--nras-direct` (or without). Called once the port is
+/// bound. A failure is an error: `status` must not guess.
+pub fn save_mode(home: &std::path::Path, direct: bool) -> std::io::Result<()> {
+    let mode = if direct { "direct" } else { "relay" };
+    std::fs::write(
+        home.join(MODE_FILE),
+        format!("{mode} {}\n", std::process::id()),
+    )
+}
+
+/// Removes the file if this process wrote it; another serve's file stays.
+pub fn clear_mode(home: &std::path::Path) {
+    let path = home.join(MODE_FILE);
+    let ours = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| t.split_whitespace().nth(1)?.parse::<u32>().ok())
+        .is_some_and(|pid| pid == std::process::id());
+    if ours {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The mode of the running `serve`: `Ok(Some(true))` for `--nras-direct`, `Ok(None)` when no
+/// file exists (no serve has run, or it exited). An error when the file is unreadable, is not
+/// in the expected form, or names a process that is gone: then nobody knows the mode, and
+/// `status` says so instead of saying `relay`.
+pub fn read_mode(home: &std::path::Path) -> Result<Option<bool>, String> {
+    let path = home.join(MODE_FILE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let bad = || format!("{} is not in the expected form", path.display());
+    let mut words = text.split_whitespace();
+    let direct = match words.next() {
+        Some("direct") => true,
+        Some("relay") => false,
+        _ => return Err(bad()),
+    };
+    let pid: i32 = words.next().and_then(|w| w.parse().ok()).ok_or_else(bad)?;
+    if words.next().is_some() || pid <= 0 {
+        return Err(bad());
+    }
+    // SAFETY: signal 0 only checks that the process exists.
+    let alive = unsafe { libc::kill(pid, 0) } == 0
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    if alive {
+        Ok(Some(direct))
+    } else {
+        Err(format!(
+            "{} is stale: the serve process {pid} is gone. Start serve again, or remove the file",
+            path.display()
+        ))
+    }
 }
 
 /// What `status` says about the GPU check: whether the policy pins NVIDIA certificates.
@@ -360,6 +441,9 @@ impl NearAiAttestor {
             pccs_url: DEFAULT_INTEL_PCCS_URL.into(),
             nras_url: DEFAULT_NVIDIA_NRAS_URL.into(),
             nras_jwks_url: crate::nras::JWKS_URL.into(),
+            mode: NrasMode::Relay {
+                operator_url: String::new(),
+            },
             clock: Arc::new(SystemClock),
             replay: None,
         }
@@ -369,6 +453,11 @@ impl NearAiAttestor {
     pub fn with_nras(mut self, url: impl Into<String>, jwks_url: impl Into<String>) -> Self {
         self.nras_url = url.into();
         self.nras_jwks_url = jwks_url.into();
+        self
+    }
+
+    pub fn with_nras_mode(mut self, mode: NrasMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -393,6 +482,57 @@ impl NearAiAttestor {
             .timeout(std::time::Duration::from_secs(60))
             .build()
             .unwrap_or_default()
+    }
+
+    /// The GPU check for this run: where its two calls go and what checks the answer.
+    fn gpu_verifier(
+        &self,
+        proxied: &Option<reqwest::Client>,
+        socks_url: Option<&str>,
+    ) -> Result<Box<dyn GpuEvidenceVerifier>, String> {
+        let pinned = !self.policy.nvidia_pins.is_empty();
+        let client = |url: Option<&str>| Self::proxied(url).map(|c| c.unwrap_or_else(Self::plain));
+        let (client, url, jwks_url) = match &self.mode {
+            NrasMode::Direct => (
+                // No proxy: this is what `--nras-direct` asks for.
+                client(None)?,
+                self.nras_url.clone(),
+                self.nras_jwks_url.clone(),
+            ),
+            NrasMode::Relay { operator_url } if pinned => {
+                if operator_url.is_empty() {
+                    return Err("no operator URL for the GPU relay".into());
+                }
+                // The relay call gets a circuit of its own: not the lease's, and not the one the
+                // model's report was fetched on.
+                let own =
+                    socks_url.and_then(|u| crate::net::with_identity(u, &crate::net::identity()));
+                let base = operator_url.trim_end_matches('/');
+                (
+                    client(own.as_deref())?,
+                    format!("{base}/v1/nras/attest"),
+                    format!("{base}/v1/nras/jwks"),
+                )
+            }
+            // Nothing would check a relay's answer: keep the check against NVIDIA's own key,
+            // fetched through the proxy.
+            NrasMode::Relay { .. } => (
+                proxied.clone().unwrap_or_else(Self::plain),
+                self.nras_url.clone(),
+                self.nras_jwks_url.clone(),
+            ),
+        };
+        Ok(if pinned {
+            Box::new(NrasChain::new(
+                client,
+                url,
+                jwks_url,
+                &self.policy.nvidia_pins,
+                self.clock.clone(),
+            ))
+        } else {
+            Box::new(NrasGpuEvidenceVerifier::with_client(client, url).with_jwks_url(jwks_url))
+        })
     }
 
     fn proxied(socks_url: Option<&str>) -> Result<Option<reqwest::Client>, String> {
@@ -428,21 +568,7 @@ impl Attestor for NearAiAttestor {
         };
         // A policy with pinned NVIDIA certificates gets the chain check. One without keeps the
         // check against the JWKS key, so a build does not break on a policy signed before pins.
-        let nras_live: Box<dyn GpuEvidenceVerifier> = if self.policy.nvidia_pins.is_empty() {
-            let client = http.clone().unwrap_or_else(Self::plain);
-            Box::new(
-                NrasGpuEvidenceVerifier::with_client(client, &self.nras_url)
-                    .with_jwks_url(&self.nras_jwks_url),
-            )
-        } else {
-            Box::new(NrasChain::new(
-                http.clone().unwrap_or_else(Self::plain),
-                &self.nras_url,
-                &self.nras_jwks_url,
-                &self.policy.nvidia_pins,
-                self.clock.clone(),
-            ))
-        };
+        let nras_live = self.gpu_verifier(&http, ask.socks_url)?;
         let (collateral, collateral_gateway, nras): (_, _, &dyn GpuEvidenceVerifier) =
             match &self.replay {
                 Some(r) => (
