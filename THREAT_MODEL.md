@@ -69,6 +69,18 @@ Restoring with the key or passphrase continues on the same note from the state t
 
 On the operator's emergency notice `nymirad` stops opening leases and suggests an exit for each open note. It does not exit by itself because of the notice. It reads the notice from `/v1/status` before each lease and every few minutes while it runs, so a notice can reach it late.
 
+## Budget notes for agents
+
+A budget note has your own account as its payout account, fixed at deposit. The most a compromised agent can do with its token is spend that note on inference; it cannot withdraw it anywhere but back to you. The ceiling is the note's balance. The vault matching the client's pins is what that rests on, and the team can still update the vault code.
+
+What is enforced by `nymirad` on your machine, not by the chain: an agent token reaches only chat and models; it draws only on its own note and your own token never picks a budget note; a disabled token is refused on its next request; and with no signed policy loaded every agent request is refused with 402 `policy_missing` before anything leaves the machine. These rely on the machine that runs `nymirad`.
+
+- The agent socket's peer user ID check is the only OS-user check. Loopback TCP has none: a `tcp` token is a bearer secret for any local process that can read it.
+- An agent that runs as your own OS user can read your owner token and the registry. Run it against its own `nymirad` instance with its own state directory, port and owner token that holds only its budget note.
+- A forward over SSH puts the agent host's traffic on your loopback, so the agent host can send requests with the token it holds. It holds no credential for your machine when you start the forward from your side.
+- Closing a budget note shows its note ID and total spend next to your named payout account, so the agent's total becomes public at the end.
+- The registry that marks budget notes is part of the encrypted state backup. A restore from a notes-only backup (the copy written at deposit time) does not carry it, and the restored budget note then counts as an ordinary note until the registry is put back.
+
 ## What the other parties see
 
 - **The web hosts (Cloudflare Pages and the GitHub Pages mirror).** They see each visitor's IP address and which files were asked for, and they decide which code a visitor gets. A compromised host could serve a different app. `nymirad verify-web` compares both hosts with the signed manifest of the current release (0.1.2) over Tor and directly; its key and the two host names are compiled in, and it passed against both hosts on 5 November 2026 (Cloudflare adds one header it prints as an accepted note). It catches a change only if the user runs it, and not a host that serves different content to different clients. The manifest hashes and the release key are in the repository and the README, which a thief with the GitHub, Cloudflare and domain accounts could change; one public Sigstore Rekor entry holds the hash of a statement with the bundle hash and the key (see `web/INTEGRITY.md`), but it is not signed by the release key. No outside party has rebuilt the bundle.

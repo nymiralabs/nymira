@@ -29,6 +29,7 @@ use zkapi_types::Felt252;
 pub mod close;
 pub mod watch;
 
+use crate::agents::Scope;
 use crate::attest::{Attestor, ModelIdentity, ReportRequest, Trust};
 use crate::e2ee::{self, ClientKeys};
 use crate::lease::{self, Attempt, Lease, LeaseClient, LeaseError, Pinned};
@@ -81,10 +82,12 @@ pub struct GatewayConfig {
     pub backup: Option<crate::backup::Target>,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct ChatOptions {
     /// `X-Nymira-Max-Lease-Usd`: 0.5 or more opens the large class.
     pub max_lease_usd: Option<f64>,
+    /// Which notes this request may draw on. The HTTP front door sets it from the token.
+    pub scope: Scope,
 }
 
 struct Exchange {
@@ -371,6 +374,7 @@ impl Gateway {
         &self,
         bound: u128,
         busy: &[String],
+        scope: &Scope,
     ) -> Result<(NoteEntry, Wallet), ApiError> {
         let notes = self
             .notes
@@ -379,12 +383,18 @@ impl Gateway {
         let now = self.clock.now_secs();
         let accepted: Vec<_> = notes
             .into_iter()
-            .filter(|n| n.status == NoteStatus::Accepted && n.note_id.is_some())
+            .filter(|n| {
+                n.status == NoteStatus::Accepted
+                    && n.note_id.is_some()
+                    && scope.allows(&n.commitment)
+            })
             .collect();
         if accepted.is_empty() {
-            return Err(ApiError::no_funds(
-                "no accepted note: deposit one with `nymirad deposit` first",
-            ));
+            return Err(ApiError::no_funds(if scope.is_agent() {
+                "the budget note is not funded yet"
+            } else {
+                "no accepted note: deposit one with `nymirad deposit` first"
+            }));
         }
         let mut reasons = Vec::new();
         for entry in accepted {
@@ -600,7 +610,7 @@ impl Gateway {
             .map_err(|e| net_error("operator_unreachable", e))?;
         self.prewarm(&identity).await;
         let lease_client = LeaseClient::new(http.clone(), &self.cfg.operator_url);
-        let (entry, wallet) = self.pick_note(bound, &busy).await?;
+        let (entry, wallet) = self.pick_note(bound, &busy, &opts.scope).await?;
         let (note_id, note_key) = (entry.note_id.expect("picked"), entry.commitment.clone());
         let wallet = Mutex::new(wallet);
         let seen: std::sync::Mutex<Option<Seen>> = std::sync::Mutex::new(None);
@@ -755,7 +765,10 @@ impl Gateway {
             let sessions = self.sessions.lock().await;
             if let Some(s) = sessions.values().find(|s| {
                 let bound: u128 = s.record.bound_class.parse().unwrap_or(0);
-                !s.retiring && Some(bound) == want && s.spent_micro + s.reserved_micro < bound / 2
+                !s.retiring
+                    && Some(bound) == want
+                    && s.spent_micro + s.reserved_micro < bound / 2
+                    && opts.scope.allows(&s.note_key)
             }) {
                 return Ok(s.note_key.clone());
             }
@@ -1183,7 +1196,14 @@ impl Gateway {
             ),
             ..Default::default()
         };
-        for name in [crate::exits::FILE, crate::records::FILE, "config.json"] {
+        // agents.json holds only token hashes; a restore without it would turn budget notes
+        // into ordinary ones.
+        for name in [
+            crate::exits::FILE,
+            crate::records::FILE,
+            crate::agents::FILE,
+            "config.json",
+        ] {
             state.add_file(&self.cfg.home, name);
         }
         crate::backup::write_backups(target, &state.to_bytes()?, STATE_FILE)
@@ -1425,6 +1445,7 @@ async fn next_chunk(mut st: StreamState) -> Option<(Result<Bytes, std::io::Error
 
 pub async fn chat_handler(
     State(gw): State<Arc<Gateway>>,
+    axum::Extension(scope): axum::Extension<Scope>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -1437,6 +1458,7 @@ pub async fn chat_handler(
             .get("x-nymira-max-lease-usd")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse().ok()),
+        scope,
     };
     match gw.chat(request, opts).await {
         Err(e) => e.into_response(),

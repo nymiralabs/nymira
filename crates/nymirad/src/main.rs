@@ -8,6 +8,7 @@ use std::sync::Arc;
 use ed25519_dalek::SigningKey;
 use nymira_operator::clock::{Clock, SystemClock};
 use nymira_operator::store::Store;
+use nymirad::agents::{self, Registry};
 use nymirad::config::Config;
 use nymirad::deposit::{Confirm, Ctx, Summary};
 use nymirad::gateway::{Gateway, GatewayConfig};
@@ -54,6 +55,13 @@ commands:
   verify-web [--socks HOST:PORT]    checks the web hosts against the signed manifest, over Tor and (after a yes) directly
   deposit --key-file FILE --amount BASE_UNITS [--payout ACCOUNT]
   deposit --source list|ethereum-usdc|base-usdc --amount BASE_UNITS --payout ACCOUNT --refund SOURCE_WALLET [--backup-key-file FILE]
+  agent create --name NAME --transport unix|tcp --key-file FILE --amount BASE_UNITS
+               [--agent-user USER [--group GROUP] --token-file PATH | --token-file PATH]
+      a budget note for one agent: funded like any deposit, paid out to your own account,
+      with a nyma_ token. unix: the agent runs as USER and uses the agent socket; the token
+      file is made 0640 in GROUP. tcp: loopback port 8788, directly or through an SSH forward
+  agent disable --name NAME         the next request on its token gets 401 token_disabled
+  agent list
   recover --intents COMMITMENT       resumes a saved funding attempt after a new direct-access confirmation
   recover --key-file FILE           finds notes again after a crash
   close --note ID [--delay SECS] [--family NAME] [--via-operator]
@@ -422,9 +430,35 @@ async fn main() {
         _ => PassphraseSource::Terminal,
     };
     let mode = Mode::from_env().unwrap_or_else(|e| die(e));
-    let Some(command) = (!args.is_empty()).then(|| args.remove(0)) else {
+    let Some(mut command) = (!args.is_empty()).then(|| args.remove(0)) else {
         die(USAGE)
     };
+    // `agent create` is a deposit that also registers the agent; the rest only edit the registry.
+    let mut agent_spec = None;
+    if command == "agent" {
+        let registry = Registry::at(&home);
+        match (!args.is_empty()).then(|| args.remove(0)).as_deref() {
+            Some("create") => {
+                if args.iter().any(|a| a == "--source") {
+                    die("a budget note is funded with NEAR USDC only; Intents funding is not offered for it");
+                }
+                agent_spec = Some(agent_spec_from(&home, &mut args));
+                command = "deposit".into();
+            }
+            Some("disable") => {
+                let name = flag(&mut args, "--name").unwrap_or_else(|| die(USAGE));
+                registry.disable(&name).unwrap_or_else(|e| die(e));
+                println!("Agent {name} is disabled: its next request gets 401 token_disabled.");
+                return;
+            }
+            Some("list") => {
+                let book = registry.load().unwrap_or_else(|e| die(e));
+                println!("{}", agents::list_lines(&book).join("\n"));
+                return;
+            }
+            _ => die(USAGE),
+        }
+    }
     if command == "deposit" {
         eprintln!("Terms of use: run `nymirad terms`.");
     }
@@ -558,6 +592,8 @@ async fn main() {
             }
             let gateway =
                 build_gateway(&cfg, &home, mode, &source, clock.clone(), nras_direct).await;
+            let token = Arc::new(token);
+            let registry = Registry::at(&home);
             if let Some(gw) = &gateway {
                 let listener = nymirad::ownersock::bind(&home).unwrap_or_else(|e| die(e));
                 println!(
@@ -565,11 +601,42 @@ async fn main() {
                     nymirad::ownersock::socket_path(&home).display()
                 );
                 tokio::spawn(nymirad::ownersock::serve(listener, gw.clone()));
+                let book = registry.load().unwrap_or_else(|e| die(e));
+                if book
+                    .agents
+                    .iter()
+                    .any(|a| a.transport == agents::Transport::Unix)
+                {
+                    let dir = cfg
+                        .agent_socket_dir
+                        .clone()
+                        .unwrap_or_else(nymirad::agentsock::default_dir);
+                    let gid = book.socket_group.as_deref().map(|g| {
+                        agents::group_id(g).unwrap_or_else(|| die(format!("no local group {g}")))
+                    });
+                    let bound = nymirad::agentsock::bind(&dir, gid).unwrap_or_else(|e| die(e));
+                    println!(
+                        "agent socket: {}",
+                        dir.join(nymirad::agentsock::SOCKET).display()
+                    );
+                    let app = guard::router_for(
+                        token.clone(),
+                        Some(gw.clone()),
+                        registry.clone(),
+                        guard::Side::AgentSocket,
+                    );
+                    let listener = nymirad::agentsock::AgentListener::new(
+                        bound,
+                        registry.clone(),
+                        nymirad::agentsock::socket_uid(),
+                    );
+                    tokio::spawn(nymirad::agentsock::serve(listener, app));
+                }
             }
             // The mode file is written once the port is bound, so a second `serve` that cannot
             // bind leaves the first one's file alone; it is removed when this one stops.
             let mode_home = home.clone();
-            let served = guard::serve(Arc::new(token), gateway, guard::PORT, move || {
+            let served = guard::serve_with(token, gateway, registry, guard::PORT, move || {
                 nymirad::nearai::save_mode(&mode_home, nras_direct)
             })
             .await;
@@ -631,12 +698,14 @@ async fn main() {
                     ),
                     _ => None,
                 };
+                let book = Registry::at(&home).load().unwrap_or_else(|e| die(e));
                 println!(
                     "{}",
-                    status::render(
+                    status::render_with(
                         &format!("{}\n{}", transport.status_line(), gpu.0),
                         operator.as_ref(),
                         &notes.list().unwrap_or_else(|e| die(e)),
+                        &book.agents,
                         &tripwire,
                         &board.view().await,
                         clock.now_secs(),
@@ -758,7 +827,45 @@ async fn main() {
             }
             let amount = deposit_amount.unwrap_or_else(|| die(USAGE));
             let payout = flag(&mut args, "--payout");
-            match ctx.deposit(amount, payout.as_deref(), &Terminal).await {
+            let deposited = match &agent_spec {
+                None => ctx.deposit(amount, payout.as_deref(), &Terminal).await,
+                Some(spec) => {
+                    if payout.is_some() {
+                        die("a budget note pays out to your own account; --payout is not accepted");
+                    }
+                    let fee = ctx.pins.config["note_fee"]
+                        .as_str()
+                        .and_then(|f| f.parse().ok())
+                        .unwrap_or(0);
+                    println!(
+                        "{}\n{}",
+                        agents::cap_hint(fee),
+                        agents::transport_note(spec.transport)
+                    );
+                    let (registry, owner, now) = (
+                        Registry::at(&home),
+                        ctx.sender.clone(),
+                        ctx.clock.now_secs(),
+                    );
+                    let told = std::sync::Mutex::new(Vec::new());
+                    let register = |commitment: &str| {
+                        let made = spec.register(&registry, commitment, &owner, now)?;
+                        *told.lock().unwrap_or_else(|e| e.into_inner()) = made.notes;
+                        Ok(())
+                    };
+                    let done = ctx
+                        .deposit_with(amount, Some(&owner), &Terminal, Some(&register))
+                        .await;
+                    for line in told.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+                        println!("{line}");
+                    }
+                    if done.is_ok() {
+                        println!("Agent {} is registered. Until you load a signed policy, every request on its token gets 402 policy_missing.", spec.name);
+                    }
+                    done
+                }
+            };
+            match deposited {
                 Ok(a) => {
                     for w in &a.warnings {
                         eprintln!("warning: {w}");
@@ -772,6 +879,62 @@ async fn main() {
             owner_command(&home, &command, &mut args).await
         }
         _ => die(USAGE),
+    }
+}
+
+/// The options of `agent create`.
+fn agent_spec_from(home: &std::path::Path, args: &mut Vec<String>) -> agents::Spec {
+    let name = flag(args, "--name").unwrap_or_else(|| die(USAGE));
+    if !agents::valid_name(&name) {
+        die("--name takes 1 to 32 characters of a-z, 0-9, - and _");
+    }
+    let transport = flag(args, "--transport")
+        .and_then(|t| agents::Transport::parse(&t))
+        .unwrap_or_else(|| die("--transport is unix or tcp"));
+    match transport {
+        agents::Transport::Tcp => agents::Spec {
+            transport,
+            token_file: flag(args, "--token-file")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("agents").join(format!("{name}.token"))),
+            name,
+            uid: None,
+            group: None,
+            gid: None,
+        },
+        agents::Transport::Unix => {
+            let user = flag(args, "--agent-user").unwrap_or_else(|| {
+                die("--agent-user NAME: the OS user the agent runs as (a unix token is for another user)")
+            });
+            let (uid, primary) = agents::user_ids(&user)
+                .unwrap_or_else(|| die(format!("no local user named {user}")));
+            // SAFETY: geteuid has no preconditions.
+            if uid == unsafe { libc::geteuid() } {
+                die("an agent that runs as your own OS user can read your owner token. Run it against a dedicated nymirad instance (its own --home, port and owner token) that holds only its budget note");
+            }
+            let (group, gid) = match flag(args, "--group") {
+                Some(g) => {
+                    let gid = agents::group_id(&g)
+                        .unwrap_or_else(|| die(format!("no local group named {g}")));
+                    (g, gid)
+                }
+                None => (
+                    agents::group_name(primary).unwrap_or_else(|| die("the user has no group")),
+                    primary,
+                ),
+            };
+            let token_file = flag(args, "--token-file").map(PathBuf::from).unwrap_or_else(|| {
+                die("--token-file PATH: a place the agent user can reach, outside the state directory")
+            });
+            agents::Spec {
+                name,
+                transport,
+                uid: Some(uid),
+                group: Some(group),
+                gid: Some(gid),
+                token_file,
+            }
+        }
     }
 }
 

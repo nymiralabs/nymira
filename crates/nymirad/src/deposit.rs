@@ -60,7 +60,13 @@ pub enum DepositError {
     Backup(#[from] backup::BackupError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("budget note setup: {0}")]
+    Budget(String),
 }
+
+/// Runs with the new note's commitment after its secret is stored and before the transfer is
+/// signed. An error stops the deposit.
+pub type BeforeTransfer<'a> = &'a (dyn Fn(&str) -> Result<(), String> + Sync);
 
 impl From<TxError> for DepositError {
     fn from(e: TxError) -> Self {
@@ -241,6 +247,18 @@ impl Ctx {
         payout: Option<&str>,
         confirm: &dyn Confirm,
     ) -> Result<Accepted, DepositError> {
+        self.deposit_with(denomination, payout, confirm, None).await
+    }
+
+    /// `deposit`, with a step that runs before the transfer (a budget note registers its agent
+    /// there, so the note is never an ordinary one).
+    pub async fn deposit_with(
+        &self,
+        denomination: u128,
+        payout: Option<&str>,
+        confirm: &dyn Confirm,
+        before_transfer: Option<BeforeTransfer<'_>>,
+    ) -> Result<Accepted, DepositError> {
         self.tripwire
             .check_against(&self.pins, &self.rpc)
             .await
@@ -316,6 +334,9 @@ impl Ctx {
             tx_hash: None,
             created_at: self.clock.now_secs(),
         })?;
+        if let Some(step) = before_transfer {
+            step(&commitment_hex).map_err(DepositError::Budget)?;
+        }
 
         let msg = json!({ "commitment": commitment_hex, "withdraw_to": payout }).to_string();
         let args = json!({ "receiver_id": vault, "amount": total.to_string(), "msg": msg });

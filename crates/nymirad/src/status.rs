@@ -2,6 +2,7 @@
 
 use serde_json::Value;
 
+use crate::agents::AgentEntry;
 use crate::pins::Tripwire;
 use crate::quotes::{self, View};
 use crate::rpc::{client, send_error, RpcError, Transport};
@@ -108,6 +109,38 @@ pub fn render(
     now_secs: u64,
     now_figure: Option<&NowFigure>,
 ) -> String {
+    render_with(
+        tor_line,
+        operator,
+        notes,
+        &[],
+        tripwire,
+        quotes,
+        now_secs,
+        now_figure,
+    )
+}
+
+/// The first line of `line` gets `mark` at its end.
+fn mark_first_line(line: String, mark: &str) -> String {
+    match line.split_once('\n') {
+        Some((first, rest)) => format!("{first}{mark}\n{rest}"),
+        None => format!("{line}{mark}"),
+    }
+}
+
+/// `render`, with the agents' budget notes marked on their note lines.
+#[allow(clippy::too_many_arguments)]
+pub fn render_with(
+    tor_line: &str,
+    operator: Result<&Value, &RpcError>,
+    notes: &[NoteEntry],
+    agents: &[AgentEntry],
+    tripwire: &Tripwire,
+    quotes: &View,
+    now_secs: u64,
+    now_figure: Option<&NowFigure>,
+) -> String {
     let mut out = Vec::new();
     out.push(tor_line.to_string());
     match operator {
@@ -166,6 +199,19 @@ pub fn render(
                     .map_or_else(|| n.commitment.clone(), |id| id.to_string()),
                 n.status
             ),
+        };
+        let line = match agents.iter().find(|a| a.note == n.commitment) {
+            Some(a) => mark_first_line(
+                line,
+                &format!(
+                    " [budget note of agent {}: token {}, policy {}]",
+                    a.name,
+                    if a.disabled { "disabled" } else { "active" },
+                    a.policy_version
+                        .map_or("missing".to_string(), |v| format!("v{v}"))
+                ),
+            ),
+            None => line,
         };
         out.push(line);
     }
@@ -270,6 +316,60 @@ mod tests {
         assert!(line(5).contains("Exiting"), "{}", line(5));
         // Nothing in the status comes from a secret.
         assert!(!text.contains(SECRET));
+    }
+
+    #[test]
+    fn a_budget_note_is_marked_with_its_agent_and_the_others_are_not() {
+        use crate::agents::{AgentEntry, Transport};
+        let notes = [
+            note(1, NoteStatus::Accepted, Some(NOW + 30 * DAY)),
+            note(3, NoteStatus::Accepted, Some(NOW + 4 * DAY)),
+        ];
+        let agent = |policy| AgentEntry {
+            name: "cursor".into(),
+            token_hash: "00".into(),
+            note: "0xc0ffee3".into(),
+            owner_account: "alice.test".into(),
+            policy_version: policy,
+            transport: Transport::Tcp,
+            uid: None,
+            disabled: false,
+            created_at: NOW,
+        };
+        let text = |a: &AgentEntry| {
+            super::render_with(
+                "Tor: ready",
+                Ok(&json!({"vault": "v"})),
+                &notes,
+                std::slice::from_ref(a),
+                &Tripwire::default(),
+                &View::Lines(vec![]),
+                NOW,
+                None,
+            )
+        };
+        let text_none = text(&agent(None));
+        let one = text_none
+            .lines()
+            .find(|l| l.starts_with("Note 1:"))
+            .unwrap();
+        assert!(!one.contains("budget note"), "{one}");
+        let three = text_none
+            .lines()
+            .find(|l| l.starts_with("Note 3:"))
+            .unwrap();
+        assert!(
+            three.contains("[budget note of agent cursor: token active, policy missing]"),
+            "{three}"
+        );
+        // The mark sits on the first line; the note's own warning stays below it.
+        assert!(
+            text_none.contains("policy missing]\n  warning: no new lease"),
+            "{text_none}"
+        );
+        let mut disabled = agent(Some(2));
+        disabled.disabled = true;
+        assert!(text(&disabled).contains("token disabled, policy v2]"));
     }
 
     #[test]
