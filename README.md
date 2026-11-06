@@ -116,6 +116,7 @@ nymirad agent create --name cursor --transport tcp --key-file KEY --amount 10000
 nymirad agent create --name worker --transport unix --agent-user agent1 --token-file /srv/agent/worker.token --key-file KEY --amount 1000000
 nymirad agent list
 nymirad agent disable --name cursor
+nymirad agent policy --name cursor --file cursor-policy.signed.json
 ```
 
 `agent create` is the normal deposit plus a registry entry, written before the transfer is signed. On chain the note looks like any other note of its denomination. It prints a reminder that a fresh 1 USDC note each day is the hard way to cap a day's spend: it costs the note fee every day and leaves a daily deposit pattern on your account. The registry (`agents.json` in the state directory, mode 0600) keeps the agent name, a hash of the token, the budget note, your account and the policy version. Tokens are never stored. Agent tokens start with `nyma_`, the owner token with `nymo_`, so a tool can accept only the agent prefix.
@@ -124,7 +125,9 @@ nymirad agent disable --name cursor
 - **One transport per token.** A `unix` token works on the agent socket only and a `tcp` token on loopback port 8788 only. A remote agent reached through an SSH forward gets a `tcp` token.
 - **Routes.** An agent token reaches `POST /v1/chat/completions` and `GET /v1/models` on both listeners and nothing else, and works as an OpenAI API key there. The owner token is not accepted on the agent socket.
 - **Disabling.** `agent disable` takes effect on the next request, which gets 401 `token_disabled`.
-- **No policy, no spending.** Until a signed policy is loaded for the agent, every agent request gets 402 `policy_missing` and nothing reaches the operator. Policy signing is not part of this release of the command.
+- **No policy, no spending.** Until a signed policy is loaded for the agent, every agent request gets 402 `policy_missing` and nothing reaches the operator. A policy that is unsigned, changed after signing, signed by another account or by a function-call key, signed for another agent or note, older than one already seen, or that misses a limit key or has an unknown one counts as no policy.
+- **Signed policy.** `policy.yaml` has `allowed_models`, `max_lease_usd`, `max_call_usd`, `max_daily_usd`, `confirm_above_usd`, `rate_limit_per_min`, `require_tee` (omitted means true) and `allowed_origins` (empty for now; a non-empty list is refused until paying sellers exists). You sign it with your NEAR account (NEP-413) and a full-access key. The signed message is JSON, `{"kind":"nymira-policy","version":N,"policy":"<the yaml text>"}`, and the recipient is `nymirad:<agent name>:<note commitment>`. `agent policy` checks the signature, reads your account's access keys over the configured RPC endpoints to confirm the key is full-access, prints a summary and asks you to type yes. The policy applies from the agent's next request. The YAML is a small subset (one `key: value` per line, plain-word lists, no anchors, tags, merge keys or quotes) and is parsed only after the signature over its exact bytes has verified. The signed file is kept in the state directory (`policy-<agent>.json`, mode 0600) and checked again on every request.
+- **Model allowlist.** A request for a model outside `allowed_models` gets 402 `model_not_allowed` before anything leaves the machine, also on a lease that is already open. `GET /v1/models` lists only the allowed models. The other limits in the policy are loaded and shown but not enforced yet.
 
 ### Another OS user on your machine
 

@@ -37,7 +37,7 @@ commands:
       and --backup-passphrase [--backup-passphrase-file FILE] to use a passphrase of 12 or
       more characters instead of a key pair (the key pair's private key is shown once)
   backup                            writes the backup now (over the owner socket)
-  restore --from DIR_OR_FILE... [--backup-key-file FILE]
+  restore --from DIR_OR_FILE... [--backup-key-file FILE] [--policy-seen NAME=VERSION]...
                                     into an empty --home, from the private key or passphrase
   restore-secret --note ID --secret-file FILE [--payout ACCOUNT]
                                     from a note secret alone: the note can be exited, not spent
@@ -62,6 +62,10 @@ commands:
       file is made 0640 in GROUP. tcp: loopback port 8788, directly or through an SSH forward
   agent disable --name NAME         the next request on its token gets 401 token_disabled
   agent list
+  agent policy --name NAME --file SIGNED_POLICY.json
+      loads a policy signed with your NEAR account (NEP-413, full-access key): checks the
+      signature and the key over several RPC endpoints, shows a summary and asks you to
+      confirm; it applies from the agent's next request
   recover --intents COMMITMENT       resumes a saved funding attempt after a new direct-access confirmation
   recover --key-file FILE           finds notes again after a crash
   close --note ID [--delay SECS] [--family NAME] [--via-operator]
@@ -454,6 +458,10 @@ async fn main() {
             Some("list") => {
                 let book = registry.load().unwrap_or_else(|e| die(e));
                 println!("{}", agents::list_lines(&book).join("\n"));
+                return;
+            }
+            Some("policy") => {
+                policy_load(&home, mode, &registry, &mut args).await;
                 return;
             }
             _ => die(USAGE),
@@ -938,6 +946,51 @@ fn agent_spec_from(home: &std::path::Path, args: &mut Vec<String>) -> agents::Sp
     }
 }
 
+/// `agent policy`: the signed policy file, checked, shown and confirmed.
+async fn policy_load(
+    home: &std::path::Path,
+    mode: Mode,
+    registry: &Registry,
+    args: &mut Vec<String>,
+) {
+    let name = flag(args, "--name").unwrap_or_else(|| die(USAGE));
+    let file = flag(args, "--file").unwrap_or_else(|| die(USAGE));
+    let bytes = std::fs::read(&file).unwrap_or_else(|e| die(format!("{file}: {e}")));
+    let cfg = Config::load(home).unwrap_or_else(|e| die(e));
+    let pinned = pins::compiled(mode);
+    #[cfg(feature = "mock")]
+    let pinned = pinned.or_else(|| pins::demo(home));
+    let pinned = pinned.unwrap_or_else(|| die("no vault is pinned in this build"));
+    let classes: Vec<u128> = pinned.config["bound_classes"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str()?.parse().ok()).collect())
+        .unwrap_or_default();
+    let ctx = nymirad::policy::Context::new(
+        nymira_operator::proxy::ProxyConfig::default()
+            .models
+            .into_iter()
+            .map(|m| m.id)
+            .collect(),
+        &classes,
+    );
+    let transport = connect(&cfg, home, TOR_WAIT).await;
+    let mut rpcs = vec![Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e))];
+    rpcs.extend(second_rpc(&cfg, &transport));
+    if rpcs.len() < 2 {
+        eprintln!("warning: only one RPC endpoint is configured (rpc_url_second); the key is read from that one alone");
+    }
+    let loaded = nymirad::policy::load(registry, &name, &bytes, &ctx, &rpcs, &|summary| {
+        println!("{summary}");
+        Terminal.confirm_text("Type yes to load this policy: ")
+    })
+    .await
+    .unwrap_or_else(|e| die(e));
+    println!(
+        "Policy v{} is in force for agent {name} from its next request.",
+        loaded.version
+    );
+}
+
 fn note_id(args: &mut Vec<String>) -> u32 {
     flag(args, "--note")
         .and_then(|n| n.parse().ok())
@@ -1114,6 +1167,16 @@ fn restore_command(home: &std::path::Path, source: &PassphraseSource, args: &mut
     let passphrase = source.read().unwrap_or_else(|e| die(e));
     let restored =
         backup::restore_into(home, state, &passphrase, ROUNDS).unwrap_or_else(|e| die(e));
+    // A policy version the owner saw after the backup was taken keeps older ones out.
+    while let Some(pair) = flag(args, "--policy-seen") {
+        let (name, version) = pair
+            .split_once('=')
+            .and_then(|(n, v)| Some((n, v.parse::<u32>().ok()?)))
+            .unwrap_or_else(|| die("--policy-seen takes NAME=VERSION"));
+        Registry::at(home)
+            .raise_policy_seen(name, version)
+            .unwrap_or_else(|e| die(e));
+    }
     for (id, status, has_wallet) in &restored.notes {
         println!(
             "Note {}: {:?}{}",

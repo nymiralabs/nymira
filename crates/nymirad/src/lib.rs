@@ -32,6 +32,7 @@ pub mod oneclick;
 pub mod openai;
 pub mod ownersock;
 pub mod pins;
+pub mod policy;
 pub mod quotes;
 pub mod ramdir;
 #[cfg(feature = "mock")]
