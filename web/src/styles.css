@@ -199,3 +199,21 @@ ul.notes li {
 .wallet-frame.active {
   pointer-events: auto;
 }
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.5rem;
+}
+.columns dd {
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+.leases {
+  padding-left: 0;
+  list-style: none;
+}
+.leases li {
+  border-top: 1px solid currentColor;
+  padding: 0.5rem 0;
+}

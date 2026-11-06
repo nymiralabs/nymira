@@ -63,6 +63,8 @@ web/
                                    gate.ts (status nonce, parameters), charge.ts, models.ts,
                                    puzzle.ts, backup-policy.ts, runtime.ts (page wiring),
                                    attest/ (policy, evidence checks, Intel quote, signatures)
+    privacy/                       the set size rule (setsize.ts), cover figures, panel text;
+                                   strings.ts imports ../shared/privacy-strings.json
     ui/                            React screens
     wasm/                          build output of build-wasm.sh (not committed)
   pins/                            executors.json, attestation-policy.json and policy-signer.pub
@@ -156,6 +158,14 @@ The mock profile's reports carry a test quote (`chat/attest/testquote.ts`) so Pl
 `build-wasm.sh` builds five modules: the ceremony-setup wallet core (`zkapi-browser`), the dev-setup one (`zkapi-browser-dev`, mock profile), `near-codec`, `web-checks` (status signature and Intel quote) and `web-checks-test` (a test operator: its state key and signed responses; Node tests only). The unit tests run a real proof with the dev setup (about 10 s).
 
 Profiles with no published setup (`testnet`, `mainnet`) carry `provingKey: null` and `withdrawalKey: null`, and the Chat and Close screens say they are off. Fill both with the setup's key URLs and SHA-256 hashes when the setup is published.
+
+## Privacy panel
+
+The panel opens from the Chat and Notes screens (`ui/Privacy.tsx`). The left column shows the deposit from the record this browser keeps and asks no node for it; the explorer link opens when clicked. The right column lists the operator's view of each lease, with the operator's published retention policy labelled as something the client cannot check.
+
+Each lease record carries a set size, counted in the browser when the lease opens: the note IDs below the leaf count under the proof's root that are `Active` with an expiry at or after the request time, read with `note_records` at the proof's block from each configured RPC endpoint on its own (the lower figure is kept and a difference is shown). The team list is the one pinned in the bundle (`crates/nymira-operator/team-note-ids.json`) plus any IDs the operator lists; the operator's list can only lower N. A record made before the figure existed shows none. The "now" figure applies the same rule at the current final block, with the last operator list a lease stored.
+
+The sentences `nymirad status` also prints are in `shared/privacy-strings.json`, which both programs include; `test/privacy.test.ts` pins its hash against the one in `crates/nymirad/src/strings.rs`. `shared/set-size-cases.json` is run through the Rust rule and this one. Time since the deposit starts at `depositedAt`, the moment the app saw the deposit accepted, so the gap shown can be shorter than the real one. A note without that field (made before it existed) falls back to its creation time, which is earlier than the deposit, so its gap can look longer than it was.
 
 ## Close and exit
 

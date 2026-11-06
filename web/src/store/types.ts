@@ -55,6 +55,8 @@ export interface NoteRecord {
   noteId?: number;
   expiry?: number;
   createdAt: number;
+  /** Unix milliseconds the app saw the deposit accepted. The panel's "time since deposit" starts here. */
+  depositedAt?: number;
   updatedAt: number;
   leave?: LeaveInfo;
   /** What the expiry guard has shown or tried (`leave/guard.ts`). */

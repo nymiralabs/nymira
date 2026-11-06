@@ -1,0 +1,68 @@
+[
+  {
+    "name": "six notes, three on the team",
+    "sets": [[0, 1, 2, 3, 4, 5]],
+    "one_provider": null,
+    "pinned": [0, 1, 2],
+    "operator": [0, 1, 2],
+    "headline": "set size: 3 (external), total 6",
+    "differences": []
+  },
+  {
+    "name": "a pinned ID the operator leaves out does not raise N",
+    "sets": [[0, 1, 2, 3, 4, 5]],
+    "one_provider": null,
+    "pinned": [0, 1, 2],
+    "operator": [0, 1],
+    "headline": "set size: 3 (external), total 6",
+    "differences": ["team IDs only in this release's pinned list: 2"]
+  },
+  {
+    "name": "an extra operator ID lowers N",
+    "sets": [[0, 1, 2, 3, 4, 5]],
+    "one_provider": null,
+    "pinned": [0, 1, 2],
+    "operator": [0, 1, 2, 3],
+    "headline": "set size: 2 (external), total 6",
+    "differences": ["team IDs only in the operator's list: 3"]
+  },
+  {
+    "name": "no operator list leaves the pinned list alone",
+    "sets": [[0, 1, 2, 3, 4, 5]],
+    "one_provider": null,
+    "pinned": [0, 1, 2],
+    "operator": null,
+    "headline": "set size: 3 (external), total 6",
+    "differences": ["the operator's team list could not be read; only the pinned list is removed"]
+  },
+  {
+    "name": "the lower provider wins and the difference is shown",
+    "sets": [
+      [0, 1, 2, 3, 4],
+      [0, 1, 2, 3]
+    ],
+    "one_provider": null,
+    "pinned": [0],
+    "operator": [0],
+    "headline": "set size: 3 (external), total 4",
+    "differences": ["the two RPC providers disagree (set size 4 and 3); the lower one is used"]
+  },
+  {
+    "name": "one provider is said",
+    "sets": [[0, 1, 2, 3, 4, 5]],
+    "one_provider": "no second provider is configured",
+    "pinned": [0, 1, 2],
+    "operator": [0, 1, 2],
+    "headline": "set size: 3 (external), total 6",
+    "differences": ["read from one RPC provider only (no second provider is configured)"]
+  },
+  {
+    "name": "an external set of two",
+    "sets": [[0, 1, 2, 3, 4]],
+    "one_provider": null,
+    "pinned": [0, 1, 2],
+    "operator": [0, 1, 2],
+    "headline": "set size: 2 (external), total 5",
+    "differences": []
+  }
+]

@@ -56,7 +56,13 @@ function Badge({ settled }: { settled: Settled }) {
   );
 }
 
-export function Chat({ vault }: { vault: VaultCheck | null }) {
+export function Chat({
+  vault,
+  onPrivacy,
+}: {
+  vault: VaultCheck | null;
+  onPrivacy: (noteId: string) => void;
+}) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<{ record: NoteRecord; view: NoteView }[]>([]);
   const [prover, setProver] = useState<ProverState>({ status: 'loading' });
@@ -330,6 +336,13 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
                     Chat with this note
                   </button>
                 )}
+                <button
+                  type="button"
+                  data-testid="chat-privacy"
+                  onClick={() => onPrivacy(record.id)}
+                >
+                  Privacy panel
+                </button>
                 {leave.settings.enabled && leaseBlocked(view.expiry, nowSecs()) && (
                   <em data-testid="note-near-expiry">
                     {' '}
@@ -352,6 +365,9 @@ export function Chat({ vault }: { vault: VaultCheck | null }) {
       )}
       {selected && (
         <>
+          <button type="button" data-testid="chat-privacy" onClick={() => onPrivacy(selected)}>
+            Privacy panel
+          </button>
           <div>
             <label>
               Model{' '}
