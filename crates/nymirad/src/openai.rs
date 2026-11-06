@@ -53,6 +53,16 @@ impl ApiError {
         )
     }
 
+    /// The agent's signed policy does not list the requested model.
+    pub fn model_not_allowed() -> Self {
+        Self::new(
+            StatusCode::PAYMENT_REQUIRED,
+            "insufficient_funds",
+            "model_not_allowed",
+            "the owner's policy does not allow this model",
+        )
+    }
+
     /// No note can cover the lease bound.
     pub fn no_funds(reason: impl Into<String>) -> Self {
         Self::new(

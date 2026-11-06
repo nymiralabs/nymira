@@ -304,6 +304,14 @@ impl Gateway {
         self.records.list()
     }
 
+    /// What a signed policy is checked against: the pinned models and the smallest bound class.
+    pub fn policy_context(&self) -> crate::policy::Context {
+        crate::policy::Context::new(
+            self.cfg.models.iter().map(|m| m.id.clone()).collect(),
+            &self.bound_classes(),
+        )
+    }
+
     pub fn models_json(&self) -> Value {
         crate::openai::models(&self.cfg.models)
     }
@@ -1206,6 +1214,12 @@ impl Gateway {
         ] {
             state.add_file(&self.cfg.home, name);
         }
+        // Signed policies travel with their versions in agents.json.
+        if let Ok(book) = crate::agents::Registry::at(&self.cfg.home).load() {
+            for a in &book.agents {
+                state.add_file(&self.cfg.home, &crate::policy::file_name(&a.name));
+            }
+        }
         crate::backup::write_backups(target, &state.to_bytes()?, STATE_FILE)
     }
 
@@ -1453,6 +1467,15 @@ pub async fn chat_handler(
         Ok(v) => v,
         Err(_) => return ApiError::invalid_request("the body is not JSON").into_response(),
     };
+    // A model outside the policy is refused before anything leaves the machine.
+    if let Scope::Agent { allowed_models, .. } = &scope {
+        if !request["model"]
+            .as_str()
+            .is_some_and(|m| allowed_models.iter().any(|a| a == m))
+        {
+            return ApiError::model_not_allowed().into_response();
+        }
+    }
     let opts = ChatOptions {
         max_lease_usd: headers
             .get("x-nymira-max-lease-usd")
@@ -1477,8 +1500,16 @@ pub async fn chat_handler(
     }
 }
 
-pub async fn models_handler(State(gw): State<Arc<Gateway>>) -> axum::Json<Value> {
-    axum::Json(gw.models_json())
+pub async fn models_handler(
+    State(gw): State<Arc<Gateway>>,
+    axum::Extension(scope): axum::Extension<Scope>,
+) -> axum::Json<Value> {
+    let mut list = gw.models_json();
+    if let (Scope::Agent { allowed_models, .. }, Some(data)) = (&scope, list["data"].as_array_mut())
+    {
+        data.retain(|m| allowed_models.iter().any(|a| m["id"] == a.as_str()));
+    }
+    axum::Json(list)
 }
 
 #[cfg(test)]

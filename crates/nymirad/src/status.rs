@@ -331,6 +331,7 @@ mod tests {
             note: "0xc0ffee3".into(),
             owner_account: "alice.test".into(),
             policy_version: policy,
+            policy_seen: 0,
             transport: Transport::Tcp,
             uid: None,
             disabled: false,

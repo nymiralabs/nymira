@@ -51,6 +51,10 @@ pub struct AgentEntry {
     /// The version of the signed policy in force; none until one is loaded.
     #[serde(default)]
     pub policy_version: Option<u32>,
+    /// The highest policy version ever confirmed or restored. A new policy must beat it, so an
+    /// older signed policy cannot be replayed.
+    #[serde(default)]
+    pub policy_seen: u32,
     pub transport: Transport,
     /// The agent's OS user, for a `unix` token.
     #[serde(default)]
@@ -107,8 +111,11 @@ impl Book {
 pub enum Scope {
     /// The owner: every note except the budget notes.
     Owner { budget: Vec<String> },
-    /// An agent: its own budget note and nothing else.
-    Agent { note: String },
+    /// An agent: its own budget note and nothing else, and only the models its policy allows.
+    Agent {
+        note: String,
+        allowed_models: Vec<String>,
+    },
 }
 
 impl Default for Scope {
@@ -121,7 +128,7 @@ impl Scope {
     pub fn allows(&self, commitment: &str) -> bool {
         match self {
             Self::Owner { budget } => !budget.iter().any(|b| b == commitment),
-            Self::Agent { note } => note == commitment,
+            Self::Agent { note, .. } => note == commitment,
         }
     }
 
@@ -141,6 +148,11 @@ impl Registry {
 
     pub fn none() -> Self {
         Self(None)
+    }
+
+    /// The state directory the registry lives in.
+    pub fn home(&self) -> Option<&Path> {
+        self.0.as_deref().and_then(Path::parent)
     }
 
     /// A missing file is an empty book; one that cannot be read or parsed is an error, so a
@@ -191,16 +203,16 @@ impl Registry {
         })
     }
 
-    /// Records the version of the signed policy in force for `name`. The policy loader calls
-    /// this once a signature has been checked; until then every agent request is refused.
-    pub fn set_policy_version(&self, name: &str, version: Option<u32>) -> Result<(), String> {
+    /// After a restore: keeps the higher of the backup's policy version and the one the owner
+    /// last saw, so an older signed policy cannot be loaded again.
+    pub fn raise_policy_seen(&self, name: &str, last_seen: u32) -> Result<(), String> {
         self.update(|b| {
             let a = b
                 .agents
                 .iter_mut()
                 .find(|a| a.name == name)
                 .ok_or_else(|| format!("no agent named {name}"))?;
-            a.policy_version = version;
+            a.policy_seen = a.policy_seen.max(last_seen);
             Ok(())
         })
     }
@@ -261,6 +273,7 @@ impl Spec {
                 note: commitment.to_string(),
                 owner_account: owner_account.to_string(),
                 policy_version: None,
+                policy_seen: 0,
                 transport: self.transport,
                 uid: self.uid,
                 disabled: false,
@@ -410,6 +423,7 @@ mod tests {
             note: note.into(),
             owner_account: "owner.test".into(),
             policy_version: None,
+            policy_seen: 0,
             transport: Transport::Tcp,
             uid: None,
             disabled: false,
@@ -440,6 +454,7 @@ mod tests {
         assert!(owner.allows("0x99") && !owner.allows("0x01") && !owner.allows("0x02"));
         let agent = Scope::Agent {
             note: "0x01".into(),
+            allowed_models: vec![],
         };
         assert!(agent.allows("0x01") && !agent.allows("0x02") && !agent.allows("0x99"));
     }

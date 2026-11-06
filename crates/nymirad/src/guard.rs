@@ -67,6 +67,7 @@ struct Auth {
     owner: Arc<OwnerToken>,
     registry: Registry,
     side: Side,
+    policy: crate::policy::Context,
 }
 
 fn route_listed(table: &[(&str, &str)], method: &str, path: &str) -> bool {
@@ -77,6 +78,7 @@ fn route_listed(table: &[(&str, &str)], method: &str, path: &str) -> bool {
 /// this peer), reach an agent route, and have a signed policy in force.
 #[allow(clippy::result_large_err)]
 fn agent_scope(
+    auth: &Auth,
     book: &Book,
     presented: &str,
     transport: Transport,
@@ -112,15 +114,22 @@ fn agent_scope(
             "the agent token is not accepted on this route",
         ));
     }
-    if agent.policy_version.is_none() {
+    // The stored policy is checked again on every request: an unsigned, altered, replaced or
+    // unconfirmed one is no policy.
+    let policy = auth
+        .registry
+        .home()
+        .and_then(|home| crate::policy::in_force(home, agent, &auth.policy));
+    let Some(policy) = policy else {
         return Err(refuse(
             StatusCode::PAYMENT_REQUIRED,
             "policy_missing",
-            "the owner has not loaded a signed policy for this agent",
+            "the owner has not loaded a valid signed policy for this agent",
         ));
-    }
+    };
     Ok(Scope::Agent {
         note: agent.note.clone(),
+        allowed_models: policy.allowed_models,
     })
 }
 
@@ -154,10 +163,10 @@ fn authorize(auth: &Auth, request: &Request, peer: Option<u32>) -> Result<Scope,
             })
         }
         (Side::Tcp, Some(t)) if t.starts_with(agents::PREFIX) => {
-            agent_scope(&book, t, Transport::Tcp, None, method, path)
+            agent_scope(auth, &book, t, Transport::Tcp, None, method, path)
         }
         (Side::AgentSocket, Some(t)) if t.starts_with(agents::PREFIX) => {
-            agent_scope(&book, t, Transport::Unix, peer, method, path)
+            agent_scope(auth, &book, t, Transport::Unix, peer, method, path)
         }
         (Side::AgentSocket, Some(t)) if t.starts_with(token::PREFIX) => Err(refuse(
             StatusCode::FORBIDDEN,
@@ -269,6 +278,7 @@ pub fn router_for(
     registry: Registry,
     side: Side,
 ) -> Router {
+    let gateway_ctx = gateway.as_ref().map(|gw| gw.policy_context());
     let routes = match gateway {
         Some(gw) => Router::new()
             .route("/v1/chat/completions", post(crate::gateway::chat_handler))
@@ -278,10 +288,22 @@ pub fn router_for(
             .route("/v1/chat/completions", post(not_built))
             .route("/v1/models", get(models)),
     };
+    let policy = match &gateway_ctx {
+        Some(ctx) => ctx.clone(),
+        None => crate::policy::Context::new(
+            nymira_operator::proxy::ProxyConfig::default()
+                .models
+                .into_iter()
+                .map(|m| m.id)
+                .collect(),
+            &[100_000],
+        ),
+    };
     let auth = Auth {
         owner: token,
         registry,
         side,
+        policy,
     };
     let routes = routes.fallback(not_built);
     match side {

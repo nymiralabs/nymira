@@ -4,6 +4,8 @@
 //! Tests that need a second OS user cannot make one in CI. The peer-UID check is exercised with
 //! an injected UID source instead (see `agent_socket_checks_the_peer_on_every_connection`).
 
+#[path = "support/policy.rs"]
+mod policy;
 #[path = "support/socks.rs"]
 mod socks;
 #[path = "support/stack.rs"]
@@ -281,8 +283,8 @@ async fn an_agent_token_reaches_agent_routes_only_and_only_on_its_transport() {
     let (owner, owner_text) = owner_token(home.path());
     let t = tcp_agent(&registry, home.path(), "t", "0x01");
     let u = unix_agent(&registry, home.path(), "u", "0x02", AGENT_UID);
-    registry.set_policy_version("t", Some(1)).unwrap();
-    registry.set_policy_version("u", Some(1)).unwrap();
+    policy::give_policy(&registry, "t", 1);
+    policy::give_policy(&registry, "u", 1);
     let tcp = router_for(owner.clone(), None, registry.clone(), Side::Tcp);
     let sock = router_for(owner, None, registry.clone(), Side::AgentSocket);
 
@@ -372,7 +374,7 @@ async fn agent_requests_on_tcp_pass_the_loopback_checks_and_a_tailnet_peer_is_re
     let registry = Registry::at(home.path());
     let (owner, _) = owner_token(home.path());
     let t = tcp_agent(&registry, home.path(), "t", "0x01");
-    registry.set_policy_version("t", Some(1)).unwrap();
+    policy::give_policy(&registry, "t", 1);
     let app = router_for(owner, None, registry, Side::Tcp);
     for host in ["localhost:8788", "127.0.0.1:8788", "[::1]:8788"] {
         let mut r = Request::builder()
@@ -450,7 +452,7 @@ async fn disabling_a_token_stops_the_next_request_and_a_broken_registry_stops_al
     let registry = Registry::at(home.path());
     let (owner, owner_text) = owner_token(home.path());
     let t = tcp_agent(&registry, home.path(), "t", "0x01");
-    registry.set_policy_version("t", Some(1)).unwrap();
+    policy::give_policy(&registry, "t", 1);
     let app = router_for(owner, None, registry.clone(), Side::Tcp);
     let (s, _) = call(&app, "GET", "/v1/models", &t, &[], LOCAL, json!({})).await;
     assert_eq!(s, StatusCode::OK);
@@ -483,8 +485,8 @@ async fn agent_socket_checks_the_peer_on_every_connection() {
     let (owner, owner_text) = owner_token(home.path());
     let u = unix_agent(&registry, home.path(), "u", "0x02", AGENT_UID);
     let t = tcp_agent(&registry, home.path(), "t", "0x01");
-    registry.set_policy_version("u", Some(1)).unwrap();
-    registry.set_policy_version("t", Some(1)).unwrap();
+    policy::give_policy(&registry, "u", 1);
+    policy::give_policy(&registry, "t", 1);
     let sock_dir = home.path().join("sock");
     let listener = agentsock::bind(&sock_dir, Some(unsafe { libc::getegid() })).unwrap();
     // Without a second OS user in CI, the peer's UID comes from this cell.
@@ -509,7 +511,7 @@ async fn agent_socket_checks_the_peer_on_every_connection() {
     assert!(raw(&path, "GET", "/v1/models", &u, "").await.is_none());
     // A registered user with another agent's token: the token is bound to its own user.
     let other = unix_agent(&registry, home.path(), "w", "0x03", AGENT_UID + 7);
-    registry.set_policy_version("w", Some(1)).unwrap();
+    policy::give_policy(&registry, "w", 1);
     let (s, b) = raw(&path, "GET", "/v1/models", &u, "").await.unwrap();
     assert_eq!((s, code(&b)), (403, "wrong_transport"));
     assert_eq!(
@@ -606,7 +608,7 @@ async fn an_agent_draws_on_its_own_note_only_and_policy_missing_sends_nothing_to
     assert!(s.fake.handle.chats().is_empty());
 
     for name in ["a", "b", "c"] {
-        registry.set_policy_version(name, Some(1)).unwrap();
+        policy::give_policy(&registry, name, 1);
     }
 
     // The owner token never selects a budget note: with only budget notes in the vault the
@@ -752,6 +754,81 @@ async fn an_agent_draws_on_its_own_note_only_and_policy_missing_sends_nothing_to
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(notes_leased(), vec![0, 1, 2]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_outside_the_policy_is_refused_before_the_operator_and_an_allowed_one_is_answered()
+{
+    let proxy = socks::FakeSocks::start(socks::Behavior::Passthrough).await;
+    let s = build(Net::Socks(proxy.addr.to_string()), false).await;
+    let (registry, _) = three_budget_notes(&s).await;
+    let home = s.home.path();
+    let (owner, _) = owner_token(home);
+    let app = router_for(owner, Some(s.gateway.clone()), registry.clone(), Side::Tcp);
+    let a = token_of(home, "a");
+    let ask = |model: &'static str| {
+        let (app, a) = (app.clone(), a.clone());
+        async move {
+            let mut body = chat_body("hello");
+            body["model"] = json!(model);
+            call(&app, "POST", "/v1/chat/completions", &a, &[], LOCAL, body).await
+        }
+    };
+
+    // The policy allows the pinned model only; the other pinned model is refused with 402 and
+    // nothing reaches the operator, the attestation host or the model.
+    policy::give_policy(&registry, "a", 1);
+    for model in ["Qwen/Qwen3.8-27B", "not/a-model"] {
+        let (status, reply) = ask(model).await;
+        assert_eq!(
+            (status, code(&reply)),
+            (StatusCode::PAYMENT_REQUIRED, "model_not_allowed")
+        );
+    }
+    assert!(proxy.seen().is_empty());
+    assert!(s.gateway.records().is_empty());
+    assert!(s.fake.handle.chats().is_empty());
+
+    // The allowed model is answered, and opens a lease.
+    let (status, reply) = ask(MODEL).await;
+    assert_eq!(status, StatusCode::OK, "{reply}");
+    let (leases, chats) = (s.gateway.records().len(), s.fake.handle.chats().len());
+    assert_eq!(leases, 1);
+
+    // The model list shows the agent only what its policy allows.
+    let (_, list) = call(&app, "GET", "/v1/models", &a, &[], LOCAL, json!({})).await;
+    let ids: Vec<&str> = list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    assert_eq!(ids, vec![MODEL]);
+
+    // Requests on the lease that is already open are checked too.
+    let (status, reply) = ask("Qwen/Qwen3.8-27B").await;
+    assert_eq!(
+        (status, code(&reply)),
+        (StatusCode::PAYMENT_REQUIRED, "model_not_allowed")
+    );
+    assert_eq!(
+        (s.gateway.records().len(), s.fake.handle.chats().len()),
+        (leases, chats)
+    );
+    // This gateway pins one model, so a policy that lists another one is not a valid policy.
+    let key = SigningKey::from_bytes(&[5u8; 32]);
+    let v2 = policy::signed(
+        &registry,
+        "a",
+        &key,
+        2,
+        &policy::yaml(&["Qwen/Qwen3.8-27B"]),
+    );
+    let err =
+        nymirad::policy::activate(&registry, "a", &v2, &s.gateway.policy_context()).unwrap_err();
+    assert!(err.contains("not a pinned model"), "{err}");
+    let (status, _) = ask(MODEL).await;
+    assert_eq!(status, StatusCode::OK, "v1 stays in force");
 }
 
 struct Yes;
