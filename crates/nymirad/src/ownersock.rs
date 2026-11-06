@@ -19,6 +19,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
 use crate::gateway::close::{Ask, CloseOptions, LeaveError};
+use crate::gateway::revoke::{RevokeOptions, Revoked};
 use crate::gateway::Gateway;
 
 pub const DIR: &str = "run";
@@ -42,6 +43,14 @@ pub enum Command {
     Exit {
         note: u32,
         family: Option<String>,
+    },
+    /// Takes a budget note back: disables the agent, retires its lease, closes the note, or
+    /// files an exit when the operator gives no clearance.
+    Revoke {
+        agent: String,
+        delay_secs: Option<u64>,
+        family: Option<String>,
+        via_operator: bool,
     },
     Finalize {
         note: u32,
@@ -240,6 +249,38 @@ pub async fn run(gw: &Gateway, command: Command, ask: &SocketAsk) -> Result<Stri
                     "The operator took the close of note {} (transaction {}), but the vault does not show it yet. Run the command again to check.",
                     c.note_id, c.tx_hash
                 )
+            })
+        }
+        Command::Revoke {
+            agent,
+            delay_secs,
+            family,
+            via_operator,
+        } => {
+            let mut opts = RevokeOptions::default();
+            if let Some(d) = delay_secs {
+                opts.close.delay = Duration::from_secs(d);
+            }
+            opts.close.family = family;
+            opts.close.via_operator = via_operator;
+            say(
+                ask,
+                format!("Revoking agent {agent}: its token is disabled first, then its lease is retired, then the note is closed."),
+            )
+            .await;
+            Ok(match gw.revoke_agent(&agent, opts, Some(ask)).await.map_err(err)? {
+                Revoked::Closed(c) if c.confirmed => format!(
+                    "Agent {agent} is revoked. Note {} is closed; the balance goes to {}. Transaction {}.",
+                    c.note_id, c.payout_account, c.tx_hash
+                ),
+                Revoked::Closed(c) => format!(
+                    "Agent {agent} is revoked. The operator took the close of note {} (transaction {}), but the vault does not show it yet. Run `nymirad close --note {}` to check.",
+                    c.note_id, c.tx_hash, c.note_id
+                ),
+                Revoked::Exiting(e, why) => format!(
+                    "Agent {agent} is revoked. The operator gave no clearance ({why}), so an exit is filed for note {} (conceded {}). The window ends at Unix time {}; while nymirad runs it sends finalize_exit then, or run `nymirad finalize --note {}`.",
+                    e.note_id, e.conceded, e.deadline_secs, e.note_id
+                ),
             })
         }
         Command::Exit { note, family } => {

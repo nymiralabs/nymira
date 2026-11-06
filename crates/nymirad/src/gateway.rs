@@ -27,6 +27,7 @@ use zkapi_types::wire::CurvePointWire;
 use zkapi_types::Felt252;
 
 pub mod close;
+pub mod revoke;
 pub mod watch;
 
 use crate::agents::Scope;
@@ -200,6 +201,8 @@ pub struct Gateway {
     notices: crate::expiry::NoticeBook,
     /// The operator's emergency notice as last read, and when it was read (Unix seconds).
     emergency: std::sync::Mutex<(Option<String>, u64)>,
+    /// Budget notes whose owner has started a revocation: no agent request is served on them.
+    revoking: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 fn felt_point(v: &Value) -> Option<CurvePointWire> {
@@ -289,6 +292,7 @@ impl Gateway {
             guard_tries: Default::default(),
             notices: crate::expiry::NoticeBook::new(&cfg.home),
             emergency: Default::default(),
+            revoking: Default::default(),
             records: Records::new(&cfg.home),
             transport,
             rpc,
@@ -571,6 +575,11 @@ impl Gateway {
                 Ok(wallet) => {
                     // An exit lock means a close or exit began: no new request on this note.
                     if wallet.exit_lock().ok().flatten().is_some() {
+                        if scope.is_agent() {
+                            drop(wallet);
+                            let _ = self.vault.checkin(&entry.commitment);
+                            return Err(ApiError::note_expiring());
+                        }
                         reasons.push(format!("note {id} is closing or exiting"));
                         drop(wallet);
                         let _ = self.vault.checkin(&entry.commitment);
@@ -959,6 +968,12 @@ impl Gateway {
         request: Value,
         mut opts: ChatOptions,
     ) -> Result<Outcome, ApiError> {
+        // A note that is being revoked, closing, exiting or about to expire serves no agent.
+        if let Scope::Agent { note, .. } = &opts.scope {
+            if let Some(why) = self.note_refusal(note) {
+                return Err(why);
+            }
+        }
         // The policy's checks run on every agent request, in this order: the model, the rate,
         // the call's cost, the day's reservation; the balance check comes with the lease.
         if let Scope::Agent { policy, .. } = &opts.scope {

@@ -66,6 +66,10 @@ commands:
       loads a policy signed with your NEAR account (NEP-413, full-access key): checks the
       signature and the key over several RPC endpoints, shows a summary and asks you to
       confirm; it applies from the agent's next request
+  agent show                        each agent's spend today (UTC), its note's balance and expiry, and the policy in force
+  agent revoke --name NAME [--delay SECS] [--family NAME] [--via-operator]
+      takes the budget note back without the agent: disables its token, retires its lease,
+      asks for a clearance and closes the note; files an exit only if the operator gives none
   agent approvals                   the requests held for your approval: ID, model, size, estimated cost
   agent approve --file SIGNED_APPROVAL.json
       hands the running nymirad an approval you signed on your own device (NEP-413)
@@ -465,6 +469,14 @@ async fn main() {
             }
             Some("policy") => {
                 policy_load(&home, mode, &registry, &mut args).await;
+                return;
+            }
+            Some("revoke") => {
+                owner_command(&home, "revoke", &mut args).await;
+                return;
+            }
+            Some("show") => {
+                agents_command(&home).await;
                 return;
             }
             Some("approvals") => {
@@ -1063,6 +1075,51 @@ async fn approvals_command(home: &std::path::Path, signed: Option<Vec<u8>>) {
     }
 }
 
+/// `agent show`: reads the running daemon with the owner token.
+async fn agents_command(home: &std::path::Path) {
+    let token = std::fs::read_to_string(home.join("owner.token"))
+        .unwrap_or_else(|e| die(format!("owner token: {e} (is `nymirad serve` set up?)")));
+    let url = format!(
+        "http://127.0.0.1:{}{}",
+        guard::PORT,
+        nymirad::approvals::AGENTS_PATH
+    );
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_else(|e| die(e));
+    let reply = http
+        .get(&url)
+        .bearer_auth(token.trim())
+        .send()
+        .await
+        .unwrap_or_else(|e| die(format!("cannot reach nymirad on port {}: {e}", guard::PORT)));
+    let status = reply.status();
+    let body: serde_json::Value = reply.json().await.unwrap_or_default();
+    if !status.is_success() {
+        die(body["error"]["message"].as_str().unwrap_or("refused"));
+    }
+    let rows = body.as_array().cloned().unwrap_or_default();
+    if rows.is_empty() {
+        println!("No agents.");
+    }
+    for r in rows {
+        println!(
+            "{}: token {}{}, note {} ({}), balance {} micro-USD, spent today {} micro-USD, expires at Unix time {}\n  policy {}: {}",
+            r["agent"].as_str().unwrap_or(""),
+            r["token"].as_str().unwrap_or(""),
+            if r["revoking"] == true { ", revoking" } else { "" },
+            r["note_id"],
+            r["note_status"].as_str().unwrap_or("?"),
+            r["balance_micro"].as_str().unwrap_or("?"),
+            r["spent_today_micro"].as_str().unwrap_or("?"),
+            r["expires_at"],
+            r["policy_version"],
+            if r["policy"].is_null() { "none in force".to_string() } else { r["policy"].to_string() },
+        );
+    }
+}
+
 fn note_id(args: &mut Vec<String>) -> u32 {
     flag(args, "--note")
         .and_then(|n| n.parse().ok())
@@ -1076,6 +1133,15 @@ async fn owner_command(home: &std::path::Path, command: &str, args: &mut Vec<Str
     let cmd = match command {
         "close" => Command::Close {
             note: note_id(args),
+            delay_secs: flag(args, "--delay").map(|d| {
+                d.parse()
+                    .unwrap_or_else(|_| die("--delay is a number of seconds"))
+            }),
+            family,
+            via_operator: switch(args, "--via-operator"),
+        },
+        "revoke" => Command::Revoke {
+            agent: flag(args, "--name").unwrap_or_else(|| die(USAGE)),
             delay_secs: flag(args, "--delay").map(|d| {
                 d.parse()
                     .unwrap_or_else(|_| die("--delay is a number of seconds"))

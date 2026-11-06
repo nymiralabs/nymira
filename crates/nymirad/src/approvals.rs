@@ -374,6 +374,8 @@ struct Message {
 // ---- HTTP: owner routes ----
 
 pub const PATH: &str = "/v1/nymira/approvals";
+/// The owner's read-only view of each agent's spend, budget note and policy.
+pub const AGENTS_PATH: &str = "/v1/nymira/agents";
 
 #[derive(Clone)]
 struct Owner {
@@ -389,11 +391,22 @@ pub fn routes<S: Clone + Send + Sync + 'static>(
 ) -> axum::Router<S> {
     axum::Router::new()
         .route(PATH, axum::routing::get(list_handler).post(approve_handler))
+        .route(AGENTS_PATH, axum::routing::get(agents_handler))
         .with_state(Owner { gw, registry })
 }
 
 async fn list_handler(axum::extract::State(o): axum::extract::State<Owner>) -> axum::Json<Value> {
     axum::Json(o.gw.approvals().list(o.gw.now_secs()))
+}
+
+async fn agents_handler(
+    axum::extract::State(o): axum::extract::State<Owner>,
+) -> Result<axum::Json<Value>, ApiError> {
+    let book = o
+        .registry
+        .load()
+        .map_err(|why| refuse(StatusCode::SERVICE_UNAVAILABLE, "registry_unreadable", why))?;
+    Ok(axum::Json(o.gw.agent_overview(&book)))
 }
 
 async fn approve_handler(

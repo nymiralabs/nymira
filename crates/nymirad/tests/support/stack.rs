@@ -163,6 +163,17 @@ pub async fn make_gateway(
     transport: Transport,
     clock: Arc<ManualClock>,
 ) -> Arc<Gateway> {
+    make_gateway_guarded(home, parts, transport, clock, Default::default()).await
+}
+
+/// `make_gateway` with the expiry guard set as given (tests shorten its close delay).
+pub async fn make_gateway_guarded(
+    home: &std::path::Path,
+    parts: &GatewayParts,
+    transport: Transport,
+    clock: Arc<ManualClock>,
+    guard: nymirad::expiry::GuardConfig,
+) -> Arc<Gateway> {
     let rpc = Rpc::new(parts.rpc_url.clone(), &Transport::Direct).unwrap();
     let pins = read_live(&rpc, &parts.vault_id).await.unwrap();
     let signer_key = ed25519_dalek::SigningKey::from_bytes(&[42; 32]);
@@ -196,7 +207,8 @@ pub async fn make_gateway(
             dyn_clock,
         )
         .unwrap()
-        .with_tx_config(tx_config()),
+        .with_tx_config(tx_config())
+        .with_guard(guard),
     )
 }
 
@@ -245,14 +257,22 @@ pub async fn sync_root(
 
 /// `predeposit` false leaves the vault empty: the caller deposits through the wallet itself.
 pub async fn build(transport: Transport, predeposit: bool) -> Stack {
+    build_ttl(transport, predeposit, 30).await
+}
+
+/// `build` on a vault whose notes live `ttl_days` days (4 puts every note inside the 5-day window).
+pub async fn build_ttl(transport: Transport, predeposit: bool, ttl_days: u64) -> Stack {
     let worker = near_workspaces::sandbox().await.unwrap();
     let usdc = MockUsdc::deploy(&worker).await.unwrap();
     let operator_account = worker.dev_create_account().await.unwrap();
     let treasury = worker.dev_create_account().await.unwrap();
     let alice = worker.dev_create_account().await.unwrap();
-    let vault = DevVault::default()
-        .deploy(&worker, &usdc, &operator_account, &treasury)
-        .await;
+    let vault = DevVault {
+        note_ttl_days: ttl_days,
+        ..DevVault::default()
+    }
+    .deploy(&worker, &usdc, &operator_account, &treasury)
+    .await;
     usdc.register(&alice).await;
     usdc.mint(alice.id(), 20 * ONE).await;
 

@@ -26,11 +26,12 @@ const HOSTS: [&str; 3] = ["localhost:8788", "127.0.0.1:8788", "[::1]:8788"];
 
 /// What the owner token may do over HTTP. Everything that moves money, funds a note or exposes
 /// a secret runs in the CLI instead.
-pub const OWNER_ROUTES: [(&str, &str); 4] = [
+pub const OWNER_ROUTES: [(&str, &str); 5] = [
     ("POST", "/v1/chat/completions"),
     ("GET", "/v1/models"),
     ("GET", crate::approvals::PATH),
     ("POST", crate::approvals::PATH),
+    ("GET", crate::approvals::AGENTS_PATH),
 ];
 
 fn refuse(status: StatusCode, code: &str, message: &str) -> Response {
