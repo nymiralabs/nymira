@@ -6,7 +6,10 @@
 #   (b) another local user cannot open the agent socket
 #   (c) the owner's own user ID is refused on the socket, even with the group's file access
 #   (d) the agent user cannot write the counters file or the state directory
-# It also checks that the agent user cannot read the owner token.
+# It also checks that the agent user cannot read the owner token, and that the agent user can
+# call nymirad over loopback TCP with a `tcp` token (served), while an Origin header, a
+# cross-site fetch and a wrong Host are refused, the `unix` token is refused on TCP, the `tcp`
+# token is refused on the socket and the owner token is refused on the socket (e).
 #
 # It needs a mock-mode build and a running `make demo` stack (the demo prints its state
 # directory; the funding key and passphrase file sit in it):
@@ -14,8 +17,8 @@
 #   make demo                                   # in another terminal
 #   scripts/agent-os-user-check.sh --home DEMO_STATE_DIR
 #
-# It creates a throwaway user and group (nymtest_agent, nymtest_agents), registers one budget
-# note for them with `agent create` (you type `yes` when it asks), starts `serve` on a spare
+# It creates a throwaway user and group (nymtest_agent, nymtest_agents), registers two budget
+# notes with `agent create` (a `unix` and a `tcp` agent; you type `yes` twice), starts `serve` on a spare
 # port, runs the checks, and removes the user, the group, the socket directory and the
 # temporary files, also when a check or step fails. The demo's registry keeps the agent entry
 # and the demo's note stays funded: use a fresh `make demo` afterwards. No token is printed.
@@ -28,6 +31,7 @@ PORT=18788
 U=nymtest_agent
 G=nymtest_agents
 AGENT=oscheck
+TCP_AGENT=oscheck-tcp
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -54,6 +58,7 @@ OWNER="$(id -un)"
 TMP="$(mktemp -d /tmp/nymtest.XXXXXX)"
 chmod 755 "$TMP"
 TOKEN="$TMP/agent.token"
+TCP_TOKEN="$TMP/agent-tcp.token"
 SERVE_PID=""
 MADE_USER=0
 MADE_GROUP=0
@@ -107,6 +112,10 @@ NYMIRA_MODE=mainnet "$NYMIRAD" --home "$HOME_DIR" --passphrase-file "$HOME_DIR/p
   --token-file "$TOKEN" --key-file "$HOME_DIR/funding.key" --amount 1000000 || die "agent create failed"
 # The owner is not in the group, so nymirad printed this sudo step instead of doing it.
 sudo chgrp "$G" "$TOKEN" || die "chgrp of the token file"
+echo "Creating the second budget note (tcp token); type yes when nymirad asks."
+NYMIRA_MODE=mainnet "$NYMIRAD" --home "$HOME_DIR" --passphrase-file "$HOME_DIR/passphrase" \
+  agent create --name "$TCP_AGENT" --transport tcp \
+  --token-file "$TCP_TOKEN" --key-file "$HOME_DIR/funding.key" --amount 1000000 || die "agent create (tcp) failed"
 
 NYMIRA_MODE=mainnet "$NYMIRAD" --home "$HOME_DIR" --passphrase-file "$HOME_DIR/passphrase" \
   serve --port "$PORT" >"$TMP/serve.out" 2>"$TMP/serve.err" &
@@ -167,6 +176,46 @@ if as_owner_in_group sh -c 'test -r "$1" && test -w "$1"' sh "$SOCK" 2>/dev/null
 else
   fail "could not give the owner file access to the socket, so the peer check was not reached"
 fi
+
+echo
+echo "-- (e) the agent user over loopback TCP, and the token boundaries --"
+# The owner reads the token files (the tcp and owner tokens are 0600) and hands the header to
+# the agent user's curl on stdin, so no token appears in an argument or in the output.
+authcfg() { printf 'header = "Authorization: Bearer '; tr -d '\n' <"$1"; printf '"\n'; }
+tcp_status() { # <token file> [curl args]
+  local f="$1"; shift
+  authcfg "$f" | as_agent curl -sS --max-time 10 --config - -o /dev/null -w '%{http_code}' \
+    "$@" "http://127.0.0.1:$PORT/v1/models" 2>/dev/null
+  true
+}
+sock_status() { # <token file>
+  authcfg "$1" | as_agent curl -sS --max-time 10 --config - --unix-socket "$SOCK" \
+    -H "Host: localhost:8788" -o /dev/null -w '%{http_code}' http://localhost:8788/v1/models 2>/dev/null
+  true
+}
+refused() { case "$1" in 4??) return 0 ;; *) return 1 ;; esac; }
+HOST_OK=(-H "Host: localhost:8788")
+code="$(tcp_status "$TCP_TOKEN" "${HOST_OK[@]}")"
+case "$code" in
+  200|402) pass "the agent user is served over loopback TCP with the tcp token (HTTP $code)" ;;
+  *) fail "the agent user got HTTP $code over loopback TCP with the tcp token" ;;
+esac
+code="$(tcp_status "$TCP_TOKEN" "${HOST_OK[@]}" -H "Origin: http://evil.example")"
+refused "$code" && pass "a request with an Origin header is refused (HTTP $code)" || fail "an Origin header got HTTP $code"
+code="$(tcp_status "$TCP_TOKEN" "${HOST_OK[@]}" -H "Sec-Fetch-Site: cross-site")"
+refused "$code" && pass "Sec-Fetch-Site: cross-site is refused (HTTP $code)" || fail "a cross-site fetch got HTTP $code"
+code="$(tcp_status "$TCP_TOKEN")"   # curl sends Host: 127.0.0.1:PORT
+refused "$code" && pass "a wrong Host is refused (HTTP $code)" || fail "a wrong Host got HTTP $code"
+code="$(tcp_status "$TOKEN" "${HOST_OK[@]}")"
+refused "$code" && pass "the unix token is refused on TCP (HTTP $code)" || fail "the unix token got HTTP $code on TCP"
+code="$(sock_status "$TCP_TOKEN")"
+refused "$code" && pass "the tcp token is refused on the socket (HTTP $code)" || fail "the tcp token got HTTP $code on the socket"
+code="$(sock_status "$HOME_DIR/owner.token")"
+refused "$code" && pass "the owner token is refused on the agent socket (HTTP $code)" || fail "the owner token got HTTP $code on the socket"
+tmode="$(stat -f %Lp "$TCP_TOKEN")"; town="$(stat -f %Su "$TCP_TOKEN")"
+[ "$tmode" = 600 ] && [ "$town" = "$OWNER" ] \
+  && pass "the tcp token file is 0600, owned by $OWNER" \
+  || fail "the tcp token file is $tmode $town, expected 600 $OWNER"
 
 echo
 echo "-- (d) the agent user cannot write the owner's state --"
