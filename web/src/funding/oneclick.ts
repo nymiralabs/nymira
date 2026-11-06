@@ -38,7 +38,8 @@ export function buildRequest(p: {
   amount: bigint;
   refund: string;
   recipient: string;
-  message: string;
+  /** Left out of the request on the two-step path: 1Click pays a plain transfer. */
+  message?: string;
   now: number;
 }): Record<string, unknown> {
   return {
@@ -53,7 +54,7 @@ export function buildRequest(p: {
     refundType: 'ORIGIN_CHAIN',
     recipient: p.recipient,
     recipientType: 'DESTINATION_CHAIN',
-    customRecipientMsg: p.message,
+    ...(p.message === undefined ? {} : { customRecipientMsg: p.message }),
     deadline: new Date(p.now + 3_600_000).toISOString(),
   };
 }

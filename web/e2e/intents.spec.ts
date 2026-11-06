@@ -14,9 +14,11 @@ import {
   BACKUP_PASSPHRASE,
   ONECLICK,
   OTHER,
+  SENDER,
   TOKEN,
   VAULT,
   WRAP_PASSPHRASE,
+  connectWallet,
   control,
   expectNoSecret,
   expectedExpiry,
@@ -206,18 +208,22 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
 const REFUND = '0x00000000000000000000000000000000000000aa';
 
 /** Drives the flow up to the signed quote on screen; returns the backup file and the commitment. */
-async function toReview(page: Page, context: BrowserContext) {
-  await newFundingWallet(context);
+async function toReview(page: Page, context: BrowserContext, twoStep = false) {
+  const wallet = await newFundingWallet(context);
   await fetch(`${ONECLICK}/requests`, { method: 'DELETE' });
   await openFund(page);
   await expect(page.getByTestId('vault-ok')).toBeVisible();
+  if (twoStep) {
+    await connectWallet(page);
+    await page.getByTestId('intents-path-two-step').check();
+  }
   await setUpPassphrase(page);
   await page.getByTestId('intents-load-sources').click();
   const sources = page.getByTestId('intents-source');
   await expect(sources).toHaveCount(2, { timeout: 40_000 });
   await sources.first().check();
   await page.getByTestId('intents-refund').fill(REFUND);
-  await page.getByTestId('intents-payout').fill(OTHER);
+  await page.getByTestId('intents-payout').fill(twoStep ? SENDER : OTHER);
   await expect(page.getByTestId('intents-fingerprint')).not.toBeEmpty();
   await page.getByTestId('intents-fingerprint-confirm').check();
   await page.getByTestId('intents-prepare').click();
@@ -233,7 +239,7 @@ async function toReview(page: Page, context: BrowserContext) {
   await page.getByTestId('intents-quote').click();
   await expect(page.getByTestId('intents-review')).toBeVisible();
   const commitment = (await readBackup(file)).notes[0]?.commitment ?? '';
-  return { file, commitment };
+  return { file, commitment, wallet };
 }
 
 /** The destination transaction the stand-in delivers, and 1Click's SUCCESS for the order. */
@@ -401,4 +407,122 @@ test('a payout the vault could not send shows the claim action', async ({
   await expect(page.getByTestId('intents-claim')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('intents-booking')).toContainText(`for ${OTHER}`);
   await expect(page.getByTestId('intents-accepted')).toHaveCount(0);
+});
+
+// ---- two-step path: 1Click pays the user's own account, the wallet pays the vault ----
+
+/** 1Click's SUCCESS for the first step, and the USDC (or none) in the user's account. */
+async function firstStepDone(address: string, balance: string) {
+  await fetch(`${ONECLICK}/mock/pay`, {
+    method: 'POST',
+    body: JSON.stringify({ depositAddress: address, txHash: DEST_TX }),
+  });
+  await control({
+    cmd: 'set_view',
+    account: TOKEN,
+    method: 'ft_balance_of',
+    args: { json: { account_id: SENDER } },
+    result: { json: balance },
+  });
+}
+
+test('Intents funding, two-step path: quote to my account, wait for the USDC, sign, accepted, chat', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  const { commitment, wallet } = await toReview(page, context, true);
+  await expect(page.getByTestId('intents-two-step-notice')).toContainText(
+    'needs a little NEAR for gas on your account and an account registered for USDC',
+  );
+  await expect(page.getByTestId('intents-privacy')).toContainText(
+    'Your NEAR account appears on chain next to the deposit.',
+  );
+  // The live quote pays the account of the wallet with a plain transfer: no message.
+  const live = (await sentToOneClick()).filter((r) => r.body.dry === false);
+  expect(live).toHaveLength(1);
+  expect(live[0]!.body).toMatchObject({ amount: '1050000', recipient: SENDER });
+  expect('customRecipientMsg' in live[0]!.body).toBe(false);
+
+  await page.getByTestId('intents-show-address').click();
+  const address = (await page.getByTestId('intents-address').textContent()) ?? '';
+  await expect(page.getByTestId('intents-sign')).toHaveCount(0);
+
+  // 1Click delivered, but the USDC is not in the account yet.
+  await firstStepDone(address, '0');
+  await expect(page.getByTestId('intents-progress')).toContainText('Waiting for the USDC', {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId('intents-sign')).toHaveCount(0);
+  await control({
+    cmd: 'set_view',
+    account: TOKEN,
+    method: 'ft_balance_of',
+    args: { json: { account_id: SENDER } },
+    result: { json: '1050000' },
+  });
+  await expect(page.getByTestId('intents-sign')).toBeVisible({ timeout: 30_000 });
+
+  await page.getByTestId('intents-sign').click();
+  await expect(page.getByTestId('intents-accepted')).toBeVisible({ timeout: 60_000 });
+  // The wallet signed ft_transfer_call to the token for the vault; payout = sender, so no withdraw_to.
+  expect(wallet.calls).toHaveLength(1);
+  expect(wallet.calls[0]!.receiverId).toBe(TOKEN);
+  expect(wallet.calls[0]!.args).toMatchObject({ receiver_id: VAULT, amount: '1050000' });
+  expect(JSON.parse(wallet.calls[0]!.args.msg as string)).toEqual({ commitment });
+  await expect(page.getByTestId('intents-explorer-link')).toHaveAttribute(
+    'href',
+    `https://testnet.nearblocks.io/txns/${wallet.lastHash}`,
+  );
+
+  await scriptTree({ deposit: { commitment, note_id: 0, expiry: expectedExpiry() } });
+  await openChat(page);
+  await startConversation(page);
+  await say(page, 'hello from a two-step note');
+  await expect(page.getByTestId('conversation')).toContainText('echo: hello from a two-step');
+  await endConversation(page);
+});
+
+test('a refunded second step says the USDC is still in the account and deposits again', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  const { wallet } = await toReview(page, context, true);
+  await page.getByTestId('intents-show-address').click();
+  const address = (await page.getByTestId('intents-address').textContent()) ?? '';
+  await firstStepDone(address, '1050000');
+  await expect(page.getByTestId('intents-sign')).toBeVisible({ timeout: 30_000 });
+
+  wallet.mode = 'refused';
+  await page.getByTestId('intents-sign').click();
+  await expect(page.getByTestId('intents-refunded')).toContainText(`still in ${SENDER}`, {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('intents-accepted')).toHaveCount(0);
+  await expect(page.getByTestId('intents-sign')).toHaveText('Deposit again');
+
+  wallet.mode = 'tree';
+  await page.getByTestId('intents-sign').click();
+  await expect(page.getByTestId('intents-accepted')).toBeVisible({ timeout: 60_000 });
+  expect(wallet.calls).toHaveLength(2);
+});
+
+test('the two-step path is not offered to an account with no NEAR', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await newFundingWallet(context);
+  await control({ cmd: 'set_account', account: SENDER, spec: { amount: '0' } });
+  await openFund(page);
+  await expect(page.getByTestId('vault-ok')).toBeVisible();
+  await connectWallet(page);
+  await setUpPassphrase(page);
+  await page.getByTestId('intents-path-two-step').check();
+  await expect(page.getByTestId('intents-two-step-problem')).toContainText('too little NEAR');
+  await expect(page.getByTestId('intents-load-sources')).toBeDisabled();
 });

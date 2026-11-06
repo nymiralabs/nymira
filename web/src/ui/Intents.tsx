@@ -4,12 +4,18 @@
 // chain. Progress comes from 1Click; the note is accepted from the vault's `deposit` event.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { PROFILE } from '../profile';
-import { accountFingerprint, assessPayout, type PayoutAssessment } from '../chain/token';
+import {
+  accountFingerprint,
+  assessPayout,
+  tokenBalance,
+  type PayoutAssessment,
+} from '../chain/token';
 import type { VaultCheck } from '../chain/vault';
 import { expiryCalendar } from '../backup/ics';
 import { backupFileName, BACKUP_EXTENSION } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
 import {
+  confirmDeposit,
   loadNotes,
   makeBackupFile,
   notePrice,
@@ -21,8 +27,10 @@ import {
   INTENTS_SIGNER,
   KEYLESS_FEE_BPS,
   PRIVACY,
+  PRIVACY_TWO_STEP,
   ROUTE_FALLBACK,
   TRUST_NOTE,
+  TWO_STEP_NOTICE,
   beforeAddress,
   confirmIntents,
   explainBooking,
@@ -31,7 +39,9 @@ import {
   payoutProblem,
   requestQuote,
   saveAttempt,
+  sendToVault,
   statusText,
+  twoStepProblem,
   type Attempt,
   type IntentsResult,
   type Json,
@@ -91,6 +101,13 @@ export function Intents({
   noteRef.current = note;
   const wallet = useWallet();
   const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
+  // Two-step path: 1Click pays the connected account, which signs the transfer to the vault.
+  const [twoStep, setTwoStep] = useState(false);
+  const [gate, setGate] = useState<{ account: string; problem: string | null } | null>(null);
+  const [arrived, setArrived] = useState(false);
+  const [refunded, setRefunded] = useState(false);
+  const account = wallet.connected?.accountId ?? '';
+  const twoStepOk = !twoStep || (gate?.account === account && gate.problem === null);
 
   const vaultOk = vault?.status === 'ok';
   const problem = payout === '' ? null : payoutProblem(payout);
@@ -119,7 +136,7 @@ export function Intents({
 
   // Status polling, one request per tick; the destination transaction is read once it is named.
   useEffect(() => {
-    if (!shown || !attempt || accepted || booked) return;
+    if (!shown || !attempt || attempt.via || accepted || booked) return;
     let live = true;
     let hash = attempt.hash ?? '';
     let amount = attempt.amount;
@@ -164,6 +181,79 @@ export function Intents({
     };
   }, [shown, attempt, accepted, booked]);
 
+  // Two-step path: the gate (NEAR for gas, USDC registrations) for the connected account.
+  useEffect(() => {
+    if (!twoStep || account === '') return;
+    let live = true;
+    setGate(null);
+    twoStepProblem(rpc, account).then(
+      (problem) => live && setGate({ account, problem }),
+      () => live && setGate({ account, problem: 'The account could not be checked.' }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [twoStep, account]);
+
+  // Two-step path, first step: wait for 1Click to deliver, then for the USDC in the account.
+  useEffect(() => {
+    if (!shown || !attempt?.via || accepted || arrived || note?.phase === 'sent') return;
+    const via = attempt.via;
+    let live = true;
+    let hash = attempt.hash ?? '';
+    const deadline = Date.parse(String((attempt.quote.quote as Json).deadline));
+    const tick = async () => {
+      try {
+        if (hash === '') {
+          const result = await fetchStatus(attempt);
+          if (!live) return;
+          if (result.state !== 'success')
+            return setProgress(statusText(result, deadline, Date.now()));
+          hash = result.hash;
+          await saveAttempt({ ...attempt, hash });
+        }
+        const have = await tokenBalance(rpc, PROFILE.tokenAccount, via);
+        if (!live) return;
+        if (have >= BigInt(attempt.request.amount as string)) {
+          setProgress(`The ${PROFILE.tokenSymbol} reached ${via}.`);
+          setArrived(true);
+        } else {
+          setProgress(
+            `1Click reports SUCCESS. Waiting for the ${PROFILE.tokenSymbol} to arrive in ${via}.`,
+          );
+        }
+      } catch (e) {
+        if (live) setProgress(e instanceof Error ? e.message : String(e));
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [shown, attempt, accepted, arrived, note?.phase]);
+
+  /** Acceptance from the second transaction's own receipts; a refused transfer can be retried. */
+  const settle = async (record: NoteRecord, outcome: unknown) => {
+    const result = await confirmDeposit(rpc, record, outcome, {
+      onRpcRead: () => setProgress('Reading the transaction from the RPC provider.'),
+    });
+    if (result.status === 'accepted') {
+      setNote(result.record);
+      setAccepted({ ...result, bookings: [] });
+    } else if (result.status === 'rejected') {
+      if (result.reason.startsWith('the vault did not accept')) {
+        // The token returned the USDC: the note is still unspent, so the deposit can be repeated.
+        setRefunded(true);
+        setNote(await update(result.record, { phase: 'sending' }));
+      } else {
+        setNote(result.record);
+        setError(result.reason);
+      }
+    } else setPendingReason(result.reason);
+  };
+
   // A closed tab or a reload: the newest unfinished Intents note with a stored quote picks up from
   // its phase. The quote record is sealed, so this waits for the passphrase.
   useEffect(() => {
@@ -171,7 +261,7 @@ export function Intents({
     let live = true;
     void (async () => {
       const open = (await loadNotes()).filter(
-        (n) => n.sender === INTENTS_SIGNER && n.kind === 'pending' && n.phase !== 'rejected',
+        (n) => n.kind === 'pending' && n.phase !== 'rejected',
       );
       for (const n of open) {
         const saved = await loadAttempt(n.id).catch(() => null);
@@ -182,6 +272,10 @@ export function Intents({
         setRefund(saved.refund);
         setSource(PROFILE.oneClick.shortlist.find((a) => a.label === saved.source) ?? null);
         setShown(n.phase === 'sending' || n.phase === 'sent');
+        if (saved.via) {
+          setTwoStep(true);
+          if (n.phase === 'sent') void settle(n, null).catch((e) => setError(String(e)));
+        }
         return;
       }
     })();
@@ -216,7 +310,11 @@ export function Intents({
 
   const onPrepare = () =>
     act('prepare', async () => {
-      const record = await prepareNote({ denomination, payout, sender: INTENTS_SIGNER });
+      const record = await prepareNote({
+        denomination,
+        payout,
+        sender: twoStep ? account : INTENTS_SIGNER,
+      });
       setNote(record);
       setDownloaded(false);
       await navigator.storage?.persist?.();
@@ -240,7 +338,17 @@ export function Intents({
       setExpired(false);
       setShown(false);
       setAttempt(null);
-      setAttempt(await requestQuote(rpc, note, source, refund));
+      setAttempt(
+        await requestQuote(
+          rpc,
+          note,
+          source,
+          refund,
+          undefined,
+          undefined,
+          twoStep ? account : undefined,
+        ),
+      );
     });
 
   const onShowAddress = () =>
@@ -250,6 +358,17 @@ export function Intents({
       // Stored before the address is shown, so a closed tab leaves a note that can be looked up.
       setNote(await update(note, { phase: 'sending' }));
       setShown(true);
+    });
+
+  const onSign = () =>
+    act('sign', async () => {
+      if (!note || !attempt?.via) return;
+      if (account !== attempt.via) throw new Error(`connect ${attempt.via} to sign the transfer`);
+      setRefunded(false);
+      setPendingReason('');
+      const sent = await sendToVault(rpc, note, wallet);
+      setNote(sent.record);
+      await settle(sent.record, sent.outcome);
     });
 
   const q = (attempt?.quote.quote ?? {}) as Json;
@@ -265,6 +384,8 @@ export function Intents({
     source !== null &&
     refund.trim() !== '' &&
     validPayout &&
+    twoStepOk &&
+    (!twoStep || account !== '') &&
     confirmed &&
     typeof assessment === 'object' &&
     assessment !== null;
@@ -283,7 +404,7 @@ export function Intents({
         {PROFILE.tokenSymbol} on NEAR above.
       </p>
       <p className="warning" data-testid="intents-privacy">
-        {PRIVACY}
+        {twoStep ? `${PRIVACY} ${PRIVACY_TWO_STEP}` : PRIVACY}
       </p>
       <details data-testid="intents-terms">
         <summary>Terms for this path</summary>
@@ -301,11 +422,55 @@ export function Intents({
         account).
       </p>
 
+      {PROFILE.oneClick.intentsTwoStep && (
+        <fieldset data-testid="intents-path" disabled={stage !== 'none'}>
+          <legend>How the vault is paid</legend>
+          <label>
+            <input
+              type="radio"
+              name="intents-path"
+              data-testid="intents-path-direct"
+              checked={!twoStep}
+              onChange={() => setTwoStep(false)}
+            />
+            1Click pays the vault directly
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="intents-path"
+              data-testid="intents-path-two-step"
+              checked={twoStep}
+              onChange={() => setTwoStep(true)}
+            />
+            1Click pays my NEAR account, then my wallet pays the vault (two steps)
+          </label>
+        </fieldset>
+      )}
+      {twoStep && (
+        <div data-testid="intents-two-step">
+          <p className="warning" data-testid="intents-two-step-notice">
+            {TWO_STEP_NOTICE}
+          </p>
+          {account === '' && <p className="hint">Connect a wallet above to use this path.</p>}
+          {gate?.account === account && gate.problem && (
+            <p className="error" data-testid="intents-two-step-problem">
+              {gate.problem}
+            </p>
+          )}
+          <p className="hint">
+            Checking the account shows it to the RPC provider, next to your IP address.
+          </p>
+        </div>
+      )}
+
       <h4>Source</h4>
       <button
         type="button"
         data-testid="intents-load-sources"
-        disabled={busy !== '' || !vaultOk || stage !== 'none'}
+        disabled={
+          busy !== '' || !vaultOk || stage !== 'none' || !twoStepOk || (twoStep && account === '')
+        }
         onClick={loadSources}
       >
         {busy === 'sources' ? 'Asking 1Click…' : 'Show sources'}
@@ -561,6 +726,35 @@ export function Intents({
           <p className="hint" data-testid="intents-route">
             {ROUTE_FALLBACK}
           </p>
+        </div>
+      )}
+
+      {twoStep && arrived && !accepted && attempt?.via && note && (
+        <div data-testid="intents-second-step">
+          <p>
+            The {PROFILE.tokenSymbol} is in <strong>{attempt.via}</strong>. Sign the transfer to the
+            vault in your wallet.
+          </p>
+          {refunded && (
+            <p className="warning" data-testid="intents-refunded">
+              The vault did not accept the transfer and the token returned the {PROFILE.tokenSymbol}
+              . It is still in {attempt.via}, and this note is unspent. You can deposit again.
+            </p>
+          )}
+          <button
+            type="button"
+            className="primary"
+            data-testid="intents-sign"
+            disabled={busy !== '' || note.phase === 'sent' || account !== attempt.via}
+            onClick={onSign}
+          >
+            {busy === 'sign'
+              ? 'Waiting for the wallet…'
+              : refunded
+                ? 'Deposit again'
+                : 'Sign the transfer'}
+          </button>
+          {account !== attempt.via && <p className="hint">Connect {attempt.via} to sign.</p>}
         </div>
       )}
 

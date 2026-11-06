@@ -153,6 +153,20 @@ export function validateQuote(response: Json, sent: Json, now: number): void {
   }
 }
 
+/** Two-step path: the quote pays the user's own account, never the vault, with no message. */
+export function validateTwoStep(response: Json, account: string, vault: string): void {
+  const request = (response.quoteRequest ?? {}) as Json;
+  if (request.recipient === vault) {
+    throw new Error('a two-step quote must not name the vault as recipient');
+  }
+  if (request.recipient !== account)
+    throw new Error('the quote does not pay your own NEAR account');
+  const message = request.customRecipientMsg;
+  if (message !== undefined && message !== null && message !== '') {
+    throw new Error('a two-step quote must carry no custom message');
+  }
+}
+
 /** Signature first, then the request check; the first failure is the reason. */
 export function checkQuote(response: Json, sent: Json, key: string, now: number): void {
   verifyQuoteSignature(response, key);

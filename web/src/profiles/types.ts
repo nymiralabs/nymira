@@ -95,6 +95,8 @@ export interface Profile {
     dryQuotes: boolean;
     /** Intents funding paths. Mainnet profile only. */
     intentsPaths: boolean;
+    /** Intents two-step path: 1Click pays the user's own account, the wallet signs the second step. */
+    intentsTwoStep?: boolean;
     shortlist: QuoteAsset[];
   };
   /** `null` until a vault is deployed and pinned: funding then stays disabled. */
