@@ -288,12 +288,24 @@ impl Rpc {
 
     /// Every access key of an account as `{public_key, permission}`, sorted by key.
     pub async fn access_keys(&self, account: &str) -> Result<Vec<Value>, RpcError> {
-        let result = self
-            .call(
-                "query",
-                json!({ "request_type": "view_access_key_list", "finality": "final", "account_id": account }),
-            )
-            .await?;
+        self.access_keys_at(json!({ "finality": "final" }), account)
+            .await
+    }
+
+    /// The same list at `block` (`{"finality": "final"}` or `{"block_id": "<hash>"}`).
+    pub async fn access_keys_at(
+        &self,
+        block: Value,
+        account: &str,
+    ) -> Result<Vec<Value>, RpcError> {
+        let mut params = json!({ "request_type": "view_access_key_list", "account_id": account });
+        params.as_object_mut().expect("object").extend(
+            block
+                .as_object()
+                .expect("block selector is an object")
+                .clone(),
+        );
+        let result = self.call("query", params).await?;
         let mut keys: Vec<Value> = result["keys"]
             .as_array()
             .ok_or_else(|| RpcError::Shape("no keys".into()))?
