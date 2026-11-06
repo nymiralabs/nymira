@@ -62,6 +62,54 @@ function parseDeposit(body: unknown): DepositEvent | null {
   };
 }
 
+/** What the vault booked instead of (or beside) a note, from a successful receipt. */
+export interface Booking {
+  event: 'payout_pending' | 'dust' | 'unclaimed';
+  /** `payout_pending` only: the account the amount waits for. */
+  account?: string;
+  /** USDC base units, digits only. */
+  amount: string;
+  reason: string;
+  noteId?: number;
+  commitment?: string;
+}
+
+const BOOKINGS = ['payout_pending', 'dust', 'unclaimed'];
+
+/** `payout_pending`, `dust` and `unclaimed` events the vault logged in receipts that succeeded. */
+export function bookingEvents(status: TxStatus, vault: string): Booking[] {
+  const found: Booking[] = [];
+  for (const receipt of status.receipts_outcome ?? []) {
+    const outcome = receipt.outcome;
+    const result = outcome?.status as Record<string, unknown> | undefined;
+    if (outcome?.executor_id !== vault || !result) continue;
+    if (!('SuccessValue' in result || 'SuccessReceiptId' in result)) continue;
+    for (const line of outcome.logs ?? []) {
+      if (!line.startsWith(PREFIX)) continue;
+      let body: { standard?: unknown; event?: unknown; data?: Record<string, unknown> };
+      try {
+        body = JSON.parse(line.slice(PREFIX.length));
+      } catch {
+        continue;
+      }
+      const d = body?.data;
+      if (body?.standard !== 'nymira' || !BOOKINGS.includes(body.event as string) || !d) continue;
+      if (typeof d.amount !== 'string' || !/^\d+$/.test(d.amount) || typeof d.reason !== 'string') {
+        continue;
+      }
+      found.push({
+        event: body.event as Booking['event'],
+        amount: d.amount,
+        reason: d.reason,
+        ...(typeof d.account === 'string' ? { account: d.account } : {}),
+        ...(typeof d.note_id === 'number' ? { noteId: d.note_id } : {}),
+        ...(typeof d.commitment === 'string' ? { commitment: d.commitment.toLowerCase() } : {}),
+      });
+    }
+  }
+  return found;
+}
+
 export interface ExpectedDeposit {
   commitment: string;
   denomination: string;

@@ -2,7 +2,8 @@
 // [44; 32], the one nymirad's fixture uses), serves /v0/status, and records every quote request body,
 // so a test can check what the app sent (and when).
 //   GET /health, GET /requests, DELETE /requests,
-//   POST /mock/pay {depositAddress, txHash}: marks the order SUCCESS with that destination hash.
+//   POST /mock/pay {depositAddress, txHash, amountOut?}: marks the order SUCCESS with that
+//   destination hash (and settled amount).
 import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { createServer } from 'node:http';
 
@@ -166,10 +167,10 @@ const server = createServer(async (req, res) => {
   if (req.url === '/mock/pay' && req.method === 'POST') {
     let text = '';
     for await (const chunk of req) text += chunk;
-    const { depositAddress, txHash } = JSON.parse(text);
+    const { depositAddress, txHash, amountOut } = JSON.parse(text);
     statuses.set(depositAddress, {
       status: 'SUCCESS',
-      swapDetails: { nearTxHashes: [txHash] },
+      swapDetails: { nearTxHashes: [txHash], ...(amountOut ? { amountOut } : {}) },
     });
     res.writeHead(200, cors).end('ok');
     return;

@@ -2,32 +2,46 @@
 // up the note secret, asks 1Click for a signed quote, shows what the payment costs and who sees
 // what, and only then shows the deposit address. The user pays from their own wallet on the source
 // chain. Progress comes from 1Click; the note is accepted from the vault's `deposit` event.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { PROFILE } from '../profile';
 import { accountFingerprint, assessPayout, type PayoutAssessment } from '../chain/token';
 import type { VaultCheck } from '../chain/vault';
 import { expiryCalendar } from '../backup/ics';
 import { backupFileName, BACKUP_EXTENSION } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
-import { makeBackupFile, notePrice, prepareNote, testRestore, update } from '../funding/flow';
+import {
+  loadNotes,
+  makeBackupFile,
+  notePrice,
+  prepareNote,
+  testRestore,
+  update,
+} from '../funding/flow';
 import {
   INTENTS_SIGNER,
   KEYLESS_FEE_BPS,
   PRIVACY,
+  ROUTE_FALLBACK,
   TRUST_NOTE,
   beforeAddress,
   confirmIntents,
+  explainBooking,
   fetchStatus,
+  loadAttempt,
   payoutProblem,
   requestQuote,
+  saveAttempt,
+  statusText,
   type Attempt,
+  type IntentsResult,
   type Json,
 } from '../funding/intents';
+import { leaveStore } from '../leave/store';
 import { QuoteBook, type QuoteOutcome } from '../funding/oneclick';
 import type { QuoteAsset } from '../profiles/types';
 import type { NoteRecord } from '../store/types';
 import { download, formatDate, formatUnits, readFile } from './format';
-import { rpc } from './services';
+import { archivalRpc, rpc, useWallet } from './services';
 
 const units = (v: bigint | string) =>
   `${formatUnits(v, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}`;
@@ -64,16 +78,19 @@ export function Intents({
   const [shown, setShown] = useState(false);
   const [expired, setExpired] = useState(false);
   const [progress, setProgress] = useState('');
-  const [accepted, setAccepted] = useState<Extract<
-    Awaited<ReturnType<typeof confirmIntents>>,
-    { status: 'accepted' }
-  > | null>(null);
+  const [accepted, setAccepted] = useState<Extract<IntentsResult, { status: 'accepted' }> | null>(
+    null,
+  );
+  const [booked, setBooked] = useState<Extract<IntentsResult, { status: 'booked' }> | null>(null);
+  /** The payout account's total in the vault's `pending_payout`, base units, when it was read. */
+  const [waiting, setWaiting] = useState<string | undefined>();
   const [pendingReason, setPendingReason] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const noteRef = useRef<NoteRecord | null>(null);
   noteRef.current = note;
-  const hashRef = useRef('');
+  const wallet = useWallet();
+  const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
 
   const vaultOk = vault?.status === 'ok';
   const problem = payout === '' ? null : payoutProblem(payout);
@@ -102,32 +119,39 @@ export function Intents({
 
   // Status polling, one request per tick; the destination transaction is read once it is named.
   useEffect(() => {
-    if (!shown || !attempt || accepted) return;
+    if (!shown || !attempt || accepted || booked) return;
     let live = true;
+    let hash = attempt.hash ?? '';
+    let amount = attempt.amount;
+    const deadline = Date.parse(String((attempt.quote.quote as Json).deadline));
     const tick = async () => {
       try {
-        if (hashRef.current === '') {
+        if (hash === '') {
           const result = await fetchStatus(attempt);
           if (!live) return;
-          if (result.state === 'pending') return setProgress('Waiting for your payment.');
-          if (result.state === 'failed') {
-            return setProgress(
-              `1Click reports ${result.status}. The note stays pending; your refund goes to the refund address.`,
-            );
-          }
-          hashRef.current = result.hash;
+          if (result.state !== 'success')
+            return setProgress(statusText(result, deadline, Date.now()));
+          hash = result.hash;
+          amount = result.amount;
           setProgress('1Click reports SUCCESS. Reading the deposit receipt.');
+          // Kept before the receipt is read, so a closed tab resumes from the destination hash.
+          await saveAttempt({ ...attempt, hash, ...(amount ? { amount } : {}) });
           const current = noteRef.current;
-          if (current) setNote(await update(current, { phase: 'sent', txHash: result.hash }));
+          if (current) setNote(await update(current, { phase: 'sent', txHash: hash }));
         }
         const current = noteRef.current;
         if (!current) return;
-        const result = await confirmIntents(rpc, current, hashRef.current);
+        const result = await confirmIntents(rpc, current, hash, {
+          archival: archivalRpc,
+          ...(amount ? { delivered: amount } : {}),
+        });
         if (!live) return;
+        setWaiting(result.pending);
         if (result.status === 'accepted') {
           setNote(result.record);
           setAccepted(result);
-        } else if (result.status === 'pending') setPendingReason(result.reason);
+        } else if (result.status === 'booked') setBooked(result);
+        else setPendingReason(result.reason);
       } catch (e) {
         if (live) setProgress(e instanceof Error ? e.message : String(e));
       }
@@ -138,7 +162,33 @@ export function Intents({
       live = false;
       clearInterval(timer);
     };
-  }, [shown, attempt, accepted]);
+  }, [shown, attempt, accepted, booked]);
+
+  // A closed tab or a reload: the newest unfinished Intents note with a stored quote picks up from
+  // its phase. The quote record is sealed, so this waits for the passphrase.
+  useEffect(() => {
+    if (!unlocked || !pins) return;
+    let live = true;
+    void (async () => {
+      const open = (await loadNotes()).filter(
+        (n) => n.sender === INTENTS_SIGNER && n.kind === 'pending' && n.phase !== 'rejected',
+      );
+      for (const n of open) {
+        const saved = await loadAttempt(n.id).catch(() => null);
+        if (!saved) continue;
+        if (!live || noteRef.current) return;
+        setNote(n);
+        setAttempt(saved);
+        setRefund(saved.refund);
+        setSource(PROFILE.oneClick.shortlist.find((a) => a.label === saved.source) ?? null);
+        setShown(n.phase === 'sending' || n.phase === 'sent');
+        return;
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [unlocked, pins]);
 
   const act = async (label: string, action: () => Promise<void>) => {
     setBusy(label);
@@ -189,6 +239,7 @@ export function Intents({
       if (!note || !source) return;
       setExpired(false);
       setShown(false);
+      setAttempt(null);
       setAttempt(await requestQuote(rpc, note, source, refund));
     });
 
@@ -502,13 +553,53 @@ export function Intents({
             )}
           </p>
           <p data-testid="intents-progress">{progress || 'Waiting for your payment.'}</p>
-          {pendingReason && !accepted && (
+          {pendingReason && !accepted && !booked && (
             <p className="warning" data-testid="intents-pending">
               The deposit is not accepted yet: {pendingReason}.
             </p>
           )}
+          <p className="hint" data-testid="intents-route">
+            {ROUTE_FALLBACK}
+          </p>
         </div>
       )}
+
+      {waiting !== undefined && note && (
+        <p className="hint" data-testid="intents-pending-payout">
+          {waiting === '0'
+            ? `Nothing is pending in the vault for ${note.payout}.`
+            : `${units(waiting)} is pending in the vault for ${note.payout}. This is an account total across deposits and does not confirm a note.`}{' '}
+          Reading it showed the payout account to the RPC provider, next to your IP address.
+        </p>
+      )}
+
+      {(booked ?? accepted)?.bookings.length ? (
+        <div className="warning" data-testid="intents-booked">
+          <h4>
+            {booked ? 'The vault booked this delivery without a note' : 'The vault also booked'}
+          </h4>
+          {(booked ?? accepted)?.bookings.map((b) => (
+            <p key={`${b.event}${b.reason}${b.amount}`} data-testid="intents-booking">
+              {explainBooking(b)}
+            </p>
+          ))}
+          {(booked ?? accepted)?.bookings.some((b) => b.event === 'payout_pending') && note && (
+            <p>
+              <button
+                type="button"
+                data-testid="intents-claim"
+                disabled={!wallet.connected || leave.busy !== null}
+                onClick={() => void leaveStore.claim(note)}
+              >
+                Claim payout
+              </button>{' '}
+              {!wallet.connected && 'Connect a wallet above to send it. '}
+              {leave.message}
+              {leave.error && <span className="error"> {leave.error}</span>}
+            </p>
+          )}
+        </div>
+      ) : null}
 
       {accepted && note && (
         <div className="ok" data-testid="intents-accepted">
