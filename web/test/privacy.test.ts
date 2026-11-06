@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { RpcClient } from '../src/chain/rpc';
+import { OperatorClient, OperatorError } from '../src/chat/operator';
+import { WhoSeesWhat } from '../src/ui/Landing';
 import { coverOf, small, thin } from '../src/privacy/cover';
 import {
   countable,
@@ -62,7 +66,9 @@ describe('the shared sentence file', () => {
     ] as string[];
     for (const t of all) {
       expect(t).not.toContain('—');
-      expect(t).not.toMatch(/cannot be linked|unlinkable|untraceable|anonymous|hidden from/i);
+      expect(t).not.toMatch(
+        /cannot be (linked|traced|tied)|can't be (linked|traced)|not linkable|never be linked|unlinkable|untraceable|anonymous|hidden from/i,
+      );
     }
   });
 });
@@ -194,5 +200,98 @@ describe('cover', () => {
   it('words the gap', () => {
     expect(text.describeGap(600)).toBe('10 minutes');
     expect(text.describeGap(7200)).toBe('2 hours');
+  });
+});
+
+describe('the panel sentences', () => {
+  const shared = JSON.parse(readFileSync(sharedPath, 'utf8')) as Record<string, string>;
+  const panelSource = readFileSync(join(__dirname, '..', 'src/ui/Privacy.tsx'), 'utf8');
+
+  it('says the open-note sentence with each way the leases can still be linked', () => {
+    const open = shared.link_open!;
+    expect(open).toContain('designed to leave no zero-knowledge link');
+    expect(open).toContain('network address');
+    expect(open).toContain('timing and usage metadata');
+    expect(open).toContain('timing alone while the set is small');
+    expect(shared.link_left).toContain('now tied to its note ID');
+  });
+
+  it('keeps every sentence free of em dashes and unlinkability claims, panel text included', () => {
+    for (const t of Object.values(shared)) {
+      expect(t).not.toContain('—');
+      expect(t).not.toMatch(/cannot be linked|unlinkable|untraceable|anonymous|hidden from/i);
+    }
+    // Literal text in the panel source stays out of the claim too.
+    expect(panelSource).not.toMatch(/cannot be linked|unlinkable|untraceable|anonymous/i);
+  });
+
+  it('draws the landing drawing and the observer list from the same sentences', () => {
+    const drawing = renderToStaticMarkup(createElement(WhoSeesWhat)).replaceAll('&#x27;', "'");
+    for (const key of ['who_operator', 'who_model', 'who_chain']) {
+      expect(drawing, key).toContain(shared[key]);
+      expect(panelSource, key).toContain(`'${key}'`);
+    }
+  });
+
+  it('lists every observer the ticket names', () => {
+    for (const label of [
+      'Chain',
+      'Operator',
+      'public entry',
+      'second machine',
+      'NEAR AI',
+      'RPC providers',
+      'Web host',
+      'Attestation services',
+      'Certificate logs',
+      '1Click and the Intents explorer',
+    ]) {
+      expect(panelSource, label).toContain(label);
+    }
+    expect(shared.who_rpc).toContain('receipt of your own deposit');
+  });
+
+  it('never asks a public node about the nullifier and never calls is_nullifier_used', () => {
+    for (const dir of ['src/ui', 'src/privacy', 'src/chat', 'src/chain', 'src/note']) {
+      for (const f of readdirSync(join(__dirname, '..', dir))) {
+        if (!/\.tsx?$/.test(f)) continue;
+        const source = readFileSync(join(__dirname, '..', dir, f), 'utf8');
+        expect(source, `${dir}/${f}`).not.toContain('is_nullifier_used');
+      }
+    }
+    // The status goes to the operator's own route and no RPC client is used in the check.
+    expect(panelSource).toContain('operator.nullifierStatus');
+    expect(panelSource).not.toMatch(/\brpc\b[^;]*nullifier/i);
+  });
+});
+
+describe('operator client, reuse check', () => {
+  const N = '0x' + '1'.repeat(64);
+
+  it('reads the nullifier status from the operator route', async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      seen.push(url);
+      return new Response(JSON.stringify({ nullifier_status: 'finalized', status: 'finalized' }));
+    }) as unknown as typeof fetch;
+    const client = new OperatorClient('https://op.test/', fetchImpl);
+    expect(await client.nullifierStatus(N)).toBe('finalized');
+    expect(seen).toEqual([`https://op.test/v2/nullifiers/${N}`]);
+  });
+
+  it('returns a refusal as given and an acceptance as accepted', async () => {
+    const refuse = (async () =>
+      new Response(
+        JSON.stringify({ error: { code: 'nullifier_seen', message: '<a href="x">spent</a>' } }),
+        { status: 409 },
+      )) as unknown as typeof fetch;
+    const answer = await new OperatorClient('https://op.test', refuse).resend('{"r":1}');
+    expect(answer).toBeInstanceOf(OperatorError);
+    expect((answer as OperatorError).code).toBe('nullifier_seen');
+    expect((answer as OperatorError).message).toBe('<a href="x">spent</a>');
+    const accept = (async () => new Response('{}', { status: 201 })) as unknown as typeof fetch;
+    expect(await new OperatorClient('https://op.test', accept).resend('{"r":1}')).toEqual({
+      accepted: true,
+    });
   });
 });

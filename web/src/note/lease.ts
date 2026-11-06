@@ -82,7 +82,21 @@ export interface ActiveLease {
   clientRequestId: string;
   issuedAt?: number;
   expiresAt?: number;
+  /** The lease request as sent (kept until the lease settles, then moves to `NoteExtra.last`). */
+  request?: SentRequest;
 }
+
+/** A lease request as it went to the operator: the wallet core's own text and its proof time. */
+export interface SentRequest {
+  json: string;
+  /** `request_time` of the proof, Unix seconds. The operator accepts the proof for 300 s after it. */
+  requestTime: number;
+  /** The request nullifier, the one the operator marks spent when the lease settles. */
+  nullifier: string;
+}
+
+/** A request proof lives this long after its `request_time` (the operator's `PROOF_LIFE_SECS`). */
+export const REQUEST_LIFETIME_SECS = 300;
 
 /** One exit proof that left, or may have left, the worker (the wallet core's `exit_lock.json`). */
 export interface ReleasedProof {
@@ -113,6 +127,8 @@ export interface NoteExtra {
   active?: ActiveLease;
   leases: LeaseRecord[];
   exit?: ExitLock;
+  /** The request of the last settled lease, for the privacy panel's reuse check. */
+  last?: SentRequest & { leaseId: string };
 }
 
 interface Payload {
@@ -221,7 +237,14 @@ export async function prepareLease(
     warnings: [],
     ...(input.setSize ? { setSize: input.setSize } : {}),
   };
-  const active: ActiveLease = { record, clientRequestId: input.clientRequestId };
+  const nullifier = JSON.parse(
+    splitObject(splitObject(request).public_inputs!).request_nullifier!,
+  ) as string;
+  const active: ActiveLease = {
+    record,
+    clientRequestId: input.clientRequestId,
+    request: { json: request, requestTime: input.requestTime, nullifier },
+  };
   return {
     sealed: await seal(key, aad, next, { ...extra, journal, active }),
     requestJson: request,
@@ -321,7 +344,11 @@ export async function completeLease(
     trust: s.trust,
     warnings: s.warnings,
   };
-  const out: NoteExtra = { leases: [...extra.leases, record] };
+  const { request } = extra.active;
+  const out: NoteExtra = {
+    leases: [...extra.leases, record],
+    ...(request ? { last: { ...request, leaseId: record.leaseId } } : {}),
+  };
   return { sealed: await seal(key, aad, next, out), charge, record };
 }
 
@@ -344,6 +371,7 @@ export interface NoteView {
   active?: ActiveLease;
   leases: LeaseRecord[];
   exit?: ExitLock;
+  last?: NoteExtra['last'];
 }
 
 export async function readNote(key: CryptoKey, aad: string, sealed: Sealed): Promise<NoteView> {
@@ -358,5 +386,6 @@ export async function readNote(key: CryptoKey, aad: string, sealed: Sealed): Pro
     active: extra.active,
     leases: extra.leases,
     ...(extra.exit ? { exit: extra.exit } : {}),
+    ...(extra.last ? { last: extra.last } : {}),
   };
 }
