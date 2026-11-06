@@ -61,6 +61,7 @@ commands:
       with a nyma_ token. unix: the agent runs as USER and uses the agent socket; the token
       file is made 0640 in GROUP. tcp: loopback port 8788, directly or through an SSH forward
   agent disable --name NAME         the next request on its token gets 401 token_disabled
+  agent ack-warning --name NAME     clears a charge warning (the operator charged the note too much), so the agent can send requests again
   agent list
   agent policy --name NAME --file SIGNED_POLICY.json
       loads a policy signed with your NEAR account (NEP-413, full-access key): checks the
@@ -459,6 +460,27 @@ async fn main() {
                 let name = flag(&mut args, "--name").unwrap_or_else(|| die(USAGE));
                 registry.disable(&name).unwrap_or_else(|e| die(e));
                 println!("Agent {name} is disabled: its next request gets 401 token_disabled.");
+                return;
+            }
+            Some("ack-warning") => {
+                let name = flag(&mut args, "--name").unwrap_or_else(|| die(USAGE));
+                let book = registry.load().unwrap_or_else(|e| die(e));
+                let agent = book
+                    .agents
+                    .iter()
+                    .find(|a| a.name == name)
+                    .unwrap_or_else(|| die(format!("no agent named {name}")));
+                let cleared = nymirad::chargewarn::ChargeWarnings::new(&home)
+                    .ack(&agent.note)
+                    .unwrap_or_else(|e| die(e));
+                println!(
+                    "{}",
+                    if cleared {
+                        format!("The charge warning on agent {name} is cleared: its next request is served.")
+                    } else {
+                        format!("Agent {name} has no charge warning.")
+                    }
+                );
                 return;
             }
             Some("list") => {
@@ -1115,7 +1137,13 @@ async fn agents_command(home: &std::path::Path) {
             "{}: token {}{}, note {} ({}), balance {} micro-USD, spent today {} micro-USD, expires at Unix time {}\n  policy {}: {}",
             r["agent"].as_str().unwrap_or(""),
             r["token"].as_str().unwrap_or(""),
-            if r["revoking"] == true { ", revoking" } else { "" },
+            if r["revoking"] == true {
+                ", revoking"
+            } else if r["charge_warning"] == true {
+                ", CHARGE WARNING (run `agent ack-warning`)"
+            } else {
+                ""
+            },
             r["note_id"],
             r["note_status"].as_str().unwrap_or("?"),
             r["balance_micro"].as_str().unwrap_or("?"),

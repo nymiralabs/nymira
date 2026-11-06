@@ -174,8 +174,35 @@ pub async fn make_gateway_guarded(
     clock: Arc<ManualClock>,
     guard: nymirad::expiry::GuardConfig,
 ) -> Arc<Gateway> {
+    make_gateway_pinned(home, parts, transport, clock, guard, |_| {}).await
+}
+
+/// `make_gateway_guarded` with the pins the binary compiled in changed by `tune_pins`.
+pub async fn make_gateway_pinned(
+    home: &std::path::Path,
+    parts: &GatewayParts,
+    transport: Transport,
+    clock: Arc<ManualClock>,
+    guard: nymirad::expiry::GuardConfig,
+    tune_pins: impl FnOnce(&mut nymirad::pins::Pins),
+) -> Arc<Gateway> {
+    make_gateway_tuned(home, parts, transport, clock, guard, tune_pins, |_| {}).await
+}
+
+/// `make_gateway_pinned` with the gateway's own configuration changed by `tune_cfg` (a client
+/// that believes the model costs less than it does, say).
+pub async fn make_gateway_tuned(
+    home: &std::path::Path,
+    parts: &GatewayParts,
+    transport: Transport,
+    clock: Arc<ManualClock>,
+    guard: nymirad::expiry::GuardConfig,
+    tune_pins: impl FnOnce(&mut nymirad::pins::Pins),
+    tune_cfg: impl FnOnce(&mut GatewayConfig),
+) -> Arc<Gateway> {
     let rpc = Rpc::new(parts.rpc_url.clone(), &Transport::Direct).unwrap();
-    let pins = read_live(&rpc, &parts.vault_id).await.unwrap();
+    let mut pins = read_live(&rpc, &parts.vault_id).await.unwrap();
+    tune_pins(&mut pins);
     let signer_key = ed25519_dalek::SigningKey::from_bytes(&[42; 32]);
     let test = TestPolicy::fake();
     let policy = Policy {
@@ -195,9 +222,11 @@ pub async fn make_gateway_guarded(
     )
     .unwrap();
     let dyn_clock: Arc<dyn Clock> = clock;
+    let mut cfg = gateway_config(home, parts);
+    tune_cfg(&mut cfg);
     Arc::new(
         Gateway::new(
-            gateway_config(home, parts),
+            cfg,
             transport,
             rpc,
             pins,
@@ -262,6 +291,16 @@ pub async fn build(transport: Transport, predeposit: bool) -> Stack {
 
 /// `build` on a vault whose notes live `ttl_days` days (4 puts every note inside the 5-day window).
 pub async fn build_ttl(transport: Transport, predeposit: bool, ttl_days: u64) -> Stack {
+    build_cfg(transport, predeposit, ttl_days, |_| {}).await
+}
+
+/// `build_ttl` with the operator's configuration changed by `tune` (a small daily budget, say).
+pub async fn build_cfg(
+    transport: Transport,
+    predeposit: bool,
+    ttl_days: u64,
+    tune: impl FnOnce(&mut OpConfig),
+) -> Stack {
     let worker = near_workspaces::sandbox().await.unwrap();
     let usdc = MockUsdc::deploy(&worker).await.unwrap();
     let operator_account = worker.dev_create_account().await.unwrap();
@@ -351,6 +390,7 @@ pub async fn build_ttl(transport: Transport, predeposit: bool, ttl_days: u64) ->
     );
     cfg.host = "localhost".into();
     cfg.proxy.models.retain(|m| m.id == MODEL);
+    tune(&mut cfg);
     let op = Operator::start(Parts {
         cfg,
         clock: dyn_clock.clone(),

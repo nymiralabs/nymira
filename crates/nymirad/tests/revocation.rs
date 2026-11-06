@@ -191,6 +191,7 @@ impl Rig {
     }
 
     /// An agent request past the front door, straight into the gateway.
+    #[allow(clippy::result_large_err)]
     async fn inside(&self) -> Result<(), nymirad::openai::ApiError> {
         let opts = ChatOptions {
             scope: self.scope(),

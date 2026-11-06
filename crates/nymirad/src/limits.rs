@@ -136,6 +136,28 @@ impl Limits {
         per_min: u32,
         floor: &dyn Fn() -> u128,
     ) -> Result<(), u64> {
+        self.rate_at(name, now, per_min, floor, true)
+    }
+
+    /// The same answer as `rate`, with no slot taken (the quote route).
+    pub fn peek_rate(
+        &self,
+        name: &str,
+        now: u64,
+        per_min: u32,
+        floor: &dyn Fn() -> u128,
+    ) -> Result<(), u64> {
+        self.rate_at(name, now, per_min, floor, false)
+    }
+
+    fn rate_at(
+        &self,
+        name: &str,
+        now: u64,
+        per_min: u32,
+        floor: &dyn Fn() -> u128,
+        take: bool,
+    ) -> Result<(), u64> {
         let mut table = lock(&self.table);
         let a = self.agent(&mut table, name, now, floor);
         while a.window.front().is_some_and(|t| t + MINUTE_SECS <= now) {
@@ -145,8 +167,26 @@ impl Limits {
             let oldest = a.window.front().copied().unwrap_or(now);
             return Err((oldest + MINUTE_SECS).saturating_sub(now).max(1));
         }
-        a.window.push_back(now);
+        if take {
+            a.window.push_back(now);
+        }
         Ok(())
+    }
+
+    /// Whether `reserve_call` would succeed now, with nothing reserved.
+    pub fn has_room(
+        &self,
+        name: &str,
+        now: u64,
+        call_micro: u128,
+        lease_bound_micro: u128,
+        max_daily_micro: u128,
+        floor: &dyn Fn() -> u128,
+    ) -> bool {
+        let mut table = lock(&self.table);
+        let a = self.agent(&mut table, name, now, floor);
+        let lease = if a.leases == 0 { lease_bound_micro } else { 0 };
+        a.total() + call_micro + lease <= max_daily_micro
     }
 
     /// Reserves a call's worst case against the day. A call that opens the agent's first lease

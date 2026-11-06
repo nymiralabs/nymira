@@ -93,6 +93,7 @@ fn refuse(status: StatusCode, code: &str, message: impl Into<String>) -> ApiErro
         message: message.into(),
         retry_after_secs: None,
         approval_id: None,
+        detail: None,
     }
 }
 
@@ -107,6 +108,7 @@ fn required(id: &str, cost_micro: u128) -> ApiError {
         ),
         retry_after_secs: None,
         approval_id: Some(id.into()),
+        detail: None,
     }
 }
 

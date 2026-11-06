@@ -33,7 +33,52 @@ pub struct ApiError {
     pub retry_after_secs: Option<u64>,
     /// The ID of a held request, for `approval_required`.
     pub approval_id: Option<String>,
+    /// For `unavailable` on the agent API: which cause, from a fixed list.
+    pub detail: Option<&'static str>,
 }
+
+/// The causes of `unavailable` that nymirad names itself; the operator's own codes come from
+/// its code table.
+const DETAILS: [&str; 16] = [
+    "attestation_failed",
+    "attestation_unreachable",
+    "bound_class_missing",
+    "charge_warning",
+    "decrypt_failed",
+    "lease_gone",
+    "notes_unreadable",
+    "operator_emergency",
+    "operator_unreachable",
+    "operator_untrusted",
+    "pins_malformed",
+    "proving_key_changed",
+    "tor_down",
+    "tor_refused",
+    "vault_pins_changed",
+    "wallet_unreadable",
+];
+
+/// Codes whose message nymirad wrote itself from its own figures; everything else is replaced
+/// by a fixed text on the agent API.
+const OWN_MESSAGE: [&str; 17] = [
+    "invalid_request",
+    "invalid_token",
+    "token_disabled",
+    "policy_missing",
+    "model_not_allowed",
+    "call_limit",
+    "daily_limit",
+    "approval_required",
+    "budget_exhausted",
+    "note_expiring",
+    "policy_rate_limit",
+    "busy",
+    "approval_limit",
+    "approval_unknown",
+    "approval_used",
+    "approval_expired",
+    "approval_mismatch",
+];
 
 impl ApiError {
     fn new(status: StatusCode, kind: &'static str, code: &str, message: impl Into<String>) -> Self {
@@ -44,7 +89,55 @@ impl ApiError {
             message: message.into(),
             retry_after_secs: None,
             approval_id: None,
+            detail: None,
         }
+    }
+
+    /// The error as the agent API shows it: a reason from the spec's table and nothing the
+    /// operator or the model wrote. Operator errors without a row become `unavailable` with
+    /// the operator's code as `detail`; a 429 from the operator's own limiters is
+    /// `operator_capacity`. Every message that is not nymirad's own is a fixed text.
+    pub fn typed(mut self) -> Self {
+        let was = std::mem::take(&mut self.code);
+        let (code, text): (&str, &str) = match (self.status.as_u16(), was.as_str()) {
+            (_, c) if OWN_MESSAGE.contains(&c) => {
+                self.code = was;
+                return self;
+            }
+            (429, "provider_rate_limit") => (
+                "provider_rate_limit",
+                "the model provider is rate limiting; retry later",
+            ),
+            (429, _) => (
+                "operator_capacity",
+                "the operator is at capacity; retry after the wait given",
+            ),
+            (502, "not_verified") => (
+                "not_verified",
+                "the answer was withheld because its signature did not verify",
+            ),
+            (402, "no_note_can_cover_request") => (
+                "no_note_can_cover_request",
+                "the budget note's lease cannot pay for this request",
+            ),
+            _ => {
+                self.detail = DETAILS
+                    .into_iter()
+                    .find(|d| *d == was)
+                    .or_else(|| Code::ALL.into_iter().map(Code::as_str).find(|c| *c == was));
+                (
+                    "unavailable",
+                    "nymirad cannot serve this request now; see detail",
+                )
+            }
+        };
+        if code == "unavailable" {
+            self.status = StatusCode::SERVICE_UNAVAILABLE;
+            self.kind = "server_error";
+        }
+        self.code = code.into();
+        self.message = text.into();
+        self
     }
 
     pub fn invalid_request(message: impl Into<String>) -> Self {
@@ -204,6 +297,9 @@ impl IntoResponse for ApiError {
         });
         if let Some(id) = &self.approval_id {
             body["error"]["approval_id"] = json!(id);
+        }
+        if let Some(detail) = &self.detail {
+            body["error"]["detail"] = json!(detail);
         }
         let mut response = (self.status, axum::Json(body)).into_response();
         if let Some(id) = &self.approval_id {

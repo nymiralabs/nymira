@@ -4,12 +4,17 @@
 //! Chat, leases, Tor management, close and exit belong to later tickets; the HTTP routes for
 //! chat answer 501 until then.
 
+// shortcut: `ApiError` carries the typed `detail` and `approval_id` and is a little over the
+// lint's size; box it if it grows further.
+#![allow(clippy::result_large_err)]
+
 pub mod agents;
 pub mod agentsock;
 pub mod approvals;
 pub mod attest;
 pub mod backup;
 pub mod calendar;
+pub mod chargewarn;
 pub mod config;
 pub mod deposit;
 pub mod direct;
@@ -22,6 +27,7 @@ pub mod gate;
 pub mod gateway;
 pub mod guard;
 pub mod hardening;
+pub mod idempotency;
 pub mod intents;
 pub mod lease;
 pub mod limits;
