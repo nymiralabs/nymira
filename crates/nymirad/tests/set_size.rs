@@ -8,7 +8,8 @@ use nymirad::setsize::{self, SetSize};
 use nymirad::status;
 use serde_json::{json, Value};
 
-const VAULT: &str = "vault.test";
+/// The vault the testnet build pins.
+const VAULT: &str = "vault.nymira.testnet";
 const FAR: u64 = 4_000_000_000;
 /// The request time of the lease in these tests, in Unix seconds.
 const T: u64 = 1_800_000_000;
@@ -374,4 +375,95 @@ fn the_backup_carries_the_stored_figure() {
     std::fs::write(restored.path().join(nymirad::records::FILE), bytes).unwrap();
     let got = &Records::new(restored.path()).list()[0];
     assert_eq!(got.set_size, lease.set_size);
+}
+
+/// The binary as a user runs it: `nymirad status` over scripted providers.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_status_command_prints_the_stored_and_the_now_figures() {
+    use nymirad::secrets::{NoteEntry, NoteStatus, NoteStore, ROUNDS};
+    use std::os::unix::fs::PermissionsExt;
+
+    let (a, b) = pair(3, active(0..3)).await;
+    let home = tempfile::tempdir().unwrap();
+    nymirad::config::Config {
+        rpc_url: a.url(),
+        rpc_url_second: Some(b.url()),
+        operator_url: "http://127.0.0.1:1".into(),
+        account: "alice.test".into(),
+        direct: true,
+        ..Default::default()
+    }
+    .save(home.path())
+    .unwrap();
+    let pass = home.path().join("pass");
+    std::fs::write(&pass, "test-passphrase").unwrap();
+    std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o600)).unwrap();
+    NoteStore::open(&home.path().join("notes.sealed"), "test-passphrase", ROUNDS)
+        .unwrap()
+        .add(NoteEntry {
+            chain_label: "near-testnet".into(),
+            secret: "00".into(),
+            commitment: "0xc0".into(),
+            denomination: "1000000".into(),
+            payout: "alice.test".into(),
+            status: NoteStatus::Accepted,
+            note_id: Some(2),
+            expiry_ns: Some(FAR),
+            deposit_amount: Some("1050000".into()),
+            tx_hash: None,
+            created_at: T,
+        })
+        .unwrap();
+    let mut lease = lease_record("l1");
+    lease.set_size = Some(SetSize {
+        external: 4,
+        total: 6,
+        ..SetSize::default()
+    });
+    Records::new(home.path()).write(&lease).unwrap();
+
+    let home_path = home.path().to_path_buf();
+    let out = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_nymirad"))
+            .arg("--home")
+            .arg(&home_path)
+            .arg("--passphrase-file")
+            .arg(home_path.join("pass"))
+            .arg("status")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    // The lease keeps the figure it was opened with; the note shows the current one.
+    assert!(text.contains("set size: 4 (external), total 6"), "{text}");
+    assert!(
+        text.contains("now: set size: 3 (external), total 3"),
+        "{text}"
+    );
+    // The test build runs direct, so the Tor line says so; the rest follows from the strings.
+    assert!(text.contains("\nTor off\n"), "{text}");
+    let shared: Value =
+        serde_json::from_str(include_str!("../../../shared/privacy-strings.json")).unwrap();
+    for key in [
+        "tor_limits",
+        "balances_private",
+        "includes_unlisted",
+        "five_not_safe",
+        "testnet_notes",
+    ] {
+        assert!(
+            text.contains(shared[key].as_str().unwrap()),
+            "{key}: {text}"
+        );
+    }
+    // Both providers were asked for the notes.
+    for fake in [&a, &b] {
+        assert!(fake
+            .requests()
+            .iter()
+            .any(|r| r.params["method_name"] == "note_records"));
+    }
 }
