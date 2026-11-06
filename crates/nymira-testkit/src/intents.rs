@@ -67,3 +67,18 @@ pub async fn deploy_verifier(
         .into_result()?;
     Ok(contract)
 }
+
+/// The demo fallback at the same test-only Intents account; its full-access key pays the fake swap.
+pub async fn deploy_standin(worker: &Worker<Sandbox>) -> Result<Contract> {
+    let account = worker
+        .root_account()?
+        .create_subaccount("intents")
+        .initial_balance(NearToken::from_near(50))
+        .transact()
+        .await?
+        .into_result()?;
+    Ok(account
+        .deploy(&crate::build::contract_wasm("contracts/mock-ft-receiver"))
+        .await?
+        .into_result()?)
+}

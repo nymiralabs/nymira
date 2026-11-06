@@ -8,6 +8,9 @@ use crate::tor::{Backend, TorConfig};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
+    #[cfg(feature = "mock")]
+    #[serde(default)]
+    pub oneclick_base: Option<String>,
     pub rpc_url: String,
     pub operator_url: String,
     /// The funding account (the CLI signs for it).

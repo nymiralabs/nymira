@@ -79,7 +79,7 @@ web/scripts/build-wasm.sh && (cd web && npm ci --ignore-scripts)
 
 ## Try it locally
 
-A local stack needs no keys and no money: a sandbox vault with a mock USDC token, the operator, and a fake NEAR AI gateway.
+A local stack needs no keys and no money: a sandbox vault with a mock USDC token, the operator, a fake NEAR AI gateway and a fake 1Click service. The demo prints an Intents deposit command that pays a fake address through a sandbox stand-in.
 
 ```bash
 make golden   # a note is deposited, used, settled, closed and retired, asserted step by step
@@ -87,6 +87,14 @@ make demo     # the stack stays up and prints the `nymirad` commands to try agai
 ```
 
 Both need cargo-near 0.22.0. The `mock` build of `nymirad` that `make demo` uses talks to the sandbox without Tor and trusts a throwaway attestation policy; a release build has neither.
+
+## Intents funding in nymirad
+
+The mainnet profile supports `deposit --source list --amount 1000000` and `deposit --source ethereum-usdc --amount 1000000 --payout ACCOUNT --refund SOURCE_WALLET`. The client asks once per attempt before contacting 1Click directly, outside Tor. It checks signed exact-output quotes, saves the pending note encrypted and verifies its encrypted backup before showing a deposit address. Resume with `recover --intents COMMITMENT`; restarting requires a new direct-access confirmation.
+
+1Click sees the source wallet, note commitment, payout account and IP address on this path. Its quote signature identifies the issuer; it does not guarantee delivery. The client accepts a note only from a matching final vault receipt. Testnet offers signed quotes labelled "quote only" over Tor and makes no Intents payment. Use Circle's faucet for testnet USDC.
+
+The CLI integration tests deliver through the open-source Verifier, release v0.4.2, and through the demo stand-in. They cover a pending-backup restore, renewed consent, receipt acceptance and a lease on the new note. No live cross-chain swap is claimed. The live destination-signer lookup and batching shape still need the mainnet probe; no mainnet vault is pinned in this build.
 
 ## License
 

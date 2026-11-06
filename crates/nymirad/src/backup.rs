@@ -270,6 +270,8 @@ pub struct StateBackup {
     /// Unix seconds the backup was taken.
     pub taken_at: u64,
     pub notes: Vec<NoteEntry>,
+    #[serde(default)]
+    pub funding: Vec<crate::intents::Attempt>,
     /// Commitment to the wallet's files (name to base64).
     pub wallets: BTreeMap<String, Files>,
     /// The submitter store's contents, as the JSON the store writes.
@@ -385,6 +387,18 @@ pub fn load(from: &[PathBuf], secret: &str) -> Result<StateBackup, RestoreError>
             .ok_or_else(|| RestoreError::NoFile(from[0].clone()))?,
     };
     for other in extra {
+        for (name, bytes) in other.files {
+            base.files.entry(name).or_insert(bytes);
+        }
+        for attempt in other.funding {
+            if !base
+                .funding
+                .iter()
+                .any(|a| a.commitment == attempt.commitment)
+            {
+                base.funding.push(attempt);
+            }
+        }
         for note in other.notes.iter() {
             if !base.notes.iter().any(|n| n.commitment == note.commitment) {
                 base.notes.push(note.clone());
@@ -411,7 +425,9 @@ pub fn restore_into(
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
     }
-    NoteStore::open(&home.join("notes.sealed"), passphrase, rounds)?.save(&backup.notes)?;
+    let notes = NoteStore::open(&home.join("notes.sealed"), passphrase, rounds)?;
+    notes.save(&backup.notes)?;
+    notes.restore_funding(&backup.funding)?;
     let vault = WalletVault::new(home, passphrase, rounds);
     for (key, files) in &backup.wallets {
         vault
@@ -501,6 +517,7 @@ mod tests {
             wallets,
             submitters: Some(r#"{"submitters":[],"assignments":{}}"#.into()),
             files: BTreeMap::new(),
+            funding: vec![],
         }
     }
 

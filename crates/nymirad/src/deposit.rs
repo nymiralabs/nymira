@@ -420,6 +420,7 @@ impl Ctx {
             version: backup::VERSION,
             taken_at: self.clock.now_secs(),
             notes: self.notes.list()?,
+            funding: self.notes.funding_attempts()?,
             ..Default::default()
         };
         backup::write_backups(target, &state.to_bytes()?, backup::NOTES_FILE)?;
@@ -435,6 +436,14 @@ impl Ctx {
         let mut out = Vec::new();
         for entry in self.notes.list()? {
             if entry.status != NoteStatus::Pending {
+                continue;
+            }
+            if self
+                .notes
+                .funding_attempts()?
+                .iter()
+                .any(|a| a.commitment == entry.commitment)
+            {
                 continue;
             }
             let key = entry.commitment.clone();

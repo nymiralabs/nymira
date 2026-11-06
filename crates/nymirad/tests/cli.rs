@@ -143,6 +143,29 @@ fn a_passphrase_file_others_can_read_stops_note_secret() {
 }
 
 #[test]
+fn testnet_refuses_intents_before_loading_keys_or_contacting_services() {
+    let home = initialized();
+    let out = run(
+        home.path(),
+        "yes\n",
+        &[
+            "deposit",
+            "--source",
+            "ethereum-usdc",
+            "--amount",
+            "1000000",
+        ],
+    );
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("Terms of use: run `nymirad terms`."));
+    assert!(
+        text(&out.stderr).contains("Intents has no testnet"),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
+#[test]
 fn terms_prints_the_terms_file_and_needs_no_home() {
     let home = tempfile::tempdir().unwrap();
     let out = run(home.path(), "", &["terms"]);

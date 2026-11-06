@@ -114,7 +114,7 @@ pub fn render(
         View::Lines(lines) => {
             for l in lines {
                 out.push(format!(
-                    "Quote {}: 1 USDC buys {} ({})",
+                    "Quote {}: {} source tokens ({}). Fund with testnet USDC from the Circle faucet.",
                     l.label,
                     l.text,
                     quotes::LABEL
@@ -222,7 +222,7 @@ mod tests {
         }]);
         let text = render(Ok(&json!({})), &[], &lines);
         assert!(
-            text.contains("Quote ETH: 1 USDC buys 0.0003 ETH (quote only)"),
+            text.contains("Quote ETH: 0.0003 ETH source tokens (quote only)"),
             "{text}"
         );
     }
