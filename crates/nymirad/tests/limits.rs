@@ -431,6 +431,17 @@ async fn an_empty_budget_note_gets_budget_exhausted_whatever_the_owner_holds() {
     assert!(rig.s.gateway.records().is_empty());
     assert!(rig.s.fake.handle.chats().is_empty());
 
+    // The balance check is the last one: the same empty note under a day limit too small for a
+    // lease is refused by the day first.
+    let small_day = policy::yaml_limits(&[MODEL], "0.5", "0.05", "0.05", 30);
+    register(&rig.registry, &home, "d", &format!("0x{}", "cd".repeat(32)));
+    policy::give_policy_text(&rig.registry, "d", 1, &small_day);
+    let (status, _, reply) = ask(&rig.app, &rig.token("d"), &[], body("empty", Some(20))).await;
+    assert_eq!(
+        (status, code(&reply)),
+        (StatusCode::PAYMENT_REQUIRED, "daily_limit")
+    );
+
     // The owner's funded note was not offered to the agent, and still serves the owner.
     let (status, _, reply) = ask(&rig.app, &rig.owner, &[], body("owner", Some(20))).await;
     assert_eq!(status, StatusCode::OK, "{reply}");
