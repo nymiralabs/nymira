@@ -49,11 +49,20 @@ export const test = base.extend<object, { stack: MockStack }>({
 export { expect };
 
 /** Scripts the vault's tree views for a single deposited note (what the app reads for a proof). */
-export async function scriptTree(wallet: FundingWallet, denomination = '1000000') {
+export async function scriptTree(
+  wallet: FundingWallet | { deposit: { commitment: string; note_id: number; expiry: number } },
+  denomination = '1000000',
+) {
   zk();
-  const call = wallet.calls.at(-1)!;
-  const commitment = (JSON.parse(call.args.msg as string) as { commitment: string }).commitment;
-  const d = wallet.lastDeposit as { note_id: number; expiry: number };
+  // A deposit that did not come from the test wallet (the Intents path) is passed as `deposit`.
+  const d =
+    'deposit' in wallet
+      ? wallet.deposit
+      : (wallet.lastDeposit as { note_id: number; expiry: number });
+  const commitment =
+    'deposit' in wallet
+      ? wallet.deposit.commitment
+      : (JSON.parse(wallet.calls.at(-1)!.args.msg as string) as { commitment: string }).commitment;
   const leaf = JSON.parse(
     browser_note_leaf_from_fields(d.note_id, commitment, denomination, String(d.expiry)),
   ) as string;

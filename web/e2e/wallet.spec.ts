@@ -44,7 +44,10 @@ test('testnet quotes: off by default, quote only, dummy refund, no note data, ca
   for (const { body } of sent) {
     expect(body).toMatchObject({ dry: true, amount: '1050000' });
     expect(String(body.refundTo)).toMatch(/^0x0{39}1$|^1nc1nerator1{32}$/);
-    expect(JSON.stringify(body)).not.toMatch(/commitment|alice|vault|usdc\.test/);
+    expect(JSON.stringify(body)).not.toMatch(/alice|vault|usdc\.test/);
+    // Only placeholders: the mainnet asset, nymira.near, and a message with a dummy commitment.
+    expect(body).toMatchObject({ recipient: 'nymira.near' });
+    expect(JSON.parse(body.customRecipientMsg as string).commitment).toBe(`0x${'01'.repeat(32)}`);
   }
   // Turning it off and on again within a minute is answered from the cache.
   await page.getByTestId('quotes-toggle').uncheck();
@@ -52,7 +55,9 @@ test('testnet quotes: off by default, quote only, dummy refund, no note data, ca
   await expect(rows).toHaveCount(2);
   expect(await (await fetch(`${ONECLICK}/requests`)).json()).toHaveLength(2);
   // No text says the cross-chain payment was tested on testnet.
-  await expect(page.getByTestId('quotes')).toContainText('not available on testnet');
+  await expect(page.getByTestId('quote-only')).toHaveText(
+    'Quote only. Intents has no testnet, so no cross-chain payment is made here. Fund with testnet USDC from the Circle faucet.',
+  );
   await expect(page.getByTestId('quotes')).not.toContainText(/was tested|tested on testnet/);
 });
 

@@ -89,6 +89,8 @@ export interface Profile {
   walletConnectSrc: string[];
   oneClick: {
     baseUrl: string;
+    /** The key 1Click signs quotes with, compiled in. The mock profile has its own test key. */
+    signerKey: string;
     /** Live dry quotes on the Fund screen (testnet and mock builds). */
     dryQuotes: boolean;
     /** Intents funding paths. Mainnet profile only. */

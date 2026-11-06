@@ -177,6 +177,7 @@ export interface TxStatus {
 
 export interface OutcomeBody {
   logs?: string[];
+  receipt_ids?: string[];
   executor_id?: string;
   status?: unknown;
 }

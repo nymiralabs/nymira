@@ -23,6 +23,8 @@ export const profile: Profile = {
   walletConnectSrc: [],
   oneClick: {
     baseUrl: 'https://1click.chaindefuser.com',
+    // 1Click's manager key; a rotation needs a new release of this app.
+    signerKey: 'ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc',
     dryQuotes: true,
     intentsPaths: false,
     shortlist: [

@@ -21,10 +21,33 @@ export const profile: Profile = {
   walletConnectSrc: [],
   oneClick: {
     baseUrl: 'https://1click.chaindefuser.com',
+    // 1Click's manager key; a rotation needs a new release of this app.
+    signerKey: 'ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc',
     // The dry-quote listing is a testnet feature; on mainnet the Intents paths themselves are on.
     dryQuotes: false,
     intentsPaths: true,
-    shortlist: [],
+    shortlist: [
+      {
+        label: 'USDC on Ethereum',
+        assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
+        dummyRefund: '0x0000000000000000000000000000000000000001',
+      },
+      {
+        label: 'USDC on Base',
+        assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
+        dummyRefund: '0x0000000000000000000000000000000000000001',
+      },
+      {
+        label: 'USDC on Arbitrum',
+        assetId: 'nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near',
+        dummyRefund: '0x0000000000000000000000000000000000000001',
+      },
+      {
+        label: 'USDC on Solana',
+        assetId: 'nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near',
+        dummyRefund: '1nc1nerator11111111111111111111111111111111',
+      },
+    ],
   },
   pins: null,
   gatewayUrl: 'https://cloud-api.near.ai',

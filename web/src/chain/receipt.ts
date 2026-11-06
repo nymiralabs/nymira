@@ -102,3 +102,12 @@ export function hasReceiptTree(outcome: unknown): outcome is TxStatus {
   const o = outcome as TxStatus | null | undefined;
   return Array.isArray(o?.receipts_outcome) && o.receipts_outcome.length > 0;
 }
+
+/** Every receipt a receipt of the outcome points to is in the outcome: the whole tree is there. */
+export function treeComplete(status: TxStatus): boolean {
+  const all = status.receipts_outcome ?? [];
+  const ids = new Set(all.map((r) => r.id));
+  return [status.transaction_outcome, ...all].every((r) =>
+    (r?.outcome?.receipt_ids ?? []).every((id) => ids.has(id)),
+  );
+}
