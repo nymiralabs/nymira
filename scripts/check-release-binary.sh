@@ -13,7 +13,9 @@ cd "$(dirname "$0")/.."
 # Present in a `--features mock` build (cfg-gated demo code), absent from a release build:
 #   demo-pins.json      the pins file a demo vault writes next to the state
 #   demo build:         the demo attestor's messages (it trusts a demo policy signer key)
-MARKERS=("demo-pins.json" "demo build:")
+#   /mock/pay           the fake 1Click payment route (only a mock build can point 1Click elsewhere)
+MARKERS=("demo-pins.json" "demo build:" "/mock/pay")
+ONECLICK_URL="https://1click.chaindefuser.com"
 
 target="${CARGO_TARGET_DIR:-target}"
 
@@ -64,6 +66,16 @@ if [ -z "$bin" ]; then
   bin="$target/release/nymirad"
 fi
 scan "$bin" || { echo "$bin is not a release build" >&2; exit 1; }
+# The 1Click base URL is a compiled constant (issue 44): the release binary carries it, carries
+# the refusal that stops any other base, and names no other 1Click URL. (A `cfg(not(mock))` unit
+# test cannot run here: the crate's own dev-dependency turns `mock` on for every test build.)
+grep -aqF -- "$ONECLICK_URL" "$bin" || { echo "$bin lacks the compiled 1Click URL" >&2; exit 1; }
+grep -aqF -- "1Click base URL is compiled into this build" "$bin" \
+  || { echo "$bin lacks the 1Click base-URL refusal" >&2; exit 1; }
+if grep -aoE 'https?://[A-Za-z0-9.-]*1click[A-Za-z0-9./-]*' "$bin" | grep -vxF -- "$ONECLICK_URL" | grep -q .; then
+  echo "$bin names a 1Click URL other than $ONECLICK_URL" >&2
+  exit 1
+fi
 echo "release nymirad: no mock feature, no demo strings ($(wc -c <"$bin") bytes)"
 
 if [ "$control" = 1 ]; then
