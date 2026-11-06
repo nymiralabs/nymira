@@ -125,6 +125,14 @@ fn vault(cfg: &Config, rpc: &str) -> Arc<dyn VaultView> {
     Arc::new(RpcVault::new(rpc, cfg.vault_account.clone()))
 }
 
+/// The first provider, with the others behind it for a rate limit or an outage.
+fn vault_with_fallbacks(cfg: &Config) -> Arc<dyn VaultView> {
+    Arc::new(
+        RpcVault::new(cfg.rpc_urls[0].clone(), cfg.vault_account.clone())
+            .with_fallbacks(cfg.rpc_urls[1..].iter().cloned()),
+    )
+}
+
 fn tx(
     cfg: &Config,
     signer_id: &str,
@@ -164,6 +172,9 @@ pub async fn api(cfg: &Config) -> Result<(), Failure> {
         _ => Profile::Sandbox,
     };
     oc.host = cfg.host.clone();
+    // The free public providers refuse more than a few reads a second, and one refresh is four or
+    // five reads: once every five seconds keeps a busy API under that.
+    oc.chain_refresh_ms = 5_000;
     if cfg.budget == "hackathon" {
         oc.budget = nymira_operator::budget::BudgetConfig::hackathon();
         oc.credit = nymira_operator::budget::CreditConfig::hackathon();
@@ -194,7 +205,7 @@ pub async fn api(cfg: &Config) -> Result<(), Failure> {
     let op = Operator::start(Parts {
         cfg: oc,
         clock,
-        vault: vault(cfg, &cfg.rpc_urls[0]),
+        vault: vault_with_fallbacks(cfg),
         provider: remote.clone(),
         replica,
         verifier: Arc::new(GrothVerifier::load(&cfg.setup_dir)?),
@@ -305,7 +316,7 @@ pub async fn signer(cfg: &Config) -> Result<(), Failure> {
             state_key,
             clearance_key,
             store,
-            vault(cfg, &cfg.rpc_urls[0]),
+            vault_with_fallbacks(cfg),
             VerifyingKey::from_bytes(&usage_pk).map_err(|e| e.to_string())?,
             chain_id(network(cfg)),
             Felt252(contract_address(&cfg.vault_account)),
@@ -342,7 +353,7 @@ pub async fn closer(cfg: &Config) -> Result<(), Failure> {
         alarms: alarms.clone(),
     };
     let closer = Closer::new(
-        vault(cfg, &cfg.rpc_urls[0]),
+        vault_with_fallbacks(cfg),
         Arc::new(GrothWithdrawalVerifier::load(&cfg.setup_dir)?),
         Arc::new(sender),
         clock,

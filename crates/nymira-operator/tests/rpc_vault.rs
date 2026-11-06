@@ -123,3 +123,24 @@ async fn a_failing_view_is_an_error() {
         .await
         .is_err());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_first_provider_falls_back_to_the_next() {
+    let rpc = FakeRpc::start().await;
+    rpc.set_view(
+        VAULT,
+        "current_root",
+        ArgsMatch::Any,
+        ViewResult::json(json!(word(9))),
+    );
+    let vault = RpcVault::new("http://127.0.0.1:1", VAULT).with_fallbacks([rpc.url()]);
+    assert_eq!(vault.current_root().await.unwrap(), word(9));
+    // A contract error is not a provider problem: it is reported, not retried elsewhere.
+    rpc.set_view(
+        VAULT,
+        "current_root",
+        ArgsMatch::Any,
+        ViewResult::error("contract panicked"),
+    );
+    assert!(vault.current_root().await.is_err());
+}
