@@ -149,6 +149,35 @@ export class OperatorClient {
   }
 
   /**
+   * `GET /v2/nullifiers/{n}`: what the operator's records say about a request nullifier
+   * (`reserved`, `finalized`, `clearance_reserved` or `unknown`). The operator already holds the
+   * nullifier; no public node is asked.
+   */
+  async nullifierStatus(nullifier: string): Promise<string> {
+    const r = await this.send(`/v2/nullifiers/${encodeURIComponent(nullifier)}`);
+    if (!r.ok) return OperatorClient.fail(r);
+    const body = (await r.json()) as Json;
+    return typeof body.nullifier_status === 'string' ? body.nullifier_status : 'unknown';
+  }
+
+  /**
+   * Sends a lease request again, exactly as kept, for the privacy panel's reuse check. It carries
+   * no puzzle. An operator that accepts it has opened a lease, which the answer reports.
+   */
+  async resend(requestJson: string): Promise<{ accepted: true } | OperatorError> {
+    const r = await this.send('/v2/openrouter/leases', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: requestJson,
+    });
+    if (r.ok) return { accepted: true };
+    return OperatorClient.fail(r).catch((e: unknown) => {
+      if (e instanceof OperatorError) return e;
+      throw e;
+    });
+  }
+
+  /**
    * `POST /v2/withdraw/clearance`: the ownership proof for a nullifier with no lease open. Returns
    * the operator's `ClearanceResponseV2` as JSON text, which the wallet core checks against the
    * pinned clearance key.

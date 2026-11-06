@@ -40,7 +40,7 @@ mod tests {
         // purpose, after checking the new text against THREAT_MODEL.md.
         assert_eq!(
             hex::encode(Sha256::digest(RAW.as_bytes())),
-            "6174e4858c342b980998e7a8e165b733575ee90e6f7c8f38407f99eeccc9bf52"
+            "4c7655b35a014c9d26a67086a7a7f881ceae5fac99ba1bec8ae70230f667a855"
         );
         let keys: Vec<&str> = table().keys().map(String::as_str).collect();
         assert_eq!(
@@ -49,10 +49,35 @@ mod tests {
                 "balances_private",
                 "five_not_safe",
                 "includes_unlisted",
+                "leave_answer",
+                "leave_clearance",
+                "leave_close",
+                "leave_exit",
+                "leave_exit_purpose",
+                "leave_sender",
+                "link_left",
+                "link_open",
                 "now_label",
                 "one_provider",
                 "operator_list_missing",
                 "providers_differ",
+                "reuse_accepted",
+                "reuse_clearance_reserved",
+                "reuse_evidence",
+                "reuse_finalized",
+                "reuse_left",
+                "reuse_no_request",
+                "reuse_none",
+                "reuse_other",
+                "reuse_read_reason",
+                "reuse_refuses",
+                "reuse_resent",
+                "reuse_reserved",
+                "reuse_rule",
+                "reuse_says",
+                "reuse_too_old",
+                "reuse_unknown",
+                "reuse_unreachable",
                 "set_size",
                 "set_total",
                 "team_operator_only",
@@ -62,6 +87,17 @@ mod tests {
                 "tor_off",
                 "tor_on",
                 "unavailable",
+                "who_attest",
+                "who_certs",
+                "who_chain",
+                "who_entry",
+                "who_host",
+                "who_intents",
+                "who_model",
+                "who_near_ai",
+                "who_operator",
+                "who_rpc",
+                "who_second",
             ]
         );
     }

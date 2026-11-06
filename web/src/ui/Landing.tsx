@@ -1,3 +1,4 @@
+import { sentence } from '../privacy/strings';
 import { PROFILE } from '../profile';
 
 export function Notices() {
@@ -22,11 +23,9 @@ export function WhoSeesWhat() {
     <figure className="who" data-testid="who-sees-what">
       <svg viewBox="0 0 720 230" role="img" aria-labelledby="who-title who-desc">
         <title id="who-title">Who sees what</title>
-        <desc id="who-desc">
-          You hold the note secret and your prompts. The operator sees your IP address, request
-          times and proofs, not your prompts. The model in NEAR AI's TEE reads your prompts. The
-          chain shows your deposit and, when you close, the note's ID, total spend and payout
-          account.
+        <desc id="who-desc" data-testid="who-desc">
+          You hold the note secret and your prompts. {sentence('who_operator')}{' '}
+          {sentence('who_model')} {sentence('who_chain')}
         </desc>
         <g className="box">
           <rect x="8" y="30" width="160" height="150" rx="8" />

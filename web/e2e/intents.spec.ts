@@ -201,6 +201,12 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
   await say(page, 'hello from an Intents-funded note');
   await expect(page.getByTestId('conversation')).toContainText('echo: hello from an Intents');
   await endConversation(page);
+
+  // The privacy panel adds 1Click and the Intents explorer to the observers of this note.
+  await page.getByTestId('chat-privacy').click();
+  await expect(page.getByTestId('observers')).toContainText(
+    'If the note was funded through Intents, 1Click and the Intents explorer can pair',
+  );
 });
 
 // ---- expired quote, resume after a reload, restore from the backup, outcomes ----

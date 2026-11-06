@@ -2,10 +2,14 @@
 // saw for each lease on it (right), with the set size of every lease. The left column comes from
 // the deposit record this browser keeps and makes no request. The set size of a lease was counted
 // when the lease opened and is stored with it; the "now" figure reads the vault's views again.
-import { useEffect, useState } from 'react';
+// Between them: what joins the two views, the reuse check, what leaving shows and who sees what.
+import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_BOUND } from '../chat/models';
+import { OperatorClient, OperatorError, OperatorUnreachable } from '../chat/operator';
+import { INTENTS_SIGNER } from '../funding/intents';
 import { isUnlocked, requireKey } from '../crypto/wrap';
 import { loadNotes } from '../funding/flow';
+import { REQUEST_LIFETIME_SECS } from '../note/lease';
 import type { ActiveLease, LeaseRecord, NoteView } from '../note/lease';
 import { coverOf, small, thin } from '../privacy/cover';
 import {
@@ -17,7 +21,7 @@ import {
   teamOf,
   type SetSize,
 } from '../privacy/setsize';
-import { fill, sentence } from '../privacy/strings';
+import { fill, sentence, type StringKey } from '../privacy/strings';
 import * as text from '../privacy/text';
 import { PROFILE } from '../profile';
 import { noteAad, type NoteRecord } from '../store/types';
@@ -121,6 +125,189 @@ function LeaseRow({
   );
 }
 
+/** Operator text, shown as plain text and cut to this many characters. */
+export const OPERATOR_TEXT_CAP = 300;
+const plain = (text: string) => {
+  const flat = text.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+  return flat.length > OPERATOR_TEXT_CAP ? `${flat.slice(0, OPERATOR_TEXT_CAP)}…` : flat;
+};
+
+const STATUS_TEXT: Record<string, StringKey> = {
+  finalized: 'reuse_finalized',
+  reserved: 'reuse_reserved',
+  clearance_reserved: 'reuse_clearance_reserved',
+  unknown: 'reuse_unknown',
+};
+
+type Reuse = {
+  status: string;
+  /** What happened to the stored request: not sent (and why), refused, or accepted. */
+  resent:
+    | { kind: 'not-sent'; why: 'left' | 'old' | 'missing' }
+    | { kind: 'refused'; code: string; says: string }
+    | { kind: 'accepted' }
+    | { kind: 'failed'; why: string };
+};
+
+function ReuseCheck({ note, view }: { note: NoteRecord; view: NoteView }) {
+  const operator = useMemo(() => new OperatorClient(PROFILE.operatorUrl), []);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<Reuse | { error: string } | null>(null);
+  const last = view.last;
+
+  const check = async () => {
+    if (!last) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const status = await operator.nullifierStatus(last.nullifier);
+      const left = view.exit !== undefined || note.leave !== undefined;
+      const inside = Math.floor(Date.now() / 1000) < last.requestTime + REQUEST_LIFETIME_SECS;
+      if (left) return setResult({ status, resent: { kind: 'not-sent', why: 'left' } });
+      if (!inside) return setResult({ status, resent: { kind: 'not-sent', why: 'old' } });
+      const answer = await operator.resend(last.json).catch((e: unknown) => e);
+      if (answer instanceof OperatorError) {
+        return setResult({
+          status,
+          resent: { kind: 'refused', code: answer.code, says: answer.message },
+        });
+      }
+      if (answer instanceof OperatorUnreachable) {
+        return setResult({ status, resent: { kind: 'failed', why: answer.message } });
+      }
+      if (answer instanceof Error) throw answer;
+      setResult({ status, resent: { kind: 'accepted' } });
+    } catch (e) {
+      setResult({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section data-testid="reuse">
+      <h3>Check reuse</h3>
+      {!last ? (
+        <p data-testid="reuse-none">{sentence('reuse_none')}</p>
+      ) : (
+        <>
+          <p className="hint">{sentence('reuse_evidence')}</p>
+          <button type="button" disabled={busy} data-testid="reuse-check" onClick={check}>
+            Check reuse
+          </button>
+        </>
+      )}
+      {result && 'error' in result && (
+        <p className="warning" data-testid="reuse-error">
+          {fill('reuse_unreachable', { why: plain(result.error) })}
+        </p>
+      )}
+      {result && 'status' in result && (
+        <div data-testid="reuse-result">
+          <p data-testid="reuse-status">
+            {result.status in STATUS_TEXT
+              ? sentence(STATUS_TEXT[result.status]!)
+              : fill('reuse_other', { status: plain(result.status) })}
+          </p>
+          {result.resent.kind === 'not-sent' && (
+            <p data-testid="reuse-not-sent">
+              {sentence(
+                result.resent.why === 'left'
+                  ? 'reuse_left'
+                  : result.resent.why === 'old'
+                    ? 'reuse_too_old'
+                    : 'reuse_no_request',
+              )}
+            </p>
+          )}
+          {result.resent.kind === 'refused' && (
+            <>
+              <p>{sentence('reuse_resent')}</p>
+              <p data-testid="reuse-refused">
+                <strong>{sentence('reuse_refuses')}</strong>
+                {result.resent.code ? ` (${plain(result.resent.code)})` : ''}
+              </p>
+              <div className="operator-says" data-testid="operator-says">
+                <strong>{sentence('reuse_says')}</strong>
+                <pre data-testid="operator-says-text">{plain(result.resent.says)}</pre>
+              </div>
+              <p className="hint">{sentence('reuse_read_reason')}</p>
+            </>
+          )}
+          {result.resent.kind === 'accepted' && (
+            <>
+              <p>{sentence('reuse_resent')}</p>
+              <p className="warning" data-testid="reuse-accepted">
+                {sentence('reuse_accepted')}
+              </p>
+            </>
+          )}
+          {result.resent.kind === 'failed' && (
+            <p className="warning" data-testid="reuse-failed">
+              {fill('reuse_unreachable', { why: plain(result.resent.why) })}
+            </p>
+          )}
+        </div>
+      )}
+      <p className="hint" data-testid="reuse-rule">
+        {sentence('reuse_rule')}
+      </p>
+    </section>
+  );
+}
+
+const LEAVING: StringKey[] = [
+  'leave_close',
+  'leave_clearance',
+  'leave_exit',
+  'leave_answer',
+  'leave_sender',
+];
+
+function Leaving() {
+  return (
+    <section data-testid="leaving">
+      <h3>What leaving reveals</h3>
+      <ul>
+        {LEAVING.map((k) => (
+          <li key={k}>{sentence(k)}</li>
+        ))}
+      </ul>
+      <p data-testid="exit-purpose">{sentence('leave_exit_purpose')}</p>
+    </section>
+  );
+}
+
+function Observers({ note }: { note: NoteRecord }) {
+  const rows: [string, StringKey[]][] = [
+    ['Chain', ['who_chain']],
+    ['Operator', ['who_operator']],
+    ["Operator's public entry", ['who_entry']],
+    ["Operator's second machine", ['who_second']],
+    ['NEAR AI', ['who_model', 'who_near_ai']],
+    ['RPC providers', ['who_rpc']],
+    ['Web host', ['who_host']],
+    ['Attestation services', ['who_attest']],
+    ['Certificate logs', ['who_certs']],
+    ...(note.sender === INTENTS_SIGNER
+      ? [['1Click and the Intents explorer', ['who_intents']] as [string, StringKey[]]]
+      : []),
+  ];
+  return (
+    <section data-testid="observers">
+      <h3>Who sees what</h3>
+      <dl>
+        {rows.map(([who, keys]) => (
+          <div key={who} data-testid="observer">
+            <dt>{who}</dt>
+            <dd>{keys.map(sentence).join(' ')}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 function Panel({ note, view }: { note: NoteRecord; view: NoteView }) {
   const [now, setNow] = useState<Now>({ status: 'loading' });
   const leases: { record: LeaseRecord; open: boolean }[] = [
@@ -152,6 +339,8 @@ function Panel({ note, view }: { note: NoteRecord; view: NoteView }) {
   }, []);
 
   const fee = PROFILE.pins?.config.note_fee;
+  // Once a close, a clearance or an exit has started, the leases are tied to the note ID.
+  const left = note.leave !== undefined || view.exit !== undefined;
   return (
     <>
       <p className="notice" data-testid="address-line">
@@ -195,6 +384,12 @@ function Panel({ note, view }: { note: NoteRecord; view: NoteView }) {
             <dd data-testid="chain-fee">{fee !== undefined ? units(fee) : 'unknown'}</dd>
           </dl>
         </section>
+        <section data-testid="link-column">
+          <h3>What joins the two views</h3>
+          <p data-testid="link-sentence" data-left={left}>
+            {sentence(left ? 'link_left' : 'link_open')}
+          </p>
+        </section>
         <section data-testid="operator-column">
           <h3>What the operator saw</h3>
           <p className="hint">{text.RIGHT_INTRO}</p>
@@ -234,6 +429,9 @@ function Panel({ note, view }: { note: NoteRecord; view: NoteView }) {
           </>
         )}
       </section>
+      <ReuseCheck note={note} view={view} />
+      <Leaving />
+      <Observers note={note} />
       <section data-testid="honesty">
         <h3>What the figures do not say</h3>
         <ul>

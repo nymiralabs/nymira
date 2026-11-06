@@ -93,6 +93,8 @@ export interface Scenario {
   clearanceError: string;
   /** An error code `POST /v1/close` answers with (HTTP 429). */
   closeError: string;
+  /** The reason `nullifier_seen` carries when a lease request is sent a second time. */
+  refusal: string;
   /** Overrides of the lease parameters the status repeats. */
   params: Record<string, unknown>;
 }
@@ -110,6 +112,7 @@ const fresh = (): Scenario => ({
   emergency: '',
   clearanceError: '',
   closeError: '',
+  refusal: 'this request nullifier is already used',
   params: {},
 });
 
@@ -118,6 +121,8 @@ export interface Lease {
   token: string;
   clientRequestId: string;
   requestJson: string;
+  /** `request_nullifier` of the lease request. */
+  nullifier: string;
   bound: bigint;
   issuedAt: number;
   retired: boolean;
@@ -378,6 +383,12 @@ export class MockStack {
           return this.error(res, 409, 'root_stale');
         }
         const parts = splitObject(body);
+        const nullifier = JSON.parse(
+          splitObject(parts.public_inputs!).request_nullifier!,
+        ) as string;
+        // A nullifier the operator already holds is refused before anything else is checked.
+        if ([...this.leases.values()].some((l) => l.nullifier === nullifier))
+          return this.error(res, 409, 'nullifier_seen', s.refusal);
         const verified = browser_verify_request(
           parts.public_inputs!,
           (JSON.parse(parts.proof!) as { proof: string }).proof,
@@ -391,6 +402,7 @@ export class MockStack {
           token: toHex(crypto.getRandomValues(new Uint8Array(16))),
           clientRequestId: JSON.parse(parts.client_request_id!) as string,
           requestJson: body,
+          nullifier,
           bound,
           issuedAt: Math.floor(Date.now() / 1000),
           retired: false,
@@ -426,6 +438,13 @@ export class MockStack {
           status: lease.retired ? 'settled' : 'active',
           provider_evidence: { signatures: this.signatures(lease) },
         });
+      }
+
+      const spent = /^\/v2\/nullifiers\/([^/]+)$/.exec(url.pathname);
+      if (spent && req.method === 'GET') {
+        const lease = [...this.leases.values()].find((l) => l.nullifier === spent[1]);
+        const status = !lease ? 'unknown' : lease.retired ? 'finalized' : 'reserved';
+        return this.json(res, 200, { status, nullifier_status: status });
       }
 
       const recovery = /^\/v2\/requests\/([^/]+)$/.exec(url.pathname);

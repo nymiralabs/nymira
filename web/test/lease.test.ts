@@ -182,6 +182,13 @@ describe('lease path', () => {
       charge: '2000',
       trust: 'model_signed',
     });
+    // The request and its nullifier stay for the privacy panel's reuse check.
+    expect(after.last).toMatchObject({
+      leaseId: 'lease-1',
+      requestTime: 1_800_000_000,
+      json: prepared.requestJson,
+    });
+    expect(after.last?.nullifier).toMatch(/^0x[0-9a-f]{64}$/);
     // Metadata only: nothing of a message is in the sealed record's lease.
     expect(JSON.stringify(after.leases)).not.toMatch(/content/);
   }, 120_000);

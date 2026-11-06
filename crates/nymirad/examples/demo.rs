@@ -28,6 +28,10 @@ use serde_json::{json, Value};
 use zkapi_proof::compact::CompactSigner;
 use zkapi_types::Felt252;
 
+/// Test notes put in the vault before the demo user's own, and how many of them are the team's.
+const SEEDED_NOTES: usize = 6;
+const TEAM_NOTES: u32 = 3;
+
 const SETUP_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../vendor/zkapi/protocol/setup/v2-concession-dev"
@@ -126,6 +130,35 @@ async fn main() {
     usdc.register(&alice).await;
     usdc.mint(alice.id(), 100_000_000).await;
 
+    // Six test notes are already in the vault: IDs 0 to 2 are the team's (listed in the operator's
+    // team list below), 3 to 5 are external. A note the demo user adds becomes ID 6, so the set
+    // size `nymirad status` prints moves as notes are added and closed. The notes cannot expire
+    // here: the vault gives each one 30 days and the sandbox does not move that far.
+    for _ in 0..SEEDED_NOTES {
+        let (_, commitment) = nymirad::secrets::new_secret("near-testnet");
+        let msg = json!({ "commitment": format!("0x{}", hex::encode(commitment.0)) }).to_string();
+        usdc.ft_transfer_call(&alice, vault.id(), 1_050_000, &msg)
+            .await
+            .unwrap();
+    }
+
+    // The real operator's watcher moves waiting notes into the tree with `sync_root`; the set
+    // size counts notes in the tree, so the demo does the same every few seconds.
+    {
+        let (syncer, vault_id) = (alice.clone(), vault.id().clone());
+        tokio::spawn(async move {
+            loop {
+                let _ = syncer
+                    .call(&vault_id, "sync_root")
+                    .args_json(json!({ "max": 100 }))
+                    .max_gas()
+                    .transact()
+                    .await;
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+        });
+    }
+
     let intents = nymira_testkit::intents::deploy_standin(&worker)
         .await
         .unwrap();
@@ -222,6 +255,7 @@ async fn main() {
         "http://localhost",
     );
     cfg.host = "localhost".into();
+    cfg.team_note_ids = (0..TEAM_NOTES).collect();
     let op = Operator::start(Parts {
         cfg,
         clock: clock.clone(),
@@ -312,7 +346,14 @@ async fn main() {
     println!("  vault         {}", vault.id());
     println!("  operator      {operator_url}");
     println!("  fake NEAR AI  {}", fake.url());
-    println!("  demo account  {} (100 mock USDC)", alice.id());
+    println!(
+        "  demo account  {} (about 94 mock USDC after the test notes)",
+        alice.id()
+    );
+    println!(
+        "  test notes    {SEEDED_NOTES} in the vault, IDs 0 to {} on the team list",
+        TEAM_NOTES - 1
+    );
     println!("\nIn another terminal (NYMIRA_MODE=mainnet: the demo token is not Circle's):");
     let run = format!(
         "NYMIRA_MODE=mainnet cargo run -q -p nymirad --features mock -- --home {} --passphrase-file {}/passphrase",
