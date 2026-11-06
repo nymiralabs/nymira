@@ -111,10 +111,11 @@ impl Book {
 pub enum Scope {
     /// The owner: every note except the budget notes.
     Owner { budget: Vec<String> },
-    /// An agent: its own budget note and nothing else, and only the models its policy allows.
+    /// An agent: its own budget note and nothing else, under the limits of its signed policy.
     Agent {
+        name: String,
         note: String,
-        allowed_models: Vec<String>,
+        policy: crate::policy::Policy,
     },
 }
 
@@ -134,6 +135,17 @@ impl Scope {
 
     pub fn is_agent(&self) -> bool {
         matches!(self, Self::Agent { .. })
+    }
+
+    /// The lease size the request may ask for. An agent gets the large class only when it asks
+    /// for it and its policy's `max_lease_usd` allows it; otherwise the default class.
+    pub fn lease_request(&self, asked: Option<f64>) -> Option<f64> {
+        match self {
+            Self::Owner { .. } => asked,
+            Self::Agent { policy, .. } => asked
+                .filter(|a| *a >= 0.5 && policy.max_lease_usd >= 0.5)
+                .map(|a| a.min(policy.max_lease_usd)),
+        }
     }
 }
 
@@ -452,11 +464,37 @@ mod tests {
             budget: vec!["0x01".into(), "0x02".into()],
         };
         assert!(owner.allows("0x99") && !owner.allows("0x01") && !owner.allows("0x02"));
-        let agent = Scope::Agent {
-            note: "0x01".into(),
-            allowed_models: vec![],
-        };
+        let agent = agent_scope(0.5);
         assert!(agent.allows("0x01") && !agent.allows("0x02") && !agent.allows("0x99"));
+    }
+
+    fn agent_scope(max_lease_usd: f64) -> Scope {
+        Scope::Agent {
+            name: "cursor".into(),
+            note: "0x01".into(),
+            policy: crate::policy::Policy {
+                allowed_models: vec![],
+                max_lease_usd,
+                max_call_usd: 0.05,
+                max_daily_usd: 2.0,
+                confirm_above_usd: 0.03,
+                rate_limit_per_min: 30,
+                require_tee: true,
+            },
+        }
+    }
+
+    #[test]
+    fn an_agent_gets_the_large_lease_only_when_it_asks_and_its_policy_allows() {
+        let big = agent_scope(0.5);
+        assert_eq!(big.lease_request(None), None);
+        assert_eq!(big.lease_request(Some(0.2)), None);
+        assert_eq!(big.lease_request(Some(5.0)), Some(0.5));
+        let small = agent_scope(0.4);
+        assert_eq!(small.lease_request(Some(5.0)), None);
+        assert_eq!(small.lease_request(Some(0.5)), None);
+        let owner = Scope::default();
+        assert_eq!(owner.lease_request(Some(5.0)), Some(5.0));
     }
 
     #[test]

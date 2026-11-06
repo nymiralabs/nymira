@@ -128,8 +128,9 @@ fn agent_scope(
         ));
     };
     Ok(Scope::Agent {
+        name: agent.name.clone(),
         note: agent.note.clone(),
-        allowed_models: policy.allowed_models,
+        policy,
     })
 }
 

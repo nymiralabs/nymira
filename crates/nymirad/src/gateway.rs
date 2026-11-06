@@ -116,7 +116,21 @@ struct Session {
     retiring: bool,
     /// An exchange failed after the operator may have billed it: usage is unknown.
     incomplete: bool,
+    /// Requests that have been admitted and not yet finished.
+    inflight: u32,
+    /// The agent whose budget note this lease is on; its day counters follow the lease.
+    agent: Option<String>,
 }
+
+/// What an agent request carries out of its admission checks.
+struct Admitted {
+    /// The most output tokens the call may ask for under `max_call_usd`.
+    cap: u64,
+    hold: crate::limits::CallHold,
+}
+
+/// At most this many requests run at once on one note's lease; a third gets 409 `busy`.
+const MAX_INFLIGHT: u32 = 2;
 
 /// What a finished lease came to.
 #[derive(Debug)]
@@ -169,6 +183,8 @@ pub struct Gateway {
     stuck_holds: std::sync::Mutex<Vec<String>>,
     /// When `finalize_exit` was last tried for a note (Unix seconds).
     finalize_tried: std::sync::Mutex<HashMap<String, u64>>,
+    /// The agents' rate windows and day totals.
+    limits: crate::limits::Limits,
     /// The expiry guard's switches and what it has tried (see `watch`).
     guard: crate::expiry::GuardConfig,
     guard_tries: std::sync::Mutex<HashMap<String, watch::Tries>>,
@@ -257,6 +273,7 @@ impl Gateway {
             exits: crate::exits::ExitBook::new(&cfg.home),
             stuck_holds: Default::default(),
             finalize_tried: Default::default(),
+            limits: crate::limits::Limits::new(&cfg.home),
             guard: Default::default(),
             guard_tries: Default::default(),
             notices: crate::expiry::NoticeBook::new(&cfg.home),
@@ -310,6 +327,95 @@ impl Gateway {
             self.cfg.models.iter().map(|m| m.id.clone()).collect(),
             &self.bound_classes(),
         )
+    }
+
+    /// What the lease records show was charged on the note today (UTC): the least today's total
+    /// can be, whatever a restored counter file says.
+    fn charged_in_records(&self, note_id: u32, now: u64) -> u128 {
+        crate::limits::charges_on(&self.records.list(), note_id, now / DAY_SECS)
+    }
+
+    /// What settled leases charged today on the agent's budget note, in micro-USD.
+    pub fn agent_spend_today(&self, agent: &str, note: &str) -> u128 {
+        let now = self.clock.now_secs();
+        let note_id = self
+            .notes
+            .list()
+            .ok()
+            .and_then(|n| n.into_iter().find(|n| n.commitment == note))
+            .and_then(|n| n.note_id);
+        self.limits.charged_today(agent, now, &|| {
+            note_id.map_or(0, |id| self.charged_in_records(id, now))
+        })
+    }
+
+    /// An agent request's checks that need no lease: the rate limit, then the call's cost
+    /// against `max_call_usd`, then the day's reservation. Owner requests pass untouched.
+    fn admit(
+        &self,
+        opts: &ChatOptions,
+        request: &Value,
+        spec: &ModelSpec,
+        caller_max: Option<u64>,
+    ) -> Result<Option<Admitted>, ApiError> {
+        let Scope::Agent { name, note, policy } = &opts.scope else {
+            return Ok(None);
+        };
+        let now = self.clock.now_secs();
+        let note_id = self
+            .notes
+            .list()
+            .ok()
+            .and_then(|n| n.into_iter().find(|n| &n.commitment == note))
+            .and_then(|n| n.note_id);
+        let floor = || note_id.map_or(0, |id| self.charged_in_records(id, now));
+        self.limits
+            .rate(name, now, policy.rate_limit_per_min, &floor)
+            .map_err(ApiError::policy_rate_limit)?;
+
+        // The input is sized against a throwaway key: the ciphertext has the same length under
+        // any key, and nothing has to be attested or sent for this check.
+        let throwaway = hex::decode(ClientKeys::generate().public_hex())
+            .ok()
+            .and_then(|k| <[u8; 32]>::try_from(k).ok())
+            .expect("a public key is 32 bytes");
+        let cfg = ProxyConfig {
+            models: self.cfg.models.clone(),
+            ..ProxyConfig::default()
+        };
+        let sealed = e2ee::seal_request(request, &throwaway, Some(1))
+            .map_err(|e| ApiError::invalid_request(e.to_string()))?;
+        let input = parse_chat(
+            &serde_json::to_vec(&sealed).expect("json"),
+            &cfg,
+            &Default::default(),
+        )
+        .map_err(|e| ApiError::invalid_request(e.message))?
+        .input_tokens;
+        let cap = sizing::max_tokens(
+            crate::limits::micro_of(policy.max_call_usd),
+            100,
+            spec,
+            u128::from(input),
+        )
+        .ok_or_else(ApiError::call_limit)?;
+        if caller_max.is_some_and(|c| c > cap) {
+            return Err(ApiError::call_limit());
+        }
+        let worst = micro_ceil(sizing::cost_nano(spec, input, caller_max.unwrap_or(cap)));
+        let bound = lease::choose_bound(&self.bound_classes(), opts.max_lease_usd).unwrap_or(0);
+        let hold = self
+            .limits
+            .reserve_call(
+                name,
+                now,
+                worst,
+                bound,
+                crate::limits::micro_of(policy.max_daily_usd),
+                &floor,
+            )
+            .ok_or_else(ApiError::daily_limit)?;
+        Ok(Some(Admitted { cap, hold }))
     }
 
     pub fn models_json(&self) -> Value {
@@ -398,11 +504,12 @@ impl Gateway {
             })
             .collect();
         if accepted.is_empty() {
-            return Err(ApiError::no_funds(if scope.is_agent() {
-                "the budget note is not funded yet"
+            return Err(if scope.is_agent() {
+                // The budget note holds nothing yet, whatever the owner's other notes hold.
+                ApiError::budget_exhausted()
             } else {
-                "no accepted note: deposit one with `nymirad deposit` first"
-            }));
+                ApiError::no_funds("no accepted note: deposit one with `nymirad deposit` first")
+            });
         }
         let mut reasons = Vec::new();
         for entry in accepted {
@@ -429,6 +536,11 @@ impl Gateway {
                     }
                     let balance = wallet.state().map_or(0, |s| s.current_balance);
                     if balance < bound {
+                        if scope.is_agent() {
+                            drop(wallet);
+                            let _ = self.vault.checkin(&entry.commitment);
+                            return Err(ApiError::budget_exhausted());
+                        }
                         reasons.push(format!(
                             "note {id} has {balance} micro-USD left, under the {bound} lease bound"
                         ));
@@ -745,6 +857,14 @@ impl Gateway {
             set_size,
         };
         let _ = self.records.write(&record);
+        let agent = match &opts.scope {
+            Scope::Agent { name, .. } => Some(name.clone()),
+            Scope::Owner { .. } => None,
+        };
+        if let Some(name) = &agent {
+            self.limits
+                .lease_opened(name, now, bound, &|| self.charged_in_records(note_id, now));
+        }
         self.back_up();
         // Stop the wallet from using this state again before the lease settles.
         let _ = &mut wallet;
@@ -762,6 +882,8 @@ impl Gateway {
             record,
             retiring: false,
             incomplete: false,
+            inflight: 0,
+            agent,
         })
     }
 
@@ -793,8 +915,19 @@ impl Gateway {
     pub async fn chat(
         self: &Arc<Self>,
         request: Value,
-        opts: ChatOptions,
+        mut opts: ChatOptions,
     ) -> Result<Outcome, ApiError> {
+        // The policy's checks run on every agent request, in this order: the model, the rate,
+        // the call's cost, the day's reservation; the balance check comes with the lease.
+        if let Scope::Agent { policy, .. } = &opts.scope {
+            if !request["model"]
+                .as_str()
+                .is_some_and(|m| policy.allowed_models.iter().any(|a| a == m))
+            {
+                return Err(ApiError::model_not_allowed());
+            }
+        }
+        opts.max_lease_usd = opts.scope.lease_request(opts.max_lease_usd);
         let model = request["model"]
             .as_str()
             .ok_or_else(|| ApiError::invalid_request("model must be a string"))?
@@ -810,6 +943,11 @@ impl Gateway {
         let caller_max = request["max_tokens"]
             .as_u64()
             .or_else(|| request["max_completion_tokens"].as_u64());
+        let admitted = self.admit(&opts, &request, &spec, caller_max)?;
+        let (agent_cap, hold) = match admitted {
+            Some(a) => (Some(a.cap), Some(a.hold)),
+            None => (None, None),
+        };
 
         if let Some(why) = self.emergency_refusal() {
             return Err(why);
@@ -853,7 +991,10 @@ impl Gateway {
         .map_err(|e| ApiError::invalid_request(e.message))?;
         let ours = sizing::max_tokens(remaining, self.cfg.share_pct, &spec, u128::from(probe.input_tokens))
             .ok_or_else(|| ApiError::no_funds("the lease cannot pay for this prompt and an answer; start a new conversation or shorten it"))?;
-        let max = caller_max.map_or(ours, |c| c.min(ours));
+        // The per-call limit only lowers the cap, never the lease's bound.
+        let max = caller_max
+            .map_or(ours, |c| c.min(ours))
+            .min(agent_cap.unwrap_or(u64::MAX));
         let parsed = parse_chat(
             &serde_json::to_vec(&sealed(Some(max))?).expect("json"),
             &cfg,
@@ -869,6 +1010,9 @@ impl Gateway {
             let Some(s) = sessions.get_mut(&key) else {
                 return Err(unavailable("lease_gone", "the lease ended"));
             };
+            if agent_cap.is_some() && s.inflight >= MAX_INFLIGHT {
+                return Err(ApiError::busy());
+            }
             let bound: u128 = s.record.bound_class.parse().unwrap_or(0);
             if s.spent_micro + s.reserved_micro + reserve > bound * self.cfg.share_pct / 100 {
                 return Err(ApiError::no_funds(
@@ -876,12 +1020,23 @@ impl Gateway {
                 ));
             }
             s.reserved_micro += reserve;
+            s.inflight += 1;
             s.last_used = self.clock.now_secs();
         }
 
-        self.transport
-            .ensure_ready()
-            .map_err(|e| net_error("operator_unreachable", e))?;
+        let release = |this: &Arc<Self>| {
+            let (this, key) = (this.clone(), key.clone());
+            async move {
+                if let Some(s) = this.sessions.lock().await.get_mut(&key) {
+                    s.reserved_micro = s.reserved_micro.saturating_sub(reserve);
+                    s.inflight = s.inflight.saturating_sub(1);
+                }
+            }
+        };
+        if let Err(e) = self.transport.ensure_ready() {
+            release(self).await;
+            return Err(net_error("operator_unreachable", e));
+        }
         let mut builder = http
             .post(format!("{}/v1/chat/completions", self.cfg.operator_url))
             .header("content-type", "application/json")
@@ -891,14 +1046,6 @@ impl Gateway {
             builder = builder.header(name, value);
         }
         let sent = builder.body(body.clone()).send().await;
-        let release = |this: &Arc<Self>| {
-            let (this, key) = (this.clone(), key.clone());
-            async move {
-                if let Some(s) = this.sessions.lock().await.get_mut(&key) {
-                    s.reserved_micro = s.reserved_micro.saturating_sub(reserve);
-                }
-            }
-        };
         let response = match sent {
             Ok(r) => r,
             Err(e) => {
@@ -948,6 +1095,7 @@ impl Gateway {
                 })
                 .unwrap_or(0),
             sampling: sampling_of(&request),
+            _hold: hold,
         };
         if stream {
             let upstream = response.bytes_stream();
@@ -1064,6 +1212,14 @@ impl Gateway {
             self.settling.lock().await.insert(key.clone());
             match self.finish_lease(&mut session).await {
                 Some(settled) => {
+                    if let Some(agent) = &session.agent {
+                        let bound = session.record.bound_class.parse().unwrap_or(0);
+                        let now = self.clock.now_secs();
+                        let note_id = session.record.note_id;
+                        self.limits.settled(agent, now, bound, settled.charge, &|| {
+                            self.charged_in_records(note_id, now)
+                        });
+                    }
                     drop(session.wallet);
                     let _ = self.vault.checkin(&key);
                     self.back_up();
@@ -1321,6 +1477,8 @@ struct Finish {
     message_count: u32,
     message_bytes: u64,
     sampling: Value,
+    /// An agent's call stays in the day's reservation until it finishes or is dropped.
+    _hold: Option<crate::limits::CallHold>,
 }
 
 impl Finish {
@@ -1330,6 +1488,7 @@ impl Finish {
         let mut sessions = self.gw.sessions.lock().await;
         if let Some(s) = sessions.get_mut(&self.key) {
             s.reserved_micro = s.reserved_micro.saturating_sub(self.reserve);
+            s.inflight = s.inflight.saturating_sub(1);
             s.incomplete = true;
         }
     }
@@ -1342,6 +1501,7 @@ impl Finish {
             return;
         };
         s.reserved_micro = s.reserved_micro.saturating_sub(self.reserve);
+        s.inflight = s.inflight.saturating_sub(1);
         s.spent_micro += actual;
         s.last_used = self.gw.clock.now_secs();
         s.exchanges.push(Exchange {
@@ -1467,15 +1627,6 @@ pub async fn chat_handler(
         Ok(v) => v,
         Err(_) => return ApiError::invalid_request("the body is not JSON").into_response(),
     };
-    // A model outside the policy is refused before anything leaves the machine.
-    if let Scope::Agent { allowed_models, .. } = &scope {
-        if !request["model"]
-            .as_str()
-            .is_some_and(|m| allowed_models.iter().any(|a| a == m))
-        {
-            return ApiError::model_not_allowed().into_response();
-        }
-    }
     let opts = ChatOptions {
         max_lease_usd: headers
             .get("x-nymira-max-lease-usd")
@@ -1505,9 +1656,8 @@ pub async fn models_handler(
     axum::Extension(scope): axum::Extension<Scope>,
 ) -> axum::Json<Value> {
     let mut list = gw.models_json();
-    if let (Scope::Agent { allowed_models, .. }, Some(data)) = (&scope, list["data"].as_array_mut())
-    {
-        data.retain(|m| allowed_models.iter().any(|a| m["id"] == a.as_str()));
+    if let (Scope::Agent { policy, .. }, Some(data)) = (&scope, list["data"].as_array_mut()) {
+        data.retain(|m| policy.allowed_models.iter().any(|a| m["id"] == a.as_str()));
     }
     axum::Json(list)
 }
