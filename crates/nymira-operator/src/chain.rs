@@ -137,6 +137,8 @@ pub struct Head {
 pub struct RpcVault {
     http: reqwest::Client,
     rpc_url: String,
+    /// Tried in order when `rpc_url` cannot be reached or says it is rate limited.
+    fallbacks: Vec<String>,
     account: String,
     finality: &'static str,
 }
@@ -151,9 +153,36 @@ impl RpcVault {
                 .build()
                 .expect("http client"),
             rpc_url: rpc_url.into(),
+            fallbacks: Vec::new(),
             account: account.into(),
             finality: "final",
         }
+    }
+
+    /// Other providers for the same chain. The free public ones answer 429 to a burst of reads, so
+    /// a lease that needs several reads in a row must not depend on one of them.
+    pub fn with_fallbacks(mut self, urls: impl IntoIterator<Item = String>) -> Self {
+        self.fallbacks = urls.into_iter().collect();
+        self
+    }
+
+    /// One JSON-RPC round trip; a transport failure or a rate limit (code -429) is the signal to
+    /// try the next provider, any other answer is final.
+    async fn round_trip(&self, url: &str, body: &Value) -> Result<Value, ChainError> {
+        let reply: Value = self
+            .http
+            .post(url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| ChainError(e.to_string()))?
+            .json()
+            .await
+            .map_err(|e| ChainError(e.to_string()))?;
+        if reply["error"]["code"].as_i64() == Some(-429) {
+            return Err(ChainError(reply["error"].to_string()));
+        }
+        Ok(reply)
     }
 
     async fn view<T: serde::de::DeserializeOwned>(
@@ -178,16 +207,18 @@ impl RpcVault {
                 "args_base64": base64::engine::general_purpose::STANDARD.encode(args.to_string()),
             }
         });
-        let reply: Value = self
-            .http
-            .post(&self.rpc_url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| ChainError(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| ChainError(e.to_string()))?;
+        let mut last = ChainError("no provider".into());
+        let mut answer = None;
+        for url in std::iter::once(&self.rpc_url).chain(self.fallbacks.iter()) {
+            match self.round_trip(url, &body).await {
+                Ok(reply) => {
+                    answer = Some(reply);
+                    break;
+                }
+                Err(e) => last = e,
+            }
+        }
+        let reply = answer.ok_or(last)?;
         if let Some(error) = reply.get("error") {
             return Err(ChainError(error.to_string()));
         }
