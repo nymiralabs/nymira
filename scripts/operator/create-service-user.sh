@@ -1,7 +1,7 @@
 #!/bin/bash
-# Creates the dedicated macOS user the operator runs as, its directories and its launchd jobs.
+# Creates the dedicated macOS user the operator runs as and its directories under /var/nymira.
 # Run once, as an administrator, on the operator laptop: sudo scripts/operator/create-service-user.sh
-# It changes the system (a user, directories under /var/nymira, launchd jobs), so read it first.
+# It changes the system (a user and directories under /var/nymira), so read it first.
 # A clean PATH: sudo keeps the caller's, which may hold another `install` or `sudo`.
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 set -euo pipefail
@@ -30,8 +30,7 @@ for role in minter signer closer watcher; do
   install -d -m 0700 -o "$USER_NAME" "$HOME_DIR/secrets/$role"
 done
 
-# The processes do not start by themselves: the signer and the minter need passphrases typed at
-# start-up, so a person starts them (scripts/operator/start.sh). The jobs are only the watcher,
-# the closer and the API, which hold no passphrase, and they wait for the sockets.
+# No process starts by itself: the signer and the minter need passphrases typed at start-up, so a
+# person starts all five with scripts/operator/start.sh. This script installs no launchd job.
 echo "user $USER_NAME and $HOME_DIR are ready."
 echo "next: put operator.json in $HOME_DIR, make the keys with 'nymira-operatord keygen', then run scripts/operator/start.sh"
