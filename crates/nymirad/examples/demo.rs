@@ -293,7 +293,7 @@ async fn main() {
     let policy_signer = SigningKey::from_bytes(&rand::random::<[u8; 32]>());
     let test = nymira_fake_near_ai::TestPolicy::fake();
     let policy = nymirad::attest::Policy {
-        version: 1,
+        version: nymirad::attest::MIN_POLICY_VERSION,
         attestation_root_pk: test.attestation_root_pk,
         accepted_measurements: test.accepted_measurements,
         deployments: vec![],
