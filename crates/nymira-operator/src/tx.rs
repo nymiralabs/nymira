@@ -82,6 +82,8 @@ pub struct TxEnd {
 pub struct NearTx {
     http: reqwest::Client,
     rpc_url: String,
+    /// Tried in order when `rpc_url` cannot be reached or says it is rate limited.
+    fallbacks: Vec<String>,
     signer_id: String,
     receiver_id: String,
     key: SigningKey,
@@ -184,6 +186,7 @@ impl NearTx {
         Self {
             http: reqwest::Client::new(),
             rpc_url: rpc_url.into(),
+            fallbacks: Vec::new(),
             signer_id: signer_id.into(),
             receiver_id: receiver_id.into(),
             key,
@@ -203,6 +206,14 @@ impl NearTx {
     /// Sends through `http` instead of the default client (a client behind a SOCKS proxy).
     pub fn with_http(mut self, http: reqwest::Client) -> Self {
         self.http = http;
+        self
+    }
+
+    /// Other providers for the same chain, tried in order when the first is down or rate limited.
+    /// A failed-over `send_tx` sends the same signed bytes (the same hash), so it cannot double
+    /// spend; an invalid transaction does not fail over.
+    pub fn with_fallbacks(mut self, urls: impl IntoIterator<Item = String>) -> Self {
+        self.fallbacks = urls.into_iter().collect();
         self
     }
 
@@ -246,17 +257,18 @@ impl NearTx {
 
     async fn rpc(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, Rpc> {
         let body = json!({ "jsonrpc": "2.0", "id": "nymira", "method": method, "params": params });
-        let reply: Value = self
-            .http
-            .post(&self.rpc_url)
-            .timeout(timeout)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| Rpc::Transient(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| Rpc::Transient(e.to_string()))?;
+        let mut last = String::from("no provider");
+        let mut answer = None;
+        for url in std::iter::once(&self.rpc_url).chain(self.fallbacks.iter()) {
+            match crate::chain::provider_round_trip(&self.http, url, &body, Some(timeout)).await {
+                Ok(reply) => {
+                    answer = Some(reply);
+                    break;
+                }
+                Err(e) => last = e,
+            }
+        }
+        let reply = answer.ok_or(Rpc::Transient(last))?;
         if let Some(error) = reply.get("error") {
             let cause = error["cause"]["name"].as_str().unwrap_or("");
             return Err(if cause == "INVALID_TRANSACTION" {

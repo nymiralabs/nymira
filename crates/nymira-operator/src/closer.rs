@@ -151,8 +151,22 @@ impl CloseSender for NearCloseSender {
                 gas: CLOSE_GAS,
                 idem_key: Some(nullifier.to_string()),
             })
-            .await
-            .map_err(|e| e.to_string())?;
+            .await;
+        let row = match row {
+            Ok(row) => row,
+            Err(e) => {
+                // The client only hears "the chain did not take the transaction"; the owner
+                // gets the cause.
+                self.alarms
+                    .raise(
+                        &format!("close_submit_failed:{nullifier}"),
+                        "An operator-sent close could not be submitted",
+                        &format!("mutual_close for nullifier {nullifier} was not sent: {e}"),
+                    )
+                    .await;
+                return Err(e.to_string());
+            }
+        };
         let hash = row.hash.clone().ok_or("the transaction has no hash")?;
         // Await FINAL and read the receipts in the background; the answer waits only a while.
         let (tx, id, alarms, nullifier) = (
