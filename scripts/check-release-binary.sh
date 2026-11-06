@@ -67,12 +67,13 @@ if [ -z "$bin" ]; then
 fi
 scan "$bin" || { echo "$bin is not a release build" >&2; exit 1; }
 # The 1Click base URL is a compiled constant (issue 44): the release binary carries it, carries
-# the refusal that stops any other base, and names no other 1Click URL. (A `cfg(not(mock))` unit
+# the refusal that stops any other base, and names no other 1Click host (the regex stops at the
+# TLD because rodata strings sit back to back). (A `cfg(not(mock))` unit
 # test cannot run here: the crate's own dev-dependency turns `mock` on for every test build.)
 grep -aqF -- "$ONECLICK_URL" "$bin" || { echo "$bin lacks the compiled 1Click URL" >&2; exit 1; }
 grep -aqF -- "1Click base URL is compiled into this build" "$bin" \
   || { echo "$bin lacks the 1Click base-URL refusal" >&2; exit 1; }
-if grep -aoE 'https?://[A-Za-z0-9.-]*1click[A-Za-z0-9./-]*' "$bin" | grep -vxF -- "$ONECLICK_URL" | grep -q .; then
+if grep -aoE 'https?://[A-Za-z0-9-]*1click\.[a-z-]+\.[a-z]+' "$bin" | grep -vxF -- "$ONECLICK_URL" | grep -q .; then
   echo "$bin names a 1Click URL other than $ONECLICK_URL" >&2
   exit 1
 fi
