@@ -1,17 +1,34 @@
 import { ed25519 } from '@noble/curves/ed25519.js';
-import { describe, expect, it } from 'vitest';
-import type { RpcClient } from '../src/chain/rpc';
+import { describe, expect, it, vi } from 'vitest';
+import { RpcError, type RpcClient } from '../src/chain/rpc';
+import type { Booking } from '../src/chain/receipt';
 import {
   INTENTS_SIGNER,
   QUOTE_ONLY,
+  ROUTE_FALLBACK,
   confirmIntents,
   beforeAddress,
+  explainBooking,
   fetchStatus,
   intentsMessage,
   payoutProblem,
   requestQuote,
+  statusText,
   type Attempt,
 } from '../src/funding/intents';
+import { claimPayout, type LeaveDeps } from '../src/leave/flow';
+import type { FunctionCallAction } from '../src/wallet/protocol';
+
+// Sealing a note needs the wallet core in a worker; the acceptance rules are what these tests read.
+vi.mock('../src/funding/flow', async (original) => ({
+  ...(await original<typeof import('../src/funding/flow')>()),
+  finalize: async (record: unknown, event: unknown, source: unknown) => ({
+    status: 'accepted',
+    record,
+    event,
+    source,
+  }),
+}));
 import { CACHE_MS, MAINNET_USDC_ASSET, QuoteBook, quoteBody } from '../src/funding/oneclick';
 import { base58Encode, checkQuote, quoteHash } from '../src/funding/quote-check';
 import { PROFILE } from '../src/profile';
@@ -371,5 +388,170 @@ describe('status and receipt', () => {
     });
     expect(await run(tx([]))).toMatchObject({ status: 'pending' });
     expect(await run(tx([event(), event({ note_id: 4 })]))).toMatchObject({ status: 'pending' });
+  });
+});
+
+describe('what the vault booked', () => {
+  const line = (event: string, data: Json) =>
+    'EVENT_JSON:' + JSON.stringify({ standard: 'nymira', version: '1.0.0', event, data });
+  const deposit = line('deposit', {
+    note_id: 3,
+    commitment,
+    denomination: '1000000',
+    expiry: 1_795_000_000,
+    withdraw_to: 'fresh.near',
+  });
+  const tx = (logs: string[], status: unknown = { SuccessValue: '' }) => ({
+    final_execution_status: 'FINAL',
+    transaction: { hash: 'H', signer_id: INTENTS_SIGNER },
+    transaction_outcome: { id: 'a', outcome: { receipt_ids: ['b'] } },
+    receipts_outcome: [{ id: 'b', outcome: { executor_id: PROFILE.vaultAccount, logs, status } }],
+  });
+  /** A regular node that has forgotten the transaction, and an archival one that has it. */
+  const split = (archive: unknown, pendingAmount = '0') => {
+    const asked: string[] = [];
+    const regular = {
+      txStatus: async () => {
+        throw new RpcError('unknown transaction', 'UNKNOWN_TRANSACTION');
+      },
+      view: async () => {
+        asked.push('regular');
+        return '0';
+      },
+    } as unknown as RpcClient;
+    const archival = {
+      txStatus: async () => archive,
+      view: async (_a: string, method: string) => {
+        asked.push(`archival:${method}`);
+        return pendingAmount;
+      },
+    } as unknown as RpcClient;
+    return { regular, archival, asked };
+  };
+
+  it('SUCCESS with no deposit event confirms no note', async () => {
+    const status = { status: 'SUCCESS', swapDetails: { nearTxHashes: ['H'] } };
+    const progress = await fetchStatus(
+      { quote: { quote: { depositAddress: 'a' } } } as unknown as Attempt,
+      async () => new Response(JSON.stringify(status)),
+    );
+    expect(progress).toMatchObject({ state: 'success', hash: 'H' });
+    const result = await confirmIntents(fakeRpc({ txStatus: tx([]) }), note, 'H');
+    expect(result).toMatchObject({ status: 'pending' });
+  });
+
+  it('the archival endpoint confirms the note and pending_payout finds the excess', async () => {
+    const excess = line('payout_pending', {
+      account: 'fresh.near',
+      amount: '500000',
+      reason: 'intents_excess',
+      commitment,
+    });
+    const { regular, archival, asked } = split(tx([deposit, excess]), '500000');
+    const result = await confirmIntents(regular, note, 'H', {
+      archival,
+      delivered: '1550000',
+    });
+    expect(result).toMatchObject({
+      status: 'accepted',
+      pending: '500000',
+      bookings: [{ event: 'payout_pending', amount: '500000', account: 'fresh.near' }],
+    });
+    expect(asked).toEqual(['archival:pending_payout']);
+  });
+
+  it('without an archival endpoint the note stays pending', async () => {
+    const { regular } = split(tx([deposit]));
+    expect(await confirmIntents(regular, note, 'H')).toMatchObject({ status: 'pending' });
+  });
+
+  it('a payout_pending event for the payout account is booked, matched by amount without a commitment', async () => {
+    const waiting = line('payout_pending', {
+      account: 'fresh.near',
+      amount: '1050000',
+      reason: 'transfer_failed',
+    });
+    const result = await confirmIntents(fakeRpc({ txStatus: tx([waiting]) }), note, 'H');
+    expect(result).toMatchObject({
+      status: 'booked',
+      bookings: [{ event: 'payout_pending', amount: '1050000' }],
+    });
+    // Another account's payout, another amount, a failed receipt: none of them is ours.
+    for (const other of [
+      line('payout_pending', {
+        account: 'mallory.near',
+        amount: '1050000',
+        reason: 'transfer_failed',
+      }),
+      line('payout_pending', { account: 'fresh.near', amount: '7', reason: 'transfer_failed' }),
+    ]) {
+      expect(await confirmIntents(fakeRpc({ txStatus: tx([other]) }), note, 'H')).toMatchObject({
+        status: 'pending',
+      });
+    }
+    const failed = tx([waiting], { Failure: {} });
+    expect(await confirmIntents(fakeRpc({ txStatus: failed }), note, 'H')).toMatchObject({
+      status: 'pending',
+    });
+  });
+
+  it('explains dust and unclaimed; unclaimed without a commitment matches by amount', async () => {
+    const dust = line('dust', { amount: '10000', reason: 'below_note_fee', commitment });
+    const unclaimed = line('unclaimed', { amount: '1050000', reason: 'intents_bad_msg' });
+    const d = await confirmIntents(fakeRpc({ txStatus: tx([dust]) }), note, 'H', {
+      delivered: '10000',
+    });
+    expect(d).toMatchObject({ status: 'booked', bookings: [{ event: 'dust' }] });
+    const u = await confirmIntents(fakeRpc({ txStatus: tx([unclaimed]) }), note, 'H');
+    expect(u).toMatchObject({ status: 'booked', bookings: [{ event: 'unclaimed' }] });
+    if (u.status !== 'booked') throw new Error('not booked');
+    expect(explainBooking(u.bookings[0]!)).toContain(
+      'could not read the message or found no valid payout account, so the amount went to the treasury balance',
+    );
+    expect(explainBooking((d as { bookings: Booking[] }).bookings[0]!)).toContain(
+      'cannot be claimed',
+    );
+    // A dust amount at or above the note fee is not dust.
+    const big = line('dust', { amount: '50000', reason: 'below_note_fee', commitment });
+    expect(await confirmIntents(fakeRpc({ txStatus: tx([big]) }), note, 'H')).toMatchObject({
+      status: 'pending',
+    });
+  });
+
+  it('claim_payout is sent for the payout account', async () => {
+    const sent: { receiver: string; action: FunctionCallAction }[] = [];
+    const deps = {
+      profile: PROFILE,
+      rpc: {
+        view: async () => '500000',
+        viewAccount: async () => ({ amount: '1' + '0'.repeat(24) }),
+      },
+      wallet: {
+        connected: { accountId: 'anyone.near' },
+        send: async (receiver: string, action: FunctionCallAction) => {
+          sent.push({ receiver, action });
+          return { status: { SuccessValue: '' } };
+        },
+      },
+    } as unknown as LeaveDeps;
+    const claimed = await claimPayout(deps, note);
+    expect(claimed.amount).toBe(500000n);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.receiver).toBe(PROFILE.vaultAccount);
+    expect(sent[0]!.action.params).toMatchObject({
+      methodName: 'claim_payout',
+      args: { account_id: 'fresh.near' },
+    });
+  });
+
+  it('say what a refund, a failure and a passed deadline mean', () => {
+    const later = NOW + 1;
+    expect(statusText({ state: 'failed', status: 'REFUNDED' }, NOW, NOW)).toContain(
+      'refunded the payment to your refund address',
+    );
+    expect(statusText({ state: 'failed', status: 'FAILED' }, NOW, NOW)).toContain('order failed');
+    expect(statusText({ state: 'pending' }, NOW, later)).toContain('deadline has passed');
+    expect(statusText({ state: 'pending' }, later, NOW)).toBe('Waiting for your payment.');
+    expect(statusText({ state: 'failed', status: 'FAILED' }, NOW, NOW)).toContain(ROUTE_FALLBACK);
   });
 });

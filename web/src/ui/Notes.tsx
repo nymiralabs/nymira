@@ -4,12 +4,13 @@ import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
 import { isUnlocked, requireKey } from '../crypto/wrap';
 import { attachHash, confirmDeposit, loadNotes, makeBackupFile } from '../funding/flow';
+import { INTENTS_SIGNER, confirmIntents, explainBooking } from '../funding/intents';
 import { listNotes, putNote } from '../store/db';
 import { mergeRestored } from '../store/merge';
 import type { NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { download, formatDate, formatUnits, readFile } from './format';
-import { rpc } from './services';
+import { archivalRpc, rpc } from './services';
 import { ARGON2_SENTENCE, Unlock } from './Unlock';
 
 const PHASE_TEXT: Record<NoteRecord['phase'], string> = {
@@ -32,13 +33,20 @@ function NoteRow({ note, onChanged }: { note: NoteRecord; onChanged: () => void 
     setMsg('');
     try {
       const withHash = hash && hash !== note.txHash ? await attachHash(note.id, hash) : note;
-      const result = await confirmDeposit(rpc, withHash, null, { waitMs: 8000 });
+      // An Intents note is funded by intents.near, not by the user: its hash is the destination
+      // transaction that 1Click or the Intents explorer shows.
+      const result =
+        withHash.sender === INTENTS_SIGNER
+          ? await confirmIntents(rpc, withHash, withHash.txHash ?? hash, { archival: archivalRpc })
+          : await confirmDeposit(rpc, withHash, null, { waitMs: 8000 });
       setMsg(
         result.status === 'accepted'
           ? 'Found: the deposit was accepted.'
-          : result.status === 'rejected'
-            ? `Not accepted: ${result.reason}`
-            : `Not found yet: ${result.reason}`,
+          : result.status === 'booked'
+            ? result.bookings.map(explainBooking).join(' ')
+            : result.status === 'rejected'
+              ? `Not accepted: ${result.reason}`
+              : `Not found yet: ${result.reason}`,
       );
       onChanged();
     } catch (e) {
@@ -62,8 +70,10 @@ function NoteRow({ note, onChanged }: { note: NoteRecord; onChanged: () => void 
         <div>
           <p className="hint">
             If the page closed during the transfer, the note is found again from its deposit
-            receipt. Enter the transaction hash from your wallet’s history or the explorer. The
-            lookup asks the RPC provider, which sees your IP address, account and that hash.
+            receipt. Enter the transaction hash from your wallet’s history or the explorer (for a
+            note funded from another chain, the NEAR transaction 1Click or the Intents explorer
+            shows for your order). The lookup asks the RPC provider, which sees your IP address,
+            account and that hash.
           </p>
           <input
             type="text"

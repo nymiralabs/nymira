@@ -6,6 +6,11 @@ import { checkVault, type VaultCheck } from '../chain/vault';
 import { walletClient } from '../wallet/client';
 
 export const rpc = new RpcClient(PROFILE.rpcUrls);
+/**
+ * For receipts that regular nodes no longer hold: the last endpoint of the profile, asked on its
+ * own. It is one of the endpoints the CSP already allows.
+ */
+export const archivalRpc = new RpcClient(PROFILE.rpcUrls.slice(-1));
 
 export function useWallet() {
   useSyncExternalStore(

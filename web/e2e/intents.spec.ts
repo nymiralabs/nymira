@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { BrowserContext, Page } from '@playwright/test';
 import {
   expect,
   openChat,
@@ -15,6 +16,7 @@ import {
   OTHER,
   TOKEN,
   VAULT,
+  WRAP_PASSPHRASE,
   control,
   expectNoSecret,
   expectedExpiry,
@@ -186,8 +188,9 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
   expectNoSecret([JSON.stringify(await sentToOneClick())], secret);
   const surfaces = (await pageSurfaces(page)).join('\n');
   expect(surfaces).toContain('"phase":"accepted"');
-  // The quote record stays on this device.
-  expect(surfaces).toContain(`"depositAddress":"${address}"`);
+  // The quote record stays on this device, sealed: the stored copy does not show the address.
+  const stored = (await pageSurfaces(page)).filter((s) => s.startsWith('idb:')).join('\n');
+  expect(stored).not.toContain(address);
 
   // A chat on the new note.
   await scriptTree({ deposit: { commitment, note_id: 0, expiry: expectedExpiry() } });
@@ -196,4 +199,206 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
   await say(page, 'hello from an Intents-funded note');
   await expect(page.getByTestId('conversation')).toContainText('echo: hello from an Intents');
   await endConversation(page);
+});
+
+// ---- expired quote, resume after a reload, restore from the backup, outcomes ----
+
+const REFUND = '0x00000000000000000000000000000000000000aa';
+
+/** Drives the flow up to the signed quote on screen; returns the backup file and the commitment. */
+async function toReview(page: Page, context: BrowserContext) {
+  await newFundingWallet(context);
+  await fetch(`${ONECLICK}/requests`, { method: 'DELETE' });
+  await openFund(page);
+  await expect(page.getByTestId('vault-ok')).toBeVisible();
+  await setUpPassphrase(page);
+  await page.getByTestId('intents-load-sources').click();
+  const sources = page.getByTestId('intents-source');
+  await expect(sources).toHaveCount(2, { timeout: 40_000 });
+  await sources.first().check();
+  await page.getByTestId('intents-refund').fill(REFUND);
+  await page.getByTestId('intents-payout').fill(OTHER);
+  await expect(page.getByTestId('intents-fingerprint')).not.toBeEmpty();
+  await page.getByTestId('intents-fingerprint-confirm').check();
+  await page.getByTestId('intents-prepare').click();
+  await page.getByTestId('intents-backup-passphrase').fill(BACKUP_PASSPHRASE);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('intents-backup-download').click(),
+  ]);
+  const file = join(workdir(), 'intents.nymira-backup');
+  await download.saveAs(file);
+  await page.getByTestId('intents-backup-file').setInputFiles(file);
+  await expect(page.getByTestId('intents-backup-tested')).toBeVisible();
+  await page.getByTestId('intents-quote').click();
+  await expect(page.getByTestId('intents-review')).toBeVisible();
+  const commitment = (await readBackup(file)).notes[0]?.commitment ?? '';
+  return { file, commitment };
+}
+
+/** The destination transaction the stand-in delivers, and 1Click's SUCCESS for the order. */
+async function deliver(address: string, logs: string[]) {
+  await control({
+    cmd: 'set_tx_status',
+    status: {
+      tx_hash: DEST_TX,
+      signer_id: 'intents.near',
+      receiver_id: TOKEN,
+      nonce: 1,
+      receipts: [
+        { executor_id: TOKEN, logs: [] },
+        { executor_id: VAULT, logs },
+        { executor_id: TOKEN, logs: [] },
+      ],
+    },
+  });
+  await fetch(`${ONECLICK}/mock/pay`, {
+    method: 'POST',
+    body: JSON.stringify({ depositAddress: address, txHash: DEST_TX }),
+  });
+}
+
+const eventLine = (event: string, data: Record<string, unknown>) =>
+  `EVENT_JSON:${JSON.stringify({ standard: 'nymira', version: '1.0.0', event, data })}`;
+
+const depositLine = (commitment: string) =>
+  eventLine('deposit', {
+    note_id: 0,
+    commitment,
+    denomination: '1000000',
+    expiry: expectedExpiry(),
+    withdraw_to: OTHER,
+  });
+
+test('an expired quote stops before the address and a new quote goes on', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await toReview(page, context);
+  // The deadline passes while the quote is on screen.
+  await page.clock.setFixedTime(Date.now() + 2 * 3600 * 1000);
+  await page.getByTestId('intents-show-address').click();
+  await expect(page.getByTestId('intents-error')).toContainText('the quote expired');
+  await expect(page.getByTestId('intents-address')).toHaveCount(0);
+  await expect(page.getByTestId('intents-review')).toHaveCount(0);
+
+  await page.getByTestId('intents-requote').click();
+  await expect(page.getByTestId('intents-review')).toBeVisible();
+  await expect(page.getByTestId('intents-error')).toHaveCount(0);
+  expect((await sentToOneClick()).filter((r) => r.body.dry === false)).toHaveLength(2);
+  await page.getByTestId('intents-show-address').click();
+  await expect(page.getByTestId('intents-address')).toContainText('fake-deposit-');
+});
+
+test('Intents funding resumes after a reload and confirms the note', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  const { commitment } = await toReview(page, context);
+  await page.getByTestId('intents-show-address').click();
+  const address = (await page.getByTestId('intents-address').textContent()) ?? '';
+  expect(address).toMatch(/^fake-deposit-/);
+
+  // The tab is reloaded before the payment lands: the pending funding is sealed in IndexedDB.
+  const stored = (await pageSurfaces(page)).filter((s) => s.startsWith('idb:')).join('\n');
+  expect(stored).not.toContain(address);
+  await page.reload();
+  await page.getByTestId('open-app').click();
+  await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
+  await page.getByTestId('unlock-submit').click();
+  await expect(page.getByTestId('intents-address')).toHaveText(address, { timeout: 30_000 });
+  await expect(page.getByTestId('intents-progress')).toContainText('Waiting for your payment');
+  // Resuming asks for nothing new: no second live quote.
+  expect((await sentToOneClick()).filter((r) => r.body.dry === false)).toHaveLength(1);
+
+  await deliver(address, [depositLine(commitment)]);
+  await expect(page.getByTestId('intents-accepted')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('intents-note-id')).toHaveText('#0');
+});
+
+test('Intents funding with local state cleared: restore the backup saved before payment', async ({
+  browser,
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  const { file, commitment } = await toReview(page, context);
+  await page.getByTestId('intents-show-address').click();
+  const address = (await page.getByTestId('intents-address').textContent()) ?? '';
+  await page.close();
+  await deliver(address, [depositLine(commitment)]);
+
+  // A browser with nothing in it, the backup file, and the destination transaction from 1Click.
+  const fresh = await browser.newContext({ acceptDownloads: true });
+  const page2 = await fresh.newPage();
+  await page2.goto('/');
+  await page2.getByTestId('open-app').click();
+  await page2.getByTestId('nav-notes').click();
+  await page2.getByTestId('setup-passphrase').fill(WRAP_PASSPHRASE);
+  await page2.getByTestId('setup-confirm').fill(WRAP_PASSPHRASE);
+  await page2.getByTestId('setup-submit').click();
+  await expect(page2.getByTestId('no-notes')).toBeVisible();
+  await page2.getByTestId('notes-backup-passphrase').fill(BACKUP_PASSPHRASE);
+  await page2.getByTestId('restore-file').setInputFiles(file);
+  await expect(page2.getByTestId('notes-message')).toContainText('Restored 1 note');
+  await page2.getByTestId('lookup-hash').fill(DEST_TX);
+  await page2.getByTestId('lookup').click();
+  await expect(page2.getByTestId('lookup-result')).toContainText('Found: the deposit was accepted');
+  await expect(page2.getByTestId('note-row')).toHaveAttribute('data-phase', 'accepted');
+  await fresh.close();
+});
+
+test('SUCCESS with no deposit event confirms nothing; an unclaimed booking is explained', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await toReview(page, context);
+  await page.getByTestId('intents-show-address').click();
+  const address = (await page.getByTestId('intents-address').textContent()) ?? '';
+  await expect(page.getByTestId('intents-route')).toContainText('fund with NEAR USDC directly');
+
+  await deliver(address, []);
+  await expect(page.getByTestId('intents-pending')).toContainText('no unique deposit event', {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('intents-accepted')).toHaveCount(0);
+
+  // The vault could not read the message: the whole amount went to the treasury balance.
+  await deliver(address, [
+    eventLine('unclaimed', { amount: '1050000', reason: 'intents_bad_msg' }),
+  ]);
+  await expect(page.getByTestId('intents-booking')).toContainText('went to the treasury balance', {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('intents-booking')).toContainText('No note was confirmed');
+  await expect(page.getByTestId('intents-claim')).toHaveCount(0);
+  await expect(page.getByTestId('intents-accepted')).toHaveCount(0);
+});
+
+test('a payout the vault could not send shows the claim action', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await toReview(page, context);
+  await page.getByTestId('intents-show-address').click();
+  const address = (await page.getByTestId('intents-address').textContent()) ?? '';
+  await deliver(address, [
+    eventLine('payout_pending', {
+      account: OTHER,
+      amount: '1050000',
+      reason: 'transfer_failed',
+    }),
+  ]);
+  await expect(page.getByTestId('intents-claim')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('intents-booking')).toContainText(`for ${OTHER}`);
+  await expect(page.getByTestId('intents-accepted')).toHaveCount(0);
 });
