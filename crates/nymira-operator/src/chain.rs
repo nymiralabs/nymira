@@ -134,6 +134,38 @@ pub struct Head {
     pub leaf_count: u32,
 }
 
+/// One JSON-RPC round trip. A transport failure, a refusing status (401, 402, 403, 429 or a
+/// server error) and a rate-limit answer (code -429) are the signal to try the next provider;
+/// any other answer is final. The error text never carries the URL: a provider URL may hold an
+/// API key.
+pub(crate) async fn provider_round_trip(
+    http: &reqwest::Client,
+    url: &str,
+    body: &Value,
+    timeout: Option<std::time::Duration>,
+) -> Result<Value, String> {
+    let mut request = http.post(url).json(body);
+    if let Some(timeout) = timeout {
+        request = request.timeout(timeout);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|e| e.without_url().to_string())?;
+    let status = response.status();
+    if matches!(status.as_u16(), 401 | 402 | 403 | 429) || status.is_server_error() {
+        return Err(format!("provider answered {status}"));
+    }
+    let reply: Value = response
+        .json()
+        .await
+        .map_err(|e| e.without_url().to_string())?;
+    if reply["error"]["code"].as_i64() == Some(-429) {
+        return Err(reply["error"].to_string());
+    }
+    Ok(reply)
+}
+
 pub struct RpcVault {
     http: reqwest::Client,
     rpc_url: String,
@@ -166,30 +198,10 @@ impl RpcVault {
         self
     }
 
-    /// One JSON-RPC round trip. A transport failure, a refusing status (401, 402, 403, 429 or a
-    /// server error) and a rate-limit answer (code -429) are the signal to try the next provider;
-    /// any other answer is final. The error text never carries the URL: a provider URL may hold
-    /// an API key.
     async fn round_trip(&self, url: &str, body: &Value) -> Result<Value, ChainError> {
-        let response = self
-            .http
-            .post(url)
-            .json(body)
-            .send()
+        provider_round_trip(&self.http, url, body, None)
             .await
-            .map_err(|e| ChainError(e.without_url().to_string()))?;
-        let status = response.status();
-        if matches!(status.as_u16(), 401 | 402 | 403 | 429) || status.is_server_error() {
-            return Err(ChainError(format!("provider answered {status}")));
-        }
-        let reply: Value = response
-            .json()
-            .await
-            .map_err(|e| ChainError(e.without_url().to_string()))?;
-        if reply["error"]["code"].as_i64() == Some(-429) {
-            return Err(ChainError(reply["error"].to_string()));
-        }
-        Ok(reply)
+            .map_err(ChainError)
     }
 
     async fn view<T: serde::de::DeserializeOwned>(

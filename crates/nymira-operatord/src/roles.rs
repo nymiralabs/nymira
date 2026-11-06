@@ -140,14 +140,17 @@ fn tx(
     store: Store,
     clock: Arc<dyn Clock>,
 ) -> Arc<NearTx> {
-    Arc::new(NearTx::new(
-        cfg.rpc_urls[0].clone(),
-        signer_id,
-        cfg.vault_account.clone(),
-        key,
-        store,
-        clock,
-    ))
+    Arc::new(
+        NearTx::new(
+            cfg.rpc_urls[0].clone(),
+            signer_id,
+            cfg.vault_account.clone(),
+            key,
+            store,
+            clock,
+        )
+        .with_fallbacks(cfg.rpc_urls[1..].iter().cloned()),
+    )
 }
 
 fn bind(cfg: &Config, name: &str) -> Result<tokio::net::UnixListener, Failure> {
