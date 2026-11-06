@@ -42,6 +42,19 @@ pub enum Revoked {
     Exiting(Exiting, String),
 }
 
+/// The limits of a policy, as the owner's view and the balance route show them.
+pub(super) fn policy_json(p: &crate::policy::Policy) -> Value {
+    json!({
+        "allowed_models": p.allowed_models,
+        "max_lease_usd": p.max_lease_usd,
+        "max_call_usd": p.max_call_usd,
+        "max_daily_usd": p.max_daily_usd,
+        "confirm_above_usd": p.confirm_above_usd,
+        "rate_limit_per_min": p.rate_limit_per_min,
+        "require_tee": p.require_tee,
+    })
+}
+
 impl Gateway {
     /// Why an agent request on `note` must not be served, if it must not: a revocation has
     /// started, a close or exit has begun, or the note is in the last days before it expires.
@@ -70,7 +83,7 @@ impl Gateway {
 
     /// The note's balance as of the last settled lease: what was deposited, less every charge
     /// recorded. A lease still open is not counted.
-    fn note_balance(&self, entry: &NoteEntry) -> Option<u128> {
+    pub(super) fn note_balance(&self, entry: &NoteEntry) -> Option<u128> {
         let deposit: u128 = entry.deposit_amount.as_deref()?.parse().ok()?;
         let id = entry.note_id?;
         let charged: u128 = self
@@ -98,17 +111,8 @@ impl Gateway {
             .iter()
             .map(|a| {
                 let entry = notes.iter().find(|n| n.commitment == a.note);
-                let policy = crate::policy::in_force(&self.cfg.home, a, &ctx).map(|p| {
-                    json!({
-                        "allowed_models": p.allowed_models,
-                        "max_lease_usd": p.max_lease_usd,
-                        "max_call_usd": p.max_call_usd,
-                        "max_daily_usd": p.max_daily_usd,
-                        "confirm_above_usd": p.confirm_above_usd,
-                        "rate_limit_per_min": p.rate_limit_per_min,
-                        "require_tee": p.require_tee,
-                    })
-                });
+                let policy =
+                    crate::policy::in_force(&self.cfg.home, a, &ctx).map(|p| policy_json(&p));
                 json!({
                     "agent": a.name,
                     "token": if a.disabled { "disabled" } else { "active" },
@@ -118,6 +122,7 @@ impl Gateway {
                     "expires_at": entry.and_then(|n| n.expiry_ns),
                     "balance_micro": entry.and_then(|n| self.note_balance(n)).map(|b| b.to_string()),
                     "spent_today_micro": self.agent_spend_today(&a.name, &a.note).to_string(),
+                    "charge_warning": self.charge_warnings.active(&a.note),
                     "policy_version": a.policy_version,
                     "policy": policy,
                 })

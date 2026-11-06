@@ -249,7 +249,8 @@ async fn a_signature_by_a_key_the_report_does_not_list_gives_not_verified() {
     ticks.abort();
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{text}");
     assert_eq!(code(&text), "not_verified");
-    assert!(text.contains("attested key"), "{text}");
+    // The reason the check gave is not passed on to the agent.
+    assert!(!text.contains("attested key"), "{text}");
     assert!(!text.contains("fake reply"));
 }
 
@@ -262,7 +263,8 @@ async fn a_report_that_fails_stops_the_request_before_anything_is_sent() {
         .update(|sw| sw.measurement = "ff".repeat(32));
     let (status, _, text) = rig.ask("hi", false).await.unwrap();
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{text}");
-    assert_eq!(code(&text), "attestation_failed");
+    assert_eq!(code(&text), "unavailable");
+    assert!(text.contains("\"detail\":\"attestation_failed\""), "{text}");
     assert!(rig.s.fake.handle.chats().is_empty());
     assert!(rig.s.gateway.records().is_empty());
 }

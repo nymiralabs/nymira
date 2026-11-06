@@ -18,8 +18,12 @@ pub const FILE: &str = "agents.json";
 pub const PREFIX: &str = "nyma_";
 
 /// What the agent token may do over HTTP, on both listeners.
-pub const AGENT_ROUTES: [(&str, &str); 2] =
-    [("POST", "/v1/chat/completions"), ("GET", "/v1/models")];
+pub const AGENT_ROUTES: [(&str, &str); 4] = [
+    ("POST", "/v1/chat/completions"),
+    ("GET", "/v1/models"),
+    ("GET", crate::gateway::api::BALANCE_PATH),
+    ("POST", crate::gateway::api::QUOTE_PATH),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

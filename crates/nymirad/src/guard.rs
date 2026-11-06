@@ -289,6 +289,14 @@ pub fn router_for(
         Some(gw) => Router::new()
             .route("/v1/chat/completions", post(crate::gateway::chat_handler))
             .route("/v1/models", get(crate::gateway::models_handler))
+            .route(
+                crate::gateway::api::BALANCE_PATH,
+                get(crate::gateway::api::balance_handler),
+            )
+            .route(
+                crate::gateway::api::QUOTE_PATH,
+                post(crate::gateway::api::quote_handler),
+            )
             .with_state(gw.clone())
             .merge(crate::approvals::routes(gw, registry.clone())),
         None => Router::new()

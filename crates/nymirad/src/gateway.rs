@@ -26,6 +26,7 @@ use zkapi_client::wallet::Wallet;
 use zkapi_types::wire::CurvePointWire;
 use zkapi_types::Felt252;
 
+pub mod api;
 pub mod close;
 pub mod revoke;
 pub mod watch;
@@ -93,6 +94,8 @@ pub struct ChatOptions {
     pub scope: Scope,
     /// `X-Nymira-Approval-Id`: the retry of a request the owner has been asked to approve.
     pub approval_id: Option<String>,
+    /// `X-Nymira-Max-Cost-Usd`, in micro-USD: the most this call may cost.
+    pub max_cost_micro: Option<u128>,
 }
 
 struct Exchange {
@@ -125,16 +128,28 @@ struct Session {
     inflight: u32,
     /// The agent whose budget note this lease is on; its day counters follow the lease.
     agent: Option<String>,
+    /// The operator's charge was more than a step above the recomputed one.
+    overcharged: bool,
 }
 
 /// What an agent request carries out of its admission checks.
 struct Admitted {
     /// The most output tokens the call may ask for under `max_call_usd`.
     cap: u64,
-    hold: crate::limits::CallHold,
+    /// None when the call is only being quoted.
+    hold: Option<crate::limits::CallHold>,
     /// The call's sized input and worst-case cost (micro-USD), for the approval check.
     input_tokens: u64,
     worst: u128,
+}
+
+/// What `preflight` found.
+struct Pre {
+    model: String,
+    spec: ModelSpec,
+    caller_max: Option<u64>,
+    admitted: Option<Admitted>,
+    needs_approval: bool,
 }
 
 /// At most this many requests run at once on one note's lease; a third gets 409 `busy`.
@@ -205,6 +220,10 @@ pub struct Gateway {
     emergency: std::sync::Mutex<(Option<String>, u64)>,
     /// Budget notes whose owner has started a revocation: no agent request is served on them.
     revoking: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Answers kept for agents' idempotency keys, in memory only.
+    idem: crate::idempotency::Idempotency,
+    /// Budget notes the operator overcharged, until the owner acknowledges.
+    charge_warnings: crate::chargewarn::ChargeWarnings,
 }
 
 fn felt_point(v: &Value) -> Option<CurvePointWire> {
@@ -295,6 +314,8 @@ impl Gateway {
             notices: crate::expiry::NoticeBook::new(&cfg.home),
             emergency: Default::default(),
             revoking: Default::default(),
+            idem: Default::default(),
+            charge_warnings: crate::chargewarn::ChargeWarnings::new(&cfg.home),
             records: Records::new(&cfg.home),
             transport,
             rpc,
@@ -400,6 +421,7 @@ impl Gateway {
         request: &Value,
         spec: &ModelSpec,
         caller_max: Option<u64>,
+        dry: bool,
     ) -> Result<Option<Admitted>, ApiError> {
         let Scope::Agent { name, note, policy } = &opts.scope else {
             return Ok(None);
@@ -412,9 +434,15 @@ impl Gateway {
             .and_then(|n| n.into_iter().find(|n| &n.commitment == note))
             .and_then(|n| n.note_id);
         let floor = || note_id.map_or(0, |id| self.charged_in_records(id, now));
-        self.limits
-            .rate(name, now, policy.rate_limit_per_min, &floor)
-            .map_err(ApiError::policy_rate_limit)?;
+        // A quote looks at the counters and changes none.
+        if dry {
+            self.limits
+                .peek_rate(name, now, policy.rate_limit_per_min, &floor)
+        } else {
+            self.limits
+                .rate(name, now, policy.rate_limit_per_min, &floor)
+        }
+        .map_err(ApiError::policy_rate_limit)?;
 
         // The input is sized against a throwaway key: the ciphertext has the same length under
         // any key, and nothing has to be attested or sent for this check.
@@ -435,29 +463,32 @@ impl Gateway {
         )
         .map_err(|e| ApiError::invalid_request(e.message))?
         .input_tokens;
-        let cap = sizing::max_tokens(
-            crate::limits::micro_of(policy.max_call_usd),
-            100,
-            spec,
-            u128::from(input),
-        )
-        .ok_or_else(ApiError::call_limit)?;
+        // The call's own cost cap can only lower the policy's limit.
+        let limit = crate::limits::micro_of(policy.max_call_usd)
+            .min(opts.max_cost_micro.unwrap_or(u128::MAX));
+        let cap = sizing::max_tokens(limit, 100, spec, u128::from(input))
+            .ok_or_else(ApiError::call_limit)?;
         if caller_max.is_some_and(|c| c > cap) {
             return Err(ApiError::call_limit());
         }
         let worst = micro_ceil(sizing::cost_nano(spec, input, caller_max.unwrap_or(cap)));
         let bound = lease::choose_bound(&self.bound_classes(), opts.max_lease_usd).unwrap_or(0);
-        let hold = self
-            .limits
-            .reserve_call(
-                name,
-                now,
-                worst,
-                bound,
-                crate::limits::micro_of(policy.max_daily_usd),
-                &floor,
+        let max_daily = crate::limits::micro_of(policy.max_daily_usd);
+        let hold = if dry {
+            if !self
+                .limits
+                .has_room(name, now, worst, bound, max_daily, &floor)
+            {
+                return Err(ApiError::daily_limit());
+            }
+            None
+        } else {
+            Some(
+                self.limits
+                    .reserve_call(name, now, worst, bound, max_daily, &floor)
+                    .ok_or_else(ApiError::daily_limit)?,
             )
-            .ok_or_else(ApiError::daily_limit)?;
+        };
         Ok(Some(Admitted {
             cap,
             hold,
@@ -937,6 +968,7 @@ impl Gateway {
             incomplete: false,
             inflight: 0,
             agent,
+            overcharged: false,
         })
     }
 
@@ -965,6 +997,73 @@ impl Gateway {
         Ok(key)
     }
 
+    /// The checks that need no lease, in the order the spec lists them: the note itself (a
+    /// revocation, a close, the last days, an unacknowledged charge warning), the model, the
+    /// rate, the call's cost against `max_call_usd` and any cost cap, the day's reservation,
+    /// then the owner's approval. Chat and the quote route both run this; with `dry` set no
+    /// counter moves and nothing is held, and a call that needs approval is reported in `Pre`
+    /// instead of being held.
+    fn preflight(&self, opts: &ChatOptions, request: &Value, dry: bool) -> Result<Pre, ApiError> {
+        if let Scope::Agent { note, policy, .. } = &opts.scope {
+            if let Some(why) = self.note_refusal(note) {
+                return Err(why);
+            }
+            if self.charge_warnings.active(note) {
+                return Err(unavailable(
+                    "charge_warning",
+                    "the operator overcharged this note; the owner has to acknowledge it",
+                ));
+            }
+            if !request["model"]
+                .as_str()
+                .is_some_and(|m| policy.allowed_models.iter().any(|a| a == m))
+            {
+                return Err(ApiError::model_not_allowed());
+            }
+        }
+        let model = request["model"]
+            .as_str()
+            .ok_or_else(|| ApiError::invalid_request("model must be a string"))?
+            .to_string();
+        let spec = self
+            .cfg
+            .models
+            .iter()
+            .find(|m| m.id == model)
+            .cloned()
+            .ok_or_else(|| ApiError::invalid_request(format!("the model {model} is not served")))?;
+        let caller_max = request["max_tokens"]
+            .as_u64()
+            .or_else(|| request["max_completion_tokens"].as_u64());
+        let admitted = self.admit(opts, request, &spec, caller_max, dry)?;
+        // Above the confirmation amount the call waits for the owner; this comes after the day's
+        // reservation and before the balance check. An early return frees the reservation.
+        let mut needs_approval = false;
+        if let (Scope::Agent { name, policy, .. }, Some(a)) = (&opts.scope, &admitted) {
+            if a.worst > crate::limits::micro_of(policy.confirm_above_usd) {
+                if dry {
+                    needs_approval = true;
+                } else {
+                    self.approvals.gate(
+                        name,
+                        request,
+                        opts.approval_id.as_deref(),
+                        a.input_tokens,
+                        a.worst,
+                        self.clock.now_secs(),
+                    )?;
+                }
+            }
+        }
+        Ok(Pre {
+            model,
+            spec,
+            caller_max,
+            admitted,
+            needs_approval,
+        })
+    }
+
     pub async fn chat(
         self: &Arc<Self>,
         request: Value,
@@ -980,56 +1079,18 @@ impl Gateway {
         request: Value,
         mut opts: ChatOptions,
     ) -> Result<(Outcome, Option<Trust>), ApiError> {
-        // A note that is being revoked, closing, exiting or about to expire serves no agent.
-        if let Scope::Agent { note, .. } = &opts.scope {
-            if let Some(why) = self.note_refusal(note) {
-                return Err(why);
-            }
-        }
-        // The policy's checks run on every agent request, in this order: the model, the rate,
-        // the call's cost, the day's reservation; the balance check comes with the lease.
-        if let Scope::Agent { policy, .. } = &opts.scope {
-            if !request["model"]
-                .as_str()
-                .is_some_and(|m| policy.allowed_models.iter().any(|a| a == m))
-            {
-                return Err(ApiError::model_not_allowed());
-            }
-        }
         opts.max_lease_usd = opts.scope.lease_request(opts.max_lease_usd);
         let tee = matches!(&opts.scope, Scope::Agent { policy, .. } if policy.require_tee);
-        let model = request["model"]
-            .as_str()
-            .ok_or_else(|| ApiError::invalid_request("model must be a string"))?
-            .to_string();
-        let spec = self
-            .cfg
-            .models
-            .iter()
-            .find(|m| m.id == model)
-            .cloned()
-            .ok_or_else(|| ApiError::invalid_request(format!("the model {model} is not served")))?;
+        let Pre {
+            model,
+            spec,
+            caller_max,
+            admitted,
+            ..
+        } = self.preflight(&opts, &request, false)?;
         let stream = request["stream"].as_bool().unwrap_or(false);
-        let caller_max = request["max_tokens"]
-            .as_u64()
-            .or_else(|| request["max_completion_tokens"].as_u64());
-        let admitted = self.admit(&opts, &request, &spec, caller_max)?;
-        // Above the confirmation amount the call waits for the owner; this comes after the day's
-        // reservation and before the balance check. An early return frees the reservation.
-        if let (Scope::Agent { name, policy, .. }, Some(a)) = (&opts.scope, &admitted) {
-            if a.worst > crate::limits::micro_of(policy.confirm_above_usd) {
-                self.approvals.gate(
-                    name,
-                    &request,
-                    opts.approval_id.as_deref(),
-                    a.input_tokens,
-                    a.worst,
-                    self.clock.now_secs(),
-                )?;
-            }
-        }
         let (agent_cap, hold) = match admitted {
-            Some(a) => (Some(a.cap), Some(a.hold)),
+            Some(a) => (Some(a.cap), a.hold),
             None => (None, None),
         };
 
@@ -1377,6 +1438,9 @@ impl Gateway {
                             self.charged_in_records(note_id, now)
                         });
                     }
+                    if session.overcharged && session.agent.is_some() {
+                        self.warn_overcharge(&key);
+                    }
                     drop(session.wallet);
                     let _ = self.vault.checkin(&key);
                     self.back_up();
@@ -1437,6 +1501,7 @@ impl Gateway {
         if let Trust::NotVerified(reason) = &trust {
             warnings.push(format!("not verified: {reason}"));
         }
+        s.overcharged = false;
 
         // The charge, recomputed from the usage the signed answers reported.
         let bound: u128 = s.record.bound_class.parse().unwrap_or(0);
@@ -1457,6 +1522,7 @@ impl Gateway {
         let expected = match (self.charge_params(), s.incomplete) {
             (Some(p), false) => {
                 let check = sizing::check_charge_cost(bound, cost, held, p, charge);
+                s.overcharged = check.warning.is_some();
                 warnings.extend(check.warning);
                 check.expected
             }
@@ -1485,6 +1551,27 @@ impl Gateway {
             trust,
             warnings,
         })
+    }
+
+    /// Marks a budget note whose lease was overcharged: new agent requests stop on it until
+    /// the owner runs `nymirad agent ack-warning`.
+    fn warn_overcharge(&self, note: &str) {
+        if let Err(e) = self.charge_warnings.raise(note) {
+            eprintln!("warning: the charge warning was not saved: {e}");
+        }
+        let agent = crate::agents::Registry::at(&self.cfg.home)
+            .load()
+            .ok()
+            .and_then(|b| b.for_note(note).map(|a| a.name.clone()))
+            .unwrap_or_default();
+        eprintln!(
+            "warning: the operator charged agent {agent}'s budget note more than one step above the recomputed charge. New requests from that agent stop until you run `nymirad agent ack-warning --name {agent}`."
+        );
+    }
+
+    /// The owner has seen the warning on `note`; the agent can send requests again.
+    pub fn ack_charge_warning(&self, note: &str) -> std::io::Result<bool> {
+        self.charge_warnings.ack(note)
     }
 
     /// Writes the backup after a state change. A failure is a warning: the money and the state
@@ -1523,6 +1610,7 @@ impl Gateway {
             crate::exits::FILE,
             crate::records::FILE,
             crate::agents::FILE,
+            crate::chargewarn::FILE,
             "config.json",
         ] {
             state.add_file(&self.cfg.home, name);
@@ -1816,42 +1904,135 @@ pub async fn chat_handler(
         Ok(v) => v,
         Err(_) => return ApiError::invalid_request("the body is not JSON").into_response(),
     };
-    let opts = ChatOptions {
-        max_lease_usd: headers
-            .get("x-nymira-max-lease-usd")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse().ok()),
-        scope,
-        approval_id: headers
-            .get(crate::approvals::HEADER)
-            .and_then(|v| v.to_str().ok())
-            .map(String::from),
+    // An agent sees reasons from the spec's table and fixed texts only.
+    let agent = scope.is_agent();
+    let fail = move |e: ApiError| if agent { e.typed() } else { e }.into_response();
+    let note = match &scope {
+        Scope::Agent { note, .. } => note.clone(),
+        Scope::Owner { .. } => String::new(),
     };
-    let (outcome, trust) = match gw.chat_checked(request, opts).await {
-        Err(e) => return e.into_response(),
-        Ok(done) => done,
+    let opts = match api::options(&headers, scope) {
+        Ok(o) => o,
+        Err(e) => return fail(e),
     };
-    let mut response = match outcome {
-        Outcome::Json(v, lease) => (
-            StatusCode::OK,
-            [("x-nymira-lease-id", lease)],
-            axum::Json(v),
-        )
-            .into_response(),
-        Outcome::Stream(body, lease) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/event-stream")
-            .header("x-nymira-lease-id", lease)
-            .body(body)
-            .expect("static response"),
+    let Some(raw_key) = headers.get(crate::idempotency::HEADER).filter(|_| agent) else {
+        return match gw.chat_checked(request, opts).await {
+            Ok((outcome, trust)) => answer(outcome, trust.as_ref().map(Trust::label), false),
+            Err(e) => fail(e),
+        };
     };
-    if let Some(trust) = trust {
+    let Some(raw_key) = raw_key
+        .to_str()
+        .ok()
+        .filter(|k| crate::idempotency::valid_key(k))
+    else {
+        return fail(ApiError::invalid_request(
+            "Idempotency-Key is 1 to 128 printable characters",
+        ));
+    };
+    if request["stream"].as_bool().unwrap_or(false) {
+        return fail(ApiError::invalid_request(
+            "an Idempotency-Key cannot be used with stream: true",
+        ));
+    }
+    let bearer = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+    let key =
+        crate::idempotency::entry_key(&crate::agents::hash_token(bearer), &note, raw_key, &request);
+    let cell = gw.idem.slot(&key, gw.now_secs());
+    let mut first: Option<Response> = None;
+    let slot = &mut first;
+    let kept = cell
+        .get_or_init(|| async {
+            match gw.chat_checked(request.clone(), opts.clone()).await {
+                Ok((Outcome::Json(value, lease), trust)) => {
+                    let kept = crate::idempotency::Stored {
+                        answer: value,
+                        lease,
+                        signature_kind: trust.as_ref().map(Trust::label),
+                    };
+                    *slot = Some(replay(&kept, false));
+                    Some(kept)
+                }
+                Ok((outcome, trust)) => {
+                    *slot = Some(answer(outcome, trust.as_ref().map(Trust::label), false));
+                    None
+                }
+                Err(e) => {
+                    *slot = Some(fail(e));
+                    None
+                }
+            }
+        })
+        .await;
+    match (first, kept) {
+        (Some(response), _) => {
+            if kept.is_none() {
+                gw.idem.forget(&key);
+            }
+            response
+        }
+        // A retry that waited for the first request and got its answer.
+        (None, Some(kept)) => replay(kept, true),
+        // The request this one waited for was refused or failed: this one runs on its own.
+        (None, None) => match gw.chat_checked(request, opts).await {
+            Ok((outcome, trust)) => answer(outcome, trust.as_ref().map(Trust::label), false),
+            Err(e) => fail(e),
+        },
+    }
+}
+
+fn replay(kept: &crate::idempotency::Stored, again: bool) -> Response {
+    let mut response = (
+        StatusCode::OK,
+        [("x-nymira-lease-id", kept.lease.clone())],
+        axum::Json(kept.answer.clone()),
+    )
+        .into_response();
+    if let Some(kind) = kept.signature_kind {
         response.headers_mut().insert(
             "x-nymira-signature-kind",
-            axum::http::HeaderValue::from_static(trust.label()),
+            axum::http::HeaderValue::from_static(kind),
+        );
+    }
+    if again {
+        response.headers_mut().insert(
+            "x-nymira-idempotent-replay",
+            axum::http::HeaderValue::from_static("true"),
         );
     }
     response
+}
+
+fn answer(outcome: Outcome, kind: Option<&'static str>, again: bool) -> Response {
+    match outcome {
+        Outcome::Json(v, lease) => replay(
+            &crate::idempotency::Stored {
+                answer: v,
+                lease,
+                signature_kind: kind,
+            },
+            again,
+        ),
+        Outcome::Stream(body, lease) => {
+            let mut response = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .header("x-nymira-lease-id", lease)
+                .body(body)
+                .expect("static response");
+            if let Some(kind) = kind {
+                response.headers_mut().insert(
+                    "x-nymira-signature-kind",
+                    axum::http::HeaderValue::from_static(kind),
+                );
+            }
+            response
+        }
+    }
 }
 
 pub async fn models_handler(

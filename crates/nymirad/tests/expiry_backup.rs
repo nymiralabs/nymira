@@ -409,6 +409,7 @@ fn request(text: &str) -> Value {
     json!({"model": MODEL, "stream": false, "messages": [{"role": "user", "content": text}]})
 }
 
+#[allow(clippy::result_large_err)]
 async fn chat_on(gw: &Arc<Gateway>, text: &str) -> Result<Value, nymirad::openai::ApiError> {
     match gw.chat(request(text), ChatOptions::default()).await? {
         Outcome::Json(v, _) => Ok(v),
