@@ -81,7 +81,7 @@ fn the_default_close_delay_is_random_and_inside_its_bounds() {
         distinct.len()
     );
     // The ownership proof lives 55 minutes: the longest delay leaves it room.
-    assert!(MAX_CLOSE_DELAY_SECS < 55 * 60);
+    const _: () = assert!(MAX_CLOSE_DELAY_SECS < 55 * 60);
     // `no_delay()` is the only way tests skip it.
     assert!(no_delay().delay.is_zero());
 }
