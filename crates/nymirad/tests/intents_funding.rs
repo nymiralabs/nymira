@@ -11,7 +11,7 @@ use nymirad::{
     secrets::{NoteStatus, NoteStore, ROUNDS},
 };
 use serde_json::{json, Value};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -74,7 +74,49 @@ fn cli(home: &std::path::Path, args: &[String], input: &str) -> std::process::Ou
     child.wait_with_output().unwrap()
 }
 
-async fn walk(real_verifier: bool, no_deposit: bool) {
+fn stop_after_address(home: &std::path::Path, args: &[String]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nymirad"));
+    command
+        .env("NYMIRA_MODE", "mainnet")
+        .arg("--home")
+        .arg(home)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // SAFETY: setsid is async-signal-safe and has no preconditions here.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().unwrap();
+    let mut input = child.stdin.take().unwrap();
+    input.write_all(b"yes\nyes\n").unwrap();
+    input.flush().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    let mut shown = Vec::new();
+    loop {
+        let mut line = String::new();
+        assert!(
+            reader.read_line(&mut line).unwrap() > 0,
+            "process ended before address: {}",
+            String::from_utf8_lossy(&shown)
+        );
+        shown.extend_from_slice(line.as_bytes());
+        if line.starts_with("Deposit address:") {
+            break;
+        }
+    }
+    child.kill().unwrap();
+    reader.read_to_end(&mut shown).unwrap();
+    let mut output = child.wait_with_output().unwrap();
+    output.stdout = shown;
+    output
+}
+
+async fn walk(real_verifier: bool, no_deposit: bool, restore_from_backup: bool) {
     static SANDBOX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _sandbox = SANDBOX.lock().await;
     let s = stack::build(Transport::Direct, false).await;
@@ -123,6 +165,8 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
     .unwrap();
     fake.refuse_asset(nymirad::intents::SOURCES[1].asset);
     let home = tempfile::tempdir().unwrap();
+    let credentials = tempfile::tempdir().unwrap();
+    let backup_place = tempfile::tempdir().unwrap();
     let (identity, recipient) = backup::generate_identity();
     let config = Config {
         rpc_url: s.worker.rpc_addr(),
@@ -130,7 +174,7 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         direct: true,
         oneclick_base: Some(fake.url()),
         backup_recipient: Some(recipient),
-        backup_places: vec![home.path().join("backup")],
+        backup_places: vec![backup_place.path().into()],
         ..Default::default()
     };
     config.save(home.path()).unwrap();
@@ -146,9 +190,9 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
     )
     .unwrap();
     for (name, value) in [("pass", stack::PASS), ("backup-key", identity.as_str())] {
-        std::fs::write(home.path().join(name), value).unwrap();
+        std::fs::write(credentials.path().join(name), value).unwrap();
         std::fs::set_permissions(
-            home.path().join(name),
+            credentials.path().join(name),
             std::fs::Permissions::from_mode(0o600),
         )
         .unwrap();
@@ -168,7 +212,7 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
     .unwrap();
     let args = vec![
         "--passphrase-file".into(),
-        home.path().join("pass").display().to_string(),
+        credentials.path().join("pass").display().to_string(),
         "deposit".into(),
         "--source".into(),
         "ethereum-usdc".into(),
@@ -179,7 +223,7 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         "--payout".into(),
         s.alice.id().to_string(),
         "--backup-key-file".into(),
-        home.path().join("backup-key").display().to_string(),
+        credentials.path().join("backup-key").display().to_string(),
         "--mock-pay".into(),
     ];
     let dir = home.path().to_path_buf();
@@ -194,7 +238,7 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         "no quote or status before confirmation"
     );
     let dir = home.path().to_path_buf();
-    let out = tokio::task::spawn_blocking(move || cli(&dir, &args, "yes\nyes\nno\n"))
+    let out = tokio::task::spawn_blocking(move || stop_after_address(&dir, &args))
         .await
         .unwrap();
     assert!(!out.status.success());
@@ -210,16 +254,36 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         "failed Base and high-minimum BSC must be omitted"
     );
     assert!(!home.path().join("calendar").exists());
-    let saved_pending = backup::load(&[home.path().join("backup")], &identity).unwrap();
+    let saved_pending = backup::load(&[backup_place.path().to_path_buf()], &identity).unwrap();
     assert_eq!(saved_pending.notes[0].status, NoteStatus::Pending);
+    let pending = &saved_pending.funding[0];
+    assert_eq!(pending.phase, nymirad::intents::Phase::AddressReady);
+    let sealed = std::fs::read(home.path().join("notes.sealed.funding")).unwrap();
+    for private in [
+        &pending.commitment,
+        pending.quote["quote"]["depositAddress"].as_str().unwrap(),
+        "0x2222222222222222222222222222222222222222",
+        "address_ready",
+    ] {
+        assert!(
+            !String::from_utf8_lossy(&sealed).contains(private),
+            "funding state must be encrypted"
+        );
+    }
     let resumed = tempfile::tempdir().unwrap();
-    backup::restore_into(resumed.path(), saved_pending, stack::PASS, ROUNDS).unwrap();
+    let resumed_path = if restore_from_backup {
+        std::fs::remove_dir_all(home.path()).unwrap();
+        backup::restore_into(resumed.path(), saved_pending, stack::PASS, ROUNDS).unwrap();
+        resumed.path()
+    } else {
+        home.path()
+    };
     std::fs::write(
-        resumed.path().join("demo-pins.json"),
+        resumed_path.join("demo-pins.json"),
         serde_json::to_vec(&pins).unwrap(),
     )
     .unwrap();
-    let attempt = NoteStore::open(&resumed.path().join("notes.sealed"), stack::PASS, ROUNDS)
+    let attempt = NoteStore::open(&resumed_path.join("notes.sealed"), stack::PASS, ROUNDS)
         .unwrap()
         .funding_attempts()
         .unwrap()
@@ -235,13 +299,13 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         .unwrap();
     let resume_args = vec![
         "--passphrase-file".into(),
-        home.path().join("pass").display().to_string(),
+        credentials.path().join("pass").display().to_string(),
         "recover".into(),
         "--intents".into(),
         attempt.commitment.clone(),
     ];
     let before = fake.requests().len();
-    let dir = resumed.path().to_path_buf();
+    let dir = resumed_path.to_path_buf();
     let no_args = resume_args.clone();
     let out = tokio::task::spawn_blocking(move || cli(&dir, &no_args, "no\n"))
         .await
@@ -252,7 +316,7 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         before,
         "restart asks again before status"
     );
-    let dir = resumed.path().to_path_buf();
+    let dir = resumed_path.to_path_buf();
     let out = tokio::task::spawn_blocking(move || cli(&dir, &resume_args, "yes\n"))
         .await
         .unwrap();
@@ -261,14 +325,14 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         assert!(String::from_utf8_lossy(&out.stderr)
             .contains("no unique matching vault deposit receipt"));
         assert_eq!(
-            NoteStore::open(&resumed.path().join("notes.sealed"), stack::PASS, ROUNDS)
+            NoteStore::open(&resumed_path.join("notes.sealed"), stack::PASS, ROUNDS)
                 .unwrap()
                 .list()
                 .unwrap()[0]
                 .status,
             NoteStatus::Pending
         );
-        assert!(!resumed.path().join("calendar").exists());
+        assert!(!resumed_path.join("calendar").exists());
         return;
     }
     assert!(
@@ -297,12 +361,12 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
         assert_eq!(r["refundTo"], "0x1111111111111111111111111111111111111111");
         assert!(!r.to_string().contains(s.alice.id().as_str()));
     }
-    let notes = NoteStore::open(&resumed.path().join("notes.sealed"), stack::PASS, ROUNDS)
+    let notes = NoteStore::open(&resumed_path.join("notes.sealed"), stack::PASS, ROUNDS)
         .unwrap()
         .list()
         .unwrap();
     assert_eq!(notes[0].status, NoteStatus::Accepted);
-    let saved = backup::load(&[home.path().join("backup")], &identity).unwrap();
+    let saved = backup::load(&[backup_place.path().to_path_buf()], &identity).unwrap();
     assert_eq!(saved.notes[0].commitment, notes[0].commitment);
     let restored = tempfile::tempdir().unwrap();
     backup::restore_into(restored.path(), saved, stack::PASS, 10).unwrap();
@@ -332,7 +396,7 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
     if let Err(e) = result {
         panic!("lease failed: {e:?}");
     }
-    let ics = std::fs::read_dir(resumed.path().join("calendar"))
+    let ics = std::fs::read_dir(resumed_path.join("calendar"))
         .unwrap()
         .next()
         .unwrap()
@@ -345,14 +409,256 @@ async fn walk(real_verifier: bool, no_deposit: bool) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cli_quote_pay_status_receipt_backup_restore_then_a_lease() {
-    walk(true, false).await;
+    walk(true, false, false).await;
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn the_demo_standin_also_delivers_a_usable_note() {
-    walk(false, false).await;
+    walk(false, false, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn success_without_a_matching_deposit_receipt_never_accepts_the_note() {
-    walk(true, true).await;
+    walk(true, true, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refused_verifier_deliveries_are_found_and_claimed_without_a_note_id() {
+    use nymira_testkit::proofs::{canonical_verifying_key, Kind};
+    use nymirad::intents::{Attempt, Funding, Phase};
+    use nymirad::mode::Mode;
+    use nymirad::oneclick::FundingClient;
+    use nymirad::ownersock::{bind, serve};
+    use nymirad::secrets::{new_secret, NoteEntry};
+    use std::sync::Mutex;
+
+    let mut s = stack::build(Transport::Direct, false).await;
+    let vault = s
+        .worker
+        .dev_deploy(&nymira_testkit::build::contract_wasm_with_features(
+            "contracts/vault",
+            &["dev-setup", "test-intents-account"],
+        ))
+        .await
+        .unwrap();
+    vault.call("new").args_json(json!({
+        "operator_pk": stack::point(1), "clearance_pk": stack::point(2), "token": s.usdc.contract.id(),
+        "denominations": ["1000000"], "tvl_cap": "1050000",
+        "request_vk": stack::b64(&canonical_verifying_key(Kind::Request)),
+        "withdrawal_vk": stack::b64(&canonical_verifying_key(Kind::Withdrawal)),
+        "treasury": s.treasury.id(), "note_fee": "50000", "exit_delay_secs": 604800,
+        "note_ttl": 2592000, "bound_classes": ["100000", "500000"],
+        "charge_step": "1000", "min_charge": "2000", "slot_rate": 1000,
+        "owner": s.worker.root_account().unwrap().id(), "operator_account": s.alice.id(),
+    })).max_gas().transact().await.unwrap().into_result().unwrap();
+    s.usdc.register_id(vault.id()).await;
+    s.vault = vault;
+    s.parts.vault_id = s.vault.id().to_string();
+    s.gateway =
+        stack::make_gateway(s.home.path(), &s.parts, Transport::Direct, s.clock.clone()).await;
+    let verifier = nymira_testkit::intents::deploy_verifier(&s.worker, "intents", "wrap.test.near")
+        .await
+        .unwrap();
+    s.usdc.register_id(verifier.id()).await;
+    s.usdc
+        .ft_transfer_call(
+            &s.alice,
+            verifier.id(),
+            10_000_000,
+            &json!({"receiver_id": s.alice.id()}).to_string(),
+        )
+        .await
+        .unwrap();
+
+    let (occupied_secret, occupied) = new_secret("near-mainnet");
+    let occupied = format!("0x{}", hex::encode(occupied.0));
+    let deliver = |amount: u128, commitment: &str| {
+        s.alice.call(verifier.id(), "ft_withdraw").args_json(json!({
+            "token": s.usdc.contract.id(), "receiver_id": s.vault.id(), "amount": amount.to_string(),
+            "msg": json!({"commitment": commitment, "withdraw_to": s.alice.id()}).to_string()
+        })).deposit(NearToken::from_yoctonear(1)).max_gas()
+    };
+    deliver(1_050_000, &occupied)
+        .transact()
+        .await
+        .unwrap()
+        .into_result()
+        .unwrap();
+    let sub = stack::submitter(&s, "personal", NearToken::from_near(5)).await;
+    let key = s
+        .gateway
+        .submitters()
+        .get("personal")
+        .unwrap()
+        .unwrap()
+        .public_key();
+    let rpc = Rpc::new(s.worker.rpc_addr(), &Transport::Direct).unwrap();
+    let mut finalized = false;
+    for _ in 0..30 {
+        if rpc.call("query", json!({"request_type": "view_access_key", "finality": "final", "account_id": sub.id(), "public_key": key})).await.is_ok() {
+            finalized = true; break;
+        }
+        s.worker.fast_forward(5).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(
+        finalized,
+        "the submitter key must be readable at final finality"
+    );
+    let listener = bind(s.home.path()).unwrap();
+    let task = tokio::spawn(serve(listener, s.gateway.clone()));
+    let status = Arc::new(Mutex::new(json!({})));
+    let edited_status = status.clone();
+    let app = axum::Router::new().route(
+        "/v0/status",
+        axum::routing::get(move || {
+            let value = edited_status.lock().unwrap().clone();
+            async move { axum::Json(value) }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = FundingClient::mock(
+        &format!("http://{}", listener.local_addr().unwrap()),
+        Mode::Mainnet,
+        true,
+    )
+    .unwrap();
+    let status_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (_, public) = backup::generate_identity();
+    let funding = Funding {
+        mode: Mode::Mainnet,
+        home: s.home.path().into(),
+        pins: nymirad::pins::read_live(&rpc, s.vault.id().as_str())
+            .await
+            .unwrap(),
+        rpc,
+        archival: None,
+        notes: NoteStore::open(&s.home.path().join("notes.sealed"), stack::PASS, 10).unwrap(),
+        backup: backup::Target::new(
+            backup::parse_recipient(&public).unwrap(),
+            vec![s.home.path().join("backup")],
+        ),
+        clock: s.clock.clone(),
+    };
+    for (case, amount) in [
+        ("short_by_one_unit", 1_049_999),
+        ("below_smallest_denomination", 900_000),
+        ("repeated_commitment", 1_050_000),
+        ("full_cap", 1_050_000),
+    ] {
+        let (secret, commitment) = new_secret("near-mainnet");
+        let commitment = if case == "repeated_commitment" {
+            occupied.clone()
+        } else {
+            format!("0x{}", hex::encode(commitment.0))
+        };
+        funding
+            .notes
+            .add(NoteEntry {
+                chain_label: "near-mainnet".into(),
+                secret: hex::encode(if case == "repeated_commitment" {
+                    occupied_secret.0
+                } else {
+                    secret.0
+                }),
+                commitment: commitment.clone(),
+                denomination: "1000000".into(),
+                payout: s.alice.id().to_string(),
+                status: NoteStatus::Pending,
+                note_id: None,
+                expiry_ns: None,
+                deposit_amount: None,
+                tx_hash: None,
+                created_at: 1,
+            })
+            .unwrap();
+        let mut attempt = Attempt {
+            commitment: commitment.clone(),
+            request: json!({"amount": "1050000"}),
+            quote: json!({"quote": {"depositAddress": "fake"}}),
+            receipt: None,
+            phase: Phase::AddressReady,
+            destination: None,
+            bookings: vec![],
+            notice: None,
+        };
+        funding.notes.save_funding(&attempt).unwrap();
+        funding.back_up().unwrap();
+        let result = deliver(amount, &commitment).transact().await.unwrap();
+        let hash = result.outcome().transaction_hash.to_string();
+        result.into_result().unwrap();
+        *status.lock().unwrap() = json!({"status": "SUCCESS", "swapDetails": {
+            "nearTxHashes": [hash], "destinationSigner": s.alice.id(), "amountOut": amount.to_string()
+        }});
+        let report = funding.progress(&client, &mut attempt).await.unwrap_err();
+        assert!(
+            report.contains(&format!("Receipt booked payout: {amount}"))
+                && report.contains("claim-payout"),
+            "{case}: {report}"
+        );
+        assert_eq!(attempt.phase, Phase::Booked);
+        assert_eq!(
+            funding
+                .notes
+                .list()
+                .unwrap()
+                .iter()
+                .find(|n| n.commitment == commitment)
+                .unwrap()
+                .status,
+            NoteStatus::Pending
+        );
+        let claim_args = vec![
+            "claim-payout".into(),
+            "--intents".into(),
+            commitment.clone(),
+        ];
+        let before = s.usdc.balance_of(s.alice.id()).await;
+        if case == "short_by_one_unit" {
+            s.usdc.set_paused(true).await;
+            let dir = s.home.path().to_path_buf();
+            let args = claim_args.clone();
+            let failed = tokio::task::spawn_blocking(move || cli(&dir, &args, ""))
+                .await
+                .unwrap();
+            assert!(
+                !failed.status.success(),
+                "a failed token transfer must not report a claim"
+            );
+            assert_eq!(s.usdc.balance_of(s.alice.id()).await, before);
+            let pending: Value = s
+                .vault
+                .view("pending_payout")
+                .args_json(json!({"account_id": s.alice.id()}))
+                .await
+                .unwrap()
+                .json()
+                .unwrap();
+            assert_eq!(pending, amount.to_string());
+            s.usdc.set_paused(false).await;
+        }
+        let dir = s.home.path().to_path_buf();
+        let output = tokio::task::spawn_blocking(move || cli(&dir, &claim_args, ""))
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Pending payout claimed"));
+        assert_eq!(s.usdc.balance_of(s.alice.id()).await, before + amount);
+        assert_eq!(s.usdc.balance_of(sub.id()).await, 0);
+        let after = funding.progress(&client, &mut attempt).await.unwrap_err();
+        assert!(
+            after.contains("nothing to claim") && !after.contains("Run nymirad claim-payout"),
+            "{case}: {after}"
+        );
+    }
+    task.abort();
+    status_task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deleted_state_directory_is_recovered_from_the_pre_payment_backup() {
+    walk(true, false, true).await;
 }

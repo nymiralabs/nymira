@@ -63,16 +63,29 @@ async fn env() -> Env {
     )
     .parse()
     .unwrap();
-    alice
+    let result = alice
         .batch(alice.id())
         .add_key(public, AccessKey::full_access())
         .transact()
         .await
-        .unwrap()
-        .into_result()
         .unwrap();
-    // The new key shows in a final block only a few blocks later.
+    let hash = result.outcome().transaction_hash.to_string();
+    result.into_result().unwrap();
     worker.fast_forward(5).await.unwrap();
+    let rpc = Rpc::new(worker.rpc_addr(), &Transport::Direct).unwrap();
+    let final_result = rpc
+        .call(
+            "EXPERIMENTAL_tx_status",
+            json!({
+                "tx_hash": hash, "sender_account_id": alice.id(), "wait_until": "FINAL"
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        final_result["final_execution_status"], "FINAL",
+        "registration, balance and key must be visible to final RPC reads"
+    );
     Env {
         rpc_url: worker.rpc_addr(),
         _worker: worker,

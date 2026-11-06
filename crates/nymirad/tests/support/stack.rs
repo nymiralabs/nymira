@@ -217,16 +217,30 @@ pub async fn sync_root(
             break;
         }
     }
-    caller
+    let result = caller
         .call(vault.id(), "sync_root")
         .args_json(json!({ "max": 100 }))
         .max_gas()
         .transact()
         .await
-        .unwrap()
-        .into_result()
         .unwrap();
+    let hash = result.outcome().transaction_hash.to_string();
+    result.into_result().unwrap();
     worker.fast_forward(5).await.unwrap();
+    let rpc = Rpc::new(worker.rpc_addr(), &Transport::Direct).unwrap();
+    let final_result = rpc
+        .call(
+            "EXPERIMENTAL_tx_status",
+            json!({
+                "tx_hash": hash, "sender_account_id": caller.id(), "wait_until": "FINAL"
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        final_result["final_execution_status"], "FINAL",
+        "the gateway reads the root from final blocks"
+    );
 }
 
 /// `predeposit` false leaves the vault empty: the caller deposits through the wallet itself.

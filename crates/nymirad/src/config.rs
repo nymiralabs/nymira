@@ -12,6 +12,9 @@ pub struct Config {
     #[serde(default)]
     pub oneclick_base: Option<String>,
     pub rpc_url: String,
+    /// Mainnet receipt recovery; uses the same Tor transport as ordinary RPC reads.
+    #[serde(default)]
+    pub archival_rpc_url: Option<String>,
     pub operator_url: String,
     /// The funding account (the CLI signs for it).
     pub account: String,

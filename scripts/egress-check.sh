@@ -17,6 +17,19 @@ for l in sys.stdin:
 log=$(mktemp)
 strace -f -qq -e trace=connect -s 64 -o "$log" "$bin" --test-threads=1
 
+archive_bin=$(cargo test -p nymirad --test intents_acceptance --no-run --message-format=json --locked \
+  | python3 -c 'import sys,json
+for l in sys.stdin:
+    m=json.loads(l)
+    if m.get("reason")=="compiler-artifact" and m.get("target",{}).get("name")=="intents_acceptance" and m.get("executable"):
+        print(m["executable"])')
+[ -n "$archive_bin" ] || { echo "no archival recovery test binary"; exit 2; }
+archive_log=$(mktemp)
+strace -f -qq -e trace=connect -s 64 -o "$archive_log" "$archive_bin" \
+  --exact an_aged_receipt_and_the_pending_account_balance_are_read_over_socks --test-threads=1
+cat "$archive_log" >> "$log"
+rm -f "$archive_log"
+
 python3 - "$log" <<'PY'
 import re, sys
 bad, inet = [], 0
