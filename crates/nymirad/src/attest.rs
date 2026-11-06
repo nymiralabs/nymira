@@ -104,6 +104,9 @@ impl Attestor for Unavailable {
     }
 }
 
+/// Attestation policies older than this are refused.
+pub const MIN_POLICY_VERSION: u32 = 5;
+
 /// `attestation-policy.json`: signed, versioned.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Policy {

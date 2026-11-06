@@ -418,8 +418,7 @@ fn gpu_chain_line(_: &std::path::Path) -> (String, bool) {
 #[cfg(not(feature = "mock"))]
 const ENFORCE_NVIDIA_PINS: bool = true;
 
-/// Policies older than this are refused.
-const MIN_POLICY_VERSION: u32 = 5;
+use nymirad::attest::MIN_POLICY_VERSION;
 
 #[tokio::main]
 async fn main() {
