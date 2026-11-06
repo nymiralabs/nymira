@@ -216,6 +216,18 @@ async fn the_cli_pays_the_account_then_the_vault_and_a_lease_opens() {
     let _sandbox = SANDBOX.lock().await;
     let w = world(false).await;
     let args = deposit_args(&w);
+    // Declining the 1Click question stops everything: the fixed text is shown and 1Click is
+    // not contacted, as on the direct path.
+    let (dir, declined) = (w.home.path().to_path_buf(), args.clone());
+    let out = tokio::task::spawn_blocking(move || cli(&dir, &declined, "no\n"))
+        .await
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("1Click calls do not go through Tor, because 1Click's terms forbid using Tor to get around its restrictions. 1Click will see your IP address, source wallet, commitment and payout account."));
+    assert!(
+        w.fake.requests().is_empty(),
+        "no quote or status before confirmation"
+    );
     let dir = w.home.path().to_path_buf();
     let out = tokio::task::spawn_blocking(move || cli(&dir, &args, "yes\nyes\nyes\n"))
         .await
