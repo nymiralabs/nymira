@@ -29,7 +29,9 @@ export function appCsp(p: Profile, extraConnect: string[] = []): string {
     // NVIDIA's attestation service is not listed: it refuses browser requests, so none is made.
     origin(p.gatewayUrl),
     origin(p.pccsUrl),
-    ...(p.oneClick.dryQuotes || p.oneClick.intentsPaths ? [origin(p.oneClick.baseUrl)] : []),
+    ...(p.oneClick.dryQuotes || p.oneClick.intentsPath !== 'none'
+      ? [origin(p.oneClick.baseUrl)]
+      : []),
     ...extraConnect,
   ]);
   return [

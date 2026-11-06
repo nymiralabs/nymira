@@ -22,6 +22,13 @@ const forbidden = [
   'nymira-test-quote',
   'test_operator_',
 ];
+// A partner API key for 1Click is a JWT and is used in team tests only: none may ship. The pattern
+// must match a sample token, or the check would pass for the wrong reason.
+const partnerKey = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/;
+if (!partnerKey.test('eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJlYnl0ZXM')) {
+  console.error('the partner-key pattern does not match a sample JWT: the check is broken');
+  process.exit(2);
+}
 const textFile = /\.(js|html|css|json|map)$/;
 let bad = 0;
 
@@ -33,6 +40,10 @@ function walk(dir) {
       if (relative(dist, path) !== 'executors') walk(path);
     } else if (textFile.test(name)) {
       const text = readFileSync(path, 'utf8');
+      if (partnerKey.test(text)) {
+        console.error(`${relative(dist, path)} holds a partner API key (JWT)`);
+        bad += 1;
+      }
       for (const needle of forbidden) {
         if (text.includes(needle)) {
           console.error(`${relative(dist, path)} contains "${needle}"`);

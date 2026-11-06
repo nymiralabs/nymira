@@ -9,7 +9,7 @@ use nymirad::{
     backup,
     config::Config,
     intents::{Funding, Phase},
-    mode::Mode,
+    mode::{IntentsPath, Mode},
     oneclick::{validate_two_step, FundingClient},
     rpc::{Rpc, Transport},
     secrets::{NoteStatus, NoteStore, ROUNDS},
@@ -155,7 +155,7 @@ async fn world(poor_account: bool) -> World {
         oneclick_base: Some(fake.url()),
         backup_recipient: Some(recipient),
         backup_places: vec![backup_place.path().into()],
-        intents_two_step: true,
+        intents_path: Some(IntentsPath::TwoStep),
         ..Default::default()
     }
     .save(home.path())

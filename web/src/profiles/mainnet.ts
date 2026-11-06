@@ -23,9 +23,10 @@ export const profile: Profile = {
     baseUrl: 'https://1click.chaindefuser.com',
     // 1Click's manager key; a rotation needs a new release of this app.
     signerKey: 'ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc',
-    // The dry-quote listing is a testnet feature; on mainnet the Intents paths themselves are on.
+    // The dry-quote listing is a testnet feature; on mainnet one Intents path is on. `two-step`
+    // by decision (issue 50): 1Click has given no written answer and the mainnet probe has not run.
     dryQuotes: false,
-    intentsPaths: true,
+    intentsPath: 'two-step',
     shortlist: [
       {
         label: 'USDC on Ethereum',

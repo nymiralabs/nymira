@@ -4,6 +4,7 @@
 
 export type NetworkName = 'testnet' | 'mainnet';
 export type ProfileId = 'mock' | 'testnet' | 'mainnet';
+export type IntentsPath = 'direct' | 'two-step' | 'none' | 'both';
 
 /** A point on the operator's signature curve, as the vault's `config()` spells it. */
 export interface PublicKeyPin {
@@ -93,10 +94,12 @@ export interface Profile {
     signerKey: string;
     /** Live dry quotes on the Fund screen (testnet and mock builds). */
     dryQuotes: boolean;
-    /** Intents funding paths. Mainnet profile only. */
-    intentsPaths: boolean;
-    /** Intents two-step path: 1Click pays the user's own account, the wallet signs the second step. */
-    intentsTwoStep?: boolean;
+    /**
+     * The Intents funding path this build carries (mainnet profile only; the testnet profile
+     * ignores it and stays quote-only). `both` exists for the mock build, so the tests can run
+     * both paths; a deployed profile sets one path or `none`.
+     */
+    intentsPath: IntentsPath;
     shortlist: QuoteAsset[];
   };
   /** `null` until a vault is deployed and pinned: funding then stays disabled. */

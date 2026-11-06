@@ -7,6 +7,7 @@ use near_workspaces::{Account, Contract};
 use nymirad::{
     backup,
     config::Config,
+    mode::IntentsPath,
     rpc::{Rpc, Transport},
     secrets::{NoteStatus, NoteStore, ROUNDS},
 };
@@ -175,6 +176,7 @@ async fn walk(real_verifier: bool, no_deposit: bool, restore_from_backup: bool) 
         oneclick_base: Some(fake.url()),
         backup_recipient: Some(recipient),
         backup_places: vec![backup_place.path().into()],
+        intents_path: Some(IntentsPath::Direct),
         ..Default::default()
     };
     config.save(home.path()).unwrap();

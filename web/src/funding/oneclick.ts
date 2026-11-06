@@ -21,7 +21,14 @@ export const MIN_GAP_MS = 5000;
 export const CACHE_MS = 180_000;
 
 export const dryQuotesEnabled = (p: Pick<Profile, 'oneClick'>) => p.oneClick.dryQuotes;
-export const intentsPathsEnabled = (p: Pick<Profile, 'oneClick'>) => p.oneClick.intentsPaths;
+/** The Intents paths this build offers. A testnet build offers none, whatever its setting. */
+export function intentsPaths(p: Pick<Profile, 'id' | 'oneClick'>): ('direct' | 'two-step')[] {
+  const path = p.id === 'testnet' ? 'none' : p.oneClick.intentsPath;
+  if (path === 'both') return ['direct', 'two-step'];
+  return path === 'none' ? [] : [path];
+}
+export const intentsPathsEnabled = (p: Pick<Profile, 'id' | 'oneClick'>) =>
+  intentsPaths(p).length > 0;
 
 export interface Quote {
   label: string;

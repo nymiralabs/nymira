@@ -26,8 +26,7 @@ export const profile: Profile = {
     signerKey: 'ed25519:AzXW61LgzhJTXN1so7rBR5auU2oCSzRyNEqFxPkZct3G',
     dryQuotes: true,
     // The mock build runs the Intents flow against the fake 1Click; testnet stays quote only.
-    intentsPaths: true,
-    intentsTwoStep: true,
+    intentsPath: 'both',
     shortlist: [
       {
         label: 'USDC on Ethereum',
