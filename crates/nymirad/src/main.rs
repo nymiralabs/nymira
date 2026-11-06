@@ -66,6 +66,9 @@ commands:
       loads a policy signed with your NEAR account (NEP-413, full-access key): checks the
       signature and the key over several RPC endpoints, shows a summary and asks you to
       confirm; it applies from the agent's next request
+  agent approvals                   the requests held for your approval: ID, model, size, estimated cost
+  agent approve --file SIGNED_APPROVAL.json
+      hands the running nymirad an approval you signed on your own device (NEP-413)
   recover --intents COMMITMENT       resumes a saved funding attempt after a new direct-access confirmation
   recover --key-file FILE           finds notes again after a crash
   close --note ID [--delay SECS] [--family NAME] [--via-operator]
@@ -462,6 +465,16 @@ async fn main() {
             }
             Some("policy") => {
                 policy_load(&home, mode, &registry, &mut args).await;
+                return;
+            }
+            Some("approvals") => {
+                approvals_command(&home, None).await;
+                return;
+            }
+            Some("approve") => {
+                let file = flag(&mut args, "--file").unwrap_or_else(|| die(USAGE));
+                let bytes = std::fs::read(&file).unwrap_or_else(|e| die(format!("{file}: {e}")));
+                approvals_command(&home, Some(bytes)).await;
                 return;
             }
             _ => die(USAGE),
@@ -996,6 +1009,58 @@ async fn policy_load(
         "Policy v{} is in force for agent {name} from its next request.",
         loaded.version
     );
+}
+
+/// `agent approvals` lists what waits; `agent approve` hands over a signed approval. Both talk to
+/// the running daemon on loopback with the owner token.
+async fn approvals_command(home: &std::path::Path, signed: Option<Vec<u8>>) {
+    let token = std::fs::read_to_string(home.join("owner.token"))
+        .unwrap_or_else(|e| die(format!("owner token: {e} (is `nymirad serve` set up?)")));
+    let url = format!(
+        "http://127.0.0.1:{}{}",
+        guard::PORT,
+        nymirad::approvals::PATH
+    );
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_else(|e| die(e));
+    let call = match signed {
+        Some(bytes) => http.post(&url).body(bytes),
+        None => http.get(&url),
+    };
+    let reply = call
+        .bearer_auth(token.trim())
+        .send()
+        .await
+        .unwrap_or_else(|e| die(format!("cannot reach nymirad on port {}: {e}", guard::PORT)));
+    let status = reply.status();
+    let body: serde_json::Value = reply.json().await.unwrap_or_default();
+    if !status.is_success() {
+        die(body["error"]["message"].as_str().unwrap_or("refused"));
+    }
+    match body.as_array() {
+        Some(list) if list.is_empty() => println!("Nothing waits for your approval."),
+        Some(list) => {
+            for h in list {
+                println!(
+                    "{}  agent {}  model {}  input {} tokens  up to {} USD  {}  expires in {} s\n  amount {} micro-USD\n  request hash {}\n  nonce {}",
+                    h["approval_id"].as_str().unwrap_or(""),
+                    h["agent"].as_str().unwrap_or(""),
+                    h["model"].as_str().unwrap_or(""),
+                    h["input_tokens"],
+                    h["estimated_cost_usd"].as_str().unwrap_or(""),
+                    if h["approved"] == true { "approved" } else { "waiting" },
+                    h["expires_in_secs"],
+                    h["amount_micro"].as_str().unwrap_or(""),
+                    h["request_hash"].as_str().unwrap_or(""),
+                    h["nonce"].as_str().unwrap_or(""),
+                );
+            }
+            println!("Sign the ID, request hash, amount and nonce on your own device, then run `nymirad agent approve --file FILE`.");
+        }
+        None => println!("Approved {}.", body["approved"].as_str().unwrap_or("")),
+    }
 }
 
 fn note_id(args: &mut Vec<String>) -> u32 {

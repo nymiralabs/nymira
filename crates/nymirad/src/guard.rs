@@ -26,8 +26,12 @@ const HOSTS: [&str; 3] = ["localhost:8788", "127.0.0.1:8788", "[::1]:8788"];
 
 /// What the owner token may do over HTTP. Everything that moves money, funds a note or exposes
 /// a secret runs in the CLI instead.
-pub const OWNER_ROUTES: [(&str, &str); 2] =
-    [("POST", "/v1/chat/completions"), ("GET", "/v1/models")];
+pub const OWNER_ROUTES: [(&str, &str); 4] = [
+    ("POST", "/v1/chat/completions"),
+    ("GET", "/v1/models"),
+    ("GET", crate::approvals::PATH),
+    ("POST", crate::approvals::PATH),
+];
 
 fn refuse(status: StatusCode, code: &str, message: &str) -> Response {
     (
@@ -284,7 +288,8 @@ pub fn router_for(
         Some(gw) => Router::new()
             .route("/v1/chat/completions", post(crate::gateway::chat_handler))
             .route("/v1/models", get(crate::gateway::models_handler))
-            .with_state(gw),
+            .with_state(gw.clone())
+            .merge(crate::approvals::routes(gw, registry.clone())),
         None => Router::new()
             .route("/v1/chat/completions", post(not_built))
             .route("/v1/models", get(models)),
