@@ -96,6 +96,16 @@ impl ApiError {
         )
     }
 
+    /// The budget note is inside its last 5 days, or its revocation, close or exit has begun.
+    pub fn note_expiring() -> Self {
+        Self::new(
+            StatusCode::PAYMENT_REQUIRED,
+            "insufficient_funds",
+            "note_expiring",
+            "the budget note is closing, being revoked or about to expire; the owner decides what happens next",
+        )
+    }
+
     /// More requests in a minute than the policy allows.
     pub fn policy_rate_limit(retry_after_secs: u64) -> Self {
         let mut e = Self::new(
