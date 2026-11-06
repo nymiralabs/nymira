@@ -402,3 +402,28 @@ async fn the_chat_ids_survive_a_restart_of_the_process_that_proxies_chat() {
     let amnesiac = LeaseChat::new(reqwest::Client::new(), &rig.fake.url());
     assert_eq!(amnesiac.evidence(&secret, "a", &query).await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn a_first_chat_on_a_key_the_gateway_does_not_know_yet_is_sent_again() {
+    let rig = Rig::new().await;
+    let adapter = rig.adapter(Some(FIRST_REFRESH_TOKEN)).unwrap();
+    adapter.mint("a", 100_000).await.unwrap();
+    // Two 401s, then the key works: the caller sees an answer.
+    rig.fake.handle.update(|s| {
+        s.fail_next = 2;
+        s.fail_status = 401;
+        s.fail_path_prefix = "/v1/chat".into();
+    });
+    let mut chat = adapter.chat("a", rig.chat_request()).await.unwrap();
+    while chat.body.next_chunk().await.is_some() {}
+    // A key that stays refused ends in a rejection after the retries, not a hang.
+    rig.fake.handle.update(|s| {
+        s.fail_next = 10;
+        s.fail_status = 401;
+        s.fail_path_prefix = "/v1/chat".into();
+    });
+    assert!(matches!(
+        adapter.chat("a", rig.chat_request()).await,
+        Err(ProviderError::Rejected(_))
+    ));
+}

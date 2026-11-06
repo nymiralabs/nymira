@@ -35,6 +35,9 @@ const PAGE: usize = 100;
 /// How long `mint` waits for a new key to start working: 24 tries, half a second apart.
 const KEY_ACTIVE_TRIES: u32 = 24;
 const KEY_ACTIVE_POLL: Duration = Duration::from_millis(500);
+/// Chat requests sent again after a 401 on a key that may be too new, and the wait between them.
+const NEW_KEY_CHAT_RETRIES: u32 = 3;
+const NEW_KEY_CHAT_RETRY_WAIT: Duration = Duration::from_secs(2);
 
 /// The client identity the refresh token was made under. The service ties a refresh token to the
 /// `User-Agent` of the client that made it (measured 2026-11-02: the exchange answered 401 for
@@ -651,18 +654,32 @@ impl LeaseChat {
         lease_id: &str,
         request: ChatRequest,
     ) -> Result<ChatResponse, ProviderError> {
-        let mut builder = self
-            .http
-            .post(self.url("/v1/chat/completions"))
-            .bearer_auth(secret)
-            // The signature covers the bytes as sent; no re-encoding on the way.
-            .header("Accept-Encoding", "identity")
-            .header("Content-Type", "application/json")
-            .body(request.body);
-        for (name, value) in request.headers {
-            builder = builder.header(name, value);
-        }
-        let reply = checked(builder.send().await.map_err(transport)?).await?;
+        // A new key can answer the readiness check and still get 401 on the chat route for a few
+        // seconds (seen on 6 Nov 2026: the first chat of a fresh lease failed, the next passed). The
+        // request has not started upstream, so it is sent again, a few times.
+        let mut attempt = 0;
+        let reply = loop {
+            let mut builder = self
+                .http
+                .post(self.url("/v1/chat/completions"))
+                .bearer_auth(secret)
+                // The signature covers the bytes as sent; no re-encoding on the way.
+                .header("Accept-Encoding", "identity")
+                .header("Content-Type", "application/json")
+                .body(request.body.clone());
+            for (name, value) in &request.headers {
+                builder = builder.header(name, value);
+            }
+            match checked(builder.send().await.map_err(transport)?).await {
+                Err(ProviderError::Rejected(reason))
+                    if reason.starts_with("status 401") && attempt < NEW_KEY_CHAT_RETRIES =>
+                {
+                    attempt += 1;
+                    tokio::time::sleep(NEW_KEY_CHAT_RETRY_WAIT).await;
+                }
+                other => break other?,
+            }
+        };
         let content_type = reply
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
