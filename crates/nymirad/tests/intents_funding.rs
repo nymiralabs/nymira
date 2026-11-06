@@ -580,6 +580,7 @@ async fn refused_verifier_deliveries_are_found_and_claimed_without_a_note_id() {
             destination: None,
             bookings: vec![],
             notice: None,
+            via: None,
         };
         funding.notes.save_funding(&attempt).unwrap();
         funding.back_up().unwrap();

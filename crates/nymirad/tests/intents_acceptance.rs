@@ -150,6 +150,7 @@ async fn fixture(note_status: NoteStatus, success: bool, expiry: u64) -> Fixture
         destination: None,
         bookings: vec![],
         notice: None,
+        via: None,
     };
     Fixture {
         funding,
@@ -245,6 +246,7 @@ fn concurrent_writers_keep_every_note_and_encrypted_funding_record() {
                         destination: None,
                         bookings: vec![],
                         notice: None,
+                        via: None,
                     })
                     .unwrap();
             })

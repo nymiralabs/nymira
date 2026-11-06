@@ -62,6 +62,10 @@ pub struct Config {
     /// Demo builds only: the same for `withdrawal.pk`.
     #[serde(default)]
     pub withdrawal_key_sha256: Option<String>,
+    /// Fund through the user's own NEAR account in two steps instead of paying the vault
+    /// directly. Stand-in for the build profile switch that #50 will formalise.
+    #[serde(default)]
+    pub intents_two_step: bool,
     /// Seconds of silence after which a lease is retired. Default 120.
     #[serde(default)]
     pub idle_secs: Option<u64>,
