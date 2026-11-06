@@ -144,7 +144,7 @@ Requests arrive on the loopback listener, so they pass the same checks as yours:
 ssh -N -R 8788:localhost:8788 AGENT_HOST
 ```
 
-The forwarded port binds to the loopback of the agent host as long as `GatewayPorts` stays off there. A direct connection to your machine over a tailnet or LAN is refused. If the forward has to start on the agent host, restrict that key in your `authorized_keys` with `restrict,port-forwarding,permitopen="localhost:8788",command="/bin/false"` and run `ssh -N -L 8788:localhost:8788 OWNER_HOST` there. That restriction is standard OpenSSH behavior and has not been tested against this release.
+The forwarded port binds to the loopback of the agent host as long as `GatewayPorts` stays off there. A direct connection to your machine over a tailnet or LAN is refused. If the forward has to start on the agent host, restrict that key in your `authorized_keys` with `restrict,port-forwarding,permitopen="localhost:8788",command="/bin/false"` and run `ssh -N -L 8788:localhost:8788 OWNER_HOST` there. That restriction is standard OpenSSH behavior and has not been tested against this release; `scripts/agent-ssh-forward-check.sh [HOST]` runs both forwards and the refusals against an ssh host, and `scripts/agent-os-user-check.sh` does the same for the socket and token file with a throwaway second OS user (macOS, needs `sudo`).
 
 ## License
 

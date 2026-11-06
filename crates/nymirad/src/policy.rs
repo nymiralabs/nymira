@@ -20,6 +20,7 @@ use std::path::Path;
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Deserialize;
+use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::agents::{AgentEntry, Registry};
@@ -332,17 +333,22 @@ pub fn in_force(home: &Path, agent: &AgentEntry, ctx: &Context) -> Option<Policy
     (loaded.version == confirmed).then_some(loaded.policy)
 }
 
-/// The signing key must be a full-access key of `account` on every endpoint, read at a final
-/// block. One endpoint that disagrees or fails refuses the policy.
+/// The signing key must be a full-access key of `account` on every endpoint. The first endpoint
+/// names a final block; every endpoint is read at that block, so all of them answer for the same
+/// state. One that disagrees, fails or has not reached the block refuses the policy.
 pub async fn check_key(rpcs: &[Rpc], account: &str, public_key: &str) -> Result<(), String> {
-    if rpcs.is_empty() {
+    let Some(first) = rpcs.first() else {
         return Err("no RPC endpoint to read the access keys from".into());
-    }
+    };
+    let (hash, _) = first
+        .final_block()
+        .await
+        .map_err(|e| format!("final block: {e}"))?;
     for rpc in rpcs {
         let keys = rpc
-            .access_keys(account)
+            .access_keys_at(json!({ "block_id": hash }), account)
             .await
-            .map_err(|e| format!("access keys of {account}: {e}"))?;
+            .map_err(|e| format!("access keys of {account} at block {hash}: {e}"))?;
         let found = keys.iter().find(|k| k["public_key"] == public_key);
         match found.map(|k| &k["permission"]) {
             Some(p) if p == "FullAccess" => {}

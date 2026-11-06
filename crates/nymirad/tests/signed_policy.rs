@@ -464,6 +464,96 @@ async fn a_key_the_endpoints_disagree_about_is_refused() {
     r.refused("endpoints disagree").await;
 }
 
+/// A second endpoint that holds the same keys as the rig's own, at the same height.
+async fn twin(r: &Rig) -> FakeRpc {
+    let twin = FakeRpc::start().await;
+    twin.set_account(OWNER, AccountSpec::default());
+    twin.set_access_keys(
+        OWNER,
+        vec![AccessKeySpec::full_access(&public_key(&r.owner_key), 0)],
+    );
+    r.rpc.advance_blocks(5, 1.0);
+    twin.advance_blocks(5, 1.0);
+    twin
+}
+
+fn views_of(rpc: &FakeRpc) -> Vec<Value> {
+    rpc.requests()
+        .into_iter()
+        .filter(|q| q.params["request_type"] == "view_access_key_list")
+        .map(|q| q.params)
+        .collect()
+}
+
+#[tokio::test]
+async fn every_endpoint_is_read_at_the_one_final_block_the_first_names() {
+    let r = Rig::new().await;
+    let other = twin(&r).await;
+    let rpcs = vec![
+        Rpc::new(r.rpc.url(), &Net::Direct).unwrap(),
+        Rpc::new(other.url(), &Net::Direct).unwrap(),
+    ];
+    let key = public_key(&r.owner_key);
+    policy::check_key(&rpcs, OWNER, &key).await.unwrap();
+
+    let (first, second) = (views_of(&r.rpc), views_of(&other));
+    assert_eq!((first.len(), second.len()), (1, 1));
+    let hash = first[0]["block_id"].as_str().expect("pinned by hash");
+    assert_eq!(second[0]["block_id"], hash, "both read the same block");
+    assert!(first[0].get("finality").is_none() && second[0].get("finality").is_none());
+    // Only the first endpoint was asked which block is final.
+    let blocks = |f: &FakeRpc| f.requests().iter().filter(|q| q.method == "block").count();
+    assert_eq!((blocks(&r.rpc), blocks(&other)), (1, 0));
+}
+
+#[tokio::test]
+async fn an_endpoint_that_lags_or_sits_on_another_fork_refuses_the_key() {
+    let r = Rig::new().await;
+    let key = public_key(&r.owner_key);
+    let rpcs = |other: &FakeRpc| {
+        vec![
+            Rpc::new(r.rpc.url(), &Net::Direct).unwrap(),
+            Rpc::new(other.url(), &Net::Direct).unwrap(),
+        ]
+    };
+
+    // Lagging: the second endpoint has not reached the block the first calls final.
+    let other = twin(&r).await;
+    policy::check_key(&rpcs(&other), OWNER, &key).await.unwrap();
+    r.rpc.advance_blocks(3, 1.0);
+    let err = policy::check_key(&rpcs(&other), OWNER, &key)
+        .await
+        .unwrap_err();
+    assert!(err.contains("access keys of owner.test at block"), "{err}");
+    // It catches up and the same check passes.
+    other.advance_blocks(3, 1.0);
+    policy::check_key(&rpcs(&other), OWNER, &key).await.unwrap();
+
+    // Forked: same height, another block hash.
+    other.set_fork(Some(nymira_fake_near_rpc::ForkSpec {
+        from_height: 1,
+        tag: "other-fork".into(),
+    }));
+    let err = policy::check_key(&rpcs(&other), OWNER, &key)
+        .await
+        .unwrap_err();
+    assert!(err.contains("access keys of owner.test at block"), "{err}");
+
+    // The same refusal reaches a signed policy: nothing is loaded.
+    let bytes = r.signed(&r.owner_key, 1, &yaml(&[MODEL]));
+    assert!(policy::load(
+        &r.registry,
+        "cursor",
+        &bytes,
+        &ctx(),
+        &rpcs(&other),
+        &|_| true
+    )
+    .await
+    .is_err());
+    r.refused("an endpoint on another fork").await;
+}
+
 #[tokio::test]
 async fn after_a_restore_the_higher_of_the_backup_and_the_last_seen_version_counts() {
     let r = Rig::new().await;

@@ -468,13 +468,13 @@ async fn main() {
                 return;
             }
             Some("approvals") => {
-                approvals_command(&home, None).await;
+                approvals_command(&home, None, api_port(&mut args)).await;
                 return;
             }
             Some("approve") => {
                 let file = flag(&mut args, "--file").unwrap_or_else(|| die(USAGE));
                 let bytes = std::fs::read(&file).unwrap_or_else(|e| die(format!("{file}: {e}")));
-                approvals_command(&home, Some(bytes)).await;
+                approvals_command(&home, Some(bytes), api_port(&mut args)).await;
                 return;
             }
             _ => die(USAGE),
@@ -1013,14 +1013,21 @@ async fn policy_load(
 
 /// `agent approvals` lists what waits; `agent approve` hands over a signed approval. Both talk to
 /// the running daemon on loopback with the owner token.
-async fn approvals_command(home: &std::path::Path, signed: Option<Vec<u8>>) {
+/// The port the owner commands talk to. Demo and test builds may name another one, as `serve` can.
+fn api_port(args: &mut Vec<String>) -> u16 {
+    #[cfg(feature = "mock")]
+    if let Some(port) = flag(args, "--port").and_then(|p| p.parse().ok()) {
+        return port;
+    }
+    #[cfg(not(feature = "mock"))]
+    let _ = args;
+    guard::PORT
+}
+
+async fn approvals_command(home: &std::path::Path, signed: Option<Vec<u8>>, port: u16) {
     let token = std::fs::read_to_string(home.join("owner.token"))
         .unwrap_or_else(|e| die(format!("owner token: {e} (is `nymirad serve` set up?)")));
-    let url = format!(
-        "http://127.0.0.1:{}{}",
-        guard::PORT,
-        nymirad::approvals::PATH
-    );
+    let url = format!("http://127.0.0.1:{port}{}", nymirad::approvals::PATH);
     let http = reqwest::Client::builder()
         .no_proxy()
         .build()
@@ -1030,10 +1037,11 @@ async fn approvals_command(home: &std::path::Path, signed: Option<Vec<u8>>) {
         None => http.get(&url),
     };
     let reply = call
+        .header("host", format!("localhost:{}", guard::PORT))
         .bearer_auth(token.trim())
         .send()
         .await
-        .unwrap_or_else(|e| die(format!("cannot reach nymirad on port {}: {e}", guard::PORT)));
+        .unwrap_or_else(|e| die(format!("cannot reach nymirad on port {port}: {e}")));
     let status = reply.status();
     let body: serde_json::Value = reply.json().await.unwrap_or_default();
     if !status.is_success() {
