@@ -45,7 +45,7 @@ Test models available: `z-ai/glm-5.3-flash` (default), `Qwen/Qwen3.6-35B-A3B-FP8
 3. Provide Tor. On a Mac with Apple silicon, follow the README: Homebrew's `tor` 0.4.9.15, or your own Tor with `--socks 127.0.0.1:9050`. On Linux no Tor package is pinned, so run your own and use `--socks`.
 4. Set up the state directory:
    ```bash
-   nymirad init --rpc https://rpc.testnet.near.org --operator https://nymira-operator.tail0484c4.ts.net --account YOUR.testnet --setup-dir DIR_WITH_THE_TWO_KEYS --local-only
+   nymirad init --rpc https://rpc.testnet.fastnear.com --operator https://nymira-operator.tail0484c4.ts.net --account YOUR.testnet --setup-dir DIR_WITH_THE_TWO_KEYS --local-only
    ```
    Add `--socks 127.0.0.1:9050` if you run your own Tor. `--local-only` keeps the encrypted backup on this machine; use `--place DIR` for a second copy.
 5. Put the 32-byte ed25519 seed, as hex, of a funded testnet account in a file with mode 0600. (NEAR tools write secret keys as `ed25519:` plus base58 of 64 bytes; the seed is the first 32.) Register that account with the USDC token as in step 3 of Path 1. Then `nymirad status` should show the operator and "Vault: matches the pins", and:
