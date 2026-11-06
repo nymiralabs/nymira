@@ -172,6 +172,9 @@ pub async fn api(cfg: &Config) -> Result<(), Failure> {
         _ => Profile::Sandbox,
     };
     oc.host = cfg.host.clone();
+    // The free public providers refuse more than a few reads a second, and one refresh is four or
+    // five reads: once every five seconds keeps a busy API under that.
+    oc.chain_refresh_ms = 5_000;
     if cfg.budget == "hackathon" {
         oc.budget = nymira_operator::budget::BudgetConfig::hackathon();
         oc.credit = nymira_operator::budget::CreditConfig::hackathon();
