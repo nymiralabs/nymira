@@ -13,6 +13,10 @@ pub struct Config {
     #[serde(default)]
     pub oneclick_base: Option<String>,
     pub rpc_url: String,
+    /// A second, independent RPC provider. The set size is read from both and the lower figure
+    /// is kept; without it the set size comes from `rpc_url` alone and says so.
+    #[serde(default)]
+    pub rpc_url_second: Option<String>,
     /// Mainnet receipt recovery; uses the same Tor transport as ordinary RPC reads.
     #[serde(default)]
     pub archival_rpc_url: Option<String>,

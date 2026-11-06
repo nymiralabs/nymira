@@ -63,6 +63,14 @@ On a Mac with Apple silicon:
 
 On Linux the same applies: no Tor package is pinned, so use option 3 until one is.
 
+## Set size in `nymirad status`
+
+Each lease records how many notes could have paid for it. `nymirad` counts them on your machine from the vault's `note_records`, read at the same final block as the tree your proof used, and takes the team's notes out. The team's IDs are the list in `crates/nymira-operator/team-note-ids.json`, which each release compiles in, plus any IDs the operator adds in `/v1/status`. `nymirad status` prints the result for each lease as `set size: N (external), total T`, and a `now:` line for the same count at the current block.
+
+Name a second, independent provider with `nymirad init ... --rpc-second URL`. The count is then read from both, the lower figure is used and a difference is shown. Without it the count comes from one provider and status says so.
+
+The figure is an upper bound. Balances are private, and N includes notes the operator or the team control and did not list. With 5 or more external notes, 5 is still not a safe number. The sentences status prints are in `shared/privacy-strings.json`.
+
 ## Build
 
 The toolchain is pinned in `rust-toolchain.toml` (rustc 1.99.0, `wasm32-unknown-unknown`). Install cargo-near 0.22.0, then:

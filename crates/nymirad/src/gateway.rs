@@ -37,6 +37,7 @@ use crate::pins::{self, Pins, Tripwire};
 use crate::records::{LeaseRecord, Records};
 use crate::rpc::{client, client_with_identity, send_error, Rpc, RpcError, Transport};
 use crate::secrets::{NoteEntry, NoteStatus, NoteStore};
+use crate::setsize;
 use crate::sizing;
 use crate::snapshot;
 use crate::submitter::SubmitterStore;
@@ -129,10 +130,20 @@ pub enum Outcome {
     Stream(Body, String),
 }
 
+/// What the proof's snapshot and the set-size count saw, kept until the lease opens.
+struct Seen {
+    root: String,
+    leaf_count: u32,
+    block: u64,
+    sets: Result<setsize::Raw, String>,
+}
+
 pub struct Gateway {
     cfg: GatewayConfig,
     transport: Transport,
     rpc: Rpc,
+    /// A second, independent provider for the set-size count.
+    rpc_second: Option<Rpc>,
     pins: Pins,
     tripwire: Tripwire,
     notes: NoteStore,
@@ -250,6 +261,7 @@ impl Gateway {
             records: Records::new(&cfg.home),
             transport,
             rpc,
+            rpc_second: None,
             pins,
             tripwire: Tripwire::default(),
             notes,
@@ -267,6 +279,12 @@ impl Gateway {
     /// Waits and retries of the close and exit transactions (tests shorten them).
     pub fn with_tx_config(mut self, cfg: nymira_operator::tx::TxConfig) -> Self {
         self.tx_config = cfg;
+        self
+    }
+
+    /// The second RPC provider the set size is read from as well; the lower figure is kept.
+    pub fn with_second_rpc(mut self, rpc: Option<Rpc>) -> Self {
+        self.rpc_second = rpc;
         self
     }
 
@@ -585,7 +603,7 @@ impl Gateway {
         let (entry, wallet) = self.pick_note(bound, &busy).await?;
         let (note_id, note_key) = (entry.note_id.expect("picked"), entry.commitment.clone());
         let wallet = Mutex::new(wallet);
-        let seen: std::sync::Mutex<Option<(String, u32, u64)>> = std::sync::Mutex::new(None);
+        let seen: std::sync::Mutex<Option<Seen>> = std::sync::Mutex::new(None);
         let pinned = Pinned {
             operator_pk: &self.pins.config["operator_pk"],
             config: &self.pins.config,
@@ -603,11 +621,24 @@ impl Gateway {
                     if snap.tree.leaf(note_id) == Felt252::ZERO {
                         return Err("the note's leaf is not in the tree yet (wait for the next sync_root) or was retired".into());
                     }
-                    *seen.lock().unwrap_or_else(|e| e.into_inner()) = Some((
-                        format!("0x{}", hex::encode(snap.root.0)),
+                    // The set is counted from the block the proof's tree came from. A failure
+                    // here is kept for the record; it never stops the lease.
+                    let sets = setsize::read(
+                        &self.rpc,
+                        self.rpc_second.as_ref(),
+                        &self.cfg.vault,
+                        &snap.block_hash,
                         snap.leaf_count,
-                        snap.block_height,
-                    ));
+                        request_time,
+                    )
+                    .await
+                    .map_err(|e| e.to_string());
+                    *seen.lock().unwrap_or_else(|e| e.into_inner()) = Some(Seen {
+                        root: format!("0x{}", hex::encode(snap.root.0)),
+                        leaf_count: snap.leaf_count,
+                        block: snap.block_height,
+                        sets,
+                    });
                     let mut w = wallet.lock().await;
                     if attempt == Attempt::Rebuild {
                         lease::set_aside_stale(&w)?;
@@ -642,11 +673,36 @@ impl Gateway {
                 });
             }
         };
-        let (root, leaf_count, snapshot_block) = seen
+        let seen = seen
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
-            .unwrap_or_default();
+            .take()
+            .unwrap_or_else(|| Seen {
+                root: String::new(),
+                leaf_count: 0,
+                block: 0,
+                sets: Err("no snapshot".into()),
+            });
+        // The operator's team list can only lower the count; if it cannot be read the pinned
+        // list alone is removed.
+        let operator_team = lease_client
+            .status()
+            .await
+            .ok()
+            .and_then(|s| setsize::operator_team(&s));
+        let mut warnings = Vec::new();
+        let set_size = match &seen.sets {
+            Ok(raw) => Some(setsize::evaluate(
+                raw,
+                &setsize::pinned_team(),
+                operator_team.as_deref(),
+            )),
+            Err(why) => {
+                warnings.push(format!("set size unavailable: {why}"));
+                None
+            }
+        };
+        let (root, leaf_count, snapshot_block) = (seen.root, seen.leaf_count, seen.block);
         let now = self.clock.now_secs();
         let record = LeaseRecord {
             lease_id: lease.id.clone(),
@@ -667,7 +723,8 @@ impl Gateway {
             prompt_tokens: 0,
             completion_tokens: 0,
             trust: None,
-            warnings: vec![],
+            warnings,
+            set_size,
         };
         let _ = self.records.write(&record);
         self.back_up();

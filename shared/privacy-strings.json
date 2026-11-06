@@ -1,0 +1,18 @@
+{
+  "tor_on": "`nymirad` traffic goes through Tor",
+  "tor_off": "Tor off",
+  "tor_limits": "Timing, usage and content can still link your leases. An agent's own network traffic is not covered.",
+  "set_size": "set size: {n} (external)",
+  "set_total": "total {n}",
+  "now_label": "now",
+  "balances_private": "Note balances are private. N is the most notes that could have paid for the lease; fewer may have had enough balance.",
+  "includes_unlisted": "N includes notes the operator or the team control and did not list.",
+  "five_not_safe": "With 5 or more external notes, 5 is still not a safe number.",
+  "testnet_notes": "This is a testnet build. The notes are test notes funded with free testnet USDC, anyone can add them at no cost, and the set is small.",
+  "team_pinned_only": "team IDs only in this release's pinned list: {ids}",
+  "team_operator_only": "team IDs only in the operator's list: {ids}",
+  "providers_differ": "the two RPC providers disagree (set size {a} and {b}); the lower one is used",
+  "one_provider": "read from one RPC provider only ({why})",
+  "operator_list_missing": "the operator's team list could not be read; only the pinned list is removed",
+  "unavailable": "set size: unavailable ({why})"
+}
