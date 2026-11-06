@@ -166,19 +166,26 @@ impl RpcVault {
         self
     }
 
-    /// One JSON-RPC round trip; a transport failure or a rate limit (code -429) is the signal to
-    /// try the next provider, any other answer is final.
+    /// One JSON-RPC round trip. A transport failure, a refusing status (401, 402, 403, 429 or a
+    /// server error) and a rate-limit answer (code -429) are the signal to try the next provider;
+    /// any other answer is final. The error text never carries the URL: a provider URL may hold
+    /// an API key.
     async fn round_trip(&self, url: &str, body: &Value) -> Result<Value, ChainError> {
-        let reply: Value = self
+        let response = self
             .http
             .post(url)
             .json(body)
             .send()
             .await
-            .map_err(|e| ChainError(e.to_string()))?
+            .map_err(|e| ChainError(e.without_url().to_string()))?;
+        let status = response.status();
+        if matches!(status.as_u16(), 401 | 402 | 403 | 429) || status.is_server_error() {
+            return Err(ChainError(format!("provider answered {status}")));
+        }
+        let reply: Value = response
             .json()
             .await
-            .map_err(|e| ChainError(e.to_string()))?;
+            .map_err(|e| ChainError(e.without_url().to_string()))?;
         if reply["error"]["code"].as_i64() == Some(-429) {
             return Err(ChainError(reply["error"].to_string()));
         }
