@@ -1032,6 +1032,23 @@ async fn intents_command(
     };
     let resumed = flag(args, "--intents");
     let is_resume = resumed.is_some();
+    // The two-step path signs from the user's own account, so it needs the funding key.
+    let sender = |args: &mut Vec<String>| {
+        let key = funding_key(&flag(args, "--key-file").unwrap_or_else(|| die(USAGE)));
+        let store = Store::open(&home.join("tx.db")).unwrap_or_else(|e| die(e));
+        let token = funding.pins.config["token"].as_str().unwrap_or_default();
+        nymirad::deposit::funding_tx(
+            &cfg.rpc_url,
+            &cfg.account,
+            token.into(),
+            key,
+            store,
+            funding.clock.clone(),
+            &transport,
+        )
+        .unwrap_or_else(|e| die(e))
+    };
+    let mut tx = None;
     let mut attempt = if let Some(commitment) = resumed {
         funding
             .notes
@@ -1039,6 +1056,11 @@ async fn intents_command(
             .unwrap_or_else(|e| die(e))
             .into_iter()
             .find(|a| a.commitment == commitment)
+            .inspect(|a| {
+                if a.via.is_some() {
+                    tx = Some(sender(args));
+                }
+            })
             .unwrap_or_else(|| die("no saved Intents attempt for that commitment"))
     } else {
         let chosen = flag(args, "--source").unwrap_or_else(|| die(USAGE));
@@ -1046,6 +1068,14 @@ async fn intents_command(
             .and_then(|v| v.parse::<u128>().ok())
             .unwrap_or_else(|| die(USAGE));
         let config = funding.check(amount).await.unwrap_or_else(|e| die(e));
+        if cfg.intents_two_step {
+            let sender = sender(args);
+            funding
+                .two_step_ready(&sender, &config)
+                .await
+                .unwrap_or_else(|e| die(e));
+            tx = Some(sender);
+        }
         let offered = funding
             .sources(&client, amount)
             .await
@@ -1077,6 +1107,13 @@ async fn intents_command(
             .await
             .unwrap_or_else(|e| die(e));
         println!("Payout account {} (fingerprint {}). USDC registered: {}. Consider a fresh payout account.\nDenomination {} base units + non-refundable note fee {} base units.\nRefund to your own source wallet: {}.\nA close through the operator costs {} USDC base units. An exit or payout claim needs a little NEAR for gas on the submitter account.", payout, nymirad::deposit::fingerprint(&payout), registered, amount, config["note_fee"], refund.escape_default(), config["close_fee"]);
+        if tx.is_some() {
+            println!(
+                "{}\nYour account {} pays the vault in the second step.",
+                intents::TWO_STEP_NOTICE,
+                cfg.account
+            );
+        }
         if !Terminal.confirm_text("Type yes to confirm this payout account and refund address: ") {
             die("payout account not confirmed; no quote requested");
         }
@@ -1087,14 +1124,26 @@ async fn intents_command(
                     .unwrap_or_else(|e| die(e))
             })
             .unwrap_or_else(|| secret_input(None, "Backup private key or passphrase: "));
-        funding
-            .prepare(&client, amount, asset, &refund, &payout, &backup_key)
-            .await
-            .unwrap_or_else(|e| die(e))
+        match &tx {
+            Some(tx) => {
+                funding
+                    .prepare_two_step(&client, tx, amount, asset, &refund, &payout, &backup_key)
+                    .await
+            }
+            None => {
+                funding
+                    .prepare(&client, amount, asset, &refund, &payout, &backup_key)
+                    .await
+            }
+        }
+        .unwrap_or_else(|e| die(e))
     };
     if !is_resume {
         let q = &attempt.quote["quote"];
         println!("{}", intents::PRIVACY);
+        if attempt.via.is_some() {
+            println!("{}", intents::PRIVACY_TWO_STEP);
+        }
         println!("Pay {} source tokens ({} source base units); delivered {} NEAR USDC ({} base units) (denomination plus note fee). This is the all-in cost. The documented keyless fee is 25 basis points of the amount delivered and is part of that cost; the quote does not itemise it.\nDeadline: {}.\nOther listed fees: refundFee={}, withdrawFee={}, appFees={}.\nThe signature shows only that 1Click issued this quote. 1Click and its solvers hold the funds in transit; the refund address is the only way back.", q["amountInFormatted"].as_str().unwrap_or("unknown").escape_default(), q["amountIn"].as_str().unwrap_or("unknown").escape_default(), q["amountOutFormatted"].as_str().unwrap_or("unknown").escape_default(), q["amountOut"].as_str().unwrap_or("unknown").escape_default(), q["deadline"].as_str().unwrap_or("unknown").escape_default(), q["refundFee"], q["withdrawFee"], attempt.quote["quoteRequest"]["appFees"]);
         println!("Deposit address: {}\nDeposit memo: {}\nPending note saved and encrypted backup restored successfully.\nTo resume after restart: recover --intents {}", q["depositAddress"].as_str().unwrap_or("missing").escape_default(), q["depositMemo"].as_str().unwrap_or("none").escape_default(), attempt.commitment);
         if !Terminal.confirm_text("Pay from your own source wallet. Type yes to check progress: ") {
@@ -1109,7 +1158,11 @@ async fn intents_command(
         }
     }
     for _ in 0..120 {
-        match funding.progress(&client, &mut attempt).await {
+        let step = match &tx {
+            Some(tx) => funding.progress_two_step(&client, tx, &mut attempt).await,
+            None => funding.progress(&client, &mut attempt).await,
+        };
+        match step {
             Ok(Some(accepted)) => {
                 println!("{}", accepted.report());
                 for warning in accepted.warnings {

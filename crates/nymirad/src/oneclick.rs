@@ -250,6 +250,22 @@ pub fn validate_quote(response: &Value, request: &Value, now: u64) -> Result<(),
     Ok(())
 }
 
+/// Two-step path: the quote must pay the user's own account and carry no message.
+pub fn validate_two_step(response: &Value, account: &str, vault: &str) -> Result<(), String> {
+    let request = &response["quoteRequest"];
+    if request["recipient"] == vault {
+        return Err("a two-step quote must not name the vault as recipient".into());
+    }
+    if request["recipient"] != account {
+        return Err("the quote does not pay your own NEAR account".into());
+    }
+    match request.get("customRecipientMsg") {
+        None | Some(Value::Null) => Ok(()),
+        Some(Value::String(m)) if m.is_empty() => Ok(()),
+        _ => Err("a two-step quote must carry no custom message".into()),
+    }
+}
+
 #[cfg(feature = "mock")]
 impl FundingClient {
     pub async fn mock_pay(&self, address: &str) -> Result<(), String> {

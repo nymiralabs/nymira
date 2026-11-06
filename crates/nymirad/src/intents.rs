@@ -3,12 +3,13 @@ use crate::{
     backup,
     deposit::Accepted,
     mode::Mode,
-    oneclick::{validate_quote, FundingClient},
+    oneclick::{validate_quote, validate_two_step, FundingClient},
     pins::{Pins, Tripwire},
     rpc::{complete_receipts, Rpc},
     secrets::{new_secret, NoteEntry, NoteStatus, NoteStore},
 };
 use nymira_operator::clock::Clock;
+use nymira_operator::tx::{NearTx, TxRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{path::PathBuf, sync::Arc};
@@ -19,6 +20,11 @@ pub const PLACEHOLDER: &str = "nymira.near";
 pub const DUMMY: &str = "0x1111111111111111111111111111111111111111";
 pub const ROUTE_FALLBACK: &str = "Route screening can delay or block delivery. For a future deposit, fund with NEAR USDC directly; do not pay twice while this attempt is unresolved.";
 pub const PRIVACY: &str = "On this path 1Click and the Intents explorer pair your source wallet with this deposit. The proofs are designed to keep the vault and the operator from tying your spending to this deposit, but while few notes are open, and without Tor, your spending can still be matched to it by time and network address. Wait a while between depositing and your first chat.";
+/// The two-step path adds this to [`PRIVACY`].
+pub const PRIVACY_TWO_STEP: &str = "Your NEAR account appears on chain next to the deposit.";
+pub const TWO_STEP_NOTICE: &str = "Two steps: 1Click first pays NEAR USDC to your own NEAR account, a plain transfer that is refunded if it fails. Then nymirad sends that USDC from your account to the vault. The second step needs a little NEAR for gas on your account and an account registered for USDC.";
+/// yoctoNEAR (0.02 NEAR) the account must hold before the two-step path is offered.
+pub const GAS_NEAR_MIN: u128 = 20_000_000_000_000_000_000_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,6 +33,8 @@ pub enum Phase {
     AddressReady,
     PaymentPending,
     ReceiptPending,
+    /// Two-step only: the transfer to the vault was sent; `destination` is that transaction.
+    Forwarding,
     Booked,
     Accepted,
 }
@@ -83,6 +91,9 @@ pub struct Attempt {
     pub bookings: Vec<Booking>,
     #[serde(default)]
     pub notice: Option<String>,
+    /// Two-step path: the user's own NEAR account that receives the USDC first.
+    #[serde(default)]
+    pub via: Option<String>,
 }
 
 pub fn request(
@@ -198,6 +209,79 @@ impl Funding {
         payout: &str,
         backup_secret: &str,
     ) -> Result<Attempt, String> {
+        self.prepare_for(
+            client,
+            denomination,
+            source,
+            refund,
+            payout,
+            backup_secret,
+            None,
+        )
+        .await
+    }
+
+    /// The account needs NEAR for the second step's gas and a USDC registration, for itself and
+    /// the vault. Run before any source is listed.
+    pub async fn two_step_ready(&self, tx: &NearTx, config: &Value) -> Result<(), String> {
+        if tx.balance().await.map_err(|e| e.to_string())? < GAS_NEAR_MIN {
+            return Err("the two-step path needs NEAR for gas on your account and it holds too little; it is not offered".into());
+        }
+        for account in [tx.signer_id(), self.pins.vault.as_str()] {
+            let registered = self
+                .rpc
+                .view(
+                    config["token"].as_str().ok_or("no vault token")?,
+                    "storage_balance_of",
+                    json!({"account_id": account}),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            if registered.is_null() {
+                return Err(format!(
+                    "{account} is not registered for USDC; the two-step path is not offered"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn prepare_two_step(
+        &self,
+        client: &FundingClient,
+        tx: &NearTx,
+        denomination: u128,
+        source: &str,
+        refund: &str,
+        payout: &str,
+        backup_secret: &str,
+    ) -> Result<Attempt, String> {
+        let config = self.check(denomination).await?;
+        self.two_step_ready(tx, &config).await?;
+        self.prepare_for(
+            client,
+            denomination,
+            source,
+            refund,
+            payout,
+            backup_secret,
+            Some(tx.signer_id()),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn prepare_for(
+        &self,
+        client: &FundingClient,
+        denomination: u128,
+        source: &str,
+        refund: &str,
+        payout: &str,
+        backup_secret: &str,
+        via: Option<&str>,
+    ) -> Result<Attempt, String> {
         let config = self.check(denomination).await?;
         self.payout(payout, &config).await?;
         if refund.trim().is_empty() {
@@ -234,20 +318,30 @@ impl Funding {
             })
             .map_err(|e| e.to_string())?;
         let message = json!({"commitment": commitment, "withdraw_to": payout}).to_string();
-        let request = request(
+        let mut request = request(
             source,
             total,
-            &self.pins.vault,
+            via.unwrap_or(&self.pins.vault),
             &message,
             refund,
             false,
             self.clock.now_secs(),
         );
+        if via.is_some() {
+            // A plain, refundable transfer to the user's own account: no message for the token.
+            request
+                .as_object_mut()
+                .expect("a request is an object")
+                .remove("customRecipientMsg");
+        }
         let quote = client
             .quote(&request)
             .await
             .map_err(|e| format!("{}. {ROUTE_FALLBACK}", e.escape_default()))?;
         validate_quote(&quote, &request, self.clock.now_secs())?;
+        if let Some(account) = via {
+            validate_two_step(&quote, account, &self.pins.vault)?;
+        }
         let attempt = Attempt {
             commitment,
             quote,
@@ -257,6 +351,7 @@ impl Funding {
             destination: None,
             bookings: vec![],
             notice: None,
+            via: via.map(String::from),
         };
         self.notes
             .save_funding(&attempt)
@@ -283,6 +378,9 @@ impl Funding {
         }
         self.check(denomination).await?;
         validate_quote(&attempt.quote, &attempt.request, self.clock.now_secs())?;
+        if let Some(account) = via {
+            validate_two_step(&attempt.quote, account, &self.pins.vault)?;
+        }
         Ok(attempt)
     }
 
@@ -441,6 +539,108 @@ impl Funding {
         client: &FundingClient,
         attempt: &mut Attempt,
     ) -> Result<Option<Accepted>, String> {
+        if attempt.via.is_some() {
+            return Err("this attempt uses the two-step path and needs your funding key".into());
+        }
+        if !self.delivered(client, attempt).await? {
+            return Ok(None);
+        }
+        self.settle(attempt).await
+    }
+
+    /// Two-step path: waits for 1Click's USDC in the user's account, sends it on to the vault
+    /// and confirms the note from the `deposit` event of that second transaction.
+    pub async fn progress_two_step(
+        &self,
+        client: &FundingClient,
+        tx: &NearTx,
+        attempt: &mut Attempt,
+    ) -> Result<Option<Accepted>, String> {
+        let account = attempt.via.clone().ok_or("not a two-step attempt")?;
+        if account != tx.signer_id() {
+            return Err(format!(
+                "the funding key signs for {}, not {account}",
+                tx.signer_id()
+            ));
+        }
+        if attempt.phase != Phase::Forwarding
+            && (!self.delivered(client, attempt).await? || !self.forward(tx, attempt).await?)
+        {
+            return Ok(None);
+        }
+        self.settle(attempt).await
+    }
+
+    /// Sends the USDC from the user's account to the vault once it has arrived. `false` while
+    /// the first delivery or its USDC is not final yet.
+    async fn forward(&self, tx: &NearTx, attempt: &mut Attempt) -> Result<bool, String> {
+        let account = tx.signer_id().to_string();
+        let first = attempt.destination.clone().ok_or("destination missing")?;
+        if !complete_receipts(&self.destination_outcome(&first).await?.0) {
+            return Ok(false);
+        }
+        let token = self.pins.config["token"].as_str().ok_or("no vault token")?;
+        let total = number(&attempt.request["amount"])?;
+        let have = number(
+            &self
+                .rpc
+                .view(token, "ft_balance_of", json!({"account_id": account}))
+                .await
+                .map_err(|e| e.to_string())?,
+        )?;
+        if have < total {
+            attempt.notice = Some(format!("Waiting for the USDC to arrive in {account}."));
+            return Ok(false);
+        }
+        let note = self
+            .notes
+            .list()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|n| n.commitment == attempt.commitment)
+            .ok_or("pending note missing")?;
+        self.check(
+            note.denomination
+                .parse()
+                .map_err(|_| "invalid stored denomination")?,
+        )
+        .await?;
+        let mut msg = json!({"commitment": attempt.commitment});
+        if note.payout != account {
+            msg["withdraw_to"] = note.payout.clone().into();
+        }
+        let args = json!({"receiver_id": self.pins.vault, "amount": total.to_string(), "msg": msg.to_string()});
+        let row = tx
+            .submit(TxRequest {
+                kind: "deposit",
+                method: "ft_transfer_call",
+                args: args.to_string().into_bytes(),
+                gas: crate::deposit::GAS_TRANSFER_CALL,
+                idem_key: None,
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        attempt.destination = Some(Destination {
+            hash: row.hash.clone().ok_or("the transfer has no hash")?,
+            signer: account,
+            amount: None,
+        });
+        attempt.phase = Phase::Forwarding;
+        attempt.notice = None;
+        self.notes
+            .save_funding(attempt)
+            .map_err(|e| e.to_string())?;
+        self.back_up()?;
+        tx.drive(row.id).await.map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    /// True once 1Click reports the first delivery and `destination` is saved.
+    async fn delivered(
+        &self,
+        client: &FundingClient,
+        attempt: &mut Attempt,
+    ) -> Result<bool, String> {
         if attempt.destination.is_none() {
             let q = &attempt.quote["quote"];
             let status = client
@@ -469,7 +669,7 @@ impl Funding {
                             self.notes.save_funding(attempt).map_err(|e| e.to_string())?;
                             self.back_up()?;
                         }
-                        return Ok(None);
+                        return Ok(false);
                     },
                     _ => return Err("unknown 1Click status".into()),
                 }
@@ -509,6 +709,10 @@ impl Funding {
                 .map_err(|e| e.to_string())?;
             self.back_up()?;
         }
+        Ok(true)
+    }
+
+    async fn settle(&self, attempt: &mut Attempt) -> Result<Option<Accepted>, String> {
         let destination = attempt.destination.clone().ok_or("destination missing")?;
         let hash = destination.hash.as_str();
         let note = self
@@ -555,6 +759,24 @@ impl Funding {
                 reports.push(format!("backup after delivery: {error}"));
             }
             return Err(reports.join("\n"));
+        }
+        if let (Some(account), true) = (&attempt.via, matching.is_empty()) {
+            // The vault refunded the second step: the USDC is back in the user's account.
+            attempt.phase = Phase::ReceiptPending;
+            self.notes
+                .save_funding(attempt)
+                .map_err(|e| e.to_string())?;
+            let held = self
+                .rpc
+                .view(
+                    self.pins.config["token"].as_str().unwrap_or_default(),
+                    "ft_balance_of",
+                    json!({"account_id": account}),
+                )
+                .await
+                .map(|v| v.as_str().unwrap_or("unknown").to_string())
+                .unwrap_or_else(|_| "unknown".into());
+            return Err(format!("The second step did not deposit into the vault and the USDC was refunded. It is still in {account} (balance {held} base units). Run recover --intents {} to send the deposit again.", attempt.commitment));
         }
         if matching.len() != 1 {
             return Err(format!(
