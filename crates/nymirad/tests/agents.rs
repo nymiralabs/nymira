@@ -1043,3 +1043,252 @@ fn the_owner_commands_list_and_disable_and_refuse_an_agent_that_is_the_owner() {
     );
     assert!(!out.status.success());
 }
+
+/// `nymirad` with no controlling terminal, so the confirmation is read from `input`.
+fn cli(home: &Path, args: &[String], input: &str) -> std::process::Output {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_nymirad"));
+    cmd.env("NYMIRA_MODE", "mainnet")
+        .arg("--home")
+        .arg(home)
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    // SAFETY: setsid is async-signal-safe and has no preconditions here.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+async fn blocking_cli(home: &Path, args: Vec<String>, input: &'static str) -> std::process::Output {
+    let home = home.to_path_buf();
+    tokio::task::spawn_blocking(move || cli(&home, &args, input))
+        .await
+        .unwrap()
+}
+
+async fn agent_request(port: u16, token: &str) -> (u16, Value) {
+    // The listener checks the Host against 8788 whatever port a test build binds.
+    let client = reqwest::Client::new();
+    let mut tries = 0;
+    let reply = loop {
+        match client
+            .get(format!("http://127.0.0.1:{port}/v1/models"))
+            .header("host", "localhost:8788")
+            .bearer_auth(token)
+            .send()
+            .await
+        {
+            Ok(r) => break r,
+            Err(e) if tries > 100 => panic!("{e}"),
+            Err(_) => {
+                tries += 1;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    };
+    let status = reply.status().as_u16();
+    (status, reply.json().await.unwrap_or(Value::Null))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_create_through_the_binary_funds_an_ordinary_looking_note_and_disable_cuts_the_token()
+{
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::process::CommandExt;
+
+    // Note 0 is an ordinary deposit; the agent's note is note 1.
+    let s = stack::stack(Net::Direct).await;
+    let seed = [22u8; 32];
+    let key = SigningKey::from_bytes(&seed);
+    let public: PublicKey = format!(
+        "ed25519:{}",
+        bs58::encode(key.verifying_key().as_bytes()).into_string()
+    )
+    .parse()
+    .unwrap();
+    s.alice
+        .batch(s.alice.id())
+        .add_key(public, AccessKey::full_access())
+        .transact()
+        .await
+        .unwrap()
+        .into_result()
+        .unwrap();
+    s.worker.fast_forward(5).await.unwrap();
+
+    let home = tempfile::tempdir().unwrap();
+    let files = tempfile::tempdir().unwrap();
+    let write = |name: &str, text: &str| {
+        let path = files.path().join(name);
+        std::fs::write(&path, text).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        path.display().to_string()
+    };
+    let key_file = write("key", &hex::encode(seed));
+    let pass_file = write("pass", PASS);
+    let backup_place = tempfile::tempdir().unwrap();
+    let (_, recipient) = backup::generate_identity();
+    nymirad::config::Config {
+        rpc_url: s.worker.rpc_addr(),
+        operator_url: s.parts.operator_url.clone(),
+        account: s.alice.id().to_string(),
+        direct: true,
+        backup_recipient: Some(recipient),
+        backup_places: vec![backup_place.path().into()],
+        ..Default::default()
+    }
+    .save(home.path())
+    .unwrap();
+    let rpc = Rpc::new(s.worker.rpc_addr(), &Net::Direct).unwrap();
+    let pins = read_live(&rpc, s.vault.id().as_str()).await.unwrap();
+    std::fs::write(
+        home.path().join("demo-pins.json"),
+        serde_json::to_vec(&pins).unwrap(),
+    )
+    .unwrap();
+
+    let token_file = files.path().join("cursor.token").display().to_string();
+    let args: Vec<String> = [
+        "--passphrase-file",
+        &pass_file,
+        "agent",
+        "create",
+        "--name",
+        "cursor",
+        "--transport",
+        "tcp",
+        "--token-file",
+        &token_file,
+        "--key-file",
+        &key_file,
+        "--amount",
+        &ONE.to_string(),
+    ]
+    .map(String::from)
+    .to_vec();
+    let out = blocking_cli(home.path(), args, "yes\n").await;
+    let said = String::from_utf8_lossy(&out.stdout).into_owned();
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(out.status.success(), "{said}\n{err}");
+
+    // (a) The hint, with the note fee read from the vault.
+    assert!(
+        said.contains("deposit a fresh 1 USDC note each day")
+            && said.contains("a note fee every day (0.050000 USDC)")
+            && said.contains("daily deposit pattern on your account"),
+        "{said}"
+    );
+    assert!(said.contains("Transport tcp"), "{said}");
+
+    // (b) The vault's own view: the note is a normal one, paid out to the owner.
+    let book = Registry::at(home.path()).load().unwrap();
+    let agent = &book.agents[0];
+    let view = |from: u64| {
+        let vault = s.vault.clone();
+        async move {
+            vault
+                .view("note_records")
+                .args_json(json!({ "from": from, "limit": 1 }))
+                .await
+                .unwrap()
+                .json::<Value>()
+                .unwrap()[0]
+                .clone()
+        }
+    };
+    let (ordinary, budget) = (view(0).await, view(1).await);
+    assert_eq!(budget["deposit_amount"], ordinary["deposit_amount"]);
+    assert_eq!(budget["deposit_amount"], ONE.to_string());
+    let fields = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+    assert_eq!(
+        fields(&budget),
+        fields(&ordinary),
+        "no extra field marks it"
+    );
+    for record in [&ordinary, &budget] {
+        let text = record.to_string();
+        assert!(
+            !text.contains("cursor") && !text.contains("nyma_"),
+            "{text}"
+        );
+    }
+
+    // (c) The registry entry, the token, and only the hash stored.
+    let token = std::fs::read_to_string(&token_file).unwrap();
+    assert!(token.starts_with("nyma_"), "{token}");
+    assert_eq!(agent.token_hash, agents::hash_token(&token));
+    assert_eq!(agent.owner_account, s.alice.id().as_str());
+    assert_eq!(agent.transport, Transport::Tcp);
+    let stored = std::fs::read_to_string(home.path().join(agents::FILE)).unwrap();
+    assert!(!stored.contains(token.trim()), "the token is not stored");
+
+    // (d) list shows it; disable makes the next request on a running serve a 401.
+    let listed = blocking_cli(home.path(), vec!["agent".into(), "list".into()], "").await;
+    assert!(
+        String::from_utf8_lossy(&listed.stdout).contains("cursor: Tcp token, active"),
+        "{}",
+        String::from_utf8_lossy(&listed.stdout)
+    );
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    // No config, no gateway: the listener still checks tokens against the registry.
+    std::fs::remove_file(home.path().join("config.json")).unwrap();
+    let mut serve = std::process::Command::new(env!("CARGO_BIN_EXE_nymirad"));
+    serve
+        .env("NYMIRA_MODE", "mainnet")
+        .arg("--home")
+        .arg(home.path())
+        .arg("serve")
+        .arg("--port")
+        .arg(port.to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    // SAFETY: setsid is async-signal-safe and has no preconditions here.
+    unsafe {
+        serve.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let mut serve = serve.spawn().unwrap();
+    let mut lines = BufReader::new(serve.stdout.take().unwrap());
+    let mut first = String::new();
+    lines.read_line(&mut first).unwrap();
+    assert!(first.contains("listening"), "{first}");
+    let (before, body) = agent_request(port, token.trim()).await;
+    assert_ne!(before, 401, "{body}");
+    let off = blocking_cli(
+        home.path(),
+        vec![
+            "agent".into(),
+            "disable".into(),
+            "--name".into(),
+            "cursor".into(),
+        ],
+        "",
+    )
+    .await;
+    assert!(off.status.success());
+    let (after, body) = agent_request(port, token.trim()).await;
+    serve.kill().unwrap();
+    serve.wait().unwrap();
+    assert_eq!((after, code(&body)), (401, "token_disabled"), "{body}");
+}
