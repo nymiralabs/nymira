@@ -142,6 +142,23 @@ async fn main() {
             .unwrap();
     }
 
+    // The real operator's watcher moves waiting notes into the tree with `sync_root`; the set
+    // size counts notes in the tree, so the demo does the same every few seconds.
+    {
+        let (syncer, vault_id) = (alice.clone(), vault.id().clone());
+        tokio::spawn(async move {
+            loop {
+                let _ = syncer
+                    .call(&vault_id, "sync_root")
+                    .args_json(json!({ "max": 100 }))
+                    .max_gas()
+                    .transact()
+                    .await;
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+        });
+    }
+
     let intents = nymira_testkit::intents::deploy_standin(&worker)
         .await
         .unwrap();
