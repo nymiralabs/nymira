@@ -41,11 +41,17 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
   stack.reset();
   await newFundingWallet(context);
   await fetch(`${ONECLICK}/requests`, { method: 'DELETE' });
+  // Counts the calls to navigator.storage.persist().
+  await page.addInitScript(() => {
+    const w = window as unknown as { __persist: number };
+    w.__persist = 0;
+    navigator.storage.persist = async () => ++w.__persist > 0;
+  });
   await openFund(page);
   await expect(page.getByTestId('vault-ok')).toBeVisible();
   await expect(page.getByTestId('intents-tor')).toContainText('must not go through Tor');
-  await expect(page.getByTestId('intents-privacy')).toContainText(
-    'Wait a while between depositing and your first chat.',
+  await expect(page.getByTestId('intents-privacy')).toHaveText(
+    'On this path 1Click and the Intents explorer pair your source wallet with this deposit. The proofs are designed to keep the vault and the operator from tying your spending to this deposit, but while few notes are open, and without Tor, your spending can still be matched to it by time and network address. Wait a while between depositing and your first chat.',
   );
   await expect(page.getByTestId('intents-terms')).toContainText('Terms for this path');
   // The NEAR USDC flow stays beside it.
@@ -82,6 +88,7 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
   await page.getByTestId('intents-prepare').click();
   await expect(page.getByTestId('intents-backup-panel')).toBeVisible();
   await expect(page.getByTestId('intents-quote')).toBeDisabled();
+  expect(await page.evaluate(() => (window as unknown as { __persist: number }).__persist)).toBe(1);
   expect((await sentToOneClick()).filter((r) => r.body.dry === false)).toEqual([]);
   await page.getByTestId('intents-backup-passphrase').fill(BACKUP_PASSPHRASE);
   const [download] = await Promise.all([
