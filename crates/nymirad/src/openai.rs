@@ -63,6 +63,58 @@ impl ApiError {
         )
     }
 
+    /// The call, as sized, would pass the policy's `max_call_usd`.
+    pub fn call_limit() -> Self {
+        Self::new(
+            StatusCode::PAYMENT_REQUIRED,
+            "insufficient_funds",
+            "call_limit",
+            "the call would pass the owner's per-call limit; shorten the prompt or lower max_tokens",
+        )
+    }
+
+    /// The call would take today's total past the policy's `max_daily_usd`.
+    pub fn daily_limit() -> Self {
+        Self::new(
+            StatusCode::PAYMENT_REQUIRED,
+            "insufficient_funds",
+            "daily_limit",
+            "the call would pass the owner's daily limit",
+        )
+    }
+
+    /// The note's balance cannot cover the agent's bound class.
+    pub fn budget_exhausted() -> Self {
+        Self::new(
+            StatusCode::PAYMENT_REQUIRED,
+            "insufficient_funds",
+            "budget_exhausted",
+            "the budget note cannot cover a lease",
+        )
+    }
+
+    /// More requests in a minute than the policy allows.
+    pub fn policy_rate_limit(retry_after_secs: u64) -> Self {
+        let mut e = Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limit_error",
+            "policy_rate_limit",
+            "the owner's rate limit is reached",
+        );
+        e.retry_after_secs = Some(retry_after_secs);
+        e
+    }
+
+    /// The note's lease already has two requests in flight.
+    pub fn busy() -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "invalid_request_error",
+            "busy",
+            "the note's lease has two requests in flight; retry in a moment",
+        )
+    }
+
     /// No note can cover the lease bound.
     pub fn no_funds(reason: impl Into<String>) -> Self {
         Self::new(

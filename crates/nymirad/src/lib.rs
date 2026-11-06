@@ -23,6 +23,7 @@ pub mod guard;
 pub mod hardening;
 pub mod intents;
 pub mod lease;
+pub mod limits;
 pub mod mode;
 pub mod models;
 pub mod nearai;

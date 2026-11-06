@@ -89,3 +89,19 @@ pub fn give_policy_for(registry: &Registry, name: &str, version: u32, models: &[
 pub fn give_policy(registry: &Registry, name: &str, version: u32) {
     give_policy_for(registry, name, version, &["z-ai/glm-5.3-flash"]);
 }
+
+/// A policy text with the limits given: models, `max_lease_usd`, `max_call_usd`,
+/// `max_daily_usd` and `rate_limit_per_min`.
+pub fn yaml_limits(models: &[&str], lease: &str, call: &str, daily: &str, rate: u32) -> String {
+    format!(
+        "allowed_models:\n{}max_lease_usd: {lease}\nmax_call_usd: {call}\nmax_daily_usd: {daily}\nconfirm_above_usd: 0.03\nrate_limit_per_min: {rate}\n",
+        models.iter().map(|m| format!("  - {m}\n")).collect::<String>()
+    )
+}
+
+/// Puts a policy with this exact text in force for `name`, without the key check.
+pub fn give_policy_text(registry: &Registry, name: &str, version: u32, text: &str) {
+    let key = SigningKey::from_bytes(&[5u8; 32]);
+    let bytes = signed(registry, name, &key, version, text);
+    policy::activate(registry, name, &bytes, &ctx()).unwrap();
+}
