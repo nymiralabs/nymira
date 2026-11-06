@@ -96,6 +96,15 @@ test('six notes, three on the team: set size 3 (external) and 6; drops, later cl
   await expect(rows).toHaveCount(2);
   // The 6-note case: notes 0 to 5 under the proof's root, 0, 1 and 2 on the team.
   await expect(rows.nth(0).getByTestId('set-size')).toHaveText('set size: 3 (external), total 6');
+  const [a, b] = [...stack.leases.keys()];
+  await expect(rows.nth(0).getByTestId('lease-id')).toHaveText(a!);
+  await expect(rows.nth(1).getByTestId('lease-id')).toHaveText(b!);
+  await expect(rows.nth(0)).toContainText('z-ai/glm-5.3-flash');
+  await expect(rows.nth(0)).toContainText('1 messages');
+  await expect(rows.nth(0)).toContainText('tokens in');
+  await expect(rows.nth(0).getByTestId('lease-bound')).toHaveText('0.10 USDC');
+  await expect(rows.nth(0).getByTestId('lease-time')).toContainText('UTC');
+  await expect(rows.nth(0).getByTestId('lease-charge')).toContainText('USDC');
   // Expired, pending-exit and closed notes drop out; notes 6 and 7 were not there for lease 1.
   await expect(rows.nth(1).getByTestId('set-size')).toHaveText('set size: 2 (external), total 5');
   await expect(rows.nth(1).getByTestId('small-set')).toContainText(
@@ -107,10 +116,13 @@ test('six notes, three on the team: set size 3 (external) and 6; drops, later cl
   // The later close lowers "now" and leaves the stored figures alone.
   await expect(page.getByTestId('now-text')).toHaveText('now: set size: 1 (external), total 4');
   await expect(rows.nth(0).getByTestId('set-size')).toContainText('total 6');
-  // One provider only in the mock build, and the panel says so.
-  await expect(rows.nth(0).getByTestId('set-difference')).toContainText(
-    'read from one RPC provider only',
+  // Both mock endpoints answer from the same chain, so there is no provider difference to show,
+  // and the panel does not say it read one provider only.
+  await expect(rows.nth(0).getByTestId('set-difference')).toHaveCount(0);
+  const reads = (await rpcRequests()).filter(
+    (r) => (r.params as { method_name?: string }).method_name === 'note_records',
   );
+  expect(reads.length).toBeGreaterThanOrEqual(2);
   // Deposits in between come from leaf counts, with the team removed.
   await expect(rows.nth(0).getByTestId('cover')).toContainText(
     '5 deposits joined the tree in between, 3 external',
@@ -153,6 +165,10 @@ test('a pinned ID missing from the operator list does not raise N; an extra ID l
   // The operator adds ID 3.
   stack.set({ params: { team_note_ids: [0, 1, 2, 3] } });
   await lease(page, 'adding lease');
+  // A long job uses the 0.50 class, which few leases use.
+  await page.getByRole('button', { name: 'New conversation' }).click();
+  await page.getByTestId('long-job').check();
+  await lease(page, 'long job', true);
 
   await openPanel(page);
   const rows = page.getByTestId('lease-row');
@@ -164,6 +180,11 @@ test('a pinned ID missing from the operator list does not raise N; an extra ID l
   await expect(rows.nth(1).getByTestId('set-difference').first()).toHaveText(
     "team IDs only in the operator's list: 3",
   );
+  // The long-job lease stands out; the default class does not.
+  await expect(rows.nth(2).getByTestId('lease-bound')).toHaveText('0.50 USDC');
+  await expect(rows.nth(2).getByTestId('stands-out')).toContainText('it stands out');
+  await expect(rows.nth(0).getByTestId('stands-out')).toHaveCount(0);
+  await expect(rows.nth(1).getByTestId('stands-out')).toHaveCount(0);
   // "now" uses the last list the operator gave.
   await expect(page.getByTestId('now-text')).toHaveText('now: set size: 2 (external), total 6');
 });
