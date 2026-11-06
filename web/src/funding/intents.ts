@@ -10,23 +10,26 @@
 //   5. 1Click's status says SUCCESS and names the destination transaction; the note is accepted
 //      only from the `deposit` event in that transaction's receipts
 import { PROFILE } from '../profile';
-import type { RpcClient, TxStatus } from '../chain/rpc';
+import { RpcError, type RpcClient, type TxStatus } from '../chain/rpc';
 import { pendingPayout } from '../chain/leave';
 import {
   bookingEvents,
   depositEvents,
   matchDeposit,
   treeComplete,
+  txHashOf,
   type Booking,
 } from '../chain/receipt';
 import { openJson, sealJson, type Sealed } from '../crypto/aead';
 import { requireKey } from '../crypto/wrap';
+import { isRegistered, tokenBalance } from '../chain/token';
 import { getSetting, putSetting } from '../store/db';
 import type { NoteRecord } from '../store/types';
 import { isAccountId } from '../wallet/client';
-import { finalize, notePrice, vaultGate, type Acceptance } from './flow';
+import { finalize, notePrice, transferAction, update, vaultGate, type Acceptance } from './flow';
+import type { FunctionCallAction } from '../wallet/protocol';
 import { buildRequest } from './oneclick';
-import { checkQuote, validateQuote } from './quote-check';
+import { checkQuote, validateQuote, validateTwoStep } from './quote-check';
 import type { QuoteAsset } from '../profiles/types';
 
 /** The account that signs the destination transaction on the live Intents path. */
@@ -34,6 +37,15 @@ export const INTENTS_SIGNER = 'intents.near';
 
 export const PRIVACY =
   'On this path 1Click and the Intents explorer pair your source wallet with this deposit. The proofs are designed to keep the vault and the operator from tying your spending to this deposit, but while few notes are open, and without Tor, your spending can still be matched to it by time and network address. Wait a while between depositing and your first chat.';
+
+/** The two-step path adds this to `PRIVACY` (the same words as nymirad). */
+export const PRIVACY_TWO_STEP = 'Your NEAR account appears on chain next to the deposit.';
+
+export const TWO_STEP_NOTICE =
+  'Two steps: 1Click first pays NEAR USDC to your own NEAR account, a plain transfer that is refunded if it fails. Then you sign the transfer of that USDC from your account to the vault in your wallet. The second step needs a little NEAR for gas on your account and an account registered for USDC.';
+
+/** yoctoNEAR (0.02 NEAR) the account must hold before the two-step path is offered. */
+export const GAS_NEAR_MIN = 20_000_000_000_000_000_000_000n;
 
 export const QUOTE_ONLY =
   'Quote only. Intents has no testnet, so no cross-chain payment is made here. Fund with testnet USDC from the Circle faucet.';
@@ -60,6 +72,8 @@ export interface Attempt {
   createdAt: number;
   /** The destination transaction, once 1Click names it. */
   hash?: string;
+  /** Two-step path: the user's own NEAR account that receives the USDC first. */
+  via?: string;
   /** What 1Click says it delivered, in USDC base units, when it says. */
   amount?: string;
 }
@@ -116,6 +130,7 @@ export async function requestQuote(
   refund: string,
   fetchImpl: typeof fetch = (...a) => fetch(...a),
   now: () => number = Date.now,
+  via?: string,
 ): Promise<Attempt> {
   if (note.phase !== 'backed_up') throw new Error('the backup has not been tested yet');
   if (refund.trim() === '') throw new Error('a refund address on the source chain is required');
@@ -127,12 +142,13 @@ export async function requestQuote(
     assetId: asset.assetId,
     amount: price,
     refund: refund.trim(),
-    recipient: PROFILE.vaultAccount,
-    message: intentsMessage(note.commitment, note.payout),
+    recipient: via ?? PROFILE.vaultAccount,
+    ...(via ? {} : { message: intentsMessage(note.commitment, note.payout) }),
     now: now(),
   });
   const quote = await post(`${PROFILE.oneClick.baseUrl}/v0/quote`, request, fetchImpl);
   checkQuote(quote, request, PROFILE.oneClick.signerKey, now());
+  if (via) validateTwoStep(quote, via, PROFILE.vaultAccount);
   const address = (quote.quote as Json | undefined)?.depositAddress;
   if (typeof address !== 'string' || address === '') {
     throw new Error('the quote has no deposit address');
@@ -144,6 +160,7 @@ export async function requestQuote(
     request,
     quote,
     createdAt: now(),
+    ...(via ? { via } : {}),
   };
   await saveAttempt(attempt);
   return attempt;
@@ -158,6 +175,54 @@ export async function beforeAddress(
   const gate = await vaultGate(rpc, BigInt(attempt.request.amount as string));
   if (!gate.ok) throw new Error(gate.reason);
   validateQuote(attempt.quote, attempt.request, now());
+  if (attempt.via) validateTwoStep(attempt.quote, attempt.via, PROFILE.vaultAccount);
+}
+
+/**
+ * Why the two-step path is not offered to this account; null when it is. The account needs NEAR
+ * for the second step's gas and USDC registration for itself and the vault. Reading them shows the
+ * account to the RPC provider.
+ */
+export async function twoStepProblem(rpc: RpcClient, account: string): Promise<string | null> {
+  let near = 0n;
+  try {
+    near = BigInt((await rpc.viewAccount(account)).amount);
+  } catch (e) {
+    if (!(e instanceof RpcError && e.code === 'UNKNOWN_ACCOUNT')) throw e;
+  }
+  if (near < GAS_NEAR_MIN) {
+    return `${account} holds too little NEAR for the second step's gas (at least 0.02 NEAR). The two-step path is not offered.`;
+  }
+  for (const who of [account, PROFILE.vaultAccount]) {
+    if (!(await isRegistered(rpc, PROFILE.tokenAccount, who))) {
+      return `${who} is not registered for ${PROFILE.tokenSymbol}. The two-step path is not offered.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The second step: the user's wallet signs `ft_transfer_call` of the note price to the vault. The
+ * vault and the USDC in the account are checked first. The caller reads acceptance from this
+ * transaction's own receipts (`confirmDeposit`).
+ */
+export async function sendToVault(
+  rpc: RpcClient,
+  record: NoteRecord,
+  wallet: { send(receiver: string, action: FunctionCallAction): Promise<unknown> },
+): Promise<{ record: NoteRecord; outcome: unknown }> {
+  const price = notePrice(record.denomination);
+  const gate = await vaultGate(rpc, price);
+  if (!gate.ok) throw new Error(gate.reason);
+  if ((await tokenBalance(rpc, record.token, record.sender)) < price) {
+    throw new Error(`the ${PROFILE.tokenSymbol} has not reached ${record.sender} yet`);
+  }
+  const outcome = await wallet.send(record.token, transferAction(record));
+  const hash = txHashOf(outcome) ?? undefined;
+  return {
+    record: await update(record, { phase: 'sent', ...(hash ? { txHash: hash } : {}) }),
+    outcome,
+  };
 }
 
 export type Progress =

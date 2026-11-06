@@ -8,11 +8,13 @@ import {
   ROUTE_FALLBACK,
   confirmIntents,
   beforeAddress,
+  GAS_NEAR_MIN,
   explainBooking,
   fetchStatus,
   intentsMessage,
   payoutProblem,
   requestQuote,
+  twoStepProblem,
   statusText,
   type Attempt,
 } from '../src/funding/intents';
@@ -30,7 +32,8 @@ vi.mock('../src/funding/flow', async (original) => ({
   }),
 }));
 import { CACHE_MS, MAINNET_USDC_ASSET, QuoteBook, quoteBody } from '../src/funding/oneclick';
-import { base58Encode, checkQuote, quoteHash } from '../src/funding/quote-check';
+import { base58Encode, checkQuote, quoteHash, validateTwoStep } from '../src/funding/quote-check';
+import { transferAction } from '../src/funding/flow';
 import { PROFILE } from '../src/profile';
 import type { NoteRecord } from '../src/store/types';
 import { profile as testnet } from '../src/profiles/testnet';
@@ -553,5 +556,80 @@ describe('what the vault booked', () => {
     expect(statusText({ state: 'pending' }, NOW, later)).toContain('deadline has passed');
     expect(statusText({ state: 'pending' }, later, NOW)).toBe('Waiting for your payment.');
     expect(statusText({ state: 'failed', status: 'FAILED' }, NOW, NOW)).toContain(ROUTE_FALLBACK);
+  });
+});
+
+describe('two-step path', () => {
+  const account = 'alice.near';
+  const twoStepRequest = () => {
+    const request: Json = { ...quoteBody(asset, 1_050_000n, NOW), dry: false, recipient: account };
+    delete request.customRecipientMsg;
+    return request;
+  };
+
+  it('asks 1Click to pay the user account with no custom message', async () => {
+    let sent: Json = {};
+    // Storing the attempt fails without IndexedDB, after the checks; the request is what counts.
+    await requestQuote(
+      fakeRpc(),
+      note,
+      asset,
+      '0xRefund',
+      async (_u, init) => {
+        sent = bodyOf(init);
+        return reply(answer(sent));
+      },
+      () => NOW,
+      account,
+    ).catch(() => undefined);
+    expect(sent).toMatchObject({ dry: false, amount: '1050000', recipient: account });
+    expect('customRecipientMsg' in sent).toBe(false);
+  });
+
+  it('requires that recipient in the quote', () => {
+    const request = twoStepRequest();
+    expect(() => validateTwoStep(answer(request), account, PROFILE.vaultAccount)).not.toThrow();
+    const check = (over: Json) => () =>
+      validateTwoStep(answer(request, { request: over }), account, PROFILE.vaultAccount);
+    expect(check({ recipient: PROFILE.vaultAccount })).toThrow('must not name the vault');
+    expect(check({ recipient: 'mallory.near' })).toThrow('does not pay your own');
+    expect(check({ customRecipientMsg: '{"commitment":"0x01"}' })).toThrow('no custom message');
+  });
+
+  it('is not offered to an account without NEAR or without a USDC registration', async () => {
+    const node = (near: string | null, registered: string[]) =>
+      ({
+        viewAccount: async () => {
+          if (near === null) throw new RpcError('no such account', 'UNKNOWN_ACCOUNT');
+          return { amount: near };
+        },
+        view: async (_t: string, _m: string, args: { account_id: string }) =>
+          registered.includes(args.account_id) ? { total: '1' } : null,
+      }) as unknown as RpcClient;
+    const both = [account, PROFILE.vaultAccount];
+    const enough = GAS_NEAR_MIN.toString();
+    expect(await twoStepProblem(node(enough, both), account)).toBeNull();
+    expect(await twoStepProblem(node('0', both), account)).toContain('too little NEAR');
+    expect(await twoStepProblem(node(null, both), account)).toContain('too little NEAR');
+    expect(await twoStepProblem(node(String(GAS_NEAR_MIN - 1n), both), account)).toContain(
+      'too little NEAR',
+    );
+    expect(await twoStepProblem(node(enough, [PROFILE.vaultAccount]), account)).toContain(
+      `${account} is not registered`,
+    );
+    expect(await twoStepProblem(node(enough, [account]), account)).toContain(
+      `${PROFILE.vaultAccount} is not registered`,
+    );
+  });
+
+  it('writes no withdraw_to when the payout account is the sender', () => {
+    const own = { ...note, sender: account, payout: account };
+    const message = (n: NoteRecord) =>
+      JSON.parse((transferAction(n).params.args as { msg: string }).msg) as Json;
+    expect(message(own)).toEqual({ commitment });
+    expect(message({ ...own, payout: 'fresh.near' })).toEqual({
+      commitment,
+      withdraw_to: 'fresh.near',
+    });
   });
 });

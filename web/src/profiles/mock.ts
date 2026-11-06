@@ -27,6 +27,7 @@ export const profile: Profile = {
     dryQuotes: true,
     // The mock build runs the Intents flow against the fake 1Click; testnet stays quote only.
     intentsPaths: true,
+    intentsTwoStep: true,
     shortlist: [
       {
         label: 'USDC on Ethereum',
