@@ -107,6 +107,41 @@ Recovery saves the destination transaction before reading its receipts. Set `arc
 
 The CLI integration tests deliver through the open-source Verifier, release v0.4.2, and through the demo stand-in. They cover a pending-backup restore, renewed consent, receipt acceptance and a lease on the new note. No live cross-chain swap is claimed. A mainnet build carries one Intents path, fixed at build time: `two-step` (1Click pays your own NEAR account, then `nymirad` sends the USDC to the vault). That is the decision because 1Click has given no written answer and the mainnet probe has not run, so the path has not been run against the live 1Click. The live destination-signer lookup and batching shape still need the mainnet probe; no mainnet vault is pinned in this build.
 
+## Budget notes for agents
+
+A budget note is a note you fund for one agent. Its payout account is your own account, fixed at deposit, so whatever the agent leaves comes back to you. The agent gets a token and can spend that one note on inference. It cannot withdraw anywhere else.
+
+```bash
+nymirad agent create --name cursor --transport tcp --key-file KEY --amount 1000000
+nymirad agent create --name worker --transport unix --agent-user agent1 --token-file /srv/agent/worker.token --key-file KEY --amount 1000000
+nymirad agent list
+nymirad agent disable --name cursor
+```
+
+`agent create` is the normal deposit plus a registry entry, written before the transfer is signed. On chain the note looks like any other note of its denomination. It prints a reminder that a fresh 1 USDC note each day is the hard way to cap a day's spend: it costs the note fee every day and leaves a daily deposit pattern on your account. The registry (`agents.json` in the state directory, mode 0600) keeps the agent name, a hash of the token, the budget note, your account and the policy version. Tokens are never stored. Agent tokens start with `nyma_`, the owner token with `nymo_`, so a tool can accept only the agent prefix.
+
+- **Own note only.** An agent token draws on its budget note and nothing else. Your own token never selects a budget note, and `nymirad status` marks them.
+- **One transport per token.** A `unix` token works on the agent socket only and a `tcp` token on loopback port 8788 only. A remote agent reached through an SSH forward gets a `tcp` token.
+- **Routes.** An agent token reaches `POST /v1/chat/completions` and `GET /v1/models` on both listeners and nothing else, and works as an OpenAI API key there. The owner token is not accepted on the agent socket.
+- **Disabling.** `agent disable` takes effect on the next request, which gets 401 `token_disabled`.
+- **No policy, no spending.** Until a signed policy is loaded for the agent, every agent request gets 402 `policy_missing` and nothing reaches the operator. Policy signing is not part of this release of the command.
+
+### Another OS user on your machine
+
+Use `--transport unix --agent-user USER --token-file PATH`. `nymirad serve` opens a socket at `/tmp/nymira-agent-<your uid>/agent.sock` (or `agent_socket_dir` in `config.json`), mode 0660 in a directory of mode 0750, both in the agent group. The group is the agent user's primary group, or `--group`. Every connection's peer user ID is checked: your own OS user is refused, as is any user no socket agent is registered for, and each token works only for its own user. The token file is mode 0640, owned by you, in the agent group, so the agent user can read it and nobody else can. If you are not a member of that group, you cannot give files to it: the command then prints `sudo chgrp GROUP FILE` for the token file, and `serve` prints the `sudo chgrp` and `chmod 2750` commands for the socket directory. Restart `nymirad serve` after the first socket agent is created.
+
+The peer check on the socket is the only OS-user check there is. Loopback TCP has none, so a `tcp` token is a bearer secret for anything on the machine that can read it. An agent that runs as your own OS user (Cursor, IronClaw, any tool started from your shell) can read your owner token. Run it against a dedicated `nymirad` instance with its own `--home`, port and owner token that holds only its budget note and none of your personal notes. `agent create` refuses `--agent-user` set to your own user.
+
+### Another machine
+
+Requests arrive on the loopback listener, so they pass the same checks as yours: loopback peer, `Host: localhost:8788`, no `Origin`, no cross-site fetch. Start the forward from your own machine, so the agent host holds no credential for it:
+
+```bash
+ssh -N -R 8788:localhost:8788 AGENT_HOST
+```
+
+The forwarded port binds to the loopback of the agent host as long as `GatewayPorts` stays off there. A direct connection to your machine over a tailnet or LAN is refused. If the forward has to start on the agent host, restrict that key in your `authorized_keys` with `restrict,port-forwarding,permitopen="localhost:8788",command="/bin/false"` and run `ssh -N -L 8788:localhost:8788 OWNER_HOST` there. That restriction is standard OpenSSH behavior and has not been tested against this release.
+
 ## License
 
 Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option. Code taken from other projects is listed in [NOTICE](NOTICE).

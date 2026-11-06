@@ -72,6 +72,10 @@ pub struct Config {
     #[cfg(feature = "mock")]
     #[serde(default)]
     pub intents_path: Option<IntentsPath>,
+    /// Where the agent socket goes; default `/tmp/nymira-agent-<uid>`. It must be a place the
+    /// agent's OS user can reach, so not inside the state directory.
+    #[serde(default)]
+    pub agent_socket_dir: Option<PathBuf>,
     /// Seconds of silence after which a lease is retired. Default 120.
     #[serde(default)]
     pub idle_secs: Option<u64>,
