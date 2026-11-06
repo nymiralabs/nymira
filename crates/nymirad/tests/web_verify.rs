@@ -165,6 +165,8 @@ struct Stub {
     headers: bool,
     /// Drop this signed header from every response.
     drop_header: Option<&'static str>,
+    /// (class, header, value) set on top of the signed headers, as a host that adds its own.
+    extra: Vec<(&'static str, &'static str, &'static str)>,
     /// From this many `manifest.json` requests on, serve different bytes for `assets/app.js`.
     tamper_after: Option<usize>,
     manifests: AtomicUsize,
@@ -209,6 +211,16 @@ async fn serve(State(stub): State<Arc<Stub>>, uri: Uri) -> Response {
             }
         }
     }
+    if stub.headers {
+        for (extra_class, name, value) in &stub.extra {
+            if *extra_class == class {
+                resp.headers_mut().insert(
+                    HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                    HeaderValue::from_str(value).unwrap(),
+                );
+            }
+        }
+    }
     resp
 }
 
@@ -231,6 +243,7 @@ fn stub(dir: &Path, prefix: &'static str, headers: bool) -> Stub {
         prefix,
         headers,
         drop_header: None,
+        extra: Vec::new(),
         tamper_after: None,
         manifests: AtomicUsize::new(0),
         hits: AtomicUsize::new(0),
@@ -418,4 +431,122 @@ fn an_empty_pin_refuses_to_run() {
     if MANIFEST_KEY.trim().is_empty() || ORIGINS.trim().is_empty() {
         assert!(compiled().unwrap_err().contains("pins no web manifest key"));
     }
+}
+
+// ---- the header Cloudflare Pages adds ---------------------------------------------------------
+
+const ACAO: &str = "access-control-allow-origin";
+
+async fn run_with(extra: Vec<(&'static str, &'static str, &'static str)>) -> Report {
+    let site = copy_site();
+    let mut s = stub(site.path(), "/", true);
+    s.extra = extra;
+    let (primary, _) = host(s).await;
+    let (mirror, _) = host(stub(site.path(), "/nymira/", false)).await;
+    let (transport, _p) = tor().await;
+    let key = text("minisign.pub");
+    verify(&plan(&key, &primary, &mirror), &transport, true).await
+}
+
+#[tokio::test]
+async fn acao_star_on_the_documents_is_a_note_and_the_check_succeeds() {
+    // The documents are in the `app` class (`/`) and the `frame` class (`/wallet-host*`).
+    let report = run_with(vec![("app", ACAO, "*"), ("frame", ACAO, "*")]).await;
+    assert!(report.ok(), "{}", report.render());
+    let text = report.render();
+    // Three paths, on the Tor and the direct run of the primary origin.
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with("note: http")).count(),
+        6,
+        "{text}"
+    );
+    for path in ["/:", "/wallet-host.html:", "/wallet-host:"] {
+        assert!(text.contains(&format!("{path} access-control-allow-origin is *")));
+    }
+    assert!(text.contains("added by Cloudflare Pages"));
+    assert!(text.contains("note: 6 header difference(s) accepted"));
+    assert!(text.contains("All fetches match the signed manifest and each other."));
+    assert!(!text.contains("Do not trust this site"));
+    assert!(text.contains("cloaking"), "the limits text stays");
+    assert!(report.runs.iter().all(|r| r.problems.is_empty()));
+}
+
+#[tokio::test]
+async fn another_value_on_a_document_still_fails() {
+    for value in ["https://evil.example", "null", "**"] {
+        let report = run_with(vec![("app", ACAO, value)]).await;
+        assert!(!report.ok(), "{value}");
+        assert!(report.runs[0]
+            .problems
+            .iter()
+            .any(|p| p.starts_with("/: access-control-allow-origin")));
+        assert!(report.render().contains("Do not trust this site"));
+    }
+}
+
+#[tokio::test]
+async fn a_different_value_on_an_asset_still_fails_where_the_set_signs_star() {
+    let report = run_with(vec![("assets", ACAO, "https://evil.example")]).await;
+    assert!(!report.ok());
+    assert!(report.runs[0]
+        .problems
+        .iter()
+        .any(|p| p.contains("access-control-allow-origin is https://evil.example")));
+}
+
+#[tokio::test]
+async fn another_signed_header_with_star_on_a_document_still_fails() {
+    let report = run_with(vec![("app", "referrer-policy", "*")]).await;
+    assert!(!report.ok());
+    assert!(report.runs[0]
+        .problems
+        .iter()
+        .any(|p| p.contains("referrer-policy is *")));
+}
+
+#[test]
+fn only_the_one_difference_on_the_document_paths_is_a_note() {
+    use Verdict::*;
+    let star = Some("*");
+    for path in ["/", "/wallet-host.html", "/wallet-host"] {
+        assert!(matches!(
+            header_verdict(path, ACAO, star, None),
+            Some(Note(n)) if n.contains("Cloudflare Pages")
+        ));
+    }
+    // Equal values say nothing.
+    assert_eq!(header_verdict("/", ACAO, star, star), None);
+    // Everything else is a problem.
+    let problem = |v: Option<Verdict>| matches!(v, Some(Problem(_)));
+    assert!(problem(header_verdict("/assets/app.js", ACAO, star, None)));
+    assert!(problem(header_verdict("/executors/a.js", ACAO, star, None)));
+    assert!(problem(header_verdict("/other.html", ACAO, star, None)));
+    assert!(problem(header_verdict(
+        "/",
+        ACAO,
+        Some("https://a.example"),
+        None
+    )));
+    assert!(
+        problem(header_verdict("/", ACAO, None, star)),
+        "a missing signed header"
+    );
+    assert!(problem(header_verdict(
+        "/",
+        ACAO,
+        star,
+        Some("https://a.example")
+    )));
+    assert!(problem(header_verdict(
+        "/",
+        "content-security-policy",
+        star,
+        None
+    )));
+    assert!(problem(header_verdict(
+        "/",
+        "referrer-policy",
+        None,
+        Some("no-referrer")
+    )));
 }

@@ -10,6 +10,25 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { classOfPath, parseCanonicalHeaderSet, sha256, SIGNED_HEADERS } from './lib/integrity.mjs';
 
+/**
+ * What to say about one signed header of one probed path: `null` when it matches, `{ note }` for
+ * the one difference Cloudflare Pages is known to add, otherwise `{ problem }`.
+ *
+ * Cloudflare Pages adds `access-control-allow-origin: *` to the HTML documents, and a `_headers`
+ * file cannot remove it (open item 136). The documents are public static files, so that value is
+ * reported and accepted, on those two paths and only with that value. Any other header, value or
+ * path stays a problem.
+ */
+export function headerVerdict(path, key, got, want) {
+  if (got === want) return null;
+  const shown = `${path}: ${key} is ${got ?? '(none)'}, the signed set says ${want ?? '(none)'}`;
+  const documents = path === '/' || path === '/wallet-host.html';
+  if (documents && key === 'access-control-allow-origin' && want === null && got === '*') {
+    return { note: `${shown} (added by Cloudflare Pages, accepted)` };
+  }
+  return { problem: shown };
+}
+
 export async function checkLive(base, site, { headers = true } = {}) {
   const root = base.endsWith('/') ? base : `${base}/`;
   const get = async (path) => {
@@ -17,6 +36,7 @@ export async function checkLive(base, site, { headers = true } = {}) {
     return { res, body: Buffer.from(await res.arrayBuffer()) };
   };
   const problems = [];
+  problems.notes = [];
   const manifest = await get('manifest.json');
   if (!manifest.res.ok || !manifest.body.equals(readFileSync(join(site, 'manifest.json')))) {
     problems.push('manifest.json is not the signed one');
@@ -43,11 +63,9 @@ export async function checkLive(base, site, { headers = true } = {}) {
       const { res } = await get(path);
       const want = classes[classOfPath(path)];
       for (const key of SIGNED_HEADERS) {
-        if (res.headers.get(key) !== (want[key] ?? null)) {
-          problems.push(
-            `${path}: ${key} is ${res.headers.get(key) ?? '(none)'}, the signed set says ${want[key] ?? '(none)'}`,
-          );
-        }
+        const verdict = headerVerdict(path, key, res.headers.get(key), want[key] ?? null);
+        if (verdict?.problem) problems.push(verdict.problem);
+        else if (verdict?.note) problems.notes.push(verdict.note);
       }
     }
   }
@@ -61,6 +79,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     process.exit(2);
   }
   const problems = await checkLive(base, site, { headers: flag !== '--no-headers' });
+  for (const note of problems.notes) console.log(`note: ${note}`);
   if (problems.length) {
     console.error(problems.join('\n'));
     process.exit(1);

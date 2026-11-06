@@ -40,8 +40,19 @@ async function atRealOrigin(page: Page): Promise<void> {
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== real) return route.abort();
-    const res = await page.request.get(`${origin}${url.pathname}${url.search}`);
-    return route.fulfill({ status: res.status(), headers: res.headers(), body: await res.body() });
+    try {
+      const res = await page.request.get(`${origin}${url.pathname}${url.search}`);
+      return await route.fulfill({
+        status: res.status(),
+        headers: res.headers(),
+        body: await res.body(),
+      });
+    } catch (e) {
+      // A request still in flight when the test ends: the browser context is already gone, and
+      // reading its body throws "Response has been disposed" after the test itself has passed.
+      if (page.isClosed() || /disposed|closed/i.test(String(e))) return;
+      throw e;
+    }
   });
 }
 

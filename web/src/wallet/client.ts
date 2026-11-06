@@ -22,6 +22,25 @@ const SIGN_IN_MESSAGE = 'Connect to Nymira. This signature only shows that you h
 
 type Listener = () => void;
 
+// Which wallet the user last connected, for the "connect again" hint after a reload. sessionStorage
+// (this tab only, gone when it closes) and no account id: the hint needs nothing more.
+const LAST_WALLET = 'nymira.lastWallet';
+const rememberedWallet = (): string | null => {
+  try {
+    return sessionStorage.getItem(LAST_WALLET);
+  } catch {
+    return null;
+  }
+};
+const remember = (walletId: string | null) => {
+  try {
+    if (walletId) sessionStorage.setItem(LAST_WALLET, walletId);
+    else sessionStorage.removeItem(LAST_WALLET);
+  } catch {
+    // No storage: the hint is lost, nothing else.
+  }
+};
+
 export class WalletClient {
   private frame: HTMLIFrameElement | null = null;
   private ready: Promise<void> | null = null;
@@ -34,6 +53,11 @@ export class WalletClient {
   wallets: WalletInfo[] = [];
   skipped: { id: string; reason: string }[] = [];
   connected: ConnectedWallet | null = null;
+  /**
+   * The wallet connected before this page loaded, when it is not connected now. A wallet session
+   * lives in the wallet frame's memory (host.ts) and does not survive a reload.
+   */
+  lostWallet: string | null = rememberedWallet();
   /** Changes whenever anything a screen shows changes; the snapshot for useSyncExternalStore. */
   version = 0;
 
@@ -122,6 +146,8 @@ export class WalletClient {
       await this.disconnect().catch(() => undefined);
       throw new Error('the wallet signature on the sign-in message does not verify');
     }
+    remember(walletId);
+    this.lostWallet = null;
     this.connected = {
       accountId: result.accountId,
       publicKey: result.publicKey,
@@ -139,6 +165,8 @@ export class WalletClient {
 
   async disconnect(): Promise<void> {
     await this.request({ method: 'disconnect', params: {} });
+    remember(null);
+    this.lostWallet = null;
     this.connected = null;
     this.emit();
   }

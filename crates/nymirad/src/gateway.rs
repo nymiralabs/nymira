@@ -496,6 +496,27 @@ impl Gateway {
                 .transport
                 .socks_url(&identity)
                 .map_err(|e| net_error("attestation_unreachable", e))?;
+            // The operator's signed time, on this attempt's own circuit (not the lease's), before
+            // any evidence is fetched. A verifier that reads it never falls back to a clock of
+            // its own: no signed time, no attestation.
+            let operator_time = if self.attestor.wants_operator_time() {
+                let client = LeaseClient::new(http.clone(), &self.cfg.operator_url);
+                let t = lease::signed_time(
+                    &client,
+                    &self.pins.config["operator_pk"],
+                    self.clock.now_secs(),
+                )
+                .await
+                .map_err(|e| {
+                    unavailable(
+                        "attestation_failed",
+                        format!("the operator's signed time is not available: {e}"),
+                    )
+                })?;
+                Some(t)
+            } else {
+                None
+            };
             self.attestor
                 .verify_model(&ReportRequest {
                     gateway_url: &self.cfg.gateway_url,
@@ -503,6 +524,7 @@ impl Gateway {
                     nonce: &nonce,
                     http: &http,
                     socks_url: socks_url.as_deref(),
+                    operator_time,
                 })
                 .await
                 .map_err(|e| unavailable("attestation_failed", e))

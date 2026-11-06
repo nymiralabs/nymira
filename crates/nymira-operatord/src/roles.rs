@@ -78,6 +78,20 @@ fn text_secret(path: &std::path::Path) -> Result<String, Failure> {
     Ok(String::from_utf8_lossy(&bytes).trim().to_string())
 }
 
+/// The first refresh token, read only while there is no sealed login yet: after the first start
+/// the login file holds the rotated token and the operator removes the first one, so a config that
+/// still names it must not stop a restart.
+pub fn first_refresh_token(cfg: &Config) -> Result<Option<String>, String> {
+    if cfg.data_dir.join("nearai-login.sealed").exists() {
+        return Ok(None);
+    }
+    cfg.near_ai
+        .first_refresh_token_file
+        .as_deref()
+        .map(text_secret)
+        .transpose()
+}
+
 fn alarms(cfg: &Config, clock: Arc<dyn Clock>) -> Result<Arc<Alarms>, Failure> {
     let mut sinks: Vec<Arc<dyn AlarmSink>> = Vec::new();
     if let Some(t) = &cfg.alarms.telegram {
@@ -223,12 +237,7 @@ pub async fn minter(cfg: &Config) -> Result<(), Failure> {
             .map_err(|e| e.to_string())
     };
     std::fs::create_dir_all(&cfg.data_dir).map_err(|e| e.to_string())?;
-    let first = cfg
-        .near_ai
-        .first_refresh_token_file
-        .as_deref()
-        .map(text_secret)
-        .transpose()?;
+    let first = first_refresh_token(cfg)?;
     let adapter = NearAiAdapter::new(
         NearAiConfig {
             user_agent: BROWSER_USER_AGENT.into(),

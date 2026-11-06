@@ -19,7 +19,39 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # What the push touches decides which of the slow jobs run. A push to main and a diff that
+  # cannot be read run everything.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      rust: ${{ steps.scope.outputs.rust }}
+      zkapi: ${{ steps.scope.outputs.zkapi }}
+      web: ${{ steps.scope.outputs.web }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          rust=true; zkapi=true; web=true
+          if [ "$EVENT" = pull_request ] && files=$(git diff --name-only "$BASE" HEAD) && [ -n "$files" ]; then
+            hit() { printf '%s\n' "$files" | grep -Eq "$1"; }
+            # A diff of only the web app's sources and tests (web/src, web/e2e, web/test) skips Rust.
+            rust=false; zkapi=false; web=false
+            if printf '%s\n' "$files" | grep -Evq '^web/(src|e2e|test)/'; then rust=true; fi
+            if hit '^(vendor/zkapi/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then zkapi=true; fi
+            if hit '^(web/|web-testkit/|vendor/|crates/nymira-(near-codec|near-codec-wasm|web-wasm|fake-near-rpc)/|crates/nymirad/pins/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then web=true; fi
+          fi
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          echo "zkapi=$zkapi" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+
   test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     env:
       # The workspace's test binaries (arkworks, near-workspaces, sqlite) fill the runner's disk
@@ -66,6 +98,8 @@ jobs:
   # What a newcomer runs from a clean checkout: `make demo` builds, and the golden path (a note
   # deposited, used, settled, closed and retired in the mock stack) passes (issue 35).
   quickstart:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
@@ -90,6 +124,8 @@ jobs:
   # The vendored zkapi workspace has its own lockfile and target directory,
   # so it builds in parallel with the job above.
   zkapi-vendor:
+    needs: changes
+    if: needs.changes.outputs.zkapi == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,7 +142,11 @@ jobs:
 
   # The test wallet and the browser build of the NEAR codec (issue 86).
   web-testkit:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
+    # Normally under a minute; a stalled install is cut off instead of waiting six hours.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup show active-toolchain
@@ -121,9 +161,26 @@ jobs:
         run: web-testkit/build-codec.sh
       - name: Install dependencies and the browser
         working-directory: web-testkit
+        # The browser's system libraries come from the Ubuntu mirror, which stalls now and then (see
+        # the web job): short apt timeouts, Canonical's mirror on the first and third try, and a try
+        # that hangs is killed after 5 minutes together with any apt or dpkg process it left.
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::http::Pipeline-Depth "0";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          sudo cp /etc/apt/apt-mirrors.txt /tmp/apt-mirrors.runner
+          for try in 1 2 3; do
+            if [ "$try" = 2 ]; then
+              sudo cp /tmp/apt-mirrors.runner /etc/apt/apt-mirrors.txt
+            else
+              echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
+            timeout 300 npx playwright install --with-deps chromium && exit 0
+            echo "browser install attempt $try failed or timed out" >&2
+            sudo pkill -9 -f 'apt-get|dpkg' || true
+            sudo dpkg --configure -a || true
+          done
+          exit 1
       - name: Self-tests
         working-directory: web-testkit
         run: npm test
@@ -131,7 +188,18 @@ jobs:
   # The web app (issue 36): build, unit tests, and Playwright against the fake NEAR RPC and the
   # test wallet, on Chromium and WebKit. Installs run with --ignore-scripts and the lockfile.
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
+    # Shard 0 runs the static checks and unit tests; shards 1-4 each run a quarter of the
+    # Playwright files (the fake chain is per runner, so shards do not share it).
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    name: web (${{ matrix.shard == 0 && 'static' || format('e2e {0}/4', matrix.shard) }})
+    # The longest shard takes about 15 minutes; a stalled job is cut off instead of waiting six hours.
+    timeout-minutes: 30
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
@@ -157,17 +225,43 @@ jobs:
           (cd web-testkit && npm ci --ignore-scripts)
           cd web
           npm ci --ignore-scripts
-          npx playwright install --with-deps chromium webkit
+      - name: Install the browsers
+        if: matrix.shard != 0
+        working-directory: web
+        # The browsers' system libraries are 181 packages (114 MB). On 5 November 2026 the Azure
+        # Ubuntu mirror stalled on the same file (fonts-unifont, the fifth download) in four jobs.
+        # The first and third tries use Canonical's own mirror, the second the runner's own; a try
+        # that hangs is killed after 5 minutes together with any apt or dpkg process it left.
+        run: |
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::http::Pipeline-Depth "0";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null
+          sudo cp /etc/apt/apt-mirrors.txt /tmp/apt-mirrors.runner
+          for try in 1 2 3; do
+            if [ "$try" = 2 ]; then
+              sudo cp /tmp/apt-mirrors.runner /etc/apt/apt-mirrors.txt
+            else
+              # One URL per line, no priority tag: a tag written after a space becomes part of the URL.
+              echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
+            timeout 300 npx playwright install --with-deps chromium webkit && exit 0
+            echo "browser install attempt $try failed or timed out" >&2
+            sudo pkill -9 -f 'apt-get|dpkg' || true
+            sudo dpkg --configure -a || true
+          done
+          exit 1
       - name: Typecheck, format, executor pins
+        if: matrix.shard == 0
         working-directory: web
         run: |
           npm run typecheck
           npm run format:check
           npm run check:executors
       - name: Unit tests
+        if: matrix.shard == 0
         working-directory: web
         run: npm run test:unit
       - name: Deployable bundles hold no test-only content
+        if: matrix.shard == 0
         working-directory: web
         run: |
           npm run build
@@ -177,6 +271,7 @@ jobs:
           npm run check:bundle -- dist mainnet
           mv dist dist-mainnet && mv dist-meta dist-mainnet-meta
       - name: Header policy and manifest checks (assemble refuses a policy with unsafe-eval; an unsigned site fails verify)
+        if: matrix.shard == 0
         working-directory: web
         run: |
           for p in testnet mainnet; do
@@ -187,17 +282,20 @@ jobs:
           done
           node scripts/integrity.mjs verify --site test-fixtures/integrity/site --pubkey test-fixtures/integrity/minisign.pub
       - name: Playwright (builds the mock bundle itself)
+        if: matrix.shard != 0
         working-directory: web
-        run: npm run test:e2e
+        run: npx playwright test --shard=${{ matrix.shard }}/4
       - name: Playwright report on failure
-        if: failure()
+        if: failure() && matrix.shard != 0
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: web-test-results
+          name: web-test-results-${{ matrix.shard }}
           path: web/test-results
           retention-days: 7
 
   policy:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -217,6 +315,8 @@ jobs:
 
   # nymirad in Tor mode: every connect() of the egress test stays on loopback (issue 32).
   egress:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"

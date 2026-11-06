@@ -10,7 +10,7 @@ export const profile: Profile = {
   appOrigin: 'https://nymira.pages.dev',
   // The operator's public Funnel URL; its `host` and CORS `web_origin` must match this and `appOrigin`.
   operatorUrl: 'https://nymira-operator.tail0484c4.ts.net',
-  rpcUrls: ['https://rpc.testnet.near.org', 'https://rpc.testnet.fastnear.com'],
+  rpcUrls: ['https://rpc.testnet.fastnear.com', 'https://rpc.testnet.near.org'],
   vaultAccount: 'vault.nymira.testnet',
   tokenAccount: '3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af',
   tokenSymbol: 'USDC',
@@ -18,6 +18,7 @@ export const profile: Profile = {
   explorerTxUrl: (hash) => `https://testnet.nearblocks.io/txns/${hash}`,
   faucetUrl: 'https://faucet.circle.com',
   walletIds: ['meteor-wallet', 'intear-wallet'],
+  clickBeforeSend: ['meteor-wallet'],
   extraExecutors: {},
   walletConnectSrc: [],
   oneClick: {

@@ -41,7 +41,9 @@ commands:
   restore-secret --note ID --secret-file FILE [--payout ACCOUNT]
                                     from a note secret alone: the note can be exited, not spent
   note-secret --note ID             shows a note's secret after a confirmation on the terminal
-  serve                             the local gateway on 127.0.0.1:8788
+  serve [--nras-direct]             the local gateway on 127.0.0.1:8788
+      --nras-direct: send the GPU evidence straight to NVIDIA instead of through the operator's
+      relay. NVIDIA then sees your IP address; there is no fall back from one to the other
   status
   terms                             prints the terms of use (the same file as TERMS.md in the repository)
   print-pins --network testnet|mainnet --vault ACCOUNT [--rpc URL]
@@ -150,6 +152,7 @@ async fn build_gateway(
     mode: Mode,
     source: &PassphraseSource,
     clock: Arc<dyn Clock>,
+    nras_direct: bool,
 ) -> Option<Arc<Gateway>> {
     if cfg.rpc_url.is_empty() {
         return None;
@@ -184,7 +187,7 @@ async fn build_gateway(
         Mode::Testnet => nymira_near_codec::Network::Testnet,
         Mode::Mainnet => nymira_near_codec::Network::Mainnet,
     };
-    let attestor = attestor(home);
+    let attestor = attestor(home, &cfg.operator_url, nras_direct);
     let gateway = Gateway::new(
         GatewayConfig {
             home: home.to_path_buf(),
@@ -255,7 +258,11 @@ fn compiled_proving_key_hash(cfg: &Config) -> String {
 }
 
 #[cfg(feature = "mock")]
-fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
+fn attestor(
+    home: &std::path::Path,
+    _operator_url: &str,
+    _nras_direct: bool,
+) -> Arc<dyn nymirad::attest::Attestor> {
     // Demo builds check the fake gateway's test evidence against a policy signed by the demo key.
     let signer: [u8; 32] = std::fs::read_to_string(home.join("policy-signer.pub"))
         .ok()
@@ -273,16 +280,40 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
 /// the state directory. Without a pinned policy signer, a readable policy that verifies and is
 /// new enough, chat is refused rather than sent to a key nobody checked.
 #[cfg(not(feature = "mock"))]
-fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
-    let refuse = |why: String| -> Arc<dyn nymirad::attest::Attestor> {
-        eprintln!("warning: {why}; chat requests will be refused");
-        Arc::new(nymirad::attest::Unavailable)
-    };
+fn attestor(
+    home: &std::path::Path,
+    operator_url: &str,
+    nras_direct: bool,
+) -> Arc<dyn nymirad::attest::Attestor> {
+    use nymirad::nearai::{NearAiAttestor, NrasMode};
+    match signed_policy(home) {
+        Ok(policy) => {
+            let mode = if nras_direct {
+                NrasMode::Direct
+            } else {
+                NrasMode::Relay {
+                    operator_url: operator_url.to_string(),
+                }
+            };
+            Arc::new(NearAiAttestor::new(policy).with_nras_mode(mode))
+        }
+        Err(why) => {
+            eprintln!("warning: {why}; chat requests will be refused");
+            Arc::new(nymirad::attest::Unavailable)
+        }
+    }
+}
+
+/// The signed policy in force: the one shipped with this build, or a newer signed one in the
+/// state directory. Without a pinned policy signer, a readable policy that verifies and is new
+/// enough, chat is refused rather than sent to a key nobody checked.
+#[cfg(not(feature = "mock"))]
+fn signed_policy(home: &std::path::Path) -> Result<nymirad::attest::Policy, String> {
     let signer: Option<[u8; 32]> = hex::decode(include_str!("../pins/policy-signer.pub").trim())
         .ok()
         .and_then(|b| b.try_into().ok());
     let Some(signer) = signer else {
-        return refuse("this build pins no attestation policy signer".into());
+        return Err("this build pins no attestation policy signer".into());
     };
     // A signed policy in the state directory is used when it is newer than the one signed and
     // shipped with this build (a newer one, downloaded); an older or equal one never replaces it.
@@ -290,7 +321,7 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
     let file = match std::fs::read(home.join("attestation-policy.json")) {
         Ok(f) => Some(f),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return refuse(format!("attestation-policy.json: {e}")),
+        Err(e) => return Err(format!("attestation-policy.json: {e}")),
     };
     match nymirad::attest::Policy::choose(
         file.as_deref(),
@@ -299,15 +330,63 @@ fn attestor(home: &std::path::Path) -> Arc<dyn nymirad::attest::Attestor> {
         MIN_POLICY_VERSION,
     ) {
         Ok(policy) if policy.deployments.is_empty() => {
-            refuse("attestation-policy.json lists no deployment".into())
+            Err("attestation-policy.json lists no deployment".into())
         }
-        Ok(policy) => Arc::new(nymirad::nearai::NearAiAttestor::new(policy)),
-        Err(e) => refuse(format!("attestation-policy.json: {e}")),
+        Ok(policy) => {
+            // The shipped policy (version 4) pins NVIDIA certificates: a policy without them is
+            // refused instead of checked against the JWKS key alone.
+            if ENFORCE_NVIDIA_PINS {
+                policy.require_nvidia_pins().map_err(|e| e.to_string())?;
+            }
+            Ok(policy)
+        }
+        Err(e) => Err(format!("attestation-policy.json: {e}")),
     }
 }
 
+/// The line `status` prints about the GPU certificate chain.
+#[cfg(not(feature = "mock"))]
+fn gpu_chain_line(home: &std::path::Path) -> (String, bool) {
+    let policy = match signed_policy(home) {
+        Ok(p) => p,
+        Err(why) => return (format!("GPU chain: unknown ({why})"), true),
+    };
+    let chain = nymirad::nearai::gpu_chain_line(&policy);
+    match nymirad::nearai::read_mode(home) {
+        // No serve is running: the default applies to the next one.
+        Ok(None) => (
+            format!(
+                "{chain}\n{} (no serve is running; this is what the next serve does)",
+                nymirad::nearai::nras_mode_line(&policy, false)
+            ),
+            true,
+        ),
+        Ok(Some(direct)) => (
+            format!(
+                "{chain}\n{} (the running serve)",
+                nymirad::nearai::nras_mode_line(&policy, direct)
+            ),
+            true,
+        ),
+        Err(why) => (
+            format!("{chain}\nERROR: GPU evidence mode unknown: {why}"),
+            false,
+        ),
+    }
+}
+
+#[cfg(feature = "mock")]
+fn gpu_chain_line(_: &std::path::Path) -> (String, bool) {
+    ("GPU chain: not applicable (demo build)".into(), true)
+}
+
+/// Whether a policy with no pinned NVIDIA certificate is refused. Off while the signed policy
+/// that ships has none, so the live chat keeps working.
+#[cfg(not(feature = "mock"))]
+const ENFORCE_NVIDIA_PINS: bool = true;
+
 /// Policies older than this are refused.
-const MIN_POLICY_VERSION: u32 = 2;
+const MIN_POLICY_VERSION: u32 = 5;
 
 #[tokio::main]
 async fn main() {
@@ -458,7 +537,12 @@ async fn main() {
             if !cfg.guard().enabled {
                 eprintln!("warning: the expiry guard is off: nymirad will not stop leases near expiry, close, exit or remind you");
             }
-            let gateway = build_gateway(&cfg, &home, mode, &source, clock.clone()).await;
+            let nras_direct = switch(&mut args, "--nras-direct");
+            if nras_direct {
+                eprintln!("warning: --nras-direct is on: NVIDIA's attestation service sees your IP address and the time of every GPU check");
+            }
+            let gateway =
+                build_gateway(&cfg, &home, mode, &source, clock.clone(), nras_direct).await;
             if let Some(gw) = &gateway {
                 let listener = nymirad::ownersock::bind(&home).unwrap_or_else(|e| die(e));
                 println!(
@@ -467,9 +551,15 @@ async fn main() {
                 );
                 tokio::spawn(nymirad::ownersock::serve(listener, gw.clone()));
             }
-            guard::serve(Arc::new(token), gateway)
-                .await
-                .unwrap_or_else(|e| die(e));
+            // The mode file is written once the port is bound, so a second `serve` that cannot
+            // bind leaves the first one's file alone; it is removed when this one stops.
+            let mode_home = home.clone();
+            let served = guard::serve(Arc::new(token), gateway, guard::PORT, move || {
+                nymirad::nearai::save_mode(&mode_home, nras_direct)
+            })
+            .await;
+            nymirad::nearai::clear_mode(&home);
+            served.unwrap_or_else(|e| die(e));
         }
         "status" | "deposit" | "recover" => {
             let cfg = Config::load(&home).unwrap_or_else(|e| die(e));
@@ -495,10 +585,11 @@ async fn main() {
                         .map(|q| Arc::new(q) as Arc<dyn QuoteSource>),
                 };
                 let board = Board::new(mode, quote_source, clock.clone());
+                let gpu = gpu_chain_line(&home);
                 println!(
                     "{}",
                     status::render(
-                        &transport.status_line(),
+                        &format!("{}\n{}", transport.status_line(), gpu.0),
                         operator.as_ref(),
                         &notes.list().unwrap_or_else(|e| die(e)),
                         &tripwire,
@@ -522,6 +613,10 @@ async fn main() {
                 }
                 if cfg.backup_target().is_some() {
                     println!("{}", backup_line(&cfg, clock.now_secs()));
+                }
+                // A mode nobody can read is an error, not a default.
+                if !gpu.1 {
+                    std::process::exit(1);
                 }
                 return;
             }

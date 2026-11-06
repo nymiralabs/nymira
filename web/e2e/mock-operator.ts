@@ -638,7 +638,9 @@ export class MockStack {
   private evidence(role: 'model' | 'gateway', nonce: string, address: Uint8Array) {
     const s = this.scenario;
     const d = policy.deployments.find((x) => x.role === role)!;
-    const composeHash = d.compose_hashes[0]!;
+    // A gateway that accepts any compose hash lists "*"; the test evidence then carries a made-up
+    // 32-byte hash, which also runs the wildcard through the app's verifier.
+    const composeHash = d.compose_hashes[0] === '*' ? 'ab'.repeat(32) : d.compose_hashes[0]!;
     const hex = (h: string) => fromHex(h);
     const events = [
       { imr: 3, event_type: 0x0800_0001, event: 'os-image-hash', event_payload: d.os_image_hash },

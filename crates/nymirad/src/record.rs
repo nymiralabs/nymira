@@ -55,6 +55,8 @@ fn merge(entries: &mut Vec<Deployment>, role: &str, o: &Observed) {
             &seen.rtmr2,
         )
     }) {
+        // A gateway entry marked as a wildcard stays one.
+        Some(d) if d.is_compose_wildcard() => {}
         Some(d) => {
             for h in seen.compose_hashes {
                 if !d.compose_hashes.contains(&h) {
@@ -63,6 +65,14 @@ fn merge(entries: &mut Vec<Deployment>, role: &str, o: &Observed) {
             }
         }
         None => entries.push(seen),
+    }
+}
+
+/// Marks the gateway entries as accepting any compose hash (see [`crate::attest::ANY_COMPOSE`]).
+/// A person decides this; the draft does not say it by default.
+pub fn gateway_wildcard(deployments: &mut [Deployment]) {
+    for d in deployments.iter_mut().filter(|d| d.role == "gateway") {
+        d.compose_hashes = vec![crate::attest::ANY_COMPOSE.to_string()];
     }
 }
 
@@ -333,6 +343,7 @@ pub async fn record(
         accepted_measurements: vec![],
         deployments,
         accepted_tcb_statuses: vec!["UpToDate".into()],
+        nvidia_pins: vec![],
         signature: String::new(),
     };
     std::fs::write(

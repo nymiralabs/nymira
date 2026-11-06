@@ -16,6 +16,7 @@ pub mod json;
 pub mod lifecycle;
 pub mod minter_service;
 pub mod nearai;
+pub mod nras_relay;
 pub mod operator;
 pub mod provider;
 pub mod proxy;
