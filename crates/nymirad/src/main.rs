@@ -636,7 +636,14 @@ async fn main() {
             // The mode file is written once the port is bound, so a second `serve` that cannot
             // bind leaves the first one's file alone; it is removed when this one stops.
             let mode_home = home.clone();
-            let served = guard::serve_with(token, gateway, registry, guard::PORT, move || {
+            // Demo and test builds only: tests that run the binary cannot share port 8788.
+            #[cfg(feature = "mock")]
+            let port = flag(&mut args, "--port")
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(guard::PORT);
+            #[cfg(not(feature = "mock"))]
+            let port = guard::PORT;
+            let served = guard::serve_with(token, gateway, registry, port, move || {
                 nymirad::nearai::save_mode(&mode_home, nras_direct)
             })
             .await;
