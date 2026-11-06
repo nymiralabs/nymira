@@ -86,6 +86,16 @@ impl ApiError {
         )
     }
 
+    /// `require_tee` withheld an answer that did not verify. The message names no content.
+    pub fn not_verified(reason: &str) -> Self {
+        Self::new(
+            StatusCode::BAD_GATEWAY,
+            "server_error",
+            "not_verified",
+            format!("the answer was withheld because it did not verify: {reason}"),
+        )
+    }
+
     /// The note's balance cannot cover the agent's bound class.
     pub fn budget_exhausted() -> Self {
         Self::new(

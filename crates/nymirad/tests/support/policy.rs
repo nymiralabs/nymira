@@ -24,7 +24,7 @@ pub fn ctx() -> Context {
 
 pub fn yaml(models: &[&str]) -> String {
     format!(
-        "allowed_models:\n{}max_lease_usd: 0.5\nmax_call_usd: 0.05\nmax_daily_usd: 2\nconfirm_above_usd: 0.03\nrate_limit_per_min: 30\n",
+        "allowed_models:\n{}max_lease_usd: 0.5\nmax_call_usd: 0.05\nmax_daily_usd: 2\nconfirm_above_usd: 0.03\nrate_limit_per_min: 30\nrequire_tee: false\n",
         models.iter().map(|m| format!("  - {m}\n")).collect::<String>()
     )
 }
@@ -94,7 +94,7 @@ pub fn give_policy(registry: &Registry, name: &str, version: u32) {
 /// `max_daily_usd` and `rate_limit_per_min`.
 pub fn yaml_limits(models: &[&str], lease: &str, call: &str, daily: &str, rate: u32) -> String {
     format!(
-        "allowed_models:\n{}max_lease_usd: {lease}\nmax_call_usd: {call}\nmax_daily_usd: {daily}\nconfirm_above_usd: 5\nrate_limit_per_min: {rate}\n",
+        "allowed_models:\n{}max_lease_usd: {lease}\nmax_call_usd: {call}\nmax_daily_usd: {daily}\nconfirm_above_usd: 5\nrate_limit_per_min: {rate}\nrequire_tee: false\n",
         models.iter().map(|m| format!("  - {m}\n")).collect::<String>()
     )
 }

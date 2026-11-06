@@ -50,6 +50,8 @@ pub const DAY_SECS: u64 = 86_400;
 const ATTESTATION_TTL_SECS: u64 = 300;
 /// The wallet's own near-expiry margin for settlement.
 const SETTLEMENT_WINDOW_SECS: u64 = 21_905;
+/// How long a `require_tee` answer waits for the operator to read its signature.
+const HOLD_SECS: std::time::Duration = std::time::Duration::from_secs(120);
 /// Raw bytes kept per exchange for the signature check.
 const EXCHANGE_CAP: usize = 4 << 20;
 
@@ -966,8 +968,18 @@ impl Gateway {
     pub async fn chat(
         self: &Arc<Self>,
         request: Value,
-        mut opts: ChatOptions,
+        opts: ChatOptions,
     ) -> Result<Outcome, ApiError> {
+        self.chat_checked(request, opts).await.map(|(o, _)| o)
+    }
+
+    /// `chat`, and the signature kind of the answer when `require_tee` held it back until it
+    /// was verified.
+    pub async fn chat_checked(
+        self: &Arc<Self>,
+        request: Value,
+        mut opts: ChatOptions,
+    ) -> Result<(Outcome, Option<Trust>), ApiError> {
         // A note that is being revoked, closing, exiting or about to expire serves no agent.
         if let Scope::Agent { note, .. } = &opts.scope {
             if let Some(why) = self.note_refusal(note) {
@@ -985,6 +997,7 @@ impl Gateway {
             }
         }
         opts.max_lease_usd = opts.scope.lease_request(opts.max_lease_usd);
+        let tee = matches!(&opts.scope, Scope::Agent { policy, .. } if policy.require_tee);
         let model = request["model"]
             .as_str()
             .ok_or_else(|| ApiError::invalid_request("model must be a string"))?
@@ -1180,8 +1193,15 @@ impl Gateway {
                 chat_id: None,
                 out: Vec::new(),
             };
+            if tee {
+                let text = drain(state)
+                    .await
+                    .map_err(|e| unavailable("provider_error", e))?;
+                let trust = self.verify_held(&key, chat_id_of_sse(&text)).await;
+                return held(trust, Outcome::Stream(Body::from(text), lease.id));
+            }
             let stream = futures_util::stream::unfold(state, next_chunk);
-            return Ok(Outcome::Stream(Body::from_stream(stream), lease.id));
+            return Ok((Outcome::Stream(Body::from_stream(stream), lease.id), None));
         }
         let raw = match response.bytes().await {
             Ok(b) => b,
@@ -1213,8 +1233,74 @@ impl Gateway {
             return Err(unavailable("provider_error", "the answer carries no usage"));
         }
         let chat_id = answer["id"].as_str().map(String::from);
-        ctx.done(raw.to_vec(), chat_id, usage).await;
-        Ok(Outcome::Json(answer, lease.id))
+        ctx.done(raw.to_vec(), chat_id.clone(), usage).await;
+        if tee {
+            let trust = self.verify_held(&key, chat_id).await;
+            return held(trust, Outcome::Json(answer, lease.id));
+        }
+        Ok((Outcome::Json(answer, lease.id), None))
+    }
+
+    /// `require_tee`: the signatures can only be read once the lease is closed, so this closes
+    /// it, waits for the operator to store them, and checks the one for `chat_id` against the
+    /// exact bytes exchanged. The attestation and the key binding were checked before anything
+    /// was encrypted (`attested`), and the answer opened with that key.
+    async fn verify_held(&self, key: &str, chat_id: Option<String>) -> Trust {
+        let not = |why: &str| Trust::NotVerified(why.to_string());
+        let Some(id) = chat_id else {
+            return not("the answer has no chat id");
+        };
+        let found = {
+            let sessions = self.sessions.lock().await;
+            sessions.get(key).and_then(|s| {
+                let x = s
+                    .exchanges
+                    .iter()
+                    .rev()
+                    .find(|x| x.chat_id.as_deref() == Some(&id))?;
+                let identity = s.identities.get(&x.model)?.clone();
+                Some((
+                    s.lease.clone(),
+                    s.http.clone(),
+                    identity,
+                    x.model.clone(),
+                    x.request.clone(),
+                    x.response.clone(),
+                ))
+            })
+        };
+        let Some((lease, http, identity, model, request, response)) = found else {
+            return not("the exchange or its verified attestation is missing");
+        };
+        if let Err(e) = self.retire(key).await {
+            return Trust::NotVerified(format!(
+                "the lease could not be closed to read the signature: {}",
+                e.message
+            ));
+        }
+        let client = LeaseClient::new(http, &self.cfg.operator_url);
+        let deadline = tokio::time::Instant::now() + HOLD_SECS;
+        loop {
+            // A failed read is tried again until the deadline.
+            if let Ok(status) = client.lease_status(&lease).await {
+                if let Some(list) = status["provider_evidence"]["signatures"].as_array() {
+                    return match list.iter().find(|e| e["chat_id"] == id.as_str()) {
+                        Some(e) => self.attestor.verify_signature(
+                            &identity,
+                            &e["signature"],
+                            &model,
+                            &request,
+                            &response,
+                        ),
+                        None => Trust::NotVerified(format!("no signature for chat {id}")),
+                    };
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return not("the signature was not available in time");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
     }
 
     /// Ends the lease on a note: no more requests, the operator settles.
@@ -1618,6 +1704,38 @@ impl Drop for StreamState {
     }
 }
 
+/// Reads a streamed answer to its end without passing any of it on.
+async fn drain(mut st: StreamState) -> Result<Vec<u8>, String> {
+    let mut text = Vec::new();
+    loop {
+        match next_chunk(st).await {
+            Some((Ok(chunk), next)) => {
+                text.extend_from_slice(&chunk);
+                st = next;
+            }
+            Some((Err(e), _)) => return Err(e.to_string()),
+            None => return Ok(text),
+        }
+    }
+}
+
+/// The chat id the first event of a decrypted stream carries.
+fn chat_id_of_sse(text: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(text)
+        .lines()
+        .filter_map(|l| l.strip_prefix("data:"))
+        .filter_map(|d| serde_json::from_str::<Value>(d.trim()).ok())
+        .find_map(|v| v["id"].as_str().map(String::from))
+}
+
+/// The answer with its signature kind if it verified; otherwise `not_verified` and no content.
+fn held(trust: Trust, answer: Outcome) -> Result<(Outcome, Option<Trust>), ApiError> {
+    match trust {
+        Trust::NotVerified(why) => Err(ApiError::not_verified(&why)),
+        ok => Ok((answer, Some(ok))),
+    }
+}
+
 /// Decrypts a streamed answer line by line as it arrives.
 async fn next_chunk(mut st: StreamState) -> Option<(Result<Bytes, std::io::Error>, StreamState)> {
     loop {
@@ -1709,21 +1827,31 @@ pub async fn chat_handler(
             .and_then(|v| v.to_str().ok())
             .map(String::from),
     };
-    match gw.chat(request, opts).await {
-        Err(e) => e.into_response(),
-        Ok(Outcome::Json(v, lease)) => (
+    let (outcome, trust) = match gw.chat_checked(request, opts).await {
+        Err(e) => return e.into_response(),
+        Ok(done) => done,
+    };
+    let mut response = match outcome {
+        Outcome::Json(v, lease) => (
             StatusCode::OK,
             [("x-nymira-lease-id", lease)],
             axum::Json(v),
         )
             .into_response(),
-        Ok(Outcome::Stream(body, lease)) => Response::builder()
+        Outcome::Stream(body, lease) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/event-stream")
             .header("x-nymira-lease-id", lease)
             .body(body)
             .expect("static response"),
+    };
+    if let Some(trust) = trust {
+        response.headers_mut().insert(
+            "x-nymira-signature-kind",
+            axum::http::HeaderValue::from_static(trust.label()),
+        );
     }
+    response
 }
 
 pub async fn models_handler(
