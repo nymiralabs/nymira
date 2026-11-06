@@ -6,15 +6,19 @@
 // The cross-chain payment itself is not executed on testnet (1Click and Intents have no testnet)
 // and nothing here says it was tested. The Intents paths belong to the mainnet profile.
 import type { Profile, QuoteAsset } from '../profiles/types';
+import { checkQuote } from './quote-check';
 
 /** NEAR USDC on mainnet: the only destination 1Click can quote, also when this build is testnet. */
 export const MAINNET_USDC_ASSET =
   'nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1';
-/** A valid NEAR account that is nobody's; the dry quote never pays it. */
-export const PLACEHOLDER_RECIPIENT = 'example.near';
+/** An existing mainnet account; a dry quote never pays it, and it is never the vault or a user. */
+export const PLACEHOLDER_RECIPIENT = 'nymira.near';
+/** The commitment and payout a dry quote carries in its message: placeholders, never real values. */
+export const placeholderMessage = () =>
+  JSON.stringify({ commitment: `0x${'01'.repeat(32)}`, withdraw_to: PLACEHOLDER_RECIPIENT });
 /** The keyless limit is 1 request per 5 seconds. */
 export const MIN_GAP_MS = 5000;
-export const CACHE_MS = 60_000;
+export const CACHE_MS = 180_000;
 
 export const dryQuotesEnabled = (p: Pick<Profile, 'oneClick'>) => p.oneClick.dryQuotes;
 export const intentsPathsEnabled = (p: Pick<Profile, 'oneClick'>) => p.oneClick.intentsPaths;
@@ -28,22 +32,43 @@ export interface Quote {
 
 export type QuoteOutcome = { label: string; quote: Quote } | { label: string; error: string };
 
-export function quoteBody(asset: QuoteAsset, amount: bigint, now: number): Record<string, unknown> {
+export function buildRequest(p: {
+  dry: boolean;
+  assetId: string;
+  amount: bigint;
+  refund: string;
+  recipient: string;
+  message: string;
+  now: number;
+}): Record<string, unknown> {
   return {
-    dry: true,
+    dry: p.dry,
     swapType: 'EXACT_OUTPUT',
     slippageTolerance: 100,
-    originAsset: asset.assetId,
+    originAsset: p.assetId,
     depositType: 'ORIGIN_CHAIN',
     destinationAsset: MAINNET_USDC_ASSET,
-    amount: amount.toString(),
-    refundTo: asset.dummyRefund,
+    amount: p.amount.toString(),
+    refundTo: p.refund,
     refundType: 'ORIGIN_CHAIN',
-    recipient: PLACEHOLDER_RECIPIENT,
+    recipient: p.recipient,
     recipientType: 'DESTINATION_CHAIN',
-    deadline: new Date(now + 3_600_000).toISOString(),
+    customRecipientMsg: p.message,
+    deadline: new Date(p.now + 3_600_000).toISOString(),
   };
 }
+
+/** The dry request: a dummy refund address and placeholder recipient and message. */
+export const quoteBody = (asset: QuoteAsset, amount: bigint, now: number) =>
+  buildRequest({
+    dry: true,
+    assetId: asset.assetId,
+    amount,
+    refund: asset.dummyRefund,
+    recipient: PLACEHOLDER_RECIPIENT,
+    message: placeholderMessage(),
+    now,
+  });
 
 export class QuoteBook {
   private readonly cache = new Map<string, { at: number; outcome: QuoteOutcome }>();
@@ -52,6 +77,7 @@ export class QuoteBook {
 
   constructor(
     private readonly baseUrl: string,
+    private readonly signerKey: string,
     private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
     private readonly now: () => number = Date.now,
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
@@ -77,10 +103,11 @@ export class QuoteBook {
 
   private async request(asset: QuoteAsset, amount: bigint): Promise<QuoteOutcome> {
     try {
+      const sent = quoteBody(asset, amount, this.now());
       const response = await this.fetchImpl(`${this.baseUrl}/v0/quote`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(quoteBody(asset, amount, this.now())),
+        body: JSON.stringify(sent),
         credentials: 'omit',
         referrerPolicy: 'no-referrer',
       });
@@ -88,6 +115,12 @@ export class QuoteBook {
       const body = (await response.json()) as {
         quote?: { amountInFormatted?: string; timeEstimate?: number };
       };
+      // Only a signed quote that answers exactly this request counts as a source.
+      try {
+        checkQuote(body, sent, this.signerKey, this.now());
+      } catch (error) {
+        return { label: asset.label, error: error instanceof Error ? error.message : 'bad quote' };
+      }
       const formatted = body.quote?.amountInFormatted;
       if (typeof formatted !== 'string')
         return { label: asset.label, error: 'no quote in the answer' };

@@ -10,6 +10,8 @@ import {
   intentsPathsEnabled,
   quoteBody,
 } from '../src/funding/oneclick';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { base58Encode, quoteHash } from '../src/funding/quote-check';
 import { profile as mainnet } from '../src/profiles/mainnet';
 import { profile as mock } from '../src/profiles/mock';
 import { profile as testnet } from '../src/profiles/testnet';
@@ -78,15 +80,38 @@ describe('calendar file', () => {
   });
 });
 
+/** A dry quote signed with the mock build's test key. */
+function signedAnswer(request: Record<string, unknown>) {
+  const response: Record<string, unknown> = {
+    timestamp: '2026-11-06T00:00:00.000Z',
+    quoteRequest: request,
+    quote: {
+      amountIn: '1065586',
+      amountInFormatted: '1.07',
+      amountInUsd: '1.07',
+      minAmountIn: '1065586',
+      amountOut: request.amount,
+      amountOutFormatted: '1.05',
+      amountOutUsd: '1.05',
+      minAmountOut: request.amount,
+      timeEstimate: 45,
+    },
+  };
+  const message = new TextEncoder().encode(quoteHash(response));
+  response.signature =
+    'ed25519:' + base58Encode(ed25519.sign(message, new Uint8Array(32).fill(44)));
+  return response;
+}
+
 describe('1Click dry quotes', () => {
   const asset = mock.oneClick.shortlist[0]!;
 
-  it('are profile flags: dry quotes on testnet and mock, Intents paths on mainnet only', () => {
+  it('are profile flags: dry quotes on testnet and mock, Intents paths on mainnet and the mock build only', () => {
     expect(dryQuotesEnabled(testnet)).toBe(true);
     expect(dryQuotesEnabled(mock)).toBe(true);
     expect(dryQuotesEnabled(mainnet)).toBe(false);
     expect(intentsPathsEnabled(testnet)).toBe(false);
-    expect(intentsPathsEnabled(mock)).toBe(false);
+    expect(intentsPathsEnabled(mock)).toBe(true);
     expect(intentsPathsEnabled(mainnet)).toBe(true);
   });
 
@@ -100,21 +125,19 @@ describe('1Click dry quotes', () => {
       refundTo: asset.dummyRefund,
     });
     const text = JSON.stringify(body);
-    expect(text).not.toContain('commitment');
     expect(text).not.toContain('alice');
     expect(text).not.toContain('vault');
   });
 
   it('go out one per 5 seconds and are cached', async () => {
-    let now = 0;
+    let now = Date.parse('2026-11-06T00:00:00Z');
     const requestTimes: number[] = [];
     const book = new QuoteBook(
       'https://oneclick.test',
-      async () => {
+      mock.oneClick.signerKey,
+      async (_url, init) => {
         requestTimes.push(now);
-        return new Response(
-          JSON.stringify({ quote: { amountInFormatted: '1.07', timeEstimate: 45 } }),
-        );
+        return new Response(JSON.stringify(signedAnswer(JSON.parse(String(init?.body)))));
       },
       () => now,
       async (ms) => {
@@ -137,7 +160,7 @@ describe('1Click dry quotes', () => {
   });
 
   it('report an error row when 1Click is unreachable', async () => {
-    const book = new QuoteBook('https://oneclick.test', async () => {
+    const book = new QuoteBook('https://oneclick.test', mock.oneClick.signerKey, async () => {
       throw new TypeError('offline');
     });
     expect(await book.quote(asset, 1n)).toEqual({

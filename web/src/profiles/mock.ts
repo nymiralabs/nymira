@@ -22,8 +22,11 @@ export const profile: Profile = {
   walletConnectSrc: [],
   oneClick: {
     baseUrl: 'http://127.0.0.1:18547',
+    // The fake 1Click signs with the key of seed [44; 32], as nymirad's test fixture does.
+    signerKey: 'ed25519:AzXW61LgzhJTXN1so7rBR5auU2oCSzRyNEqFxPkZct3G',
     dryQuotes: true,
-    intentsPaths: false,
+    // The mock build runs the Intents flow against the fake 1Click; testnet stays quote only.
+    intentsPaths: true,
     shortlist: [
       {
         label: 'USDC on Ethereum',

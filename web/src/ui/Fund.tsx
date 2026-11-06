@@ -16,11 +16,18 @@ import {
   testRestore,
   type Acceptance,
 } from '../funding/flow';
-import { QuoteBook, dryQuotesEnabled, type QuoteOutcome } from '../funding/oneclick';
+import { QUOTE_ONLY } from '../funding/intents';
+import {
+  QuoteBook,
+  dryQuotesEnabled,
+  intentsPathsEnabled,
+  type QuoteOutcome,
+} from '../funding/oneclick';
 import type { NoteRecord } from '../store/types';
 import { isAccountId } from '../wallet/client';
 import { download, formatDate, formatUnits, readFile } from './format';
 import { Notices } from './Landing';
+import { Intents } from './Intents';
 import { rpc, useWallet } from './services';
 import { SessionLost } from './WalletConnect';
 import { ARGON2_SENTENCE, Unlock } from './Unlock';
@@ -63,7 +70,10 @@ export function VaultBanner({
 function Quotes({ denomination }: { denomination: string }) {
   const [on, setOn] = useState(false);
   const [rows, setRows] = useState<QuoteOutcome[] | null>(null);
-  const book = useMemo(() => new QuoteBook(PROFILE.oneClick.baseUrl), []);
+  const book = useMemo(
+    () => new QuoteBook(PROFILE.oneClick.baseUrl, PROFILE.oneClick.signerKey),
+    [],
+  );
   useEffect(() => {
     if (!on) {
       setRows(null);
@@ -87,11 +97,7 @@ function Quotes({ denomination }: { denomination: string }) {
   return (
     <section data-testid="quotes">
       <h3>Funding from another chain</h3>
-      <p>
-        These are price quotes only. Paying from another chain is not available on testnet and was
-        not tested here: the funding that runs for real is the direct {PROFILE.tokenSymbol} deposit
-        above.
-      </p>
+      <p data-testid="quote-only">{QUOTE_ONLY}</p>
       <label>
         <input
           type="checkbox"
@@ -103,7 +109,8 @@ function Quotes({ denomination }: { denomination: string }) {
       </label>
       <p className="hint" data-testid="quotes-notice">
         Asking 1Click for a quote shows it your IP address. This page cannot use Tor, so Tor Browser
-        is recommended. The request carries a dummy refund address and no note data.
+        is recommended. The request carries a dummy refund address and placeholder values, never
+        your note.
       </p>
       {on && rows && (
         <ul>
@@ -652,6 +659,9 @@ export function Fund({ vault, recheck }: { vault: VaultCheck | null; recheck: ()
         </p>
       )}
 
+      {intentsPathsEnabled(PROFILE) && (
+        <Intents vault={vault} denomination={denomination} unlocked={unlocked} />
+      )}
       {dryQuotesEnabled(PROFILE) && <Quotes denomination={denomination} />}
     </section>
   );

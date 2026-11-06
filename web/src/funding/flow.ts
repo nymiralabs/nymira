@@ -95,7 +95,7 @@ export async function prepareNote(plan: DepositPlan): Promise<NoteRecord> {
   return record;
 }
 
-async function update(record: NoteRecord, patch: Partial<NoteRecord>): Promise<NoteRecord> {
+export async function update(record: NoteRecord, patch: Partial<NoteRecord>): Promise<NoteRecord> {
   const next = { ...record, ...patch, updatedAt: Date.now() };
   await putNote(next);
   return next;
@@ -149,6 +149,11 @@ export async function preDepositChecks(rpc: RpcClient, record: NoteRecord): Prom
   if (record.phase !== 'backed_up') {
     return { ok: false, reason: 'the backup has not been downloaded and test-restored' };
   }
+  return vaultGate(rpc, notePrice(record.denomination));
+}
+
+/** The vault against the bundle's pins, and room under its deposit cap for `price`. */
+export async function vaultGate(rpc: RpcClient, price: bigint): Promise<SendBlock> {
   const check = await checkVault(rpc, PROFILE.vaultAccount, PROFILE.pins);
   if (check.status === 'unpinned') return { ok: false, reason: 'this build has no vault pins' };
   if (check.status === 'mismatch') {
@@ -157,7 +162,7 @@ export async function preDepositChecks(rpc: RpcClient, record: NoteRecord): Prom
   if (check.status === 'unreachable') {
     return { ok: false, reason: `the vault could not be checked: ${check.detail}` };
   }
-  if (check.limits.currentTvl + notePrice(record.denomination) > check.limits.tvlCap) {
+  if (check.limits.currentTvl + price > check.limits.tvlCap) {
     return { ok: false, reason: 'the vault is full: its deposit cap would be exceeded' };
   }
   return { ok: true };
@@ -375,7 +380,7 @@ function describe(match: ReturnType<typeof matchDeposit>): string {
   return `the event does not match what was requested: ${(match.mismatched ?? []).join(', ')}`;
 }
 
-async function finalize(
+export async function finalize(
   record: NoteRecord,
   event: DepositEvent,
   source: AcceptanceSource,
