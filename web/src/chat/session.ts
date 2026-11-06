@@ -9,6 +9,12 @@
 import { checkVault } from '../chain/vault';
 import type { RpcClient } from '../chain/rpc';
 import { readSnapshot } from '../chain/tree';
+import {
+  evaluate,
+  read as readSets,
+  type SetSize,
+  type SetSizeUnavailable,
+} from '../privacy/setsize';
 import type { Profile } from '../profiles/types';
 import type { LeaseConfigInput } from '../worker/protocol';
 import { callWorker } from '../worker/client';
@@ -59,6 +65,11 @@ export interface Message {
 export interface Deps {
   profile: Profile;
   rpc: RpcClient;
+  /**
+   * Independent RPC providers for the set size, one client per provider. The count is made from
+   * each and the lower figure kept. Without it `rpc` is the only provider and the record says so.
+   */
+  setSizeRpcs?: RpcClient[];
   operator: OperatorClient;
   fetchImpl?: typeof fetch;
   policy: Policy;
@@ -343,7 +354,7 @@ export class ChatSession {
   /** One request proof: a verified status nonce, the tree at one final block, the worker's proof. */
   private async build(plan: { bound: bigint; view: NoteView }) {
     const { bound, view } = plan;
-    const { nonce } = await this.checkedStatus();
+    const { status, nonce } = await this.checkedStatus();
     const tree = await readSnapshot(this.deps.rpc, this.deps.profile.vaultAccount);
     const leaf = tree.leaves[view.noteId];
     if (leaf === undefined || /^0x0+$/.test(leaf)) {
@@ -352,6 +363,8 @@ export class ChatSession {
         'This note’s leaf is not in the tree yet (wait for the operator’s next root update) or was retired.',
       );
     }
+    const time = requestTime(nonce);
+    const setSize = await this.measure(tree.block, tree.nextNoteId, time, status);
     const prepared = await callWorker({
       op: 'prepareLease',
       key: this.deps.getKey(),
@@ -362,7 +375,8 @@ export class ChatSession {
         noteId: view.noteId,
         bound: bound.toString(),
         tree,
-        requestTime: requestTime(nonce),
+        requestTime: time,
+        setSize,
         clientRequestId: this.deps.random?.() ?? crypto.randomUUID(),
         createdAtMs: this.now(),
         openedAt: this.nowSecs(),
@@ -371,6 +385,31 @@ export class ChatSession {
     // The bound for this state is stored before the proof leaves this page.
     await this.store(prepared.sealed);
     return prepared;
+  }
+
+  /**
+   * How many notes could have paid for this lease, from the vault's views at the proof's block.
+   * The operator's status only adds team IDs to what is removed. A failure is kept in the record
+   * and never stops the lease.
+   */
+  private async measure(
+    block: string,
+    leafCount: number,
+    time: number,
+    status: Record<string, unknown>,
+  ): Promise<SetSize | SetSizeUnavailable> {
+    try {
+      const providers = this.deps.setSizeRpcs ?? [this.deps.rpc];
+      const raw = await readSets(providers, this.deps.profile.vaultAccount, block, leafCount, time);
+      const list = status.team_note_ids;
+      const operator =
+        Array.isArray(list) && list.every((n) => Number.isInteger(n) && n >= 0)
+          ? (list as number[])
+          : null;
+      return evaluate(raw, this.deps.profile.pins?.teamNoteIds ?? [], operator);
+    } catch (e) {
+      return { unavailable: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   private async discard(): Promise<void> {

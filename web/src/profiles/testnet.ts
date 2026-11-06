@@ -2,6 +2,8 @@
 //
 // `pins` is the final vault, read with `npm run pin-vault -- --network testnet --vault
 // vault.nymira.testnet` and reviewed against the deployment record.
+// The team's note IDs: the file the operator loads and `nymirad` compiles in.
+import teamNoteIds from '../../../crates/nymira-operator/team-note-ids.json';
 import type { Profile } from './types';
 
 export const profile: Profile = {
@@ -86,7 +88,7 @@ export const profile: Profile = {
         permission: 'FullAccess',
       },
     ],
-    teamNoteIds: [],
+    teamNoteIds,
   },
   gatewayUrl: 'https://cloud-api.near.ai',
   pccsUrl: 'https://pccs.phala.network',

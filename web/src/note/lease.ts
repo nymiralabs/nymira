@@ -8,6 +8,7 @@
 // progress with its token, and the records of finished leases. Both stay text because the wallet
 // core writes the u64 chain id as bare digits (see rawjson.ts).
 import { openJson, sealJson, type Sealed } from '../crypto/aead';
+import type { SetSize, SetSizeUnavailable } from '../privacy/setsize';
 import { splitObject } from './rawjson';
 
 /** What a wallet core call needs from the vault (`config()` plus the mapped contract address). */
@@ -67,6 +68,11 @@ export interface LeaseRecord {
   /** `model_signed`, `gateway_signed` or `not_verified` (with the reason in `warnings`). */
   trust?: string;
   warnings: string[];
+  /**
+   * How many notes could have paid for the lease, counted in the browser when it opened and never
+   * changed after. Records written before this field existed have none.
+   */
+  setSize?: SetSize | SetSizeUnavailable;
 }
 
 /** The lease in progress. `token` is the lease's credential (sent as `X-Nymira-Lease-Token`). */
@@ -146,6 +152,7 @@ export interface PrepareInput {
   clientRequestId: string;
   createdAtMs: number;
   openedAt: number;
+  setSize?: SetSize | SetSizeUnavailable;
 }
 
 export interface PreparedLease {
@@ -212,6 +219,7 @@ export async function prepareLease(
     promptTokens: 0,
     completionTokens: 0,
     warnings: [],
+    ...(input.setSize ? { setSize: input.setSize } : {}),
   };
   const active: ActiveLease = { record, clientRequestId: input.clientRequestId };
   return {

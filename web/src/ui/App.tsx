@@ -8,6 +8,7 @@ import { Close } from './Close';
 import { Fund } from './Fund';
 import { Landing } from './Landing';
 import { Notes } from './Notes';
+import { Privacy } from './Privacy';
 import { originOk, useVaultCheck } from './services';
 import { Watch } from './Watch';
 
@@ -15,6 +16,12 @@ type Screen = 'landing' | 'fund' | 'chat' | 'close' | 'notes';
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('landing');
+  // The panel opens over the chat or notes screen, which stay mounted so a conversation goes on.
+  const [privacy, setPrivacy] = useState<string | null>(null);
+  const go = (next: Screen) => {
+    setPrivacy(null);
+    setScreen(next);
+  };
   const { check, recheck } = useVaultCheck();
   const owed = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state?.needed);
 
@@ -42,20 +49,20 @@ export function App() {
   return (
     <main>
       <header>
-        <button type="button" className="brand" onClick={() => setScreen('landing')}>
+        <button type="button" className="brand" onClick={() => go('landing')}>
           Nymira
         </button>
         <nav>
-          <button type="button" data-testid="nav-fund" onClick={() => setScreen('fund')}>
+          <button type="button" data-testid="nav-fund" onClick={() => go('fund')}>
             Fund
           </button>
-          <button type="button" data-testid="nav-chat" onClick={() => setScreen('chat')}>
+          <button type="button" data-testid="nav-chat" onClick={() => go('chat')}>
             Chat
           </button>
-          <button type="button" data-testid="nav-close" onClick={() => setScreen('close')}>
+          <button type="button" data-testid="nav-close" onClick={() => go('close')}>
             Close
           </button>
-          <button type="button" data-testid="nav-notes" onClick={() => setScreen('notes')}>
+          <button type="button" data-testid="nav-notes" onClick={() => go('notes')}>
             Notes
           </button>
         </nav>
@@ -69,17 +76,26 @@ export function App() {
       {owed && screen !== 'chat' && (
         <p className="warning" role="alert" data-testid="backup-owed">
           A lease ended and your note changed.{' '}
-          <button type="button" onClick={() => setScreen('chat')}>
+          <button type="button" onClick={() => go('chat')}>
             Back up now
           </button>
         </p>
       )}
       {screen !== 'landing' && <Watch screen={screen} onClose={() => setScreen('close')} />}
-      {screen === 'landing' && <Landing onOpen={() => setScreen('fund')} />}
+      {screen === 'landing' && <Landing onOpen={() => go('fund')} />}
       {screen === 'fund' && <Fund vault={check} recheck={recheck} />}
-      {screen === 'chat' && <Chat vault={check} />}
+      {screen === 'chat' && (
+        <div hidden={privacy !== null}>
+          <Chat vault={check} onPrivacy={setPrivacy} />
+        </div>
+      )}
       {screen === 'close' && <Close />}
-      {screen === 'notes' && <Notes />}
+      {screen === 'notes' && (
+        <div hidden={privacy !== null}>
+          <Notes onPrivacy={setPrivacy} />
+        </div>
+      )}
+      {privacy !== null && <Privacy noteId={privacy} onBack={() => setPrivacy(null)} />}
       <footer>
         <small data-testid="network-label">
           {PROFILE.network} ·{' '}

@@ -13,7 +13,7 @@ import policyJson from '../../pins/attestation-policy.json';
 import signerPk from '../../pins/policy-signer.pub?raw';
 import { PROFILE } from '../profile';
 import { callWorker } from '../worker/client';
-import { rpc } from '../ui/services';
+import { rpc, setSizeRpcs } from '../ui/services';
 import { liveQuoteVerifier } from './attest/intel';
 import { loadPolicy, type Policy } from './attest/policy';
 import type { QuoteVerifier } from './attest/verify';
@@ -46,6 +46,7 @@ export async function chatDeps(getKey: () => CryptoKey): Promise<Deps> {
   return {
     profile: PROFILE,
     rpc,
+    setSizeRpcs,
     operator: new OperatorClient(PROFILE.operatorUrl),
     policy: loadSignedPolicy(),
     quote: await quoteVerifier(),

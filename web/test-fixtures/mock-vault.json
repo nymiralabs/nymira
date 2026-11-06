@@ -2,7 +2,7 @@
   "vaultAccount": "vault.test",
   "tokenAccount": "usdc.test",
   "operatorUrl": "http://127.0.0.1:18546",
-  "rpcUrls": ["http://127.0.0.1:18545"],
+  "rpcUrls": ["http://127.0.0.1:18545", "http://127.0.0.1:18545/?second"],
   "senderAccount": "alice.test",
   "otherPayoutAccount": "bob.test",
   "pins": {

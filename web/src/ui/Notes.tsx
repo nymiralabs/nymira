@@ -22,7 +22,15 @@ const PHASE_TEXT: Record<NoteRecord['phase'], string> = {
   rejected: 'not accepted',
 };
 
-function NoteRow({ note, onChanged }: { note: NoteRecord; onChanged: () => void }) {
+function NoteRow({
+  note,
+  onChanged,
+  onPrivacy,
+}: {
+  note: NoteRecord;
+  onChanged: () => void;
+  onPrivacy: (noteId: string) => void;
+}) {
   const [hash, setHash] = useState(note.txHash ?? '');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -66,6 +74,14 @@ function NoteRow({ note, onChanged }: { note: NoteRecord; onChanged: () => void 
       {note.expiry !== undefined && <> · expires {formatDate(note.expiry)}</>}
       <br />
       <small>payout {note.payout}</small>
+      {note.phase === 'accepted' && note.kind === 'state' && (
+        <>
+          {' '}
+          <button type="button" data-testid="notes-privacy" onClick={() => onPrivacy(note.id)}>
+            Privacy panel
+          </button>
+        </>
+      )}
       {lookable && (
         <div>
           <p className="hint">
@@ -98,7 +114,7 @@ function NoteRow({ note, onChanged }: { note: NoteRecord; onChanged: () => void 
   );
 }
 
-export function Notes() {
+export function Notes({ onPrivacy }: { onPrivacy: (noteId: string) => void }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<NoteRecord[]>([]);
   const [pass, setPass] = useState('');
@@ -168,7 +184,7 @@ export function Notes() {
       ) : (
         <ul className="notes">
           {notes.map((n) => (
-            <NoteRow key={n.id} note={n} onChanged={refresh} />
+            <NoteRow key={n.id} note={n} onChanged={refresh} onPrivacy={onPrivacy} />
           ))}
         </ul>
       )}

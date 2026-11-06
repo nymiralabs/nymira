@@ -412,6 +412,7 @@ export async function finalize(
     phase: 'accepted',
     kind: 'state',
     sealed,
+    depositedAt: Date.now(),
     noteId: event.noteId,
     expiry: event.expiry,
   });

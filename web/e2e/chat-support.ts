@@ -83,6 +83,58 @@ export async function scriptTree(
   return { leaf, root: path.active_root };
 }
 
+export interface VaultRow {
+  status: 'Active' | 'Closed' | 'PendingExit';
+  /** Unix seconds; the default is a month ahead. */
+  expiry?: number;
+}
+
+/**
+ * Scripts the vault's tree and `note_records` as one new state from the next block on: row `i` is
+ * note `i`, and the note at `own` is the one the app holds. Earlier states stay readable at their
+ * own block, so a lease keeps the figure it was made with while "now" reads the new state.
+ */
+export async function scriptVault(
+  wallet: FundingWallet,
+  rows: VaultRow[],
+  own = 0,
+  denomination = '1000000',
+) {
+  zk();
+  const { leaf: ownLeaf } = await scriptTree(wallet, denomination);
+  const far = Math.floor(Date.now() / 1000) + 30 * 86_400;
+  const leaves = rows.map((_, id) =>
+    id === own
+      ? ownLeaf
+      : (JSON.parse(
+          browser_note_leaf_from_fields(
+            id,
+            '0x' + (id + 1).toString(16).padStart(64, '0'),
+            denomination,
+            String(far),
+          ),
+        ) as string),
+  );
+  const path = JSON.parse(browser_tree_path_from_leaves(JSON.stringify(leaves), own)) as {
+    active_root: string;
+  };
+  await control({ cmd: 'advance_blocks', n: 1, seconds_per_block: 1 });
+  const set = (method: string, args: unknown, result: unknown) =>
+    control({ cmd: 'set_view', account: VAULT, method, args, result: { json: result } });
+  await set('current_root', 'any', path.active_root);
+  await set('leaf_count', 'any', rows.length);
+  await set('get_leaves', 'any', leaves);
+  const records = rows.map((r, note_id) => ({
+    note_id,
+    deposit_amount: denomination,
+    expiry: r.expiry ?? far,
+    status: r.status,
+    leaf_retired: r.status === 'Closed',
+  }));
+  await set('note_records', { json: { from: 0, limit: rows.length } }, records);
+  return { root: path.active_root };
+}
+
 /** Funds one 1 USDC note through the UI and scripts its tree. Leaves the page on the Fund screen. */
 export async function fundNote(page: Page, context: BrowserContext) {
   const wallet = await newFundingWallet(context);

@@ -31,6 +31,7 @@ export interface BackupNote {
   noteId?: number;
   expiry?: number;
   createdAt: number;
+  depositedAt?: number;
   updatedAt: number;
   /** Where the note stands on its way out, and what the expiry guard did (public values). */
   leave?: LeaveInfo;
