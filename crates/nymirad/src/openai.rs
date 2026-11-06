@@ -31,6 +31,8 @@ pub struct ApiError {
     pub code: String,
     pub message: String,
     pub retry_after_secs: Option<u64>,
+    /// The ID of a held request, for `approval_required`.
+    pub approval_id: Option<String>,
 }
 
 impl ApiError {
@@ -41,6 +43,7 @@ impl ApiError {
             code: code.into(),
             message: message.into(),
             retry_after_secs: None,
+            approval_id: None,
         }
     }
 
@@ -171,18 +174,23 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let mut response = (
-            self.status,
-            axum::Json(json!({
-                "error": {
-                    "message": self.message,
-                    "type": self.kind,
-                    "param": null,
-                    "code": self.code,
-                }
-            })),
-        )
-            .into_response();
+        let mut body = json!({
+            "error": {
+                "message": self.message,
+                "type": self.kind,
+                "param": null,
+                "code": self.code,
+            }
+        });
+        if let Some(id) = &self.approval_id {
+            body["error"]["approval_id"] = json!(id);
+        }
+        let mut response = (self.status, axum::Json(body)).into_response();
+        if let Some(id) = &self.approval_id {
+            if let Ok(v) = id.parse() {
+                response.headers_mut().insert(crate::approvals::HEADER, v);
+            }
+        }
         if let Some(secs) = self.retry_after_secs {
             response
                 .headers_mut()

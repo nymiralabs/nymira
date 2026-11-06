@@ -88,6 +88,8 @@ pub struct ChatOptions {
     pub max_lease_usd: Option<f64>,
     /// Which notes this request may draw on. The HTTP front door sets it from the token.
     pub scope: Scope,
+    /// `X-Nymira-Approval-Id`: the retry of a request the owner has been asked to approve.
+    pub approval_id: Option<String>,
 }
 
 struct Exchange {
@@ -127,6 +129,9 @@ struct Admitted {
     /// The most output tokens the call may ask for under `max_call_usd`.
     cap: u64,
     hold: crate::limits::CallHold,
+    /// The call's sized input and worst-case cost (micro-USD), for the approval check.
+    input_tokens: u64,
+    worst: u128,
 }
 
 /// At most this many requests run at once on one note's lease; a third gets 409 `busy`.
@@ -185,6 +190,10 @@ pub struct Gateway {
     finalize_tried: std::sync::Mutex<HashMap<String, u64>>,
     /// The agents' rate windows and day totals.
     limits: crate::limits::Limits,
+    /// Agent requests held for the owner's approval, in memory only.
+    approvals: crate::approvals::Approvals,
+    /// Where an approval's signing key is read from; the node and second RPC when unset.
+    key_rpcs: std::sync::Mutex<Option<Vec<Rpc>>>,
     /// The expiry guard's switches and what it has tried (see `watch`).
     guard: crate::expiry::GuardConfig,
     guard_tries: std::sync::Mutex<HashMap<String, watch::Tries>>,
@@ -274,6 +283,8 @@ impl Gateway {
             stuck_holds: Default::default(),
             finalize_tried: Default::default(),
             limits: crate::limits::Limits::new(&cfg.home),
+            approvals: Default::default(),
+            key_rpcs: Default::default(),
             guard: Default::default(),
             guard_tries: Default::default(),
             notices: crate::expiry::NoticeBook::new(&cfg.home),
@@ -319,6 +330,32 @@ impl Gateway {
 
     pub fn records(&self) -> Vec<LeaseRecord> {
         self.records.list()
+    }
+
+    pub fn approvals(&self) -> &crate::approvals::Approvals {
+        &self.approvals
+    }
+
+    pub fn now_secs(&self) -> u64 {
+        self.clock.now_secs()
+    }
+
+    /// The endpoints an approval's signing key is checked on (tests point them at a fake node).
+    pub fn set_key_rpcs(&self, rpcs: Vec<Rpc>) {
+        *self.key_rpcs.lock().unwrap_or_else(|e| e.into_inner()) = Some(rpcs);
+    }
+
+    pub fn key_rpcs(&self) -> Vec<Rpc> {
+        let set = self
+            .key_rpcs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        set.unwrap_or_else(|| {
+            let mut rpcs = vec![self.rpc.clone()];
+            rpcs.extend(self.rpc_second.clone());
+            rpcs
+        })
     }
 
     /// What a signed policy is checked against: the pinned models and the smallest bound class.
@@ -415,7 +452,12 @@ impl Gateway {
                 &floor,
             )
             .ok_or_else(ApiError::daily_limit)?;
-        Ok(Some(Admitted { cap, hold }))
+        Ok(Some(Admitted {
+            cap,
+            hold,
+            input_tokens: input,
+            worst,
+        }))
     }
 
     pub fn models_json(&self) -> Value {
@@ -944,6 +986,20 @@ impl Gateway {
             .as_u64()
             .or_else(|| request["max_completion_tokens"].as_u64());
         let admitted = self.admit(&opts, &request, &spec, caller_max)?;
+        // Above the confirmation amount the call waits for the owner; this comes after the day's
+        // reservation and before the balance check. An early return frees the reservation.
+        if let (Scope::Agent { name, policy, .. }, Some(a)) = (&opts.scope, &admitted) {
+            if a.worst > crate::limits::micro_of(policy.confirm_above_usd) {
+                self.approvals.gate(
+                    name,
+                    &request,
+                    opts.approval_id.as_deref(),
+                    a.input_tokens,
+                    a.worst,
+                    self.clock.now_secs(),
+                )?;
+            }
+        }
         let (agent_cap, hold) = match admitted {
             Some(a) => (Some(a.cap), Some(a.hold)),
             None => (None, None),
@@ -1633,6 +1689,10 @@ pub async fn chat_handler(
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse().ok()),
         scope,
+        approval_id: headers
+            .get(crate::approvals::HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
     };
     match gw.chat(request, opts).await {
         Err(e) => e.into_response(),

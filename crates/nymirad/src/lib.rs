@@ -6,6 +6,7 @@
 
 pub mod agents;
 pub mod agentsock;
+pub mod approvals;
 pub mod attest;
 pub mod backup;
 pub mod calendar;
