@@ -193,7 +193,7 @@ describe('dry quote source list', () => {
   });
 
   it('name the mainnet asset and nymira.near on a testnet build, which offers no payment', () => {
-    expect(testnet.oneClick.intentsPaths).toBe(false);
+    expect(testnet.oneClick.intentsPath).toBe('none');
     expect(testnet.oneClick.signerKey).toMatch(/^ed25519:/);
     expect(quoteBody(testnet.oneClick.shortlist[0]!, 1n, NOW)).toMatchObject({
       destinationAsset: MAINNET_USDC_ASSET,

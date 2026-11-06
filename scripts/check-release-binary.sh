@@ -77,6 +77,15 @@ if grep -aoE 'https?://[A-Za-z0-9-]*1click\.[a-z-]+\.[a-z]+' "$bin" | grep -vxF 
   echo "$bin names a 1Click URL other than $ONECLICK_URL" >&2
   exit 1
 fi
+# A partner API key for 1Click is a JWT and is used in team tests only: none may sit in the binary.
+# The pattern must match a sample token first, or the check could not fail.
+JWT='eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+printf 'eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJlYnl0ZXM' | grep -qE -- "$JWT" \
+  || { echo "the partner-key pattern does not match a sample JWT: the check is broken" >&2; exit 1; }
+if grep -aqE -- "$JWT" "$bin"; then
+  echo "$bin holds a partner API key (JWT)" >&2
+  exit 1
+fi
 echo "release nymirad: no mock feature, no demo strings ($(wc -c <"$bin") bytes)"
 
 if [ "$control" = 1 ]; then

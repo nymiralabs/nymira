@@ -47,7 +47,7 @@ import {
   type Json,
 } from '../funding/intents';
 import { leaveStore } from '../leave/store';
-import { QuoteBook, type QuoteOutcome } from '../funding/oneclick';
+import { QuoteBook, intentsPaths, type QuoteOutcome } from '../funding/oneclick';
 import type { QuoteAsset } from '../profiles/types';
 import type { NoteRecord } from '../store/types';
 import { download, formatDate, formatUnits, readFile } from './format';
@@ -102,7 +102,8 @@ export function Intents({
   const wallet = useWallet();
   const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
   // Two-step path: 1Click pays the connected account, which signs the transfer to the vault.
-  const [twoStep, setTwoStep] = useState(false);
+  const offered = intentsPaths(PROFILE);
+  const [twoStep, setTwoStep] = useState(!offered.includes('direct'));
   const [gate, setGate] = useState<{ account: string; problem: string | null } | null>(null);
   const [arrived, setArrived] = useState(false);
   const [refunded, setRefunded] = useState(false);
@@ -265,7 +266,8 @@ export function Intents({
       );
       for (const n of open) {
         const saved = await loadAttempt(n.id).catch(() => null);
-        if (!saved) continue;
+        // A saved attempt on a path this build does not offer is left alone, not resumed.
+        if (!saved || !offered.includes(saved.via ? 'two-step' : 'direct')) continue;
         if (!live || noteRef.current) return;
         setNote(n);
         setAttempt(saved);
@@ -422,7 +424,7 @@ export function Intents({
         account).
       </p>
 
-      {PROFILE.oneClick.intentsTwoStep && (
+      {offered.length > 1 && (
         <fieldset data-testid="intents-path" disabled={stage !== 'none'}>
           <legend>How the vault is paid</legend>
           <label>

@@ -97,7 +97,7 @@ Recovery saves the destination transaction before reading its receipts. Set `arc
 
 1Click sees the source wallet, note commitment, payout account and IP address on this path. Its quote signature identifies the issuer; it does not guarantee delivery. The client accepts a note only from a matching final vault receipt. Testnet offers signed quotes labelled "quote only" over Tor and makes no Intents payment. Use Circle's faucet for testnet USDC.
 
-The CLI integration tests deliver through the open-source Verifier, release v0.4.2, and through the demo stand-in. They cover a pending-backup restore, renewed consent, receipt acceptance and a lease on the new note. No live cross-chain swap is claimed. The live destination-signer lookup and batching shape still need the mainnet probe; no mainnet vault is pinned in this build.
+The CLI integration tests deliver through the open-source Verifier, release v0.4.2, and through the demo stand-in. They cover a pending-backup restore, renewed consent, receipt acceptance and a lease on the new note. No live cross-chain swap is claimed. A mainnet build carries one Intents path, fixed at build time: `two-step` (1Click pays your own NEAR account, then `nymirad` sends the USDC to the vault). That is the decision because 1Click has given no written answer and the mainnet probe has not run, so the path has not been run against the live 1Click. The live destination-signer lookup and batching shape still need the mainnet probe; no mainnet vault is pinned in this build.
 
 ## License
 

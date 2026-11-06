@@ -11,7 +11,7 @@ use nymira_operator::store::Store;
 use nymirad::config::Config;
 use nymirad::deposit::{Confirm, Ctx, Summary};
 use nymirad::gateway::{Gateway, GatewayConfig};
-use nymirad::mode::Mode;
+use nymirad::mode::{IntentsPath, Mode};
 use nymirad::pins::{self, Tripwire};
 use nymirad::quotes::{Board, OneClick, QuoteSource, BASE_URL};
 use nymirad::rpc::{Rpc, Transport};
@@ -996,6 +996,10 @@ async fn intents_command(
         die("Intents has no testnet. Quote only; fund with testnet USDC from the Circle faucet.");
     }
     let cfg = Config::load(home).unwrap_or_else(|e| die(e));
+    let path = cfg.intents_path(mode);
+    if path == IntentsPath::Off {
+        die("This build has no Intents funding path. Fund with NEAR USDC directly.");
+    }
     let confirmed = Terminal.confirm_text(DIRECT_QUESTION);
     if !confirmed {
         die("1Click direct access was not confirmed; nothing sent");
@@ -1057,6 +1061,9 @@ async fn intents_command(
             .into_iter()
             .find(|a| a.commitment == commitment)
             .inspect(|a| {
+                if a.via.is_some() != (path == IntentsPath::TwoStep) {
+                    die("that attempt used the other Intents path; this build offers only one");
+                }
                 if a.via.is_some() {
                     tx = Some(sender(args));
                 }
@@ -1068,7 +1075,7 @@ async fn intents_command(
             .and_then(|v| v.parse::<u128>().ok())
             .unwrap_or_else(|| die(USAGE));
         let config = funding.check(amount).await.unwrap_or_else(|e| die(e));
-        if cfg.intents_two_step {
+        if path == IntentsPath::TwoStep {
             let sender = sender(args);
             funding
                 .two_step_ready(&sender, &config)

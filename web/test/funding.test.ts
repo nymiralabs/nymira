@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { expiryCalendar } from '../src/backup/ics';
 import { depositMessage, notePrice, transferAction } from '../src/funding/flow';
@@ -7,6 +8,7 @@ import {
   MIN_GAP_MS,
   QuoteBook,
   dryQuotesEnabled,
+  intentsPaths,
   intentsPathsEnabled,
   quoteBody,
 } from '../src/funding/oneclick';
@@ -113,6 +115,32 @@ describe('1Click dry quotes', () => {
     expect(intentsPathsEnabled(testnet)).toBe(false);
     expect(intentsPathsEnabled(mock)).toBe(true);
     expect(intentsPathsEnabled(mainnet)).toBe(true);
+  });
+
+  const withPath = (p: typeof mainnet, intentsPath: typeof mainnet.oneClick.intentsPath) => ({
+    ...p,
+    oneClick: { ...p.oneClick, intentsPath },
+  });
+
+  it('offer on mainnet only the configured Intents path: two-step by decision, or none', () => {
+    expect(mainnet.oneClick.intentsPath).toBe('two-step');
+    expect(intentsPaths(mainnet)).toEqual(['two-step']);
+    expect(intentsPaths(withPath(mainnet, 'direct'))).toEqual(['direct']);
+    expect(intentsPaths(withPath(mainnet, 'none'))).toEqual([]);
+    expect(intentsPaths(mock)).toEqual(['direct', 'two-step']);
+  });
+
+  it('ignore the Intents setting on the testnet profile, which stays quote-only', () => {
+    for (const path of ['direct', 'two-step', 'both'] as const) {
+      expect(intentsPaths(withPath(testnet, path))).toEqual([]);
+    }
+  });
+
+  it('read the Intents path from the compiled profile and from nothing else', () => {
+    const src = (f: string) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
+    const code = src('ui/Intents.tsx') + src('funding/oneclick.ts');
+    for (const sink of ['location', 'localStorage', 'sessionStorage', 'searchParams'])
+      expect(code).not.toContain(sink);
   });
 
   it('send dry:true with a dummy refund address and no note data', () => {

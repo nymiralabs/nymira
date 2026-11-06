@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::mode::{IntentsPath, Mode};
 use crate::tor::{Backend, TorConfig};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -62,10 +63,11 @@ pub struct Config {
     /// Demo builds only: the same for `withdrawal.pk`.
     #[serde(default)]
     pub withdrawal_key_sha256: Option<String>,
-    /// Fund through the user's own NEAR account in two steps instead of paying the vault
-    /// directly. Stand-in for the build profile switch that #50 will formalise.
+    /// Demo builds only: picks the Intents path the tests run. A release build has no such field
+    /// and always uses the compiled `MAINNET_INTENTS_PATH`.
+    #[cfg(feature = "mock")]
     #[serde(default)]
-    pub intents_two_step: bool,
+    pub intents_path: Option<IntentsPath>,
     /// Seconds of silence after which a lease is retired. Default 120.
     #[serde(default)]
     pub idle_secs: Option<u64>,
@@ -139,6 +141,19 @@ impl Config {
             close_at_session_end: self.close_at_session_end,
             ..Default::default()
         }
+    }
+
+    /// The Intents path this run offers: the compiled one for the mode (a demo build may override
+    /// it in the config). Testnet is quote-only whatever the config says.
+    pub fn intents_path(&self, mode: Mode) -> IntentsPath {
+        if mode == Mode::Testnet {
+            return IntentsPath::Off;
+        }
+        #[cfg(feature = "mock")]
+        if let Some(path) = self.intents_path {
+            return path;
+        }
+        mode.intents_path()
     }
 
     /// Demo builds may run without Tor; a release build never does.
