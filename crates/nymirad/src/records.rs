@@ -35,6 +35,10 @@ pub struct LeaseRecord {
     pub completion_tokens: u64,
     pub trust: Option<Trust>,
     pub warnings: Vec<String>,
+    /// How many notes could have paid for the lease, counted when it opened and never changed
+    /// after. Records written before this field existed have none.
+    #[serde(default)]
+    pub set_size: Option<crate::setsize::SetSize>,
 }
 
 pub struct Records {
@@ -109,7 +113,18 @@ mod tests {
             completion_tokens: 0,
             trust: None,
             warnings: vec![],
+            set_size: None,
         }
+    }
+
+    #[test]
+    fn a_record_from_before_the_set_size_still_reads() {
+        let old = r#"{"lease_id":"x","note_id":1,"root":"0x01","leaf_count":1,"snapshot_block":2,"bound_class":"100000","opened_at":3,"closed_at":null,"charge":null,"expected_charge":null,"model":"m","sampling":{},"requests":0,"message_count":0,"message_bytes":0,"prompt_tokens":0,"completion_tokens":0,"trust":null,"warnings":[]}"#;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(FILE), format!("{old}\n")).unwrap();
+        let all = Records::new(dir.path()).list();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].set_size.is_none());
     }
 
     #[test]

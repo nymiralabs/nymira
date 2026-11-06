@@ -280,6 +280,10 @@ async fn stack_with(
         backup: None,
     };
     tune(&mut config);
+    // A second provider for the set size; a run through a proxy keeps to the one transport.
+    let second = via
+        .is_none()
+        .then(|| Rpc::new(worker.rpc_addr(), &Transport::Direct).unwrap());
     let gateway = Arc::new(
         Gateway::new(
             config,
@@ -291,7 +295,8 @@ async fn stack_with(
             Arc::new(TestEvidence { policy }),
             dyn_clock,
         )
-        .unwrap(),
+        .unwrap()
+        .with_second_rpc(second),
     );
     // Building the stack takes a while; the wallet stamps requests with the real clock, the
     // operator reads the manual one. Bring them together before the first request.
@@ -383,6 +388,12 @@ async fn a_chat_goes_through_the_lease_encrypted_and_settles_with_checks() {
         (1, 1, MODEL)
     );
     assert!(r.root.starts_with("0x") && r.leaf_count == 1 && r.snapshot_block > 0);
+    // The set size was counted from the vault on this machine: one note, the user's own, read
+    // from both providers at the proof's block, and no team ID listed anywhere.
+    let size = r.set_size.as_ref().expect("the lease records its set size");
+    assert_eq!((size.external, size.total), (1, 1), "{size:?}");
+    assert!(size.one_provider.is_none() && size.providers_differ.is_none());
+    assert!(size.differences().is_empty(), "{:?}", size.differences());
     assert_eq!(r.charge.as_deref(), Some(done.charge.to_string().as_str()));
     let file = std::fs::read_to_string(s.home.path().join("lease-records.jsonl")).unwrap();
     assert!(

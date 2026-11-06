@@ -6,6 +6,8 @@ use crate::pins::Tripwire;
 use crate::quotes::{self, View};
 use crate::rpc::{client, send_error, RpcError, Transport};
 use crate::secrets::{NoteEntry, NoteStatus};
+use crate::setsize::SetSize;
+use crate::strings;
 
 /// The operator's `/v1/status` document. Fields this build does not know are ignored.
 pub async fn operator_status(base: &str, transport: &Transport) -> Result<Value, RpcError> {
@@ -36,10 +38,64 @@ pub fn lease_line(r: &crate::records::LeaseRecord) -> String {
         "Lease {} on note {}: {} requests, {} model, charge {charge}, {trust}",
         r.lease_id, r.note_id, r.requests, r.model
     );
+    match &r.set_size {
+        Some(size) => {
+            line.push_str(&format!("\n  {}", size.headline()));
+            for d in size.differences() {
+                line.push_str(&format!("\n  note: {d}"));
+            }
+        }
+        None => line.push_str(&format!(
+            "\n  {}",
+            strings::fill(
+                "unavailable",
+                &[("why", "not recorded for this lease".into())]
+            )
+        )),
+    }
     for w in &r.warnings {
         line.push_str(&format!("\n  warning: {w}"));
     }
     line
+}
+
+/// The "now" figure of `nymirad status`: the same rule at the current final block.
+pub type NowFigure = Result<SetSize, String>;
+
+fn now_lines(now: &NowFigure) -> String {
+    match now {
+        Ok(size) => {
+            let mut out = format!("\n  {}: {}", strings::get("now_label"), size.headline());
+            for d in size.differences() {
+                out.push_str(&format!("\n  note: {d}"));
+            }
+            out
+        }
+        Err(why) => format!(
+            "\n  {}: {}",
+            strings::get("now_label"),
+            strings::fill("unavailable", &[("why", why.clone())])
+        ),
+    }
+}
+
+/// The Tor line and what Tor does not cover, then what the set size does not say. Printed after
+/// the leases, so it reads as their footnote. `tor` is whether `nymirad` traffic goes through
+/// Tor; `figures` whether any set size was shown above.
+pub fn privacy_lines(tor: bool, testnet: bool, figures: bool) -> String {
+    let mut out = vec![
+        strings::get(if tor { "tor_on" } else { "tor_off" }).to_string(),
+        strings::get("tor_limits").to_string(),
+    ];
+    if figures {
+        for key in ["balances_private", "includes_unlisted", "five_not_safe"] {
+            out.push(strings::get(key).to_string());
+        }
+        if testnet {
+            out.push(strings::get("testnet_notes").to_string());
+        }
+    }
+    out.join("\n")
 }
 
 /// The text `nymirad status` prints. Nothing in it comes from a secret.
@@ -50,6 +106,7 @@ pub fn render(
     tripwire: &Tripwire,
     quotes: &View,
     now_secs: u64,
+    now_figure: Option<&NowFigure>,
 ) -> String {
     let mut out = Vec::new();
     out.push(tor_line.to_string());
@@ -95,6 +152,9 @@ pub fn render(
                     line.push_str("\n  warning: no new lease on this note (5 days or less left); close it or exit before it expires");
                 } else if let Some(level) = crate::expiry::notice_level(exp, now_secs) {
                     line.push_str(&format!("\n  notice: {level} days or less left"));
+                }
+                if let Some(now) = now_figure {
+                    line.push_str(&now_lines(now));
                 }
                 line
             }
@@ -157,7 +217,15 @@ mod tests {
     }
 
     fn render(operator: Result<&Value, &RpcError>, notes: &[NoteEntry], q: &View) -> String {
-        super::render("Tor: ready", operator, notes, &Tripwire::default(), q, NOW)
+        super::render(
+            "Tor: ready",
+            operator,
+            notes,
+            &Tripwire::default(),
+            q,
+            NOW,
+            None,
+        )
     }
 
     #[test]

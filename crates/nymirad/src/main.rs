@@ -26,7 +26,7 @@ const TERMS: &str = include_str!("../../../TERMS.md");
 const USAGE: &str =
     "usage: nymirad [--home DIR] [--passphrase-file FILE | --passphrase-stdin] <command>
 commands:
-  init --rpc URL --operator URL --account ID [--socks HOST:PORT] [--setup-dir DIR]
+  init --rpc URL --operator URL --account ID [--rpc-second URL] [--socks HOST:PORT] [--setup-dir DIR]
        [backup options | --no-backup]
       --setup-dir: the directory with the ceremony's request.pk and withdrawal.pk; both are
       checked against the hashes pinned in this build, and chat and close stay off without it.
@@ -159,6 +159,7 @@ async fn build_gateway(
     }
     let transport = connect(cfg, home, TOR_WAIT).await;
     let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
+    let second = second_rpc(cfg, &transport);
     let pinned = pins::compiled(mode);
     #[cfg(feature = "mock")]
     let pinned = pinned.or_else(|| pins::demo(home));
@@ -217,7 +218,7 @@ async fn build_gateway(
         clock,
     );
     let gateway = match gateway {
-        Ok(g) => Arc::new(g.with_guard(cfg.guard())),
+        Ok(g) => Arc::new(g.with_guard(cfg.guard()).with_second_rpc(second)),
         Err(e) => {
             eprintln!("warning: chat is off: {e}");
             return None;
@@ -228,6 +229,19 @@ async fn build_gateway(
     }
     gateway.spawn_background(std::time::Duration::from_secs(5));
     Some(gateway)
+}
+
+fn notes_have_accepted(notes: &NoteStore) -> bool {
+    notes.list().is_ok_and(|n| {
+        n.iter()
+            .any(|e| e.status == nymirad::secrets::NoteStatus::Accepted)
+    })
+}
+
+/// The second RPC provider for the set size, if the config names one.
+fn second_rpc(cfg: &Config, transport: &Transport) -> Option<Rpc> {
+    let url = cfg.rpc_url_second.clone()?;
+    Some(Rpc::new(url, transport).unwrap_or_else(|e| die(e)))
 }
 
 /// The withdrawal key's SHA-256 pinned in this build. Demo builds may take it from `config.json`.
@@ -431,6 +445,7 @@ async fn main() {
                 rpc_url: flag(&mut args, "--rpc").unwrap_or_else(|| die(USAGE)),
                 operator_url: flag(&mut args, "--operator").unwrap_or_else(|| die(USAGE)),
                 account: flag(&mut args, "--account").unwrap_or_else(|| die(USAGE)),
+                rpc_url_second: flag(&mut args, "--rpc-second"),
                 socks: flag(&mut args, "--socks"),
                 ..Config::default()
             };
@@ -586,6 +601,36 @@ async fn main() {
                 };
                 let board = Board::new(mode, quote_source, clock.clone());
                 let gpu = gpu_chain_line(&home);
+                // The "now" figure: the same rule at the current final block, from the vault
+                // views only. The operator's list can only add team IDs to what is removed.
+                let vault_account = pinned
+                    .as_ref()
+                    .map(|p| p.vault.clone())
+                    .or_else(|| cfg.vault.clone());
+                let now_figure = match (vault_account, notes_have_accepted(&notes)) {
+                    (Some(vault), true) => Some(
+                        nymirad::setsize::read_now(
+                            &rpc,
+                            second_rpc(&cfg, &transport).as_ref(),
+                            &vault,
+                            clock.now_secs(),
+                        )
+                        .await
+                        .map(|raw| {
+                            nymirad::setsize::evaluate(
+                                &raw,
+                                &nymirad::setsize::pinned_team(),
+                                operator
+                                    .as_ref()
+                                    .ok()
+                                    .and_then(nymirad::setsize::operator_team)
+                                    .as_deref(),
+                            )
+                        })
+                        .map_err(|e| e.to_string()),
+                    ),
+                    _ => None,
+                };
                 println!(
                     "{}",
                     status::render(
@@ -594,7 +639,8 @@ async fn main() {
                         &notes.list().unwrap_or_else(|e| die(e)),
                         &tripwire,
                         &board.view().await,
-                        clock.now_secs()
+                        clock.now_secs(),
+                        now_figure.as_ref()
                     )
                 );
                 // The last leases with the verdict on the signature and any overcharge warning:
@@ -608,6 +654,13 @@ async fn main() {
                 {
                     println!("{}", status::lease_line(r));
                 }
+                let leases = nymirad::records::Records::new(&home).list();
+                let figures = now_figure.is_some()
+                    || leases.iter().rev().take(5).any(|r| r.set_size.is_some());
+                println!(
+                    "{}",
+                    status::privacy_lines(!transport.is_direct(), mode == Mode::Testnet, figures)
+                );
                 for w in cfg.backup_warnings() {
                     println!("warning: {w}");
                 }
