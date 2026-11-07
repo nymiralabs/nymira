@@ -86,6 +86,7 @@ async function main() {
       id: wallet.manifest.id,
       name: wallet.manifest.name,
       injected: wallet.manifest.type !== 'sandbox',
+      signMessage: wallet.manifest.features?.signMessage === true,
     }));
   const announce = () => send({ type: 'wallets', wallets: list(), skipped });
   connector.on('selector:walletsChanged', announce);
@@ -179,6 +180,21 @@ async function main() {
     });
   }
 
+  async function signMessage(p: Extract<FrameRequest, { method: 'signMessage' }>['params']) {
+    const wallet = await connector.wallet();
+    if (PROFILE.clickBeforeSend.includes(wallet.manifest.id)) {
+      if (!(await askForClick(wallet.manifest.name)))
+        throw new Error('cancelled in the wallet frame');
+    }
+    const signed = await wallet.signMessage({
+      message: p.message,
+      recipient: p.recipient,
+      nonce: Uint8Array.from(p.nonce),
+      network: PROFILE.network,
+    });
+    return JSON.parse(JSON.stringify(signed)) as unknown;
+  }
+
   async function sendTransaction(receiverId: string, actions: FunctionCallAction[]) {
     // Resolved before the user is asked, so the click only has to start the wallet.
     const wallet = await connector.wallet();
@@ -210,6 +226,8 @@ async function main() {
           return list();
         case 'connect':
           return connect(params);
+        case 'signMessage':
+          return signMessage(params);
         case 'send':
           return sendTransaction(params.receiverId, params.actions);
         case 'disconnect':

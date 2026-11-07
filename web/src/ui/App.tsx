@@ -1,7 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { agentsAvailable } from '../agents/available';
 import { retireBackup } from '../chat/retire-backup';
 import { warmProver } from '../chat/runtime';
 import { PROFILE } from '../profile';
+import { Agents } from './Agents';
 import { BundleHash } from './BundleHash';
 import { Chat } from './Chat';
 import { Close } from './Close';
@@ -9,10 +11,10 @@ import { Fund } from './Fund';
 import { Landing } from './Landing';
 import { Notes } from './Notes';
 import { Privacy } from './Privacy';
-import { originOk, useVaultCheck } from './services';
+import { originOk, useVaultCheck, useWallet } from './services';
 import { Watch } from './Watch';
 
-type Screen = 'landing' | 'fund' | 'chat' | 'close' | 'notes';
+type Screen = 'landing' | 'fund' | 'chat' | 'close' | 'notes' | 'agents';
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('landing');
@@ -23,6 +25,8 @@ export function App() {
     setScreen(next);
   };
   const { check, recheck } = useVaultCheck();
+  const wallet = useWallet();
+  const showAgents = agentsAvailable(wallet.wallets, wallet.connected?.walletId ?? null);
   const owed = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state?.needed);
 
   // The proving key loads into the worker when the page opens, so the first lease does not wait
@@ -65,6 +69,11 @@ export function App() {
           <button type="button" data-testid="nav-notes" onClick={() => go('notes')}>
             Notes
           </button>
+          {showAgents && (
+            <button type="button" data-testid="nav-agents" onClick={() => go('agents')}>
+              Agents
+            </button>
+          )}
         </nav>
       </header>
       {screen !== 'landing' && (
@@ -95,6 +104,7 @@ export function App() {
           <Notes onPrivacy={setPrivacy} />
         </div>
       )}
+      {screen === 'agents' && showAgents && <Agents />}
       {privacy !== null && <Privacy noteId={privacy} onBack={() => setPrivacy(null)} />}
       <footer>
         <small data-testid="network-label">

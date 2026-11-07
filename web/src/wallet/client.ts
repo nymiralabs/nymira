@@ -7,6 +7,7 @@ import type {
   FrameMessage,
   FrameRequest,
   FunctionCallAction,
+  SignedMessage,
   WalletInfo,
 } from './protocol';
 
@@ -16,6 +17,12 @@ export interface ConnectedWallet {
   walletId: string;
   /** What the NEP-413 check said about the signed sign-in message. */
   signature: 'valid' | 'unsupported';
+}
+
+export interface SignedByWallet extends SignedMessage {
+  nonce: Uint8Array;
+  message: string;
+  recipient: string;
 }
 
 const SIGN_IN_MESSAGE = 'Connect to Nymira. This signature only shows that you hold this account.';
@@ -156,6 +163,30 @@ export class WalletClient {
     };
     this.emit();
     return this.connected;
+  }
+
+  /**
+   * Has the connected wallet sign one NEP-413 message. The signature is checked here, so a wallet
+   * that returns another account's or a wrong signature is refused before the page shows a file.
+   */
+  async signMessage(message: string, recipient: string): Promise<SignedByWallet> {
+    const connected = this.connected;
+    if (!connected) throw new Error('connect a wallet first');
+    const nonce = crypto.getRandomValues(new Uint8Array(32));
+    const signed = await this.request<SignedMessage>({
+      method: 'signMessage',
+      params: { message, recipient, nonce: [...nonce] },
+    });
+    if (signed?.accountId !== connected.accountId || !signed.publicKey?.startsWith('ed25519:')) {
+      throw new Error('the wallet signed for another account');
+    }
+    const verdict = await verifyNep413(
+      { message, recipient, nonce },
+      signed.publicKey,
+      signed.signature,
+    );
+    if (verdict === 'invalid') throw new Error('the wallet signature does not verify');
+    return { ...signed, nonce, message, recipient };
   }
 
   /** Sends one `ft_transfer_call`-style function call; returns the wallet's outcome object. */
