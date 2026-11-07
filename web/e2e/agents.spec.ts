@@ -257,4 +257,30 @@ test.describe('Agents screen', () => {
     await page.getByTestId('c-host').fill('-oProxyCommand=id');
     await expect(page.getByTestId('command-errors')).toContainText('must not start with a dash');
   });
+  test('the recipes are filled from the fields, have copy buttons and hold no token', async ({
+    context,
+    page,
+  }) => {
+    await setUp(context);
+    await openAgents(page);
+    await page.getByTestId('agent-name').fill('worker');
+    await page.getByTestId('c-token').fill('/srv/agent/worker.token');
+    await page.getByTestId('c-key').fill('/home/me/key');
+    await page.getByTestId('c-amount').fill('1000000');
+    await page.getByTestId('c-host').fill('agent.example');
+    const ironclaw = page.getByTestId('recipe-ironclaw');
+    const cursor = page.getByTestId('recipe-cursor');
+    await expect(ironclaw.locator('pre').first()).toContainText('cat /srv/agent/worker.token');
+    await expect(ironclaw).toContainText('nymirad agent disable --name worker');
+    await expect(ironclaw.locator('pre').last()).toContainText('-R 8788:');
+    await expect(ironclaw.locator('pre').last()).toContainText('agent.example');
+    await expect(cursor.locator('pre').first()).toContainText('/srv/agent/worker.token');
+    for (const recipe of [ironclaw, cursor]) {
+      await expect(recipe.getByRole('button', { name: 'Copy' }).first()).toBeVisible();
+      expect(await recipe.innerText()).not.toMatch(/ny(?:ma|mo)_[A-Za-z0-9]/);
+    }
+    await page.getByTestId('c-token').fill('nyma_0123456789abcdef');
+    await expect(page.getByTestId('recipe-errors')).toContainText('give a path, not a token');
+    await expect(ironclaw).toHaveCount(0);
+  });
 });

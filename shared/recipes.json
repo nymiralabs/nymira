@@ -1,0 +1,136 @@
+{
+ "recipes": [
+  {
+   "id": "ironclaw",
+   "title": "IronClaw",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "[IronClaw](https://github.com/nearai/ironclaw) is NEAR's agent runtime. This recipe points it at `nymirad`, so every model call it makes is paid from a budget note under your signed policy. It was tested with IronClaw v1.4.1. A newer version is listed here only after it passes `scripts/agents-smoke.sh`, which runs that release against the mock stack and checks its SHA-256 before it unpacks it. The recipe works against `make demo` with no keys or money: `cargo run -p nymirad --features mock --example demo_sign -- DEMO_HOME NAME` signs the demo policy with the demo account's key. That tool is built only with the `mock` feature, so a release build has no key to sign with."
+    },
+    {
+     "t": "p",
+     "text": "Start from a budget note, a signed policy that allows the model below, and an agent token (see \"Budget notes for agents\" in the README or the Agents screen). IronClaw starts as the user who launches it, so it must not share an OS user with the `nymirad` that holds your own notes. Pick one:"
+    },
+    {
+     "t": "ul",
+     "items": [
+      "a different OS user on this machine (IronClaw reaches `nymirad` over loopback TCP, so issue a `tcp` token, not a `unix` one);",
+      "a different machine, reached with the forward under \"Another machine\" in the README;",
+      "a dedicated `nymirad` instance with its own `--home`, port and owner token that holds only the budget note."
+     ]
+    },
+    {
+     "t": "p",
+     "text": "Write an environment file that only IronClaw's user can read (mode 0600), from your token file. Run this as you, and replace `AGENT_USER` with IronClaw's OS user:"
+    },
+    {
+     "t": "code",
+     "lang": "bash",
+     "title": "Environment file for IronClaw's user",
+     "text": "{\n  echo 'LLM_BACKEND=openai_compatible'\n  echo 'LLM_BASE_URL={{endpoint}}/v1'\n  printf 'LLM_API_KEY=%s\\n' \"$(cat {{token_file}})\"\n  echo 'LLM_MODEL=z-ai/glm-5.3-flash'\n} | sudo install -m 600 -o {{agent_user}} /dev/stdin ~{{agent_user}}/nymira.env"
+    },
+    {
+     "t": "p",
+     "text": "Then, as IronClaw's user, from a work directory that is not the home directory:"
+    },
+    {
+     "t": "code",
+     "lang": "bash",
+     "text": "set -a; . ~/nymira.env; set +a\nironclaw onboard --no-service </dev/null\nironclaw models status        # default.base_url must read {{endpoint}}/v1",
+     "title": "Set up IronClaw (as its user)"
+    },
+    {
+     "t": "p",
+     "text": "`LLM_BACKEND=openai_compatible` is IronClaw's generic provider (`provider_id = \"openai_compatible\"` with a `base_url` in `config.toml` is the same thing). `onboard` with no terminal asks nothing and copies the key from the environment into IronClaw's own secret store under that user's home; disabling the token (`nymirad agent disable --name {{name}}`) is what stops the agent, not deleting the file. Use the pinned model's canonical ID. `nymirad` refuses any model outside `allowed_models` with 402 `model_not_allowed`, whatever IronClaw is configured to ask for, and `GET /v1/models` lists only the allowed ones."
+    },
+    {
+     "t": "p",
+     "text": "One-line check, then the owner command that shows the charge:"
+    },
+    {
+     "t": "code",
+     "lang": "bash",
+     "text": "ironclaw run --message \"Reply with one short greeting.\"     # as IronClaw's user\nnymirad agent show                                          # as you: spend today and balance",
+     "title": "One answer, then the charge"
+    },
+    {
+     "t": "p",
+     "text": "What to expect:"
+    },
+    {
+     "t": "ul",
+     "items": [
+      "Chat completions only. An agent token reaches `/v1/chat/completions` and `/v1/models` as an OpenAI key; every other OpenAI route is refused.",
+      "At most two requests in flight per lease; a third gets 409 `busy`.",
+      "A pause of up to about 10 seconds when a new lease opens.",
+      "A call whose worst case is above `confirm_above_usd` is held for your approval and gets 402 `approval_required`.",
+      "A 429 `operator_capacity` with `Retry-After` when the operator's daily provider budget is used up; a 429 `policy_rate_limit` when your own rate limit is reached.",
+      "Errors arrive in OpenAI's shape. IronClaw words a 402 as \"The AI provider account is out of credits\" and prints `nymirad`'s reason (the `code`, for example `model_not_allowed`) in its warning line.",
+      "With `require_tee` on, an answer is held until its signature and the model's attestation are checked, and each answer comes back with its signature kind in `X-Nymira-Signature-Kind`. Streamed answers are expected to be gateway-signed, not model-signed. `run` in v1.4.1 sent no `stream` field in our run."
+     ]
+    },
+    {
+     "t": "p",
+     "text": "What IronClaw's calls still reveal: the operator sees the model, the request settings, the number and size of messages, token usage and timing, as for any request (THREAT_MODEL.md). IronClaw sends its own tool list with every request; v1.4.1 sent 26 definitions in our run, so that length is visible too, and their text is encrypted. The set of notes a lease could belong to is small while few notes are open, and on testnet it is made of test notes. IronClaw's other traffic does not go through Tor. A machine that runs IronClaw sees every prompt."
+    },
+    {
+     "t": "p",
+     "text": "IronClaw has no MCP entry for the Nymira server. Its documentation says v1.4.1 connects to MCP servers over HTTP(S) and rejects the `stdio` transport, and the Nymira server speaks stdio only. IronClaw pays through the provider route above."
+    },
+    {
+     "t": "p",
+     "text": "For IronClaw on another machine, run this on your machine, so the agent host holds no credential for yours:"
+    },
+    {
+     "t": "code",
+     "lang": "bash",
+     "text": "ssh -N -R 8788:{{local}}:8788 {{agent_host}}",
+     "title": "Forward for IronClaw on another machine (run on your machine)"
+    },
+    {
+     "t": "p",
+     "text": "The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under \"Another machine\" in the README. Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token."
+    }
+   ]
+  },
+  {
+   "id": "cursor",
+   "title": "Cursor",
+   "blocks": [
+    {
+     "t": "p",
+     "text": "Cursor's agent pays for answers from a budget note through the Nymira MCP server and its `nymira_ask` tool. It does not use Cursor's base URL override (see below). Cursor has not been run against this recipe, so no Cursor version is listed here; the entry follows the format in Cursor's MCP documentation."
+    },
+    {
+     "t": "p",
+     "text": "Start from the same budget note, signed policy and agent token as for the IronClaw recipe. Cursor starts the MCP server as the user who runs Cursor, so run Cursor as a different OS user or on a different machine, or point the entry at a dedicated `nymirad` instance that holds only the budget note."
+    },
+    {
+     "t": "p",
+     "text": "Install the server at a fixed path from the signed release (the steps are in `mcp/README.md`), keep the token in a file that only that user can read, and add this entry to `.cursor/mcp.json` in the project or to `~/.cursor/mcp.json`. It holds the path of the token file and no token. `node tools/host-config.ts --host cursor` in `mcp/` prints it for your paths."
+    },
+    {
+     "t": "mcp",
+     "title": "Entry for .cursor/mcp.json"
+    },
+    {
+     "t": "p",
+     "text": "**Why not the base URL override.** Replies on Cursor's forum say that a request with an overridden base URL first goes to Cursor's servers ([one](https://forum.cursor.com/t/problem-reaching-openai-error-on-a-local-model-with-overriden-base-url/3975), [two](https://forum.cursor.com/t/connecting-local-ai-server-to-cursor-does-not-work/152940)), so they cannot reach `{{local}}`. Exposing `nymirad` through a tunnel would remove its loopback guard, and Cursor would still read every prompt. If Cursor adds a mode that sends custom-base-URL requests from the local client, this recipe is checked again before that path is added."
+    },
+    {
+     "t": "p",
+     "text": "**What Cursor sees.** Cursor and its model vendor see what the agent sends to `nymira_ask` and what comes back, with the balance, charges and timing the tools return. MCP gives no content privacy from the host. What the path does give: NEAR AI sees only Nymira's organisation as the payer, the agent cannot raise its ceiling, and your policy applies to every call."
+    },
+    {
+     "t": "p",
+     "text": "What to expect is the IronClaw list, with the tool's own limits: `max_usd` caps a call, a held call returns `approval_required` and only you can approve it, and an answer's text reaches Cursor as untrusted text."
+    },
+    {
+     "t": "p",
+     "text": "One-line check, then the owner command that shows the charge: ask Cursor's agent to call `nymira_ask` with a short question and `max_usd` of `0.01`, then run `nymirad agent show`. To stop the agent, run `nymirad agent disable --name {{name}}`."
+    }
+   ]
+  }
+ ]
+}

@@ -209,21 +209,25 @@ The forwarded port binds to the loopback of the agent host as long as `GatewayPo
 
 ### IronClaw
 
+<!-- recipe:ironclaw begin: written from shared/recipes.json by scripts/recipes.mjs, do not edit here -->
+
 [IronClaw](https://github.com/nearai/ironclaw) is NEAR's agent runtime. This recipe points it at `nymirad`, so every model call it makes is paid from a budget note under your signed policy. It was tested with IronClaw v1.4.1. A newer version is listed here only after it passes `scripts/agents-smoke.sh`, which runs that release against the mock stack and checks its SHA-256 before it unpacks it. The recipe works against `make demo` with no keys or money: `cargo run -p nymirad --features mock --example demo_sign -- DEMO_HOME NAME` signs the demo policy with the demo account's key. That tool is built only with the `mock` feature, so a release build has no key to sign with.
 
-Start from a budget note, a signed policy that allows the model below, and an agent token (see "Budget notes for agents" above, or the Agents screen). IronClaw starts as the user who launches it, so it must not share an OS user with the `nymirad` that holds your own notes. Pick one:
+Start from a budget note, a signed policy that allows the model below, and an agent token (see "Budget notes for agents" in the README or the Agents screen). IronClaw starts as the user who launches it, so it must not share an OS user with the `nymirad` that holds your own notes. Pick one:
 
 - a different OS user on this machine (IronClaw reaches `nymirad` over loopback TCP, so issue a `tcp` token, not a `unix` one);
-- a different machine, reached with the forward under "Another machine";
+- a different machine, reached with the forward under "Another machine" in the README;
 - a dedicated `nymirad` instance with its own `--home`, port and owner token that holds only the budget note.
 
-Give IronClaw's user an environment file that only that user can read (mode 0600), with the token you issued:
+Write an environment file that only IronClaw's user can read (mode 0600), from your token file. Run this as you, and replace `AGENT_USER` with IronClaw's OS user:
 
 ```bash
-LLM_BACKEND=openai_compatible
-LLM_BASE_URL=http://localhost:8788/v1
-LLM_API_KEY=nyma_...    # the agent token
-LLM_MODEL=z-ai/glm-5.3-flash
+{
+  echo 'LLM_BACKEND=openai_compatible'
+  echo 'LLM_BASE_URL=http://localhost:8788/v1'
+  printf 'LLM_API_KEY=%s\n' "$(cat /srv/agent/ironclaw.token)"
+  echo 'LLM_MODEL=z-ai/glm-5.3-flash'
+} | sudo install -m 600 -o AGENT_USER /dev/stdin ~AGENT_USER/nymira.env
 ```
 
 Then, as IronClaw's user, from a work directory that is not the home directory:
@@ -234,7 +238,7 @@ ironclaw onboard --no-service </dev/null
 ironclaw models status        # default.base_url must read http://localhost:8788/v1
 ```
 
-`LLM_BACKEND=openai_compatible` is IronClaw's generic provider (`provider_id = "openai_compatible"` with a `base_url` in `config.toml` is the same thing). `onboard` with no terminal asks nothing and copies the key from the environment into IronClaw's own secret store under that user's home; disabling the token in `nymirad` is what stops the agent, not deleting the file. Use the pinned model's canonical ID. `nymirad` refuses any model outside `allowed_models` with 402 `model_not_allowed`, whatever IronClaw is configured to ask for, and `GET /v1/models` lists only the allowed ones.
+`LLM_BACKEND=openai_compatible` is IronClaw's generic provider (`provider_id = "openai_compatible"` with a `base_url` in `config.toml` is the same thing). `onboard` with no terminal asks nothing and copies the key from the environment into IronClaw's own secret store under that user's home; disabling the token (`nymirad agent disable --name ironclaw`) is what stops the agent, not deleting the file. Use the pinned model's canonical ID. `nymirad` refuses any model outside `allowed_models` with 402 `model_not_allowed`, whatever IronClaw is configured to ask for, and `GET /v1/models` lists only the allowed ones.
 
 One-line check, then the owner command that shows the charge:
 
@@ -264,13 +268,17 @@ For IronClaw on another machine, run this on your machine, so the agent host hol
 ssh -N -R 8788:localhost:8788 AGENT_HOST
 ```
 
-The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under "Another machine". Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token.
+The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under "Another machine" in the README. Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token.
+
+<!-- recipe:ironclaw end -->
 
 ### Cursor
 
+<!-- recipe:cursor begin: written from shared/recipes.json by scripts/recipes.mjs, do not edit here -->
+
 Cursor's agent pays for answers from a budget note through the Nymira MCP server and its `nymira_ask` tool. It does not use Cursor's base URL override (see below). Cursor has not been run against this recipe, so no Cursor version is listed here; the entry follows the format in Cursor's MCP documentation.
 
-Start from the same budget note, signed policy and agent token as for IronClaw. Cursor starts the MCP server as the user who runs Cursor, so run Cursor as a different OS user or on a different machine, or point the entry at a dedicated `nymirad` instance that holds only the budget note.
+Start from the same budget note, signed policy and agent token as for the IronClaw recipe. Cursor starts the MCP server as the user who runs Cursor, so run Cursor as a different OS user or on a different machine, or point the entry at a dedicated `nymirad` instance that holds only the budget note.
 
 Install the server at a fixed path from the signed release (the steps are in `mcp/README.md`), keep the token in a file that only that user can read, and add this entry to `.cursor/mcp.json` in the project or to `~/.cursor/mcp.json`. It holds the path of the token file and no token. `node tools/host-config.ts --host cursor` in `mcp/` prints it for your paths.
 
@@ -298,9 +306,11 @@ Install the server at a fixed path from the signed release (the steps are in `mc
 
 **What Cursor sees.** Cursor and its model vendor see what the agent sends to `nymira_ask` and what comes back, with the balance, charges and timing the tools return. MCP gives no content privacy from the host. What the path does give: NEAR AI sees only Nymira's organisation as the payer, the agent cannot raise its ceiling, and your policy applies to every call.
 
-What to expect is the list under IronClaw, with the tool's own limits: `max_usd` caps a call, a held call returns `approval_required` and only you can approve it, and an answer's text reaches Cursor as untrusted text.
+What to expect is the IronClaw list, with the tool's own limits: `max_usd` caps a call, a held call returns `approval_required` and only you can approve it, and an answer's text reaches Cursor as untrusted text.
 
-One-line check, then the owner command that shows the charge: ask Cursor's agent to call `nymira_ask` with a short question and `max_usd` of `0.01`, then run `nymirad agent show`.
+One-line check, then the owner command that shows the charge: ask Cursor's agent to call `nymira_ask` with a short question and `max_usd` of `0.01`, then run `nymirad agent show`. To stop the agent, run `nymirad agent disable --name cursor`.
+
+<!-- recipe:cursor end -->
 
 ### Opt-in: the note on the agent's machine
 
