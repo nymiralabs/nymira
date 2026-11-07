@@ -203,6 +203,25 @@ pub fn seal_request(
     Ok(Value::Object(out))
 }
 
+/// Hosts such as IronClaw send `content` as a list of parts. A list whose every part is exactly
+/// `{"type": "text", "text": <string>}` carries one string, so it is joined (with nothing between
+/// the parts) and sealed like one. Any other part (an image, audio, a file, an extra field) or an
+/// empty list is not text and stays refused.
+fn join_text_parts(parts: &[Value]) -> Option<String> {
+    if parts.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    for part in parts {
+        let obj = part.as_object()?;
+        if obj.len() != 2 || obj.get("type")?.as_str()? != "text" {
+            return None;
+        }
+        out.push_str(obj.get("text")?.as_str()?);
+    }
+    Some(out)
+}
+
 fn seal_message(m: &Value, key: &[u8; 32]) -> Result<Value, E2eeError> {
     let obj = m
         .as_object()
@@ -212,6 +231,10 @@ fn seal_message(m: &Value, key: &[u8; 32]) -> Result<Value, E2eeError> {
         let sealed = match (k.as_str(), v) {
             ("content", Value::Null) => Value::Null,
             ("content", Value::String(_)) => enc_str(v, key, "content")?,
+            ("content", Value::Array(parts)) => match join_text_parts(parts) {
+                Some(text) => enc_str(&Value::String(text), key, "content")?,
+                None => return Err(unsupported("message content must be one string")),
+            },
             ("content", _) => return Err(unsupported("message content must be one string")),
             ("name", Value::String(_)) => enc_str(v, key, "name")?,
             ("tool_calls", Value::Array(calls)) => Value::Array(
@@ -453,6 +476,32 @@ mod tests {
     }
 
     #[test]
+    fn text_only_array_content_is_joined_into_one_string_before_encrypting() {
+        use nymira_operator::proxy::{parse_chat, ProxyConfig};
+        let (sk, pk) = model();
+        let parts = json!({"model": "z-ai/glm-5.3-flash", "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "Par"}, {"type": "text", "text": "is?"}]},
+        ]});
+        let flat = json!({"model": "z-ai/glm-5.3-flash", "messages": [
+            {"role": "user", "content": "Paris?"},
+        ]});
+        let sealed = seal_request(&parts, &pk, Some(5)).unwrap();
+        let opened = model_opens(&sk, sealed["messages"][0]["content"].as_str().unwrap());
+        assert_eq!(opened, "Paris?");
+        // The operator's parser, which sizes the quote and the lease, counts the same tokens.
+        let count = |v: &Value| {
+            parse_chat(
+                &serde_json::to_vec(&seal_request(v, &pk, Some(5)).unwrap()).unwrap(),
+                &ProxyConfig::default(),
+                &Default::default(),
+            )
+            .unwrap()
+            .input_tokens
+        };
+        assert_eq!(count(&parts), count(&flat));
+    }
+
+    #[test]
     fn unknown_fields_and_array_content_are_refused_not_forwarded() {
         let (_, pk) = model();
         let bad = json!({"model": "m", "messages": [], "logit_bias": {"1": 5}});
@@ -460,12 +509,23 @@ mod tests {
             seal_request(&bad, &pk, None),
             Err(E2eeError::Unsupported(_))
         ));
-        let parts = json!({"model": "m", "messages": [{"role": "user",
-            "content": [{"type": "text", "text": "hi"}]}]});
-        assert!(matches!(
-            seal_request(&parts, &pk, None),
-            Err(E2eeError::Unsupported(_))
-        ));
+        // Parts that are not exactly `{"type": "text", "text": <string>}` stay refused.
+        for content in [
+            json!([{"type": "image_url", "image_url": {"url": "x"}}]),
+            json!([{"type": "text", "text": "a"}, {"type": "input_audio", "input_audio": {}}]),
+            json!([{"type": "text", "text": "a", "cache_control": {"type": "ephemeral"}}]),
+            json!([{"type": "text", "text": 5}]),
+            json!([{"type": "text"}]),
+            json!([{"type": "text", "text": "a"}, "b"]),
+            json!([]),
+            json!({"type": "text", "text": "a"}),
+        ] {
+            let parts = json!({"model": "m", "messages": [{"role": "user", "content": content}]});
+            assert!(
+                matches!(seal_request(&parts, &pk, None), Err(E2eeError::Unsupported(_))),
+                "{content}"
+            );
+        }
         let extra =
             json!({"model": "m", "messages": [{"role": "user", "content": "x", "audio": 1}]});
         assert!(seal_request(&extra, &pk, None).is_err());

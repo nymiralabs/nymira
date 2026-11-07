@@ -191,8 +191,10 @@ async fn build_gateway(
     let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
     let second = second_rpc(cfg, &transport);
     let pinned = pins::compiled(mode);
+    // A demo build trusts the demo vault's pins before the compiled ones, so `NYMIRA_MODE=testnet`
+    // (the network the demo operator serves) reads the demo vault, not the real testnet one.
     #[cfg(feature = "mock")]
-    let pinned = pinned.or_else(|| pins::demo(home));
+    let pinned = pins::demo(home).or(pinned);
     let Some(pinned) = pinned else {
         eprintln!("warning: no vault is pinned for {mode:?} in this build: chat is off");
         return None;
@@ -732,7 +734,7 @@ async fn main() {
             let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
             let pinned = pins::compiled(mode);
             #[cfg(feature = "mock")]
-            let pinned = pinned.or_else(|| pins::demo(&home));
+            let pinned = pins::demo(&home).or(pinned);
             if command == "status" {
                 let _ = match &pinned {
                     Some(p) => tripwire.check_against(p, &rpc).await,
@@ -1029,8 +1031,10 @@ async fn policy_load(
     let bytes = std::fs::read(&file).unwrap_or_else(|e| die(format!("{file}: {e}")));
     let cfg = Config::load(home).unwrap_or_else(|e| die(e));
     let pinned = pins::compiled(mode);
+    // A demo build trusts the demo vault's pins before the compiled ones, so `NYMIRA_MODE=testnet`
+    // (the network the demo operator serves) reads the demo vault, not the real testnet one.
     #[cfg(feature = "mock")]
-    let pinned = pinned.or_else(|| pins::demo(home));
+    let pinned = pins::demo(home).or(pinned);
     let pinned = pinned.unwrap_or_else(|| die("no vault is pinned in this build"));
     let classes: Vec<u128> = pinned.config["bound_classes"]
         .as_array()
@@ -1227,8 +1231,10 @@ async fn import_state(
     let cfg = Config::load(home).unwrap_or_else(|e| die(e));
     let passphrase = source.read().unwrap_or_else(|e| die(e));
     let pinned = pins::compiled(mode);
+    // A demo build trusts the demo vault's pins before the compiled ones, so `NYMIRA_MODE=testnet`
+    // (the network the demo operator serves) reads the demo vault, not the real testnet one.
     #[cfg(feature = "mock")]
-    let pinned = pinned.or_else(|| pins::demo(home));
+    let pinned = pins::demo(home).or(pinned);
     let pinned = pinned.unwrap_or_else(|| die("no vault is pinned for this build"));
     let point = |f: &str| {
         zkapi_types::Felt252::from_hex(pinned.config["operator_pk"][f].as_str().unwrap_or(""))
@@ -1502,8 +1508,10 @@ async fn restore_secret_command(
     let transport = connect(&cfg, home, TOR_WAIT).await;
     let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
     let pinned = pins::compiled(mode);
+    // A demo build trusts the demo vault's pins before the compiled ones, so `NYMIRA_MODE=testnet`
+    // (the network the demo operator serves) reads the demo vault, not the real testnet one.
     #[cfg(feature = "mock")]
-    let pinned = pinned.or_else(|| pins::demo(home));
+    let pinned = pins::demo(home).or(pinned);
     let vault = pinned
         .map(|p| p.vault)
         .unwrap_or_else(|| die("no vault is pinned in this build"));
@@ -1579,8 +1587,10 @@ async fn intents_command(
     let transport = connect(&cfg, home, TOR_WAIT).await;
     let rpc = Rpc::new(cfg.rpc_url.clone(), &transport).unwrap_or_else(|e| die(e));
     let pinned = pins::compiled(mode);
+    // A demo build trusts the demo vault's pins before the compiled ones, so `NYMIRA_MODE=testnet`
+    // (the network the demo operator serves) reads the demo vault, not the real testnet one.
     #[cfg(feature = "mock")]
-    let pinned = pinned.or_else(|| pins::demo(home));
+    let pinned = pins::demo(home).or(pinned);
     let funding = intents::Funding {
         mode,
         home: home.to_path_buf(),

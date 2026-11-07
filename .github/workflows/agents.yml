@@ -1,0 +1,57 @@
+name: agents
+
+# The agents smoke test: the pinned IronClaw release against the mock stack. It is its own
+# workflow so that a third-party download cannot turn the `ci` badge (the quickstart job) red.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/agents-smoke.sh"
+      - "scripts/agents-ironclaw.sha256"
+      - ".github/workflows/agents.yml"
+      - "crates/nymirad/**"
+      - "crates/nymira-operator/**"
+      - "crates/nymira-fake-near-ai/**"
+      - "Cargo.lock"
+  pull_request:
+    paths:
+      - "scripts/agents-smoke.sh"
+      - "scripts/agents-ironclaw.sha256"
+      - ".github/workflows/agents.yml"
+      - "crates/nymirad/**"
+      - "crates/nymira-operator/**"
+      - "crates/nymira-fake-near-ai/**"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agents:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - name: Free disk space (preinstalled toolchains the job does not use)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Install cargo-near 0.22.0 (release binary, checksum pinned)
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o cargo-near.tar.gz \
+            https://github.com/near/cargo-near/releases/download/cargo-near-v0.22.0/cargo-near-x86_64-unknown-linux-gnu.tar.gz
+          echo "9429064e30a427e96523f539cb255f3688d2345e5000d7d4e4873a8247247d1a  cargo-near.tar.gz" | sha256sum -c -
+          tar -xzf cargo-near.tar.gz
+          install -m 0755 cargo-near-x86_64-unknown-linux-gnu/cargo-near "$HOME/.cargo/bin/cargo-near"
+          cargo near --version
+      - name: IronClaw against the mock stack (separate OS user)
+        run: scripts/agents-smoke.sh
