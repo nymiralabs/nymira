@@ -174,6 +174,22 @@ Approval requests also use `approval_unknown` (404), `approval_used` (409), `app
 
 A **charge warning** is raised when a lease settles with a charge more than one charge step above the one recomputed from the signed usage. From then on every request on that agent's note gets 503 `unavailable` with `detail: charge_warning`, `nymirad serve` prints a warning, and `agent show` marks it, until you run `nymirad agent ack-warning --name NAME`. The mark is a file in the state directory and part of the backup.
 
+### What a budget note guarantees
+
+The ceiling is cryptographic: an agent can spend at most the balance of its budget note, and a close can only pay your payout account. The policy is only as strong as the machine that runs `nymirad`. The model list, the lease, call and daily limits, the rate limit, the approvals and `require_tee` are checked there. That machine is yours by default. In opt-in mode (below) it is the agent's, and revoking is not guaranteed.
+
+Both rest on the vault matching the client's pins. The team can still update the vault code, and open user deposits in the vault are capped at 100 USDC (test USDC on testnet).
+
+There is no remote rate limit and no remote kill switch. A lease request does not name its note, and the design is meant to keep the operator from grouping leases by note. That is a claim of the underlying protocol that has not been checked independently. Only your own `nymirad` limits an agent's rate, and only you disable its token. The operator can still stop new leases for everyone, through its emergency stop and capacity limits.
+
+Closing a budget note shows its note ID and total spend on chain, next to the payout account you named, so the agent's total becomes public at the end.
+
+### Agents screen in the web app
+
+The web app has an Agents screen for the owner. It builds `policy.yaml` from form fields and signs it with your NEAR wallet (NEP-413, so the wallet has to support `signMessage`; on testnet Meteor and Intear are the supported wallets, and the screen is hidden when the connected wallet cannot sign messages). `require_tee: true` is the only value it offers. It signs an approval from the approval ID, request hash, amount and nonce that `nymirad agent approvals` shows, and it prints the `nymirad` commands and tool settings from the fields you type: every value is shell-quoted, control characters are refused, and nothing is read from the URL. The remote-agent forward it prints is `ssh -N -R 8788:localhost:8788 AGENT_HOST`, to run on your machine.
+
+The page creates no budget note, never asks for or shows a token, and makes no request to `nymirad`. You download the signed files and run the commands yourself. The policy needs the note commitment: it is the `note` field of the agent in `agents.json` in the state directory, and it goes into the signed recipient, so a file signed for one agent or note is refused for another.
+
 ### Another OS user on your machine
 
 Use `--transport unix --agent-user USER --token-file PATH`. `nymirad serve` opens a socket at `/tmp/nymira-agent-<your uid>/agent.sock` (or `agent_socket_dir` in `config.json`), mode 0660 in a directory of mode 0750, both in the agent group. The group is the agent user's primary group, or `--group`. Every connection's peer user ID is checked: your own OS user is refused, as is any user no socket agent is registered for, and each token works only for its own user. The token file is mode 0640, owned by you, in the agent group, so the agent user can read it and nobody else can. If you are not a member of that group, you cannot give files to it: the command then prints `sudo chgrp GROUP FILE` for the token file, and `serve` prints the `sudo chgrp` and `chmod 2750` commands for the socket directory. Restart `nymirad serve` after the first socket agent is created.

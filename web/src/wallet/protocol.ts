@@ -7,6 +7,8 @@ export interface WalletInfo {
   name: string;
   /** Announced by a browser extension rather than one of the pinned executors. */
   injected: boolean;
+  /** The wallet's manifest says it can sign a NEP-413 message after sign-in. */
+  signMessage: boolean;
 }
 
 export interface SignedMessage {
@@ -32,6 +34,10 @@ export type FrameRequest =
   | {
       method: 'connect';
       params: { walletId: string; message: string; recipient: string; nonce: number[] };
+    }
+  | {
+      method: 'signMessage';
+      params: { message: string; recipient: string; nonce: number[] };
     }
   | { method: 'send'; params: { receiverId: string; actions: FunctionCallAction[] } }
   | { method: 'disconnect'; params: Record<string, never> };
