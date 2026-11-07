@@ -34,6 +34,16 @@ test("the package is Apache-2.0 TypeScript for Node 24 on the official SDK, lock
   assert.ok(existsSync(new URL("../src/index.ts", import.meta.url)));
 });
 
+// `private` stops `npm publish` run by hand in mcp/ from putting version 0.0.0 on the registry.
+// Release day bumps the version and removes the flag in the same change.
+test("version 0.0.0 cannot be published by hand", () => {
+  if (pkg.version === "0.0.0") {
+    assert.equal(pkg.private, true);
+  } else {
+    assert.equal(pkg.private, undefined, "a released package must be publishable");
+  }
+});
+
 test("it declares only the tools capability, on protocol 2025-11-25", async () => {
   const file = tokenFile(AGENT_TOKEN);
   const s = await connect(tcpArgs(file, 1));

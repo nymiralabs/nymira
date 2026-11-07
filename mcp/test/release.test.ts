@@ -49,7 +49,8 @@ test("the tarball holds the built server and its locked dependencies, and no sou
   assert.ok(files.includes("package/node_modules/@modelcontextprotocol/sdk/package.json"));
   assert.ok(!files.some((f) => /^package\/(src|test|tools|tsconfig)/.test(f)));
   const pkg = JSON.parse(execFileSync("tar", ["-xzOf", tgz, "package/package.json"], { encoding: "utf8" }));
-  assert.equal(pkg.private, undefined);
+  const source = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.private, source.private, "the tarball carries the package's own publish flag");
   assert.deepEqual(pkg.bundleDependencies, ["@modelcontextprotocol/sdk"]);
 });
 
