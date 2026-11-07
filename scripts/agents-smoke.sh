@@ -226,7 +226,7 @@ ic_rate onboard --no-service </dev/null >"$WORK/rate-onboard.log" 2>&1 \
 if ic_rate run --message "Reply with one short greeting." </dev/null >"$WORK/ic-rate.out" 2>"$WORK/ic-rate.err"; then
   die "IronClaw got an answer while the provider was rate limited"
 fi
-cat "$WORK/ic-rate.out" "$WORK/ic-rate.err" | grep -q 'rate limited' \
+grep -q 'rate limited' "$WORK/ic-rate.out" "$WORK/ic-rate.err" \
   || { tail -30 "$WORK/ic-rate.err"; die "IronClaw did not report a rate limit"; }
 # IronClaw v1.4.1 reports a generic rate limit with `retry after None`; it does not
 # expose the reason code or the retry interval in its output. This is not a pass for
