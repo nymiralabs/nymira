@@ -276,6 +276,9 @@ async fn main() {
     })
     .await
     .expect("operator starts");
+    // The demo runs the operator in-process, so it also has to run the loop that retires idle
+    // leases and settles them. Without it a chat is answered but its charge is never booked.
+    op.spawn_background();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let operator_url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
