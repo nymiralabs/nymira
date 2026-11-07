@@ -12,8 +12,8 @@
 #      with a tool definition, a model outside the policy (402 `model_not_allowed`);
 #   2. runs IronClaw as a separate OS user with the recipe's environment file, asks one question,
 #      then asks for the disallowed model and checks that IronClaw's output carries the 402 reason;
-#   3. checks that the answer carried its charge and that `nymirad agent show` lists the budget
-#      note (spend is booked when the lease settles, so that figure is not asserted).
+#   3. checks that the answer carried its charge and waits for the lease to settle, so
+#      `nymirad agent show` reports the spend the owner's command in the recipe prints.
 #
 # Needs: bash, curl, a tar, sha256sum or shasum, `sudo` for a second OS user (CI has it), the
 # toolchain from rust-toolchain.toml and cargo-near 0.22.0 (the demo builds a contract), and port
@@ -26,6 +26,7 @@
 #   NYMIRAD_PORT=8788         the port `serve` binds. IronClaw reaches only 8788, so any other
 #                             value skips the IronClaw steps (the HTTP steps still run)
 #   NO_BUILD=1                use the binaries already in target/debug
+#   SMOKE_SKIP_SETTLE=1       skip the wait for the settled charge (local runs; CI leaves it unset)
 
 set -euo pipefail
 
@@ -205,10 +206,9 @@ cat "$WORK/ic-bad.out" "$WORK/ic-bad.err" | grep -q 'model_not_allowed' || { tai
 ok "IronClaw shows the 402 reason (model_not_allowed)"
 
 # --- 5. the charge -------------------------------------------------------------------------
-# Spend is booked when the lease settles, which happens after the lease has been idle (120 s) and
-# the operator has settled it. The smoke test does not wait for that, so it asserts what is true
-# now: the answer carried its charge (`nymira.charge_usd`, above), and the owner command runs and
-# shows the budget note. The `spent today` figure after settlement is not asserted here.
+# The answer carries its own charge. The owner command in the recipe shows a different figure:
+# `spent today` is booked when the operator retires the idle lease (five minutes) and settles it,
+# and nymirad's poll picks the settlement up. Both are asserted here.
 step "the charge"
 charge="$(printf '%s' "$TOOL_ANSWER" | grep -o '"charge_usd": *"[0-9.]*"' | head -1 | grep -o '[0-9.]*' || true)"
 case "$charge" in
@@ -218,5 +218,23 @@ ok "the answer carried a charge of $charge USD"
 nd agent show >"$WORK/show.log" 2>&1 || { cat "$WORK/show.log"; die "nymirad agent show failed"; }
 cat "$WORK/show.log"
 grep -q "note .*Accepted" "$WORK/show.log" || die "agent show does not list the budget note"
-ok "nymirad agent show lists the budget note (its spend is booked when the lease settles)"
+ok "nymirad agent show lists the budget note"
+
+if [ -n "${SMOKE_SKIP_SETTLE:-}" ]; then
+  echo "SMOKE_SKIP_SETTLE is set: the settled charge is not asserted"
+else
+  step "the settled charge reaches the owner view"
+  spent=0
+  for _ in $(seq 1 60); do
+    nd agent show >"$WORK/show.log" 2>&1 || { cat "$WORK/show.log"; die "nymirad agent show failed"; }
+    spent="$(sed -n 's/.*spent today \([0-9][0-9]*\) micro-USD.*/\1/p' "$WORK/show.log" | head -1)"
+    [ "${spent:-0}" -gt 0 ] 2>/dev/null && break
+    sleep 10
+  done
+  [ "${spent:-0}" -gt 0 ] || {
+    cat "$WORK/show.log"
+    die "spent today stayed at zero after ten minutes: the lease never settled"
+  }
+  ok "nymirad agent show reports spent today $spent micro-USD after settlement"
+fi
 echo; echo "agents smoke test passed"
