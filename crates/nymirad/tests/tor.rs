@@ -49,13 +49,28 @@ fn script_for(marker: &Path, body: &str) -> String {
     body.replace("$MARKER_DIR", &marker.display().to_string())
 }
 
+/// The copied script can still be held open for writing while another test forks and execs it.
+/// Retry that one spawn error; a pin or hash failure still reaches the test unchanged.
+async fn started(cfg: &TorConfig) -> Tor {
+    for attempt in 0_u64..4 {
+        match Tor::start(cfg).await {
+            Ok(tor) => return tor,
+            Err(TorError::Spawn(why)) if why.contains("Text file busy") && attempt < 3 => {
+                tokio::time::sleep(Duration::from_millis(50 * (attempt + 1))).await;
+            }
+            Err(e) => panic!("tor did not start: {e}"),
+        }
+    }
+    panic!("tor did not start after four attempts")
+}
+
 #[tokio::test]
 async fn starts_a_hashed_copy_and_reaches_ready() {
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("m");
     std::fs::create_dir(&marker).unwrap();
     let cfg = config(dir.path(), &script_for(&marker, FAKE_TOR));
-    let tor = Tor::start(&cfg).await.unwrap();
+    let tor = started(&cfg).await;
     assert_eq!(tor.version(), "Tor version 0.4.8.12");
     tor.wait_ready(Duration::from_secs(10)).await.unwrap();
     assert_eq!(tor.state(), TorState::Ready);
@@ -135,7 +150,7 @@ async fn a_build_without_a_pin_does_not_start_tor() {
 async fn a_dead_tor_is_down_and_nothing_is_sent() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(dir.path(), DYING_TOR);
-    let tor = Tor::start(&cfg).await.unwrap();
+    let tor = started(&cfg).await;
     let Err(TorError::NotReady(why)) = tor.wait_ready(Duration::from_secs(10)).await else {
         panic!("a process that exited is not ready");
     };
@@ -156,7 +171,8 @@ async fn a_slow_bootstrap_times_out_as_not_ready() {
     let marker = dir.path().join("m");
     std::fs::create_dir(&marker).unwrap();
     let slow = script_for(&marker, FAKE_TOR).replace("Bootstrapped 100%", "Bootstrapped 60%");
-    let tor = Tor::start(&config(dir.path(), &slow)).await.unwrap();
+    let cfg = config(dir.path(), &slow);
+    let tor = started(&cfg).await;
     assert!(matches!(
         tor.wait_ready(Duration::from_millis(800)).await,
         Err(TorError::NotReady(_))
@@ -221,7 +237,7 @@ async fn a_pin_file_with_several_hashes_accepts_any_of_them() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(dir.path(), FAKE_TOR);
     cfg.sha256 = format!("{}\n{}\n", "ab".repeat(32), cfg.sha256);
-    let tor = Tor::start(&cfg).await.expect("the second hash matches");
+    let tor = started(&cfg).await;
     drop(tor);
     cfg.sha256 = format!("{}\n{}\n", "ab".repeat(32), "cd".repeat(32));
     assert!(matches!(
