@@ -93,7 +93,13 @@ async fn inject(State(h): State<Handle>, req: Request, next: Next) -> Response {
         } else {
             "injected_failure"
         };
-        return err(status, code, "failure injected by the fake").into_response();
+        let mut response = err(status, code, "failure injected by the fake").into_response();
+        if status == 429 {
+            response
+                .headers_mut()
+                .insert(axum::http::header::RETRY_AFTER, "17".parse().unwrap());
+        }
+        return response;
     }
     next.run(req).await
 }

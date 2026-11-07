@@ -205,6 +205,36 @@ if ic_bad run --message "hello" </dev/null >"$WORK/ic-bad.out" 2>"$WORK/ic-bad.e
 cat "$WORK/ic-bad.out" "$WORK/ic-bad.err" | grep -q 'model_not_allowed' || { tail -20 "$WORK/ic-bad.err"; die "IronClaw's output does not carry the 402 reason"; }
 ok "IronClaw shows the 402 reason (model_not_allowed)"
 
+# Keep the fake provider rate limited for both the direct HTTP check and the host check.
+FAKE_URL="$(sed -n 's/^[[:space:]]*fake NEAR AI[[:space:]]*//p' "$WORK/demo.log" | head -1)"
+case "$FAKE_URL" in http://127.0.0.1:*) ;; *) die "cannot find the fake gateway" ;; esac
+curl -fsS -H 'Content-Type: application/json' -d '{"fail_next":100,"fail_status":429,"fail_path_prefix":"/v1/chat/completions"}' \
+  "$FAKE_URL/control/switches" > /dev/null || die "cannot enable fake provider rate limit"
+step "provider rate limit through nymirad and IronClaw"
+status="$(api /v1/chat/completions -H 'Content-Type: application/json' -D "$WORK/rate.headers" -o "$WORK/rate.body" -w '%{http_code}' \
+  -d "{\"model\":\"$MODEL\",\"max_tokens\":20,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")"
+[ "$status" = 429 ] && tr -d '\r' <"$WORK/rate.headers" | grep -Eqi '^retry-after: 17$' \
+  && python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["error"]; assert e["code"] == "provider_rate_limit" and e["type"] == "rate_limit_error"' "$WORK/rate.body" \
+  || { cat "$WORK/rate.headers" "$WORK/rate.body"; die "provider 429 did not reach nymirad with Retry-After"; }
+# Use a fresh home: a failed turn can leave IronClaw state that affects the next run.
+RATE_HOME="$AGENT_HOME/rate-home"
+as_agent mkdir -p "$RATE_HOME/work"
+as_agent cp "$AGENT_HOME/nymira.env" "$RATE_HOME/nymira.env"
+ic_rate() { (cd "$RATE_HOME/work" && as_agent env HOME="$RATE_HOME" bash -c 'set -a; . "$HOME/nymira.env"; set +a; exec "$@"' _ "$IRONCLAW" "$@"); }
+ic_rate onboard --no-service </dev/null >"$WORK/rate-onboard.log" 2>&1 \
+  || { cat "$WORK/rate-onboard.log"; die "rate-limit IronClaw onboard failed"; }
+if ic_rate run --message "Reply with one short greeting." </dev/null >"$WORK/ic-rate.out" 2>"$WORK/ic-rate.err"; then
+  die "IronClaw got an answer while the provider was rate limited"
+fi
+grep -q 'rate limited' "$WORK/ic-rate.out" "$WORK/ic-rate.err" \
+  || { tail -30 "$WORK/ic-rate.err"; die "IronClaw did not report a rate limit"; }
+# IronClaw v1.4.1 reports a generic rate limit with `retry after None`; it does not
+# expose the reason code or the retry interval in its output. This is not a pass for
+# the host compatibility requirement.
+curl -fsS -H 'Content-Type: application/json' -d '{"fail_next":0}' \
+  "$FAKE_URL/control/switches" > /dev/null || die "cannot clear fake provider rate limit"
+ok "provider 429 and Retry-After reached nymirad; IronClaw reported a generic rate limit"
+
 # --- 5. the charge -------------------------------------------------------------------------
 # The answer carries its own charge. The owner command in the recipe shows a different figure:
 # `spent today` is booked when the operator retires the idle lease (five minutes) and settles it,
