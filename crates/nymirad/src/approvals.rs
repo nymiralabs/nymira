@@ -112,7 +112,7 @@ fn required(id: &str, cost_micro: u128) -> ApiError {
     }
 }
 
-fn usd(micro: u128) -> String {
+pub(crate) fn usd(micro: u128) -> String {
     format!("{}.{:06}", micro / 1_000_000, micro % 1_000_000)
 }
 

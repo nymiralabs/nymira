@@ -1171,3 +1171,83 @@ async fn a_signature_that_fails_is_not_verified_with_a_fixed_message() {
     );
     assert!(!reply.to_string().contains("fake reply"));
 }
+
+// ---- a cap above the policy, and the charge ---------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cost_cap_above_max_call_usd_is_a_call_limit_not_a_clamp() {
+    let rig = Rig::new(&[("a", easy())]).await;
+    let a = rig.token("a");
+    // max_call_usd is 0.05. Above it the call is refused, with or without its own max_tokens.
+    for cap in ["0.050001", "0.06", "1", "999999999.999999"] {
+        for max in [None, Some(20)] {
+            let (status, _, reply) = ask(
+                &rig.app,
+                &a,
+                &[("x-nymira-max-cost-usd", cap)],
+                body("hi", max),
+            )
+            .await;
+            assert_eq!(
+                (status, code(&reply)),
+                (StatusCode::PAYMENT_REQUIRED, "call_limit"),
+                "{cap} {max:?}"
+            );
+        }
+        let q = quote(
+            &rig.app,
+            &a,
+            &[("x-nymira-max-cost-usd", cap)],
+            body("hi", None),
+        )
+        .await;
+        assert_eq!(
+            (q["decision"].clone(), q["reason"].clone()),
+            (json!("deny"), json!("call_limit")),
+            "{cap}"
+        );
+    }
+    rig.untouched();
+    // A cap equal to the limit is allowed, and so is one below it.
+    for cap in ["0.05", "0.049999"] {
+        let q = quote(
+            &rig.app,
+            &a,
+            &[("x-nymira-max-cost-usd", cap)],
+            body("hi", None),
+        )
+        .await;
+        assert_eq!(q["decision"], "allow", "{cap}: {q}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_answer_carries_the_charge_recomputed_from_its_usage_and_a_replay_the_same() {
+    let rig = Rig::new(&[("a", easy())]).await;
+    let a = rig.token("a");
+    let key = [("idempotency-key", "charge-1")];
+    let (status, _, first) = ask(&rig.app, &a, &key, body("hello", Some(20))).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    // Pinned prices times the usage in the answer, rounded up to a micro-USD.
+    let spec = nymira_operator::proxy::ProxyConfig::default()
+        .models
+        .into_iter()
+        .find(|m| m.id == MODEL)
+        .unwrap();
+    let nano = u128::from(first["usage"]["prompt_tokens"].as_u64().unwrap())
+        * u128::from(spec.input_nano_per_token)
+        + u128::from(first["usage"]["completion_tokens"].as_u64().unwrap())
+            * u128::from(spec.output_nano_per_token);
+    let micro = nano.div_ceil(1000);
+    assert!(micro > 0);
+    assert_eq!(
+        first["nymira"],
+        json!({"charge_usd": format!("{}.{:06}", micro / 1_000_000, micro % 1_000_000)})
+    );
+
+    // A retry with the same key returns the same figure and spends nothing.
+    let (_, _, again) = ask(&rig.app, &a, &key, body("hello", Some(20))).await;
+    assert_eq!(again, first);
+    assert_eq!(rig.chats(), 1);
+}

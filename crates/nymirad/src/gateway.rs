@@ -463,9 +463,12 @@ impl Gateway {
         )
         .map_err(|e| ApiError::invalid_request(e.message))?
         .input_tokens;
-        // The call's own cost cap can only lower the policy's limit.
-        let limit = crate::limits::micro_of(policy.max_call_usd)
-            .min(opts.max_cost_micro.unwrap_or(u128::MAX));
+        // The call's own cost cap can only lower the policy's limit; one above it is refused.
+        let policy_limit = crate::limits::micro_of(policy.max_call_usd);
+        if opts.max_cost_micro.is_some_and(|c| c > policy_limit) {
+            return Err(ApiError::call_limit());
+        }
+        let limit = policy_limit.min(opts.max_cost_micro.unwrap_or(u128::MAX));
         let cap = sizing::max_tokens(limit, 100, spec, u128::from(input))
             .ok_or_else(ApiError::call_limit)?;
         if caller_max.is_some_and(|c| c > cap) {
@@ -1082,6 +1085,7 @@ impl Gateway {
     ) -> Result<(Outcome, Option<Trust>), ApiError> {
         opts.max_lease_usd = opts.scope.lease_request(opts.max_lease_usd);
         let tee = matches!(&opts.scope, Scope::Agent { policy, .. } if policy.require_tee);
+        let is_agent = matches!(&opts.scope, Scope::Agent { .. });
         let Pre {
             model,
             spec,
@@ -1295,6 +1299,12 @@ impl Gateway {
             return Err(unavailable("provider_error", "the answer carries no usage"));
         }
         let chat_id = answer["id"].as_str().map(String::from);
+        // What this call cost at the pinned prices, from the usage the answer reports. It is
+        // set here, over anything the answer held under the same key, and only for agents.
+        let charge = micro_ceil(sizing::cost_nano(&ctx.spec, usage.0, usage.1));
+        if is_agent {
+            answer["nymira"] = json!({ "charge_usd": crate::approvals::usd(charge) });
+        }
         ctx.done(raw.to_vec(), chat_id.clone(), usage).await;
         if tee {
             let trust = self.verify_held(&key, chat_id).await;
