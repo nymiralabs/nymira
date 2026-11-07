@@ -55,6 +55,7 @@ The agent host and its model vendor see every question and answer that passes th
 | Client | Version | Protocol | Result |
 |---|---|---|---|
 | Official MCP SDK client (`@modelcontextprotocol/sdk`) | 1.32.1 | 2025-11-25 | Lists the three tools; tested on every run. The server answers `initialize` with the client's version when it knows it (tested for 2025-11-25 and 2025-06-18) and with its latest otherwise. |
+| A stdio MCP agent host (command-line) | 2.1.319 | 2025-11-25 | Started the server from `main` against the `make demo` stack (fake gateway), called `nymira_balance` (balance 1.000000, spendable 1.000000) and `nymira_ask` (`z-ai/glm-5.3-flash`, `max_usd` 0.01) and got the fake gateway's answer. The server answered `initialize` with protocol 2025-11-25 and the `tools` capability only. Not checked: the charge in the owner view, a real gateway. |
 | Cursor | not tested | | The entry (`type`, `command`, `args`) follows Cursor's MCP documentation and is generated and checked; the host was not run. |
 | IronClaw | v1.4.1 | | No entry is possible: IronClaw's documentation says it connects to MCP servers over HTTP(S) and rejects stdio, and this server speaks stdio only. Not run. |
 
