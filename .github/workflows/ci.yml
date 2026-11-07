@@ -403,3 +403,5 @@ jobs:
           cd mcp
           npm ci --ignore-scripts
           npm test
+      - name: Token file access for a second OS user
+        run: bash scripts/mcp-second-user-check.sh
