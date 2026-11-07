@@ -144,7 +144,7 @@ test("balance and quote open no lease and cause no outbound connection", async (
     }
   });
   const after = await fx.report();
-  assert.deepEqual(after, { leases: 0, chats: 0, outbound: 0 });
+  assert.deepEqual([after.leases, after.chats, after.outbound], [0, 0, 0]);
   assert.deepEqual(after, before);
   // And the balance is unchanged afterwards.
   await withSession(tcp(fx.info.token_files.main), async (s) => {

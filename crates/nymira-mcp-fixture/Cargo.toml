@@ -16,6 +16,7 @@ hex = "0.4"
 libc = "0.2"
 near-workspaces = { workspace = true }
 nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }
+nymira-fake-near-rpc = { path = "../nymira-fake-near-rpc" }
 nymira-near-codec = { workspace = true }
 nymira-operator = { path = "../nymira-operator" }
 nymira-testkit = { path = "../nymira-testkit" }

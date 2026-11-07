@@ -55,10 +55,11 @@ test("tool names, descriptions, schemas and annotations equal the checked-in cop
     const { tools } = await s.client.listTools();
     const copy = JSON.parse(readFileSync(new URL("./tools.snapshot.json", import.meta.url), "utf8"));
     assert.deepEqual(tools, copy);
-    assert.deepEqual(tools.map((t) => t.name), ["nymira_balance", "nymira_quote"]);
+    assert.deepEqual(tools.map((t) => t.name), ["nymira_balance", "nymira_quote", "nymira_ask"]);
     for (const t of tools) {
-      assert.equal(t.annotations?.readOnlyHint, true);
-      assert.equal(t.annotations?.openWorldHint, false);
+      const ask = t.name === "nymira_ask";
+      assert.equal(t.annotations?.readOnlyHint, !ask);
+      assert.equal(t.annotations?.openWorldHint, ask);
       assert.equal(t.annotations?.destructiveHint, false);
       assert.equal((t.inputSchema as { additionalProperties?: boolean }).additionalProperties, false);
     }
