@@ -140,6 +140,7 @@ export const TOOLS = [
       properties: {
         untrusted_text: { type: "string" },
         model: { type: "string" },
+        charged_usd: USD,
         signature_kind: { enum: SIGNATURE_KINDS },
         usage: {
           type: "object",
@@ -149,7 +150,7 @@ export const TOOLS = [
         },
         replayed: { type: "boolean" },
       },
-      required: ["untrusted_text", "model", "signature_kind", "usage", "replayed"],
+      required: ["untrusted_text", "model", "charged_usd", "signature_kind", "usage", "replayed"],
       additionalProperties: false,
     },
     annotations: { title: "Nymira ask", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -333,6 +334,8 @@ export function shapeAsk(raw: unknown, headers: Record<string, string | string[]
   const message = isObj(choice) ? choice.message : undefined;
   if (!isObj(message) || typeof message.content !== "string") throw new UpstreamError("the answer has no text");
   const usage = obj(r.usage);
+  const charge = obj(r.nymira).charge_usd;
+  if (typeof charge !== "string" || !/^[0-9]{1,9}\.[0-9]{6}$/.test(charge)) throw new UpstreamError("no charge");
   const kind = headers[SIGNATURE_KIND_HEADER] ?? "none";
   if (kind !== "model-signed" && kind !== "gateway-signed" && kind !== "none") {
     throw new UpstreamError("unknown signature kind");
@@ -340,6 +343,7 @@ export function shapeAsk(raw: unknown, headers: Record<string, string | string[]
   return {
     untrusted_text: message.content,
     model: typeof r.model === "string" && MODEL_ID.test(r.model) ? r.model : requested,
+    charged_usd: charge,
     signature_kind: kind,
     usage: { input_tokens: int(usage.prompt_tokens), output_tokens: int(usage.completion_tokens) },
     replayed: headers["x-nymira-idempotent-replay"] === "true",
