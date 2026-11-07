@@ -255,6 +255,9 @@ async fn main() {
         "http://localhost",
     );
     cfg.host = "localhost".into();
+    // The fake gateway lists one price for every model; the operator pauses new leases when a model's
+    // price differs from the pinned one, so it serves only the model the recipes use.
+    cfg.proxy.models.retain(|m| m.id == "z-ai/glm-5.3-flash");
     cfg.team_note_ids = (0..TEAM_NOTES).collect();
     let op = Operator::start(Parts {
         cfg,

@@ -206,6 +206,62 @@ ssh -N -R 8788:localhost:8788 AGENT_HOST
 
 The forwarded port binds to the loopback of the agent host as long as `GatewayPorts` stays off there. A direct connection to your machine over a tailnet or LAN is refused. If the forward has to start on the agent host, restrict that key in your `authorized_keys` with `restrict,port-forwarding,permitopen="localhost:8788",command="/bin/false"` and run `ssh -N -L 8788:localhost:8788 OWNER_HOST` there. `permitopen` limits `-L` forwards only. For a key that starts the `-R` forward from your machine on the agent host, use `restrict,port-forwarding,permitlisten="localhost:8788",command="/bin/false"` there instead. `scripts/agent-ssh-forward-check.sh` tests both lines against a throwaway `sshd` on loopback (no `sudo`): no shell, only the permitted port forwards, other ports are refused. It passed with OpenSSH 10.3. `scripts/agent-os-user-check.sh` checks the socket and token file with a throwaway second OS user (macOS, needs `sudo`).
 
+### IronClaw
+
+[IronClaw](https://github.com/nearai/ironclaw) is NEAR's agent runtime. This recipe points it at `nymirad`, so every model call it makes is paid from a budget note under your signed policy. It was tested with IronClaw v1.4.1. A newer version is listed here only after it passes `scripts/agents-smoke.sh`, which runs that release against the mock stack and checks its SHA-256 before it unpacks it. The recipe works against `make demo` with no keys or money: `cargo run -p nymirad --features mock --example demo_sign -- DEMO_HOME NAME` signs the demo policy with the demo account's key. That tool is built only with the `mock` feature, so a release build has no key to sign with.
+
+Start from a budget note, a signed policy that allows the model below, and an agent token (see "Budget notes for agents" above, or the Agents screen). IronClaw starts as the user who launches it, so it must not share an OS user with the `nymirad` that holds your own notes. Pick one:
+
+- a different OS user on this machine (IronClaw reaches `nymirad` over loopback TCP, so issue a `tcp` token, not a `unix` one);
+- a different machine, reached with the forward under "Another machine";
+- a dedicated `nymirad` instance with its own `--home`, port and owner token that holds only the budget note.
+
+Give IronClaw's user an environment file that only that user can read (mode 0600), with the token you issued:
+
+```bash
+LLM_BACKEND=openai_compatible
+LLM_BASE_URL=http://localhost:8788/v1
+LLM_API_KEY=nyma_...    # the agent token
+LLM_MODEL=z-ai/glm-5.3-flash
+```
+
+Then, as IronClaw's user, from a work directory that is not the home directory:
+
+```bash
+set -a; . ~/nymira.env; set +a
+ironclaw onboard --no-service </dev/null
+ironclaw models status        # default.base_url must read http://localhost:8788/v1
+```
+
+`LLM_BACKEND=openai_compatible` is IronClaw's generic provider (`provider_id = "openai_compatible"` with a `base_url` in `config.toml` is the same thing). `onboard` with no terminal asks nothing and copies the key from the environment into IronClaw's own secret store under that user's home; disabling the token in `nymirad` is what stops the agent, not deleting the file. Use the pinned model's canonical ID. `nymirad` refuses any model outside `allowed_models` with 402 `model_not_allowed`, whatever IronClaw is configured to ask for, and `GET /v1/models` lists only the allowed ones.
+
+One-line check, then the owner command that shows the charge:
+
+```bash
+ironclaw run --message "Reply with one short greeting."     # as IronClaw's user
+nymirad agent show                                          # as you: spend today and balance
+```
+
+What to expect:
+
+- Chat completions only. An agent token reaches `/v1/chat/completions` and `/v1/models` as an OpenAI key; every other OpenAI route is refused.
+- At most two requests in flight per lease; a third gets 409 `busy`.
+- A pause of up to about 10 seconds when a new lease opens.
+- A call whose worst case is above `confirm_above_usd` is held for your approval and gets 402 `approval_required`.
+- A 429 `operator_capacity` with `Retry-After` when the operator's daily provider budget is used up; a 429 `policy_rate_limit` when your own rate limit is reached.
+- Errors arrive in OpenAI's shape. IronClaw words a 402 as "The AI provider account is out of credits" and prints `nymirad`'s reason (the `code`, for example `model_not_allowed`) in its warning line.
+- With `require_tee` on, an answer is held until its signature and the model's attestation are checked, and each answer comes back with its signature kind in `X-Nymira-Signature-Kind`. Streamed answers are expected to be gateway-signed, not model-signed. `run` in v1.4.1 sent no `stream` field in our run.
+
+What IronClaw's calls still reveal: the operator sees the model, the request settings, the number and size of messages, token usage and timing, as for any request (THREAT_MODEL.md). IronClaw sends its own tool list with every request; v1.4.1 sent 26 definitions in our run, so that length is visible too, and their text is encrypted. The set of notes a lease could belong to is small while few notes are open, and on testnet it is made of test notes. IronClaw's other traffic does not go through Tor. A machine that runs IronClaw sees every prompt.
+
+For IronClaw on another machine, run this on your machine, so the agent host holds no credential for yours:
+
+```bash
+ssh -N -R 8788:localhost:8788 AGENT_HOST
+```
+
+The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under "Another machine". Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token.
+
 ### Opt-in: the note on the agent's machine
 
 If the agent has to run without your machine, you can move its budget note to the agent's own `nymirad`. This is off unless you ask for it, and only the owner CLI does it.

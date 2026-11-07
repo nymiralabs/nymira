@@ -55,6 +55,10 @@ name = "demo"
 required-features = ["mock"]
 
 [[example]]
+name = "demo_sign"
+required-features = ["mock"]
+
+[[example]]
 name = "record_evidence"
 required-features = ["mock"]
 
