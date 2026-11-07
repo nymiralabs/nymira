@@ -51,7 +51,7 @@
     {
      "t": "code",
      "lang": "bash",
-     "text": "ironclaw run --message \"Reply with one short greeting.\"     # as IronClaw's user\nnymirad agent show                                          # as you: spend today and balance",
+     "text": "ironclaw run --message \"Reply with one short greeting.\"     # as IronClaw's user\nnymirad agent show                                          # as you: balance, and spend today once the lease has settled",
      "title": "One answer, then the charge"
     },
     {
