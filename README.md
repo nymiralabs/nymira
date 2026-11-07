@@ -146,6 +146,7 @@ An agent calls these with `Authorization: Bearer nyma_...` on the agent socket o
 - `X-Nymira-Max-Cost-Usd` on a chat or quote request caps the call's cost in USD with at most 6 decimals, for example `0.002`. It lowers the `max_tokens` that is sent. A cap above `max_call_usd` is refused, not lowered. A request whose own `max_tokens` would pass the cap, or a cap below the cost of the prompt and one answer token, also gets 402 `call_limit`.
 - A non-streamed chat answer on the agent API carries `nymira.charge_usd`: what this call cost at the pinned prices, from the usage the answer reports, as a USD decimal string with six places, rounded up to a micro-USD. It is an estimate of the call alone. The lease's final charge adds the slot fee and the charge step, and shows in the balance after the lease settles. A replay under an `Idempotency-Key` returns the same figure. A streamed answer has none.
 - `Idempotency-Key` on a chat request (1 to 128 printable characters, not with `stream: true`): a retry of the same request with the same key returns the first answer, with `X-Nymira-Idempotent-Replay: true`, and spends nothing. A retry that arrives while the first request runs waits for it. The answer is found by token, note, key and request, so another token, another note or another request finds nothing. It is kept in memory for 5 minutes, at most 64 at once, never written to disk or a backup. Only answers are kept; a refusal or failure runs again on retry.
+- Message `content` is one string, or a list of text parts that are each exactly `{"type": "text", "text": "..."}`; `nymirad` joins the texts with nothing between them and encrypts the result as one string. A part of any other type (image, audio, file) or with an extra field, and an empty list, gets 400 `invalid_request`, because it would have to travel in the clear or be dropped.
 - `X-Nymira-Approval-Id` on a chat request is the retry of a held call. The 402 `approval_required` that held it carries the ID as `error.approval_id` and in the `X-Nymira-Approval-Id` response header.
 - `X-Nymira-Max-Lease-Usd` asks for the 0.50 lease class, as above.
 
@@ -245,6 +246,7 @@ nymirad agent show                                          # as you: spend toda
 What to expect:
 
 - Chat completions only. An agent token reaches `/v1/chat/completions` and `/v1/models` as an OpenAI key; every other OpenAI route is refused.
+- IronClaw on Linux sends message content as a list of text parts (on macOS as a string). `nymirad` joins the text parts into one string before it encrypts them; any other part type is refused with 400.
 - At most two requests in flight per lease; a third gets 409 `busy`.
 - A pause of up to about 10 seconds when a new lease opens.
 - A call whose worst case is above `confirm_above_usd` is held for your approval and gets 402 `approval_required`.
