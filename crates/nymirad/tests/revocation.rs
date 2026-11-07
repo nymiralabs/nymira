@@ -121,7 +121,11 @@ struct Rig {
 impl Rig {
     /// One budget note (note 0) for the agent `a`, in a vault whose notes live `ttl_days` days.
     async fn new(transport: Net, ttl_days: u64) -> Self {
-        let mut s = build_ttl(transport.clone(), false, ttl_days).await;
+        Self::with_exit_delay(transport, ttl_days, 7 * 86_400).await
+    }
+
+    async fn with_exit_delay(transport: Net, ttl_days: u64, exit_delay_secs: u64) -> Self {
+        let mut s = build_full(transport.clone(), false, ttl_days, exit_delay_secs, |_| {}).await;
         // The guard closes at once in tests; its default waits a random minute or more.
         let guard = nymirad::expiry::GuardConfig {
             close: no_delay(),
@@ -460,6 +464,57 @@ async fn a_submitter_without_near_hands_the_close_to_the_operator_and_a_rerun_pi
     assert_eq!(rig.s.closes.sent().len(), 1);
 }
 
+/// The vault takes one day as the shortest exit window and the sandbox needs about 11 ms of wall
+/// time per 0.3 s block, so this test runs close to an hour and is ignored by default:
+/// `cargo test -p nymirad --test revocation a_refused_clearance -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "about an hour of sandbox time"]
+async fn a_refused_clearance_ends_in_an_exit_and_finalize_exit_pays_the_owner_after_the_window() {
+    let rig = Rig::with_exit_delay(Net::Direct, 30, 86_400).await;
+    submitter(&rig.s, "personal", NearToken::from_near(5)).await;
+    rig.s
+        .op
+        .set_emergency("the clearance key may be exposed")
+        .await
+        .unwrap();
+    let out = rig
+        .s
+        .gateway
+        .revoke_agent("a", quick(), None)
+        .await
+        .expect("the revocation falls back to an exit");
+    let Revoked::Exiting(exit, _) = out else {
+        panic!("a refused clearance must end in an exit");
+    };
+    assert_eq!(status_of(&rig.s, &rig.note).await, "PendingExit");
+    assert!(
+        exit.deadline_secs
+            .abs_diff(nymira_testkit::clock::now_seconds(&rig.s.worker).await + 86_400)
+            < 120
+    );
+
+    // Before the window the vault refuses; the daemon's own send waits for its clock.
+    let tried = rig.s.gateway.finalize_due().await;
+    assert!(tried.is_empty(), "{tried:?}");
+    nymira_testkit::clock::advance_past(&rig.s.worker, exit.deadline_secs + 1)
+        .await
+        .unwrap();
+    let now = rig.s.clock.now_secs();
+    rig.s
+        .clock
+        .advance_secs((exit.deadline_secs + 10).saturating_sub(now));
+    let before = rig.s.usdc.balance_of(rig.s.alice.id()).await;
+    let tried = rig.s.gateway.finalize_due().await;
+    assert_eq!(tried.len(), 1);
+    tried[0]
+        .1
+        .as_ref()
+        .expect("finalize_exit is accepted after the window");
+    let after = rig.s.usdc.balance_of(rig.s.alice.id()).await;
+    println!("payout to the owner: {}", after - before);
+    assert_eq!(after, before + ONE, "the owner receives the whole balance");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dead_tor_sends_nothing_and_never_asks_during_a_revocation() {
     let (tor, _state) = nymirad::tor::Tor::for_tests(
@@ -586,6 +641,140 @@ async fn a_direct_send_during_revocation_needs_the_owner_to_say_yes() {
     assert!(matches!(out, Revoked::Exiting(..)), "{out:?}");
     assert_eq!(yes.asked.lock().unwrap().len(), 1);
     assert_eq!(status_of(&rig.s, &rig.note).await, "PendingExit");
+}
+
+/// An operator front that adds "send it directly" style fields, top level and inside `error`, to
+/// every JSON answer. The protocol has no such field; this checks that one is not believed.
+/// Returns the front's port, and points the rig's gateway at it.
+async fn put_hinting_front_on_the_operator(rig: &mut Rig, transport: Net) -> u16 {
+    use axum::extract::State;
+    let upstream = rig.s.parts.operator_url.clone();
+    async fn forward(
+        State(upstream): State<String>,
+        request: Request<Body>,
+    ) -> axum::response::Response {
+        let path = request
+            .uri()
+            .path_and_query()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_default();
+        let method = request.method().clone();
+        let body = axum::body::to_bytes(request.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let reply = reqwest::Client::new()
+            .request(method, format!("{upstream}{path}"))
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        let status = StatusCode::from_u16(reply.status().as_u16()).unwrap();
+        let mut value: Value = reply.json().await.unwrap_or(Value::Null);
+        let hint = json!({"send_direct": true, "direct": true, "via": "direct",
+            "confirm_direct": true, "transport": "direct"});
+        if let Some(o) = value.as_object_mut() {
+            for (k, v) in hint.as_object().unwrap() {
+                o.insert(k.clone(), v.clone());
+                if let Some(e) = o.get_mut("error").and_then(|e| e.as_object_mut()) {
+                    e.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        (status, axum::Json(value)).into_response()
+    }
+    use axum::response::IntoResponse;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = axum::Router::new().fallback(forward).with_state(upstream);
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let parts = stack::GatewayParts {
+        operator_url: format!("http://{addr}"),
+        gateway_url: rig.s.parts.gateway_url.clone(),
+        rpc_url: rig.s.parts.rpc_url.clone(),
+        vault_id: rig.s.parts.vault_id.clone(),
+    };
+    let guard = nymirad::expiry::GuardConfig {
+        close: no_delay(),
+        retry_secs: 0,
+        ..Default::default()
+    };
+    rig.s.gateway = make_gateway_guarded(
+        rig.s.home.path(),
+        &parts,
+        transport,
+        rig.s.clock.clone(),
+        guard,
+    )
+    .await;
+    addr.port()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_operator_hint_to_send_direct_is_ignored_and_the_owner_is_still_asked() {
+    let proxy = Arc::new(socks::FakeSocks::start(socks::Behavior::Passthrough).await);
+    let (tor, state) = nymirad::tor::Tor::for_tests(proxy.addr, nymirad::tor::TorState::Ready);
+    let net = Net::Tor(Arc::new(tor));
+    let mut rig = Rig::new(net.clone(), 30).await;
+    submitter(&rig.s, "personal", NearToken::from_near(5)).await;
+    let port = put_hinting_front_on_the_operator(&mut rig, net).await;
+    let drop_tor = DropsAfterClearance {
+        state,
+        socks: proxy.clone(),
+        operator_port: port,
+    };
+    rig.s
+        .op
+        .set_emergency("the clearance key may be exposed")
+        .await
+        .unwrap();
+
+    // The refusal carries the hint. Unattended and on "no" nothing goes out.
+    drop_tor.arm();
+    rig.s
+        .gateway
+        .revoke_agent("a", quick(), None)
+        .await
+        .expect_err("a hint is not a confirmation");
+    let no = Scripted {
+        yes: false,
+        asked: Mutex::new(Vec::new()),
+    };
+    drop_tor.arm();
+    rig.s
+        .gateway
+        .revoke_agent("a", quick(), Some(&no))
+        .await
+        .expect_err("declined");
+    assert_eq!(
+        *no.asked.lock().unwrap(),
+        vec![nymirad::gateway::close::direct_text(0, "0")]
+    );
+    assert_eq!(status_of(&rig.s, &rig.note).await, "Active");
+    assert!(rig.s.closes.sent().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hint_in_a_clearance_answer_changes_nothing_and_asks_nothing() {
+    let proxy = Arc::new(socks::FakeSocks::start(socks::Behavior::Passthrough).await);
+    let (tor, _state) = nymirad::tor::Tor::for_tests(proxy.addr, nymirad::tor::TorState::Ready);
+    let net = Net::Tor(Arc::new(tor));
+    let mut rig = Rig::new(net.clone(), 30).await;
+    submitter(&rig.s, "personal", NearToken::from_near(5)).await;
+    put_hinting_front_on_the_operator(&mut rig, net).await;
+    let no = Scripted {
+        yes: false,
+        asked: Mutex::new(Vec::new()),
+    };
+    // Tor stays up, the clearance is granted with the hint attached, and the close goes over Tor.
+    let out = rig
+        .s
+        .gateway
+        .revoke_agent("a", quick(), Some(&no))
+        .await
+        .expect("the hint is an unknown field and is ignored");
+    assert!(matches!(out, Revoked::Closed(_)), "{out:?}");
+    assert!(no.asked.lock().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
