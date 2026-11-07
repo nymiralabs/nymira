@@ -191,7 +191,7 @@ The CI job `web-integrity / reproducible` runs it. What makes this work: exact v
 lockfiles, `npm ci --ignore-scripts`, source paths remapped in the WASM build
 (`--remap-path-prefix` in `build-wasm.sh`), `sourcemap: false`, and file names hashed from content by
 Vite. Not covered by the CI job: a different CPU or operating system, which is what the independent
-rebuild is for. Measured on one machine: the testnet profile built twice in two directories gave the same hash (the mainnet profile and the CI runner were not measured). The container recipe was not run (no Docker daemon here).
+rebuild is for. Measured on one machine: the testnet profile built twice in two directories gave the same hash (the mainnet profile and the CI runner were not measured). The container recipe is the one the `web-deploy` workflow and the signed 0.1.x releases use.
 
 ## Rebuilding (independent rebuild)
 
@@ -284,8 +284,8 @@ only `sign` needs the key, and it only calls `minisign`, which asks for the pass
    `pins/release-signing.pub`, checks the hashes, then creates the GitHub release with the five files.
 
 A user checks a download with `minisign -V -p release-signing.pub -m SHA256SUMS` and
-`shasum -a 256 -c SHA256SUMS`. Only the linux x86_64 binary is built this way; other platforms
-build from source.
+`shasum -a 256 -c SHA256SUMS`. Only the linux x86_64 binary is built this way. The macOS arm64
+binary is built by hand on the maintainer's Mac and is not reproducible.
 
 ## Dependencies
 

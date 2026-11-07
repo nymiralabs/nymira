@@ -50,8 +50,8 @@ Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum
 
 Each `nymirad-vX.Y.Z` release on GitHub has a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in `web/pins/release-signing.pub`) that lists every file. Check the signature with `minisign -V -p web/pins/release-signing.pub -m SHA256SUMS`, then run `shasum -a 256 -c SHA256SUMS`.
 
-- **Linux x86_64** (`nymirad-X.Y.Z-x86_64-linux`): reproducible. Anyone can rebuild it from the tag with the pinned container and get the same bytes (`scripts/release-nymirad.sh build`).
-- **macOS arm64** (`nymirad-X.Y.Z-aarch64-macos`): built by a GitHub Actions workflow on a macOS runner. The signature shows that the project published these exact bytes. It does not show that the binary matches the source, because the macOS toolchain's output is not byte-stable and nobody can rebuild it to the same hash. If that matters to you, build from the tag yourself or use the Linux binary.
+- **Linux x86_64** (`nymirad-X.Y.Z-x86_64-linux`): built twice in the pinned container, and published only when the two builds are identical (`scripts/release-nymirad.sh build`). In a few runs the two builds differed and the cause is not found, so a rebuild may need a second try. No outside party has rebuilt a release yet.
+- **macOS arm64** (`nymirad-X.Y.Z-aarch64-macos`): built by hand on the maintainer's Mac. The signature shows that the project published these exact bytes. It does not show that the binary matches the source, because the macOS toolchain's output is not byte-stable and nobody can rebuild it to the same hash. If that matters to you, build from the tag yourself or use the Linux binary.
 
 `nymirad` starts its own Tor, and it runs only a Tor executable whose SHA-256 is compiled into the build. A build pins one hash per platform. Today the only pinned package is Homebrew's `tor` 0.4.9.15 for macOS arm64 (`c0dcd5d18c534d1e7049c5105bfc39189527b33be65b3d064052c213e7404a46`). No Linux package is pinned yet, and `arti` is not pinned.
 
