@@ -240,7 +240,7 @@ One-line check, then the owner command that shows the charge:
 
 ```bash
 ironclaw run --message "Reply with one short greeting."     # as IronClaw's user
-nymirad agent show                                          # as you: spend today and balance
+nymirad agent show                                          # as you: balance, and spend today once the lease has settled
 ```
 
 What to expect:
