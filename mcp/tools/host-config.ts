@@ -37,9 +37,10 @@ export function hostConfig(o: Options): Record<string, unknown> {
       : ["--transport", "tcp", "--url", o.url ?? "http://127.0.0.1:8788"]),
   ];
   const entry = { command: absolute("node", o.node ?? process.execPath), args };
-  return o.host === "vscode"
-    ? { servers: { nymira: { type: "stdio", ...entry } } }
-    : { mcpServers: { nymira: entry } }; // Cursor and Claude Desktop share this shape
+  if (o.host === "vscode") return { servers: { nymira: { type: "stdio", ...entry } } };
+  // Cursor's documentation lists `type` as required for a local server.
+  if (o.host === "cursor") return { mcpServers: { nymira: { type: "stdio", ...entry } } };
+  return { mcpServers: { nymira: entry } };
 }
 
 if (import.meta.main) {
