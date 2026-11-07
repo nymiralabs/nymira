@@ -62,6 +62,7 @@
      "t": "ul",
      "items": [
       "Chat completions only. An agent token reaches `/v1/chat/completions` and `/v1/models` as an OpenAI key; every other OpenAI route is refused.",
+      "IronClaw on Linux sends message content as a list of text parts (on macOS as a string). `nymirad` joins the text parts into one string before it encrypts them; any other part type is refused with 400.",
       "At most two requests in flight per lease; a third gets 409 `busy`.",
       "A pause of up to about 10 seconds when a new lease opens.",
       "A call whose worst case is above `confirm_above_usd` is held for your approval and gets 402 `approval_required`.",
