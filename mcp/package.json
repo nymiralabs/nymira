@@ -1,10 +1,9 @@
 {
   "name": "@nymiralabs/nymira-mcp",
   "version": "0.0.0",
-  "description": "MCP server over stdio for a Nymira agent token: read-only balance and quote tools.",
+  "description": "MCP server over stdio for a Nymira agent token: balance, quote and ask tools.",
   "license": "Apache-2.0",
   "type": "module",
-  "private": true,
   "bin": {
     "nymira-mcp": "dist/index.js"
   },
@@ -25,5 +24,11 @@
   "devDependencies": {
     "@types/node": "24.19.2",
     "typescript": "6.0.3"
+  },
+  "bundleDependencies": [
+    "@modelcontextprotocol/sdk"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
