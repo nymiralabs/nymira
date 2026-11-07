@@ -1,0 +1,229 @@
+[
+  {
+    "name": "nymira_balance",
+    "title": "Nymira balance",
+    "description": "Read this agent's prepaid Nymira budget: balance, spendable amount, today's spend, expiry, whether the note is closing, and the owner's limits. Amounts are USD decimal strings with six places. Read-only; spends nothing.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "balance_usd": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]{6}$"
+        },
+        "spendable_usd": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]{6}$"
+        },
+        "lease_bound_usd": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]{6}$"
+        },
+        "spent_today_usd": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]{6}$"
+        },
+        "note": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "open",
+                "expiring",
+                "revoking",
+                "exiting",
+                "closed",
+                "unfunded"
+              ]
+            },
+            "closing": {
+              "type": "boolean"
+            },
+            "expires_at": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "closing",
+            "expires_at"
+          ],
+          "additionalProperties": false
+        },
+        "charge_warning": {
+          "type": "boolean"
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "max_call_usd": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]{6}$"
+            },
+            "max_daily_usd": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]{6}$"
+            },
+            "confirm_above_usd": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]{6}$"
+            },
+            "max_lease_usd": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]{6}$"
+            },
+            "allowed_models": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "max_call_usd",
+            "max_daily_usd",
+            "confirm_above_usd",
+            "max_lease_usd",
+            "allowed_models"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "balance_usd",
+        "spendable_usd",
+        "lease_bound_usd",
+        "spent_today_usd",
+        "note",
+        "charge_warning",
+        "limits"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Nymira balance",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "nymira_quote",
+    "title": "Nymira quote",
+    "description": "Ask whether a model call would be allowed, without making it. Give a model, either messages (user and assistant roles) or an input_tokens estimate, and max_usd, the most the call may cost as a USD decimal with at most six places. Returns the estimated worst-case cost and a decision: allow, needs_approval or deny with a reason code. Read-only; opens no lease and sends nothing.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "content"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 1000000
+        },
+        "max_usd": {
+          "type": "string",
+          "pattern": "^(?=.*[1-9])(0|[1-9][0-9]{0,8})(\\.[0-9]{1,6})?$"
+        }
+      },
+      "required": [
+        "model",
+        "max_usd"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "decision": {
+          "enum": [
+            "allow",
+            "needs_approval",
+            "deny"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "input_tokens": {
+          "type": "integer"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "estimated_cost_usd": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]{6}$"
+        },
+        "http_status": {
+          "type": "integer"
+        },
+        "retry_after_secs": {
+          "type": "integer"
+        },
+        "detail": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        }
+      },
+      "required": [
+        "decision",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Nymira quote",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]
