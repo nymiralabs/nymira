@@ -45,7 +45,7 @@ jobs:
             if printf '%s\n' "$files" | grep -Evq '^web/(src|e2e|test)/'; then rust=true; fi
             if hit '^(vendor/zkapi/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then zkapi=true; fi
             if hit '^(web/|web-testkit/|shared/|scripts/recipes\.mjs$|vendor/|crates/nymira-(near-codec|near-codec-wasm|web-wasm|fake-near-rpc)/|crates/nymirad/pins/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then web=true; fi
-            if hit '^(mcp/|crates/|contracts/|vendor/|shared/|scripts/(recipes\.mjs|release-mcp\.sh)$|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then mcp=true; fi
+            if hit '^(mcp/|crates/|contracts/|vendor/|shared/|scripts/(recipes\.mjs|release-mcp\.sh|mcp-second-user-check\.sh)$|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then mcp=true; fi
           fi
           echo "rust=$rust" >> "$GITHUB_OUTPUT"
           echo "zkapi=$zkapi" >> "$GITHUB_OUTPUT"
@@ -403,3 +403,5 @@ jobs:
           cd mcp
           npm ci --ignore-scripts
           npm test
+      - name: Token file access for a second OS user
+        run: bash scripts/mcp-second-user-check.sh
