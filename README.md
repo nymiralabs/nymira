@@ -256,6 +256,8 @@ What to expect:
 
 What IronClaw's calls still reveal: the operator sees the model, the request settings, the number and size of messages, token usage and timing, as for any request (THREAT_MODEL.md). IronClaw sends its own tool list with every request; v1.4.1 sent 26 definitions in our run, so that length is visible too, and their text is encrypted. The set of notes a lease could belong to is small while few notes are open, and on testnet it is made of test notes. IronClaw's other traffic does not go through Tor. A machine that runs IronClaw sees every prompt.
 
+IronClaw has no MCP entry for the Nymira server. Its documentation says v1.4.1 connects to MCP servers over HTTP(S) and rejects the `stdio` transport, and the Nymira server speaks stdio only. IronClaw pays through the provider route above.
+
 For IronClaw on another machine, run this on your machine, so the agent host holds no credential for yours:
 
 ```bash
@@ -263,6 +265,42 @@ ssh -N -R 8788:localhost:8788 AGENT_HOST
 ```
 
 The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under "Another machine". Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token.
+
+### Cursor
+
+Cursor's agent pays for answers from a budget note through the Nymira MCP server and its `nymira_ask` tool. It does not use Cursor's base URL override (see below). Cursor has not been run against this recipe, so no Cursor version is listed here; the entry follows the format in Cursor's MCP documentation.
+
+Start from the same budget note, signed policy and agent token as for IronClaw. Cursor starts the MCP server as the user who runs Cursor, so run Cursor as a different OS user or on a different machine, or point the entry at a dedicated `nymirad` instance that holds only the budget note.
+
+Install the server at a fixed path from the signed release (the steps are in `mcp/README.md`), keep the token in a file that only that user can read, and add this entry to `.cursor/mcp.json` in the project or to `~/.cursor/mcp.json`. It holds the path of the token file and no token. `node tools/host-config.ts --host cursor` in `mcp/` prints it for your paths.
+
+```json
+{
+  "mcpServers": {
+    "nymira": {
+      "type": "stdio",
+      "command": "/usr/local/bin/node",
+      "args": [
+        "/opt/nymira-mcp/node_modules/@nymiralabs/nymira-mcp/dist/index.js",
+        "--token-file",
+        "/srv/agent/cursor.token",
+        "--transport",
+        "tcp",
+        "--url",
+        "http://127.0.0.1:8788"
+      ]
+    }
+  }
+}
+```
+
+**Why not the base URL override.** Replies on Cursor's forum say that a request with an overridden base URL first goes to Cursor's servers ([one](https://forum.cursor.com/t/problem-reaching-openai-error-on-a-local-model-with-overriden-base-url/3975), [two](https://forum.cursor.com/t/connecting-local-ai-server-to-cursor-does-not-work/152940)), so they cannot reach `localhost`. Exposing `nymirad` through a tunnel would remove its loopback guard, and Cursor would still read every prompt. If Cursor adds a mode that sends custom-base-URL requests from the local client, this recipe is checked again before that path is added.
+
+**What Cursor sees.** Cursor and its model vendor see what the agent sends to `nymira_ask` and what comes back, with the balance, charges and timing the tools return. MCP gives no content privacy from the host. What the path does give: NEAR AI sees only Nymira's organisation as the payer, the agent cannot raise its ceiling, and your policy applies to every call.
+
+What to expect is the list under IronClaw, with the tool's own limits: `max_usd` caps a call, a held call returns `approval_required` and only you can approve it, and an answer's text reaches Cursor as untrusted text.
+
+One-line check, then the owner command that shows the charge: ask Cursor's agent to call `nymira_ask` with a short question and `max_usd` of `0.01`, then run `nymirad agent show`.
 
 ### Opt-in: the note on the agent's machine
 

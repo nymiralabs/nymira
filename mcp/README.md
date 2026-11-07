@@ -55,7 +55,7 @@ The agent host and its model vendor see every question and answer that passes th
 | Client | Version | Protocol | Result |
 |---|---|---|---|
 | Official MCP SDK client (`@modelcontextprotocol/sdk`) | 1.32.1 | 2025-11-25 | Lists the three tools; tested on every run. The server answers `initialize` with the client's version when it knows it (tested for 2025-11-25 and 2025-06-18) and with its latest otherwise. |
-| Cursor | not tested | | The entry shape is generated and checked; the host was not run. |
-| IronClaw | not tested | | No entry is generated: its configuration format was not checked. |
+| Cursor | not tested | | The entry (`type`, `command`, `args`) follows Cursor's MCP documentation and is generated and checked; the host was not run. |
+| IronClaw | v1.4.1 | | No entry is possible: IronClaw's documentation says it connects to MCP servers over HTTP(S) and rejects stdio, and this server speaks stdio only. Not run. |
 
 The server stays on `@modelcontextprotocol/sdk` 1.32.1. It moves to the v2 line (`@modelcontextprotocol/server`) only after Cursor and IronClaw both work with a v2 server over stdio; the two lines are never mixed.
