@@ -301,6 +301,17 @@ pub async fn build_cfg(
     ttl_days: u64,
     tune: impl FnOnce(&mut OpConfig),
 ) -> Stack {
+    build_full(transport, predeposit, ttl_days, 7 * 86_400, tune).await
+}
+
+/// `build_cfg` on a vault whose exit window is `exit_delay_secs` (one day at the least).
+pub async fn build_full(
+    transport: Transport,
+    predeposit: bool,
+    ttl_days: u64,
+    exit_delay_secs: u64,
+    tune: impl FnOnce(&mut OpConfig),
+) -> Stack {
     let worker = near_workspaces::sandbox().await.unwrap();
     let usdc = MockUsdc::deploy(&worker).await.unwrap();
     let operator_account = worker.dev_create_account().await.unwrap();
@@ -308,6 +319,7 @@ pub async fn build_cfg(
     let alice = worker.dev_create_account().await.unwrap();
     let vault = DevVault {
         note_ttl_days: ttl_days,
+        exit_delay_secs,
         ..DevVault::default()
     }
     .deploy(&worker, &usdc, &operator_account, &treasury)
