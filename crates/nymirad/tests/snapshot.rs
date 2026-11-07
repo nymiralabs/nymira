@@ -23,6 +23,7 @@ async fn vault_with_notes(
     let alice = worker.dev_create_account().await.unwrap();
     let vault = DevVault {
         note_ttl_days: 30,
+        exit_delay_secs: 7 * 86_400,
         bound_classes: &["100000"],
     }
     .deploy(&worker, &usdc, &operator, &treasury)
