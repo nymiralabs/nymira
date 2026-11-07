@@ -436,6 +436,7 @@ async fn switches_fail_latency_usage() {
     for _ in 0..2 {
         let r = t.chat(&key, &user("x")).await;
         assert_eq!(r.status(), 429);
+        assert_eq!(r.headers()[reqwest::header::RETRY_AFTER], "17");
         assert_eq!(
             r.json::<Value>().await.unwrap()["error"]["code"],
             "rate_limit_exceeded"

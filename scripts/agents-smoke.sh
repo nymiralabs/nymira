@@ -207,8 +207,8 @@ curl -fsS -H 'Content-Type: application/json' -d '{"fail_next":100,"fail_status"
 step "provider rate limit through nymirad and IronClaw"
 status="$(api /v1/chat/completions -H 'Content-Type: application/json' -D "$WORK/rate.headers" -o "$WORK/rate.body" -w '%{http_code}' \
   -d "{\"model\":\"$MODEL\",\"max_tokens\":20,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")"
-[ "$status" = 429 ] && grep -qi '^retry-after: [1-9][0-9]*' "$WORK/rate.headers" \
-  && grep -q 'provider_rate_limit' "$WORK/rate.body" \
+[ "$status" = 429 ] && tr -d '\r' <"$WORK/rate.headers" | grep -Eqi '^retry-after: 17$' \
+  && python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["error"]; assert e["code"] == "provider_rate_limit" and e["type"] == "rate_limit_error"' "$WORK/rate.body" \
   || { cat "$WORK/rate.headers" "$WORK/rate.body"; die "provider 429 did not reach nymirad with Retry-After"; }
 if ic run --message "Reply with one short greeting." </dev/null >"$WORK/ic-rate.out" 2>"$WORK/ic-rate.err"; then
   die "IronClaw got an answer while the provider was rate limited"
