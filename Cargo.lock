@@ -3912,6 +3912,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "nymira-mcp-fixture"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "bs58 0.5.1",
+ "ed25519-dalek",
+ "hex",
+ "libc",
+ "near-workspaces",
+ "nymira-fake-near-ai",
+ "nymira-near-codec",
+ "nymira-operator",
+ "nymira-testkit",
+ "nymirad",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "zkapi-proof",
+ "zkapi-types",
+]
+
+[[package]]
 name = "nymira-near-codec"
 version = "0.0.0"
 dependencies = [

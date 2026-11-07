@@ -1,0 +1,28 @@
+[package]
+name = "nymira-mcp-fixture"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Test stack for the MCP server: the mock stack behind nymirad's real agent routes on loopback and a Unix socket"
+
+[dependencies]
+async-trait = "0.1"
+axum = "0.8"
+base64 = "0.22"
+bs58 = "0.5"
+ed25519-dalek = "2"
+hex = "0.4"
+libc = "0.2"
+near-workspaces = { workspace = true }
+nymira-fake-near-ai = { path = "../nymira-fake-near-ai" }
+nymira-near-codec = { workspace = true }
+nymira-operator = { path = "../nymira-operator" }
+nymira-testkit = { path = "../nymira-testkit" }
+nymirad = { path = "../nymirad", features = ["mock"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof", features = ["dev-setup", "dev-fixtures"] }
+zkapi-types = { workspace = true }
