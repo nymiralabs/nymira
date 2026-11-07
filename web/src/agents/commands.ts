@@ -43,14 +43,14 @@ export function shq(value: string): string {
 // these are the owner's own local addresses, so the names are built at run time.
 // Reversed, because the minifier would fold a plain join back into one string.
 const rev = (text: string) => [...text].reverse().join('');
-const IP4 = rev('1.0.0.721');
-const LOCAL = rev('tsohlacol');
+export const IP4 = rev('1.0.0.721');
+export const LOCAL = rev('tsohlacol');
 const LOOPBACK = new RegExp(
   `^http://(${IP4.replaceAll('.', '\\.')}|${LOCAL}|\\[::1\\]):[0-9]{1,5}$`,
 );
 const OS_USER = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
 
-function problems(f: CommandFields): string[] {
+export function problems(f: CommandFields): string[] {
   const errors: string[] = [];
   if (!AGENT_NAME.test(f.name)) errors.push('Agent name: 1 to 32 characters of a-z, 0-9, - and _.');
   const text: [string, string, boolean][] = [

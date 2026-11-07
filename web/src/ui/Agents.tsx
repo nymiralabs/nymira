@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { buildBlocks, type CommandFields } from '../agents/commands';
+import { recipeViews } from '../agents/recipes';
+import { plainText } from '../../../shared/recipes.mjs';
 import {
   approvalMessage,
   approvalRecipient,
@@ -193,6 +195,7 @@ export function Agents() {
   const approvalMsg: Built<string> =
     agentErrors.length > 0 ? { ok: false, errors: agentErrors } : approvalMessage(approval);
   const blocks = buildBlocks({ ...cmd, name });
+  const recipes = recipeViews({ ...cmd, name });
   const set = (k: keyof typeof policy) => (v: string) => setPolicy({ ...policy, [k]: v });
 
   return (
@@ -429,6 +432,38 @@ export function Agents() {
       />
       {!blocks.ok && <Errors list={blocks.errors} id="command-errors" />}
       {blocks.ok && blocks.blocks.map((b) => <CopyBlock key={b.id} {...b} />)}
+
+      <h2>6. Recipes</h2>
+      <p>
+        The IronClaw and Cursor recipes, filled from the fields above. They are the same text as the
+        README sections. Every recipe names the token file and holds no token.
+      </p>
+      {!recipes.ok && <Errors list={recipes.errors} id="recipe-errors" />}
+      {recipes.ok &&
+        recipes.views.map((v) => (
+          <div key={v.id} data-testid={`recipe-${v.id}`}>
+            <h3>{v.title}</h3>
+            {v.blocks.map((b, i) => {
+              if (b.t === 'p') return <p key={i}>{plainText(b.text)}</p>;
+              if (b.t === 'ul')
+                return (
+                  <ul key={i}>
+                    {b.items.map((item) => (
+                      <li key={item}>{plainText(item)}</li>
+                    ))}
+                  </ul>
+                );
+              return (
+                <CopyBlock
+                  key={i}
+                  id={`recipe-${v.id}-${i}`}
+                  title={b.title ?? v.title}
+                  text={b.text}
+                />
+              );
+            })}
+          </div>
+        ))}
     </section>
   );
 }
