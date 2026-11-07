@@ -389,6 +389,13 @@ jobs:
         run: |
           command -v shasum >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq libdigest-sha-perl; }
           command -v lsof >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq lsof; }
+      # The fixture builds these at runtime through cargo-near and answers its client within four
+      # minutes. Warming them here keeps a fresh runner's wasm compile out of that window.
+      - name: Prebuild the contract wasm the fixture loads
+        run: |
+          (cd contracts/mock-usdc && cargo near build non-reproducible-wasm --no-abi --locked)
+          (cd contracts/mock-ft-receiver && cargo near build non-reproducible-wasm --no-abi --locked)
+          (cd contracts/vault && cargo near build non-reproducible-wasm --no-abi --locked --features dev-setup)
       - name: Build the fixture
         run: cargo build --locked -p nymira-mcp-fixture
       - name: The MCP package tests
