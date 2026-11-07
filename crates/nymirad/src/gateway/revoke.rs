@@ -59,6 +59,9 @@ impl Gateway {
     /// Why an agent request on `note` must not be served, if it must not: a revocation has
     /// started, a close or exit has begun, or the note is in the last days before it expires.
     pub(super) fn note_refusal(&self, note: &str) -> Option<ApiError> {
+        if self.is_moved(note) {
+            return Some(ApiError::note_moved());
+        }
         if self
             .revoking
             .lock()
@@ -79,6 +82,14 @@ impl Gateway {
                 .expiry_ns
                 .is_some_and(|e| crate::expiry::lease_blocked(e, self.clock.now_secs()));
         (leaving || short).then(ApiError::note_expiring)
+    }
+
+    /// Whether the budget note runs on the agent's machine. An unreadable registry counts as
+    /// moved: this copy then refuses rather than risk a second spender.
+    pub(super) fn is_moved(&self, note: &str) -> bool {
+        Registry::at(&self.cfg.home)
+            .load()
+            .map_or(true, |b| b.for_note(note).is_some_and(|a| a.moved))
     }
 
     /// The note's balance as of the last settled lease: what was deposited, less every charge

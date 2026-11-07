@@ -38,6 +38,7 @@ pub mod net;
 pub mod nras;
 pub mod oneclick;
 pub mod openai;
+pub mod optin;
 pub mod ownersock;
 pub mod pins;
 pub mod policy;

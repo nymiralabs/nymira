@@ -225,7 +225,7 @@ pub fn decrypt(secret: &str, file: &[u8]) -> Result<Zeroizing<Vec<u8>>, BackupEr
     Ok(out)
 }
 
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);

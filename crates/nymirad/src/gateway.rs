@@ -580,6 +580,7 @@ impl Gateway {
                 n.status == NoteStatus::Accepted
                     && n.note_id.is_some()
                     && scope.allows(&n.commitment)
+                    && !(scope.is_agent() && self.is_moved(&n.commitment))
             })
             .collect();
         if accepted.is_empty() {
@@ -1444,6 +1445,7 @@ impl Gateway {
                     drop(session.wallet);
                     let _ = self.vault.checkin(&key);
                     self.back_up();
+                    self.export_owner_state(&key);
                     done.push(settled);
                 }
                 None => {
@@ -1572,6 +1574,16 @@ impl Gateway {
     /// The owner has seen the warning on `note`; the agent can send requests again.
     pub fn ack_charge_warning(&self, note: &str) -> std::io::Result<bool> {
         self.charge_warnings.ack(note)
+    }
+
+    /// Opt-in mode: after a lease settled, writes the note's new state for the owner. A failure
+    /// is a warning, as for the backup.
+    fn export_owner_state(&self, note_key: &str) {
+        if let Err(e) =
+            crate::optin::export_state(&self.cfg.home, &self.vault, note_key, self.clock.now_secs())
+        {
+            eprintln!("warning: the state for the owner was not written: {e}");
+        }
     }
 
     /// Writes the backup after a state change. A failure is a warning: the money and the state

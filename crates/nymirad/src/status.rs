@@ -335,6 +335,7 @@ mod tests {
             transport: Transport::Tcp,
             uid: None,
             disabled: false,
+            moved: false,
             created_at: NOW,
         };
         let text = |a: &AgentEntry| {

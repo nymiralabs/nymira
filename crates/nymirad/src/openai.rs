@@ -60,7 +60,7 @@ const DETAILS: [&str; 16] = [
 
 /// Codes whose message nymirad wrote itself from its own figures; everything else is replaced
 /// by a fixed text on the agent API.
-const OWN_MESSAGE: [&str; 17] = [
+const OWN_MESSAGE: [&str; 18] = [
     "invalid_request",
     "invalid_token",
     "token_disabled",
@@ -71,6 +71,7 @@ const OWN_MESSAGE: [&str; 17] = [
     "approval_required",
     "budget_exhausted",
     "note_expiring",
+    "note_moved",
     "policy_rate_limit",
     "busy",
     "approval_limit",
@@ -206,6 +207,16 @@ impl ApiError {
             "insufficient_funds",
             "note_expiring",
             "the budget note is closing, being revoked or about to expire; the owner decides what happens next",
+        )
+    }
+
+    /// The budget note runs on the agent's own machine; this copy never spends it.
+    pub fn note_moved() -> Self {
+        Self::new(
+            StatusCode::PAYMENT_REQUIRED,
+            "insufficient_funds",
+            "note_moved",
+            "the budget note was moved to the agent's own machine; this copy does not spend it",
         )
     }
 

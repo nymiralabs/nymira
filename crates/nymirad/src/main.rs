@@ -71,6 +71,16 @@ commands:
   agent revoke --name NAME [--delay SECS] [--family NAME] [--via-operator]
       takes the budget note back without the agent: disables its token, retires its lease,
       asks for a clearance and closes the note; files an exit only if the operator gives none
+  agent move --name NAME --agent-recipient AGE_PUBLIC_KEY --state-recipient AGE_PUBLIC_KEY
+             --state-place DIR [--state-place DIR]... --out FILE
+      opt-in: moves the budget note to the agent's own machine. Shows what you lose (revocation
+      is no longer guaranteed, the ceiling is) and asks you to confirm. Your copy then refuses to
+      spend. FILE is for `nymirad restore` there; the agent's nymirad writes each new state,
+      numbered and encrypted to --state-recipient, into the --state-place directories
+  agent import-state --name NAME --from DIR_OR_FILE... [--key-file FILE]
+      takes the furthest-along state among those files into your wallet (chosen by the note's
+      chain, checked against the operator's signature) and names stale ones; warns if the
+      operator already counts its nullifier as used. Run it before you close or exit a moved note
   agent approvals                   the requests held for your approval: ID, model, size, estimated cost
   agent approve --file SIGNED_APPROVAL.json
       hands the running nymirad an approval you signed on your own device (NEP-413)
@@ -494,6 +504,14 @@ async fn main() {
             }
             Some("revoke") => {
                 owner_command(&home, "revoke", &mut args).await;
+                return;
+            }
+            Some("move") => {
+                agent_move(&home, &source, &mut args);
+                return;
+            }
+            Some("import-state") => {
+                import_state(&home, &source, mode, &mut args).await;
                 return;
             }
             Some("show") => {
@@ -1153,6 +1171,100 @@ async fn agents_command(home: &std::path::Path) {
             if r["policy"].is_null() { "none in force".to_string() } else { r["policy"].to_string() },
         );
     }
+}
+
+/// `agent move`: hands the budget note to the agent's own machine, after a confirmation.
+fn agent_move(home: &std::path::Path, source: &PassphraseSource, args: &mut Vec<String>) {
+    let mut need = |name: &str| flag(args, name).unwrap_or_else(|| die(USAGE));
+    let (agent, agent_recipient, owner_recipient, out) = (
+        need("--name"),
+        need("--agent-recipient"),
+        need("--state-recipient"),
+        need("--out"),
+    );
+    let mut places = Vec::new();
+    while let Some(p) = flag(args, "--state-place") {
+        places.push(p.into());
+    }
+    let req = nymirad::optin::MoveRequest {
+        agent,
+        agent_recipient,
+        owner_recipient,
+        places,
+        out: out.into(),
+    };
+    let passphrase = source.read().unwrap_or_else(|e| die(e));
+    let moved = nymirad::optin::move_note(
+        home,
+        &passphrase,
+        ROUNDS,
+        &req,
+        SystemClock.now_secs(),
+        &mut |question| Terminal.confirm_text(&format!("{question}\n> ")),
+    );
+    println!("{}", moved.unwrap_or_else(|e| die(e)));
+}
+
+/// `agent import-state`: takes the latest state the agent's machine wrote into your wallet.
+async fn import_state(
+    home: &std::path::Path,
+    source: &PassphraseSource,
+    mode: Mode,
+    args: &mut Vec<String>,
+) {
+    let agent = flag(args, "--name").unwrap_or_else(|| die(USAGE));
+    let mut from: Vec<PathBuf> = Vec::new();
+    while let Some(f) = flag(args, "--from") {
+        from.push(f.into());
+    }
+    if from.is_empty() {
+        die(USAGE);
+    }
+    let key = secret_input(
+        flag(args, "--key-file"),
+        "Private key of the state recipient: ",
+    );
+    let cfg = Config::load(home).unwrap_or_else(|e| die(e));
+    let passphrase = source.read().unwrap_or_else(|e| die(e));
+    let pinned = pins::compiled(mode);
+    #[cfg(feature = "mock")]
+    let pinned = pinned.or_else(|| pins::demo(home));
+    let pinned = pinned.unwrap_or_else(|| die("no vault is pinned for this build"));
+    let point = |f: &str| {
+        zkapi_types::Felt252::from_hex(pinned.config["operator_pk"][f].as_str().unwrap_or(""))
+            .unwrap_or_else(|_| die("the pinned operator key is malformed"))
+    };
+    let network = match mode {
+        Mode::Testnet => nymira_near_codec::Network::Testnet,
+        Mode::Mainnet => nymira_near_codec::Network::Mainnet,
+    };
+    let verify = nymirad::optin::Verify {
+        operator_key: zkapi_types::wire::CurvePointWire {
+            x: point("x"),
+            y: point("y"),
+        },
+        chain_id: nymira_near_codec::chain_id(network),
+        contract: zkapi_types::Felt252(nymira_near_codec::contract_address(&pinned.vault)),
+    };
+    // The operator is asked over Tor like any other question of the owner's.
+    let transport = connect(&cfg, home, TOR_WAIT).await;
+    let spent = nymirad::optin::OperatorSpent {
+        base: cfg.operator_url.clone(),
+        http: nymirad::rpc::client(&transport).unwrap_or_else(|e| die(e)),
+    };
+    let report = nymirad::optin::import_best(
+        home,
+        &passphrase,
+        ROUNDS,
+        &agent,
+        &from,
+        &key,
+        &verify,
+        &spent,
+    )
+    .await
+    .unwrap_or_else(|e| die(e));
+    println!("{}", report.lines().join("\n"));
 }
 
 fn note_id(args: &mut Vec<String>) -> u32 {
