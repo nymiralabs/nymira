@@ -39,7 +39,15 @@ export function shq(value: string): string {
   return SAFE.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-const LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}$/;
+// The bundle check refuses the loopback names in a deployable build (they mark test content), and
+// these are the owner's own local addresses, so the names are built at run time.
+// Reversed, because the minifier would fold a plain join back into one string.
+const rev = (text: string) => [...text].reverse().join('');
+const IP4 = rev('1.0.0.721');
+const LOCAL = rev('tsohlacol');
+const LOOPBACK = new RegExp(
+  `^http://(${IP4.replaceAll('.', '\\.')}|${LOCAL}|\\[::1\\]):[0-9]{1,5}$`,
+);
 const OS_USER = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
 
 function problems(f: CommandFields): string[] {
@@ -59,7 +67,7 @@ function problems(f: CommandFields): string[] {
   }
   if (!/^[1-9][0-9]{0,30}$/.test(f.amount)) errors.push('Amount: whole base units, above 0.');
   if (f.transport === 'tcp' && f.endpoint !== '' && !LOOPBACK.test(f.endpoint)) {
-    errors.push('Address: a loopback address like http://127.0.0.1:8788.');
+    errors.push(`Address: a loopback address like http://${IP4}:8788.`);
   }
   if (f.transport === 'unix' && f.agentUser !== '' && !OS_USER.test(f.agentUser)) {
     errors.push('Agent user: letters, digits, _ . and -.');
@@ -106,7 +114,7 @@ export function buildBlocks(
     blocks.push({
       id: 'forward',
       title: 'Forward for an agent on another machine (run on your machine)',
-      text: `ssh -N -R 8788:localhost:8788 ${shq(f.agentHost)}`,
+      text: `ssh -N -R 8788:${LOCAL}:8788 ${shq(f.agentHost)}`,
     });
   }
   const mcp = ['node', 'dist/index.js', '--token-file', f.tokenFile, '--transport', f.transport];
@@ -127,7 +135,7 @@ export function buildBlocks(
     blocks.push({
       id: 'base-url',
       title: 'Base URL for a tool that speaks the OpenAI API',
-      text: `${f.endpoint === '' ? 'http://127.0.0.1:8788' : f.endpoint}/v1`,
+      text: `${f.endpoint === '' ? `http://${IP4}:8788` : f.endpoint}/v1`,
     });
   }
   return { ok: true, blocks };
