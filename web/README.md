@@ -57,7 +57,9 @@ web/
                                    store.ts (what the screens share), text.ts (fixed wording)
     worker/                        the note worker that runs note/core.ts, its protocol and client
     backup/                        format.ts (the file), ics.ts (calendar reminder)
-    funding/                       flow.ts (the funding steps), oneclick.ts (dry quotes)
+    funding/                       flow.ts (the funding steps), oneclick.ts and quote-check.ts (quotes
+                                   and their signature checks), intents.ts (funding from another chain),
+                                   watch.ts (finds a deposit without the wallet)
     chat/                          session.ts (one conversation: attest, lease, encrypted chat,
                                    settle), operator.ts (HTTP client and error texts), e2ee.ts,
                                    gate.ts (status nonce, parameters), charge.ts, models.ts,
@@ -78,11 +80,11 @@ web/
 
 A bundle is built for one profile (`vite build --mode <profile>`) and contains that profile's constants only. The network, vault, RPC endpoints, operator URL and pins are compiled in. Nothing in the URL, local storage or IndexedDB changes them, in any build.
 
-| Profile   | Use                                                                | Vault pins                                                                         |
-| --------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `testnet` | The hackathon deployment.                                          | `null` until the judge vault exists. The Fund screen then says it is switched off. |
-| `mainnet` | The later launch.                                                  | `null`. No public mainnet vault during the hackathon.                              |
-| `mock`    | Playwright only. Loopback RPC, mock vault, a test wallet executor. | Fixture.                                                                           |
+| Profile   | Use                                                                | Vault pins                                                                  |
+| --------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `testnet` | The hackathon deployment.                                          | `vault.nymira.testnet`: code hash, `vk_hashes`, `config()` and access keys. |
+| `mainnet` | The later launch.                                                  | `null`. No public mainnet vault during the hackathon.                       |
+| `mock`    | Playwright only. Loopback RPC, mock vault, a test wallet executor. | Fixture.                                                                    |
 
 `check:bundle` runs on the testnet and mainnet bundles in CI. The app also refuses to run from an origin other than the profile's `appOrigin`, and makes no request when it does.
 
@@ -125,7 +127,7 @@ After a reload the wallet connection is gone (the wallet frame keeps nothing on 
 - Anonymity on testnet is small and made of test notes.
 - The web app cannot use Tor and cannot bind the gateway's TLS certificate. The operator, NEAR AI's gateway and the PCCS see the user's IP address and the time. It cannot verify NVIDIA's GPU evidence (see Chat).
 - The main thread never holds a plain note secret, but the worker's memory does, and a script that can run in the page can ask the worker to do what the page can do. The strict policy is what keeps such a script out; see the hosting ticket.
-- Real Meteor and Intear wallets were not driven in the tests (see the pull request). The sandbox path is tested with a test executor.
+- Real Meteor and Intear wallets are not driven in the automated tests; the sandbox path is tested with a test executor. Both were tried by hand on testnet.
 
 ## Chat
 
@@ -157,7 +159,7 @@ The mock profile's reports carry a test quote (`chat/attest/testquote.ts`) so Pl
 
 `build-wasm.sh` builds five modules: the ceremony-setup wallet core (`zkapi-browser`), the dev-setup one (`zkapi-browser-dev`, mock profile), `near-codec`, `web-checks` (status signature and Intel quote) and `web-checks-test` (a test operator: its state key and signed responses; Node tests only). The unit tests run a real proof with the dev setup (about 10 s).
 
-Profiles with no published setup (`testnet`, `mainnet`) carry `provingKey: null` and `withdrawalKey: null`, and the Chat and Close screens say they are off. Fill both with the setup's key URLs and SHA-256 hashes when the setup is published.
+The `testnet` profile carries both ceremony keys, served from the bundle under `setup/` and checked by SHA-256. The `mainnet` profile has no vault and carries `provingKey: null` and `withdrawalKey: null`, so Chat and Close say they are off there.
 
 ## Privacy panel
 
@@ -209,7 +211,7 @@ After a close or a finalized exit the app prompts for an encrypted backup and te
 
 Real: the app, every proof (development setup), the operator mock's verification of the ownership proof and the clearance it signs with a real clearance key, the test wallet's signed transactions to the fake RPC, and the check of every `mutual_close`, `request_exit` and `/v1/close` call under the development withdrawal verifying key from its 16 statement words, the way the vault checks them.
 
-Mocked: the vault. The fake RPC runs no contract, so after each call the test scripts the views the vault would show (`note_records`, `exit_requests`, `pending_payout`). The chain's clock is the fake chain's, moved by the test: the sandbox cannot move seven days. No call from this app has run against the real vault or a sandbox vault.
+Mocked: the vault. The fake RPC runs no contract, so after each call the test scripts the views the vault would show (`note_records`, `exit_requests`, `pending_payout`). The chain's clock is the fake chain's, moved by the test: the sandbox cannot move seven days. The interop test runs the web-built `mutual_close` and `request_exit` calldata on a sandbox vault, and closes from the deployed app ran by hand on the testnet vault.
 
 ## Hosting and integrity
 
@@ -229,6 +231,6 @@ The release public key is pinned in `pins/release-signing.pub` (minisign key ID 
 
 - No new host: the Close screen talks to the operator, the RPC endpoints and the wallet frame, all already in `headers.ts`. The withdrawal proving key is a second file next to the request key (`profile.withdrawalKey`); if its URL is not on this origin, its host goes into `connect-src` too.
 - `headers.ts` is the only place that knows the policy. Keep new hosts there.
-- The mainnet profile carries no archival RPC endpoint yet, and NRAS is not in `connect-src` because it refuses browser requests (see Chat).
+- The mainnet profile has no dedicated archival RPC endpoint (the archival read uses the profile's last RPC URL), and NRAS is not in `connect-src` because it refuses browser requests (see Chat).
 
 From the funding and chat tickets, still true: `walletClient.send(receiver, FunctionCallAction)` is how every vault call goes out, and the sealed payload is `{state, extra}` as JSON text read with `note/rawjson.ts`, never `JSON.parse` for numbers.
