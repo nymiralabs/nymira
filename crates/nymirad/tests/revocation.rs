@@ -6,6 +6,8 @@
 
 #[path = "support/policy.rs"]
 mod policy;
+#[path = "support/socks.rs"]
+mod socks;
 #[path = "support/stack.rs"]
 mod stack;
 
@@ -484,6 +486,142 @@ async fn a_dead_tor_sends_nothing_and_never_asks_during_a_revocation() {
     assert!(rig.registry.load().unwrap().agents[0].disabled);
 }
 
+/// A Tor that is ready for the clearance and drops as soon as the clearance request has left, so
+/// the exit that follows a refusal finds it down.
+struct DropsAfterClearance {
+    state: tokio::sync::watch::Sender<nymirad::tor::TorState>,
+    socks: Arc<socks::FakeSocks>,
+    operator_port: u16,
+}
+
+impl DropsAfterClearance {
+    fn arm(&self) {
+        let _ = self.state.send(nymirad::tor::TorState::Ready);
+        let (state, socks, port) = (self.state.clone(), self.socks.clone(), self.operator_port);
+        let before = socks.seen().iter().filter(|c| c.port == port).count();
+        tokio::spawn(async move {
+            while socks.seen().iter().filter(|c| c.port == port).count() == before {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            let _ = state.send(nymirad::tor::TorState::Failed("test: circuit lost".into()));
+        });
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_direct_send_during_revocation_needs_the_owner_to_say_yes() {
+    let proxy = Arc::new(socks::FakeSocks::start(socks::Behavior::Passthrough).await);
+    let (tor, state) = nymirad::tor::Tor::for_tests(proxy.addr, nymirad::tor::TorState::Ready);
+    let rig = Rig::new(Net::Tor(Arc::new(tor)), 30).await;
+    submitter(&rig.s, "personal", NearToken::from_near(5)).await;
+    let drop_tor = DropsAfterClearance {
+        state,
+        socks: proxy.clone(),
+        operator_port: rig
+            .s
+            .parts
+            .operator_url
+            .rsplit(':')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap(),
+    };
+    rig.s
+        .op
+        .set_emergency("the clearance key may be exposed")
+        .await
+        .unwrap();
+
+    // Unattended (no owner terminal): nothing is asked and nothing goes out.
+    drop_tor.arm();
+    let err = rig
+        .s
+        .gateway
+        .revoke_agent("a", quick(), None)
+        .await
+        .expect_err("Tor is down and nobody can confirm");
+    assert!(err.to_string().contains("Tor"), "{err}");
+    assert_eq!(status_of(&rig.s, &rig.note).await, "Active");
+
+    // The owner says no: the fixed question is asked once and nothing goes out.
+    let no = Scripted {
+        yes: false,
+        asked: Mutex::new(Vec::new()),
+    };
+    drop_tor.arm();
+    rig.s
+        .gateway
+        .revoke_agent("a", quick(), Some(&no))
+        .await
+        .expect_err("declined");
+    assert_eq!(
+        *no.asked.lock().unwrap(),
+        vec![nymirad::gateway::close::direct_text(0, "0")]
+    );
+    assert_eq!(status_of(&rig.s, &rig.note).await, "Active");
+    assert!(rig.s.closes.sent().is_empty());
+    // The agent is shut out the whole time and the chat request sends nothing.
+    let seen = rig.mark();
+    let (status, reply) = rig.agent_chat().await;
+    assert_eq!(
+        (status, code(&reply)),
+        (StatusCode::UNAUTHORIZED, "token_disabled"),
+        "{reply}"
+    );
+    rig.quiet_since(seen);
+
+    // The owner says yes: only then the exit goes out directly.
+    let yes = Scripted {
+        yes: true,
+        asked: Mutex::new(Vec::new()),
+    };
+    drop_tor.arm();
+    let out = rig
+        .s
+        .gateway
+        .revoke_agent("a", quick(), Some(&yes))
+        .await
+        .expect("a confirmed direct send");
+    assert!(matches!(out, Revoked::Exiting(..)), "{out:?}");
+    assert_eq!(yes.asked.lock().unwrap().len(), 1);
+    assert_eq!(status_of(&rig.s, &rig.note).await, "PendingExit");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_request_or_the_expiry_guard_never_makes_a_close_go_direct() {
+    let (tor, _state) = nymirad::tor::Tor::for_tests(
+        "127.0.0.1:9".parse().unwrap(),
+        nymirad::tor::TorState::Failed("test: no circuit".into()),
+    );
+    // Inside the five-day window, so the guard tries to close at once.
+    let rig = Rig::new(Net::Tor(Arc::new(tor)), 4).await;
+    submitter(&rig.s, "personal", NearToken::from_near(5)).await;
+    let seen = rig.mark();
+
+    // The agent asks, in words and by routes, for a direct close: it gets its own refusals only.
+    let (status, reply) = rig.agent_chat().await;
+    assert_eq!(
+        (status, code(&reply)),
+        (StatusCode::PAYMENT_REQUIRED, "note_expiring"),
+        "{reply}"
+    );
+    let (status, reply) = call(&rig.app, "POST", "/v1/close", &rig.agent, Some(json!({}))).await;
+    assert_eq!(
+        (status, code(&reply)),
+        (StatusCode::FORBIDDEN, "agent_route_forbidden")
+    );
+    // The guard has no owner to ask, so it waits for Tor and sends nothing, direct or otherwise.
+    let events = rig.s.gateway.guard_tick().await;
+    assert!(
+        events.iter().any(|e| matches!(e, Event::CloseFailed(0, _))),
+        "{events:?}"
+    );
+    assert!(rig.s.closes.sent().is_empty());
+    assert_eq!(status_of(&rig.s, &rig.note).await, "Active");
+    rig.quiet_since(seen);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn revoking_an_unknown_agent_changes_nothing() {
     let rig = Rig::new(Net::Direct, 30).await;
@@ -499,9 +637,12 @@ async fn revoking_an_unknown_agent_changes_nothing() {
 
 // ---- the agent token never reaches an owner action -----------------------------------------
 
-/// One test per action: the agent token is refused before any handler runs, on the TCP listener.
+/// The agent token, a `tcp` one and a `unix` one, is refused at both front doors for the path an
+/// owner action would use. `$entry` is the action's real owner entry, a command on the owner
+/// socket (0700 directory, same-user peers only); it must be a command the socket parses, and
+/// no HTTP route exists for it: the owner token is refused there too.
 macro_rules! refused_for_the_agent {
-    ($name:ident, $method:expr, $path:expr) => {
+    ($name:ident, $method:expr, $path:expr, $entry:expr) => {
         #[tokio::test]
         async fn $name() {
             let home = tempfile::tempdir().unwrap();
@@ -509,9 +650,59 @@ macro_rules! refused_for_the_agent {
             register(&registry, home.path(), "a", "0x01");
             let token =
                 std::fs::read_to_string(home.path().join("tokens").join("a.token")).unwrap();
-            let owner = Arc::new(OwnerToken::load_or_create(&home.path().join("o.token")).unwrap());
-            let app = router_for(owner, None, registry, Side::Tcp);
+            let owner_path = home.path().join("o.token");
+            let owner = Arc::new(OwnerToken::load_or_create(&owner_path).unwrap());
+            let app = router_for(owner.clone(), None, registry.clone(), Side::Tcp);
             let (status, reply) = call(&app, $method, $path, &token, Some(json!({}))).await;
+            assert_eq!(
+                (status, code(&reply)),
+                (StatusCode::FORBIDDEN, "agent_route_forbidden"),
+                "{reply}"
+            );
+            let owner_text = std::fs::read_to_string(&owner_path).unwrap();
+            let entry: Option<Value> = $entry;
+            if let Some(entry) = entry {
+                let (status, reply) =
+                    call(&app, $method, $path, &owner_text, Some(json!({}))).await;
+                assert_eq!(
+                    (status, code(&reply)),
+                    (StatusCode::FORBIDDEN, "owner_route_forbidden"),
+                    "{reply}"
+                );
+                serde_json::from_value::<nymirad::ownersock::Command>(entry)
+                    .expect("the real owner-socket command");
+            }
+            // The agent socket takes a `unix` agent for its own routes only.
+            let uid = 4242;
+            Spec {
+                name: "u".into(),
+                transport: Transport::Unix,
+                uid: Some(uid),
+                group: None,
+                gid: None,
+                token_file: home.path().join("tokens").join("u.token"),
+            }
+            .register(&registry, "0x02", "owner.test", 1)
+            .unwrap();
+            let unix_token =
+                std::fs::read_to_string(home.path().join("tokens").join("u.token")).unwrap();
+            let socket_app = router_for(owner, None, registry, Side::AgentSocket);
+            let mut request = Request::builder()
+                .method($method)
+                .uri($path)
+                .header("authorization", format!("Bearer {unix_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap();
+            request
+                .extensions_mut()
+                .insert(ConnectInfo(nymirad::agentsock::PeerUid(uid)));
+            let reply = socket_app.oneshot(request).await.unwrap();
+            let status = reply.status();
+            let bytes = axum::body::to_bytes(reply.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let reply: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
             assert_eq!(
                 (status, code(&reply)),
                 (StatusCode::FORBIDDEN, "agent_route_forbidden"),
@@ -521,45 +712,67 @@ macro_rules! refused_for_the_agent {
     };
 }
 
-refused_for_the_agent!(the_agent_token_cannot_close, "POST", "/v1/close");
-refused_for_the_agent!(the_agent_token_cannot_exit, "POST", "/v1/exit");
+refused_for_the_agent!(
+    the_agent_token_cannot_close,
+    "POST",
+    "/v1/close",
+    Some(json!({"cmd": "close", "note": 0, "via_operator": false}))
+);
+refused_for_the_agent!(
+    the_agent_token_cannot_exit,
+    "POST",
+    "/v1/exit",
+    Some(json!({"cmd": "exit", "note": 0}))
+);
 refused_for_the_agent!(
     the_agent_token_cannot_claim_a_payout,
     "POST",
-    "/v1/claim-payout"
+    "/v1/claim-payout",
+    Some(json!({"cmd": "claim_payout", "note": 0}))
 );
 refused_for_the_agent!(
     the_agent_token_cannot_change_policy,
     "POST",
-    "/v1/nymira/policy"
+    "/v1/nymira/policy",
+    None
 );
 refused_for_the_agent!(
     the_agent_token_cannot_approve,
     "POST",
-    nymirad::approvals::PATH
+    nymirad::approvals::PATH,
+    None
 );
 refused_for_the_agent!(
     the_agent_token_cannot_list_approvals,
     "GET",
-    nymirad::approvals::PATH
+    nymirad::approvals::PATH,
+    None
 );
 refused_for_the_agent!(
     the_agent_token_cannot_make_or_change_tokens,
     "POST",
-    "/v1/nymira/tokens"
+    "/v1/nymira/tokens",
+    None
 );
 refused_for_the_agent!(
     the_agent_token_cannot_export_secrets,
     "GET",
-    "/v1/nymira/export"
+    "/v1/nymira/export",
+    None
 );
 refused_for_the_agent!(
     the_agent_token_cannot_back_up_or_restore,
     "POST",
-    "/v1/backup"
+    "/v1/backup",
+    Some(json!({"cmd": "backup"}))
 );
-refused_for_the_agent!(the_agent_token_cannot_fund, "POST", "/v1/deposit");
-refused_for_the_agent!(the_agent_token_cannot_revoke, "POST", "/v1/nymira/revoke");
+refused_for_the_agent!(the_agent_token_cannot_fund, "POST", "/v1/deposit", None);
+refused_for_the_agent!(
+    the_agent_token_cannot_revoke,
+    "POST",
+    "/v1/nymira/revoke",
+    Some(json!({"cmd": "revoke", "agent": "a", "via_operator": false}))
+);
 
 #[tokio::test]
 async fn the_owner_token_cannot_revoke_over_http_either() {
