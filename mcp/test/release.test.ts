@@ -49,7 +49,8 @@ test("the tarball holds the built server and its locked dependencies, and no sou
   assert.ok(files.includes("package/node_modules/@modelcontextprotocol/sdk/package.json"));
   assert.ok(!files.some((f) => /^package\/(src|test|tools|tsconfig)/.test(f)));
   const pkg = JSON.parse(execFileSync("tar", ["-xzOf", tgz, "package/package.json"], { encoding: "utf8" }));
-  assert.equal(pkg.private, undefined);
+  const source = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.private, source.private, "the tarball carries the package's own publish flag");
   assert.deepEqual(pkg.bundleDependencies, ["@modelcontextprotocol/sdk"]);
 });
 
@@ -99,11 +100,13 @@ for (const host of HOSTS) {
     const cfg = hostConfig({ host, installDir, tokenFile: file, transport: "tcp", url: "http://127.0.0.1:8788" });
     const text = JSON.stringify(cfg);
     assert.ok(!text.includes("nyma_") && !text.includes("nymo_"), "no token in the configuration");
-    const [key, shape] = host === "vscode" ? ["servers", true] : ["mcpServers", false];
+    const key = host === "vscode" ? "servers" : "mcpServers";
+    // Cursor and VS Code name the transport; Claude Desktop's shape has no `type` field.
+    const type = host === "claude-desktop" ? undefined : "stdio";
     const entry = (cfg as Record<string, Record<string, Record<string, unknown>>>)[key]?.nymira;
     assert.ok(entry, `${key}.nymira exists`);
     assert.deepEqual(Object.keys(cfg), [key]);
-    assert.equal(entry.type, shape ? "stdio" : undefined);
+    assert.equal(entry.type, type);
     assert.equal(typeof entry.command, "string");
     assert.ok((entry.command as string).startsWith("/"), "absolute command: a desktop host has a short PATH");
     const args = entry.args as string[];

@@ -1,6 +1,7 @@
 {
   "name": "@nymiralabs/nymira-mcp",
   "version": "0.0.0",
+  "private": true,
   "description": "MCP server over stdio for a Nymira agent token: balance, quote and ask tools.",
   "license": "Apache-2.0",
   "type": "module",

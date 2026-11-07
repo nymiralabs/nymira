@@ -27,6 +27,7 @@ jobs:
       rust: ${{ steps.scope.outputs.rust }}
       zkapi: ${{ steps.scope.outputs.zkapi }}
       web: ${{ steps.scope.outputs.web }}
+      mcp: ${{ steps.scope.outputs.mcp }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,18 +37,20 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          rust=true; zkapi=true; web=true
+          rust=true; zkapi=true; web=true; mcp=true
           if [ "$EVENT" = pull_request ] && files=$(git diff --name-only "$BASE" HEAD) && [ -n "$files" ]; then
             hit() { printf '%s\n' "$files" | grep -Eq "$1"; }
             # A diff of only the web app's sources and tests (web/src, web/e2e, web/test) skips Rust.
-            rust=false; zkapi=false; web=false
+            rust=false; zkapi=false; web=false; mcp=false
             if printf '%s\n' "$files" | grep -Evq '^web/(src|e2e|test)/'; then rust=true; fi
             if hit '^(vendor/zkapi/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then zkapi=true; fi
             if hit '^(web/|web-testkit/|shared/|scripts/recipes\.mjs$|vendor/|crates/nymira-(near-codec|near-codec-wasm|web-wasm|fake-near-rpc)/|crates/nymirad/pins/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then web=true; fi
+            if hit '^(mcp/|crates/nymira-mcp-fixture/|shared/|scripts/(recipes\.mjs|release-mcp\.sh)$|Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/ci\.yml$)'; then mcp=true; fi
           fi
           echo "rust=$rust" >> "$GITHUB_OUTPUT"
           echo "zkapi=$zkapi" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "mcp=$mcp" >> "$GITHUB_OUTPUT"
 
   test:
     needs: changes
@@ -339,3 +342,64 @@ jobs:
           tool: cargo-audit,cargo-deny
       - run: cargo audit
       - run: cargo deny check
+
+  # The MCP package: the official client over stdio against nymirad in the mock stack, on both
+  # Linux architectures the package supports. The fixture builds the contracts at runtime, so each
+  # architecture needs its own pinned cargo-near binary.
+  mcp:
+    needs: changes
+    if: needs.changes.outputs.mcp == 'true'
+    name: mcp (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            sha256: 9429064e30a427e96523f539cb255f3688d2345e5000d7d4e4873a8247247d1a
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            sha256: cf7987c98985c42968d04238324f1b4890c988dbe3509b68be58fae07a96c688
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - name: Free disk space (preinstalled toolchains the job does not use)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install cargo-near 0.22.0 (release binary, checksum pinned)
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o cargo-near.tar.gz \
+            "https://github.com/near/cargo-near/releases/download/cargo-near-v0.22.0/cargo-near-${{ matrix.target }}.tar.gz"
+          echo "${{ matrix.sha256 }}  cargo-near.tar.gz" | sha256sum -c -
+          tar -xzf cargo-near.tar.gz
+          install -m 0755 "cargo-near-${{ matrix.target }}/cargo-near" "$HOME/.cargo/bin/cargo-near"
+          cargo near --version
+      - name: Checksum and socket tools
+        run: |
+          command -v shasum >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq libdigest-sha-perl; }
+          command -v lsof >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq lsof; }
+      # The fixture builds these at runtime through cargo-near and answers its client within four
+      # minutes. Warming them here keeps a fresh runner's wasm compile out of that window.
+      - name: Prebuild the contract wasm the fixture loads
+        run: |
+          (cd contracts/mock-usdc && cargo near build non-reproducible-wasm --no-abi --locked)
+          (cd contracts/mock-ft-receiver && cargo near build non-reproducible-wasm --no-abi --locked)
+          (cd contracts/vault && cargo near build non-reproducible-wasm --no-abi --locked --features dev-setup)
+      - name: Build the fixture
+        run: cargo build --locked -p nymira-mcp-fixture
+      - name: The MCP package tests
+        run: |
+          cd mcp
+          npm ci --ignore-scripts
+          npm test
