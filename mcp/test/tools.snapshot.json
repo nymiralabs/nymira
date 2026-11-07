@@ -291,6 +291,10 @@
         "model": {
           "type": "string"
         },
+        "charged_usd": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]{6}$"
+        },
         "signature_kind": {
           "enum": [
             "model-signed",
@@ -321,6 +325,7 @@
       "required": [
         "untrusted_text",
         "model",
+        "charged_usd",
         "signature_kind",
         "usage",
         "replayed"
