@@ -53,15 +53,21 @@ Each `nymirad-vX.Y.Z` release on GitHub has a signed `SHA256SUMS` (`SHA256SUMS.m
 - **Linux x86_64** (`nymirad-X.Y.Z-x86_64-linux`): built twice in the pinned container, and published only when the two builds are identical (`scripts/release-nymirad.sh build`). In a few runs the two builds differed and the cause is not found, so a rebuild may need a second try. No outside party has rebuilt a release yet.
 - **macOS arm64** (`nymirad-X.Y.Z-aarch64-macos`): built by hand on the maintainer's Mac. The signature shows that the project published these exact bytes. It does not show that the binary matches the source, because the macOS toolchain's output is not byte-stable and nobody can rebuild it to the same hash. If that matters to you, build from the tag yourself or use the Linux binary.
 
-`nymirad` starts its own Tor, and it runs only a Tor executable whose SHA-256 is compiled into the build. A build pins one hash per platform. Today the only pinned package is Homebrew's `tor` 0.4.9.15 for macOS arm64 (`c0dcd5d18c534d1e7049c5105bfc39189527b33be65b3d064052c213e7404a46`). No Linux package is pinned yet, and `arti` is not pinned.
+`nymirad` starts its own Tor, and it runs only a Tor executable whose SHA-256 is compiled into the build. A build pins one hash per platform. Three packages are pinned, each one run through `nymirad`'s Tor start, which bootstrapped and carried a request over Tor:
+
+- Homebrew's `tor` 0.4.9.15 for macOS arm64: `c0dcd5d18c534d1e7049c5105bfc39189527b33be65b3d064052c213e7404a46`.
+- Debian 12 (bookworm) `tor` 0.4.9.11-0+deb12u1 for amd64, file `/usr/bin/tor`: `e4c45e50909991b8bd83aac3177ecea670e67cd9a8a575ff77b2bdb9c6d71df9`.
+- The same Debian version for arm64: `3f7e9edb566e32070e8bb34adfbbd8b3d091b9be3e605106f12e70d518bd3db7`.
+
+`arti` is not pinned: no Debian or Ubuntu package exists for it, and it has not run through `nymirad`.
 
 On a Mac with Apple silicon:
 
-1. `brew install tor`, then check `shasum -a 256 "$(brew --prefix tor)/bin/tor"` prints the hash above. Homebrew moves to newer versions; a different version has a different hash and `nymirad` refuses to start it. In that case use option 3.
+1. `brew install tor`, then check `shasum -a 256 "$(brew --prefix tor)/bin/tor"` prints the macOS hash above. Homebrew moves to newer versions; a different version has a different hash and `nymirad` refuses to start it. In that case use option 3.
 2. Copy that file to `~/.nymira/tor/package/tor` (or set `tor_package` in `config.json` to its path). Without a pinned Tor package or your own SOCKS proxy, chat and `close` do not start.
 3. Or run a Tor you trust yourself and give `nymirad` its loopback SOCKS port: `nymirad init ... --socks 127.0.0.1:9050`. Then `nymirad` does not check the Tor executable; you do.
 
-On Linux the same applies: no Tor package is pinned, so use option 3 until one is.
+On Debian 12 (amd64 or arm64): `apt install tor`, then check `sha256sum /usr/bin/tor` prints the hash above for your architecture, and continue with step 2. Debian ships newer builds as security updates; a build other than 0.4.9.11-0+deb12u1 has a different hash and `nymirad` refuses it, so use option 3 then. Other Linux distributions have no pinned package, so use option 3.
 
 ## Set size in `nymirad status`
 
