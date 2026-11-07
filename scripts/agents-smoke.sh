@@ -199,6 +199,26 @@ ic run --message "Reply with one short greeting." </dev/null >"$WORK/ic-answer.o
 [ -n "$(sed 's/\x1b\[[0-9;]*m//g' "$WORK/ic-answer.out" | grep -v '^$' | tail -1)" ] || die "IronClaw printed no answer"
 ok "IronClaw got an answer through nymirad"
 
+# Keep the fake provider rate limited for both the direct HTTP check and the host check.
+FAKE_URL="$(sed -n 's/^[[:space:]]*fake NEAR AI[[:space:]]*//p' "$WORK/demo.log" | head -1)"
+case "$FAKE_URL" in http://127.0.0.1:*) ;; *) die "cannot find the fake gateway" ;; esac
+curl -fsS -H 'Content-Type: application/json' -d '{"fail_next":100,"fail_status":429,"fail_path_prefix":"/v1/chat/completions"}' \
+  "$FAKE_URL/control/switches" > /dev/null || die "cannot enable fake provider rate limit"
+step "provider rate limit through nymirad and IronClaw"
+status="$(api /v1/chat/completions -H 'Content-Type: application/json' -D "$WORK/rate.headers" -o "$WORK/rate.body" -w '%{http_code}' \
+  -d "{\"model\":\"$MODEL\",\"max_tokens\":20,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")"
+[ "$status" = 429 ] && grep -qi '^retry-after: [1-9][0-9]*' "$WORK/rate.headers" \
+  && grep -q 'provider_rate_limit' "$WORK/rate.body" \
+  || { cat "$WORK/rate.headers" "$WORK/rate.body"; die "provider 429 did not reach nymirad with Retry-After"; }
+if ic run --message "Reply with one short greeting." </dev/null >"$WORK/ic-rate.out" 2>"$WORK/ic-rate.err"; then
+  die "IronClaw got an answer while the provider was rate limited"
+fi
+cat "$WORK/ic-rate.out" "$WORK/ic-rate.err" | grep -q 'provider_rate_limit' \
+  || { tail -30 "$WORK/ic-rate.err"; die "IronClaw did not report provider_rate_limit"; }
+curl -fsS -H 'Content-Type: application/json' -d '{"fail_next":0}' \
+  "$FAKE_URL/control/switches" > /dev/null || die "cannot clear fake provider rate limit"
+ok "provider 429 and Retry-After reached nymirad; IronClaw reported the reason"
+
 # The same user, a model the policy does not allow.
 ic_bad() { (cd "$AGENT_HOME/work" && as_agent bash -c 'set -a; . "$HOME/nymira.env"; LLM_MODEL=not/in-the-policy; set +a; exec "$@"' _ "$IRONCLAW" "$@"); }
 if ic_bad run --message "hello" </dev/null >"$WORK/ic-bad.out" 2>"$WORK/ic-bad.err"; then die "IronClaw got an answer for a model outside the policy"; fi
