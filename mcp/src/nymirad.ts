@@ -20,6 +20,7 @@ export class TransportError extends Error {
 export interface Reply {
   status: number;
   body: unknown;
+  headers: http.IncomingHttpHeaders;
 }
 
 export type Fetcher = (
@@ -70,6 +71,7 @@ export function makeFetcher(target: Target, token: string): Fetcher {
               resolve({
                 status: res.statusCode ?? 0,
                 body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+                headers: res.headers,
               });
             } catch {
               reject(new TransportError("response_not_json"));

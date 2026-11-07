@@ -79,13 +79,18 @@ export interface Stub {
   requests: http.IncomingHttpHeaders[];
   close: () => Promise<void>;
 }
-export async function stub(reply: (url: string) => unknown = () => ({}), status = 200): Promise<Stub> {
+export async function stub(
+  reply: (url: string) => unknown = () => ({}),
+  status = 200,
+  headers: Record<string, string> = {},
+): Promise<Stub> {
   const requests: http.IncomingHttpHeaders[] = [];
   const server = http.createServer((req, res) => {
     requests.push({ ...req.headers, ":url": req.url } as http.IncomingHttpHeaders);
     req.resume();
     res.statusCode = status;
     res.setHeader("content-type", "application/json");
+    for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
     res.end(JSON.stringify(reply(req.url ?? "")));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -121,7 +126,9 @@ export interface Fixture {
     token_files: { main: string; tight: string; sock: string };
     owner_token_file: string;
   };
-  report: () => Promise<{ leases: number; chats: number; outbound: number }>;
+  report: () => Promise<{ leases: number; chats: number; outbound: number; max_tokens: number[]; bound_classes: string[] }>;
+  /** `switch <json>`, `approve <id>` or `settle`: the fixture's owner and provider controls. */
+  command: (line: string) => Promise<Record<string, unknown>>;
   stop: () => Promise<void>;
 }
 
@@ -158,12 +165,14 @@ export async function startFixture(): Promise<Fixture> {
       });
     });
   const info = JSON.parse(await next());
+  const command = async (line: string) => {
+    child.stdin?.write(`${line}\n`);
+    return JSON.parse(await next());
+  };
   return {
     info,
-    report: async () => {
-      child.stdin?.write("report\n");
-      return JSON.parse(await next());
-    },
+    report: async () => command("report") as never,
+    command,
     // The fixture exits when stdin closes and takes the sandbox down with it.
     stop: () =>
       new Promise<void>((resolve) => {

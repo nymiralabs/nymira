@@ -19,10 +19,13 @@ mod stack;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use base64::Engine;
+use ed25519_dalek::{Signer, SigningKey};
+use nymira_fake_near_rpc::{AccessKeySpec, AccountSpec, FakeRpc};
 use nymirad::agents::{Registry, Spec, Transport};
 use nymirad::agentsock::{self, AgentListener};
 use nymirad::guard::{router_for, Side};
-use nymirad::rpc::Transport as Net;
+use nymirad::rpc::{Rpc, Transport as Net};
 use nymirad::secrets::NoteStore;
 use nymirad::token::OwnerToken;
 use serde_json::json;
@@ -64,6 +67,7 @@ async fn main() {
     sync_root(&s.worker, &s.alice, &s.vault).await;
 
     let registry = Registry::at(&home);
+    let registry_for_sign = registry.clone();
     for (i, (name, transport, text)) in agents.iter().enumerate() {
         Spec {
             name: (*name).into(),
@@ -99,13 +103,23 @@ async fn main() {
         .tempdir_in("/tmp")
         .unwrap();
     let bound = agentsock::bind(dir.path(), None).unwrap();
-    let listener = AgentListener::new(
-        bound,
-        registry.clone(),
-        Arc::new(|_| Some(FAKE_UID)),
-    );
+    let listener = AgentListener::new(bound, registry.clone(), Arc::new(|_| Some(FAKE_UID)));
     let sock_app = router_for(owner, Some(s.gateway.clone()), registry, Side::AgentSocket);
     tokio::spawn(agentsock::serve(listener, sock_app));
+
+    // The owner's wallet key, known to a fake chain, so `approve` can sign as the owner does.
+    let owner_key = SigningKey::from_bytes(&[1u8; 32]);
+    let node = FakeRpc::start().await;
+    node.set_account(policy::OWNER, AccountSpec::default());
+    node.set_access_keys(
+        policy::OWNER,
+        vec![AccessKeySpec::full_access(
+            &policy::public_key(&owner_key),
+            0,
+        )],
+    );
+    s.gateway
+        .set_key_rpcs(vec![Rpc::new(node.url(), &Net::Direct).unwrap()]);
 
     let token_file = |name: &str| home.join("tokens").join(format!("{name}.token"));
     println!(
@@ -127,15 +141,89 @@ async fn main() {
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     while let Ok(Some(line)) = lines.next_line().await {
-        if line.trim() == "report" {
-            println!(
-                "{}",
-                json!({
-                    "leases": s.gateway.records().len(),
-                    "chats": s.fake.handle.chats().len(),
-                    "outbound": proxy.seen().len(),
-                })
-            );
-        }
+        let (word, rest) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
+        let reply = match word {
+            "report" => json!({
+                "leases": s.gateway.records().len(),
+                "chats": s.fake.handle.chats().len(),
+                "outbound": proxy.seen().len(),
+                "bound_classes": s.gateway.records().iter().map(|r| r.bound_class.clone()).collect::<Vec<_>>(),
+                "max_tokens": s.fake.handle.chats().iter()
+                    .map(|c| serde_json::from_slice::<serde_json::Value>(&c.body).unwrap()["max_tokens"].clone())
+                    .collect::<Vec<_>>(),
+            }),
+            // Set the fake provider's switches, such as `reply`, `latency_ms` or `usage`.
+            "switch" => {
+                let patch = serde_json::from_str(rest).unwrap();
+                s.fake
+                    .handle
+                    .patch(&patch)
+                    .map_or_else(|e| json!({"error": e}), |_| json!({"ok": true}))
+            }
+            // The owner signs and submits the approval of a held call.
+            "approve" => approve(&s, &registry_for_sign, &owner_key, rest).await,
+            // Retire open leases and let the operator and nymirad settle them.
+            "settle" => {
+                s.gateway.reap(true).await;
+                for _ in 0..3 {
+                    s.op.tick().await;
+                    s.clock.advance_secs(11);
+                }
+                s.op.tick().await;
+                s.op.tick().await;
+                json!({"settled": s.gateway.settle().await.len()})
+            }
+            _ => continue,
+        };
+        println!("{reply}");
+    }
+}
+
+async fn approve(s: &Stack, registry: &Registry, key: &SigningKey, id: &str) -> serde_json::Value {
+    let held = s.gateway.approvals().list(s.gateway.now_secs());
+    let Some(h) = held
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["approval_id"] == id)
+    else {
+        return json!({"error": "no such held call"});
+    };
+    let agent = h["agent"].as_str().unwrap();
+    let book = registry.load().unwrap();
+    let note = book
+        .agents
+        .iter()
+        .find(|a| a.name == agent)
+        .unwrap()
+        .note
+        .clone();
+    let recipient = nymirad::approvals::recipient(agent, &note);
+    let message = json!({
+        "kind": "nymira-approval", "id": h["approval_id"], "request_hash": h["request_hash"],
+        "amount_micro": h["amount_micro"], "nonce": h["nonce"],
+    })
+    .to_string();
+    let nonce = [7u8; 32];
+    let hash = nymirad::policy::nep413_hash(&message, &nonce, &recipient);
+    let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+    let file = json!({
+        "account_id": policy::OWNER, "public_key": policy::public_key(key),
+        "signature": b64(&key.sign(&hash).to_bytes()), "nonce": b64(&nonce),
+        "message": message, "recipient": recipient,
+    });
+    match s
+        .gateway
+        .approvals()
+        .approve(
+            file.to_string().as_bytes(),
+            &book,
+            &s.gateway.key_rpcs(),
+            s.gateway.now_secs(),
+        )
+        .await
+    {
+        Ok(id) => json!({"approved": id}),
+        Err(_) => json!({"error": "refused"}),
     }
 }
