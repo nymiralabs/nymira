@@ -30,6 +30,8 @@ fn b64(bytes: &[u8]) -> String {
 /// What differs between the tests that build this vault.
 pub struct DevVault<'a> {
     pub note_ttl_days: u64,
+    /// The vault's exit window; the contract takes one day at the least.
+    pub exit_delay_secs: u64,
     pub bound_classes: &'a [&'a str],
 }
 
@@ -37,6 +39,7 @@ impl Default for DevVault<'_> {
     fn default() -> Self {
         Self {
             note_ttl_days: 30,
+            exit_delay_secs: 7 * 86_400,
             bound_classes: &["100000", "500000"],
         }
     }
@@ -79,7 +82,7 @@ impl DevVault<'_> {
                 "request_vk": b64(&canonical_verifying_key(Kind::Request)),
                 "withdrawal_vk": b64(&canonical_verifying_key(Kind::Withdrawal)),
                 "treasury": treasury.id(), "note_fee": FEE.to_string(),
-                "exit_delay_secs": 7 * 86_400, "note_ttl": self.note_ttl_days * 86_400,
+                "exit_delay_secs": self.exit_delay_secs, "note_ttl": self.note_ttl_days * 86_400,
                 "bound_classes": self.bound_classes, "charge_step": "1000", "min_charge": "2000",
                 "slot_rate": 1000, "owner": worker.root_account().unwrap().id(),
                 "operator_account": operator_account.id(),
