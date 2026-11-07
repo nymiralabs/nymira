@@ -226,6 +226,7 @@ async fn stack(opts: Opts) -> Stack {
     let alice = worker.dev_create_account().await.unwrap();
     let vault = DevVault {
         note_ttl_days: opts.ttl_days,
+        exit_delay_secs: 7 * 86_400,
         bound_classes: &["100000", "500000"],
     }
     .deploy(&worker, &usdc, &operator_account, &treasury)

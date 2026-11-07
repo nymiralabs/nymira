@@ -383,9 +383,10 @@ export class MockStack {
           return this.error(res, 409, 'root_stale');
         }
         const parts = splitObject(body);
-        const nullifier = JSON.parse(
-          splitObject(parts.public_inputs!).request_nullifier!,
-        ) as string;
+        // The real operator keeps the 64-digit form; the proof library drops leading zeros.
+        const nullifier = (
+          JSON.parse(splitObject(parts.public_inputs!).request_nullifier!) as string
+        ).replace(/^0x([0-9a-f]+)$/i, (_, h: string) => `0x${h.padStart(64, '0')}`);
         // A nullifier the operator already holds is refused before anything else is checked.
         if ([...this.leases.values()].some((l) => l.nullifier === nullifier))
           return this.error(res, 409, 'nullifier_seen', s.refusal);

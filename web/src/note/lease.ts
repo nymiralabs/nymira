@@ -237,9 +237,10 @@ export async function prepareLease(
     warnings: [],
     ...(input.setSize ? { setSize: input.setSize } : {}),
   };
-  const nullifier = JSON.parse(
-    splitObject(splitObject(request).public_inputs!).request_nullifier!,
-  ) as string;
+  // The proof library writes a field element without leading zeros; the operator's status route wants 64 digits.
+  const nullifier = (
+    JSON.parse(splitObject(splitObject(request).public_inputs!).request_nullifier!) as string
+  ).replace(/^0x([0-9a-f]+)$/i, (_, h: string) => `0x${h.padStart(64, '0')}`);
   const active: ActiveLease = {
     record,
     clientRequestId: input.clientRequestId,
