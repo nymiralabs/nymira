@@ -65,6 +65,10 @@ pub struct AgentEntry {
     pub uid: Option<u32>,
     #[serde(default)]
     pub disabled: bool,
+    /// The note was moved to the agent's own machine (opt-in mode). This copy never spends it
+    /// again; it can still close or exit it.
+    #[serde(default)]
+    pub moved: bool,
     pub created_at: u64,
 }
 
@@ -293,6 +297,7 @@ impl Spec {
                 transport: self.transport,
                 uid: self.uid,
                 disabled: false,
+                moved: false,
                 created_at: now_secs,
             });
             Ok(())
@@ -443,6 +448,7 @@ mod tests {
             transport: Transport::Tcp,
             uid: None,
             disabled: false,
+            moved: false,
             created_at: 1,
         }
     }

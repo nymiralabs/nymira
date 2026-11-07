@@ -154,6 +154,7 @@ Errors use the OpenAI shape, `{"error": {"message", "type", "param", "code"}}`, 
 | 402 | `approval_required` | held for the owner; carries the approval ID |
 | 402 | `budget_exhausted` | the note cannot cover the lease |
 | 402 | `note_expiring` | the note is in its last 5 days, or a revocation, close or exit has begun |
+| 402 | `note_moved` | the note was moved to the agent's own machine; this copy does not spend it |
 | 402 | `no_note_can_cover_request` | the lease cannot pay for this prompt and an answer |
 | 429 | `policy_rate_limit` | `rate_limit_per_min` reached; `Retry-After` given |
 | 429 | `operator_capacity` | the operator's admission, in-flight limit or daily provider budget refused; `Retry-After` given, to the next UTC midnight when the daily budget is used up |
@@ -181,6 +182,27 @@ ssh -N -R 8788:localhost:8788 AGENT_HOST
 ```
 
 The forwarded port binds to the loopback of the agent host as long as `GatewayPorts` stays off there. A direct connection to your machine over a tailnet or LAN is refused. If the forward has to start on the agent host, restrict that key in your `authorized_keys` with `restrict,port-forwarding,permitopen="localhost:8788",command="/bin/false"` and run `ssh -N -L 8788:localhost:8788 OWNER_HOST` there. `permitopen` limits `-L` forwards only. For a key that starts the `-R` forward from your machine on the agent host, use `restrict,port-forwarding,permitlisten="localhost:8788",command="/bin/false"` there instead. `scripts/agent-ssh-forward-check.sh` tests both lines against a throwaway `sshd` on loopback (no `sudo`): no shell, only the permitted port forwards, other ports are refused. It passed with OpenSSH 10.3. `scripts/agent-os-user-check.sh` checks the socket and token file with a throwaway second OS user (macOS, needs `sudo`).
+
+### Opt-in: the note on the agent's machine
+
+If the agent has to run without your machine, you can move its budget note to the agent's own `nymirad`. This is off unless you ask for it, and only the owner CLI does it.
+
+```bash
+nymirad agent move --name cursor --agent-recipient AGE_PUBLIC_KEY_OF_THE_AGENT_MACHINE \
+  --state-recipient YOUR_AGE_PUBLIC_KEY --state-place /mnt/vault/states --out cursor-move.age
+# on the agent's machine, into an empty state directory:
+nymirad restore --from cursor-move.age
+# later, on your machine:
+nymirad agent import-state --name cursor --from /mnt/vault/states
+```
+
+`agent move` prints what you give up and asks you to type yes. In short: revocation is not guaranteed, the ceiling is. The note's balance is still the most the agent can spend, and a close can only pay your payout account. The policy, the counters and the approvals now run on the agent's machine and are advisory, because anyone who controls that machine can change them. Revoking becomes a race: only what is unspent when your close or exit lands comes back to you, a hostile agent can spend the rest on inference first, and an exit from a stale state can be defeated by a newer one.
+
+After the move your copy refuses to spend (402 `note_moved`), so two copies never fork the note. It keeps the secret, so you can still close or exit. The agent machine's `nymirad` takes the token over on loopback TCP (a Unix user ID from your machine means nothing there) and carries the signed policy and this note's lease records, so today's charges still count against the daily limit. After each retire it writes the note's new state to every `--state-place`, as `moved-<note>-<sequence>.age`, encrypted to your age key.
+
+`agent import-state` decrypts every file there with your private key and chooses by the note's nullifier chain: a state counts only if its anchor lies on the chain that your secret generates and the operator's signature on it verifies. The file's own sequence number only breaks a tie, so a validly encrypted old state with a high number loses to a longer chain. Stale files are listed. It then asks the operator whether the best state's nullifier is already used and warns if it is: the agent is ahead of the files you hold. Run it before every close or exit of a moved note.
+
+A moved note can only be paid out to the account fixed at deposit, so an agent that holds the secret and sends `mutual_close` pays only you (a test covers it). Paying sellers (x402) is not built yet; when it is, your copy will refuse to pay sellers for a moved note, and an agent that holds the secret could pay any listed seller.
 
 ## License
 
