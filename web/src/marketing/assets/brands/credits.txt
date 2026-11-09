@@ -1,0 +1,37 @@
+Technology marks
+
+NEAR: supplied by NEAR Docs.
+https://docs.near.org/
+
+Circle (USDC issuer): supplied in Circle's brand kit, used unchanged.
+https://www.circle.com/pressroom
+
+NEAR AI: supplied in the NEAR AI brand kit, used unchanged.
+https://near.ai/brand
+
+Ethereum diamond: ethereum.org brand assets. Shown for the zkapi circuits that Nymira reuses.
+https://ethereum.org/assets/
+
+Tor: Tor Project brand assets, used unchanged.
+https://styleguide.torproject.org/brand-assets/
+
+NVIDIA: NVIDIA logo and brand usage page. Cropped; the wordmark is white on dark backgrounds.
+https://www.nvidia.com/en-us/about-nvidia/legal-info/logo-brand-usage/
+
+Meteor Wallet: logo from the Meteor wallet SDK repository, used unchanged on a white tile.
+https://github.com/Meteor-Wallet/meteor_wallet_sdk
+
+Intear Wallet: icon served by wallet.intear.tech, used unchanged on a white tile.
+https://wallet.intear.tech/
+
+Agent clients, used unchanged unless noted in sources.json:
+Claude: https://claude.com/ (site icon)
+Codex / OpenAI: https://developers.openai.com/ (site icon)
+Cursor: https://cursor.com/ (site icon)
+Visual Studio Code: https://code.visualstudio.com/ (brand image, resized)
+IronClaw: NEAR AI organisation avatar, https://github.com/nearai/ironclaw
+
+Model families: Z.ai (site icon from z.ai) and Qwen (site icon from qwen.ai).
+
+These marks identify technologies used by Nymira.
+They do not indicate a partnership or endorsement. Trademarks belong to their respective owners.

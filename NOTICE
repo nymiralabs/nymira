@@ -3,6 +3,18 @@ Copyright (c) Nymira Labs
 
 This product includes software from the following projects.
 
+Brand assets
+  Technology and source-repository marks are in web/src/marketing/assets/brands/.
+  sources.json records their upstream URLs and hashes. credits.txt records attribution.
+  The Rust logo is Rust Project artwork, used unchanged under CC BY 4.0:
+  https://github.com/rust-lang/rust-artwork/tree/main/logo
+  https://creativecommons.org/licenses/by/4.0/
+  All trademarks belong to their respective owners; no endorsement is implied.
+
+IBM Plex (https://github.com/IBM/plex)
+  IBM Plex Sans and IBM Plex Mono fonts in web/src/marketing/fonts/.
+  Licensed under the SIL Open Font License 1.1; see that directory's OFL.txt.
+
 zkapi (https://github.com/ethereum/zkapi)
   Vendored in vendor/zkapi/ at commit 4ac25c811318d96a873b8b232c7be2252e16c0bd:
   protocol/rust and protocol/setup/v2-concession-dev.
