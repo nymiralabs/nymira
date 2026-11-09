@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button, Strip } from '../marketing/kit';
+import './unlock.css';
 import { ARGON2, MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
 import {
   createPassphraseWrap,
@@ -7,6 +8,7 @@ import {
   prfPossible,
   unlockWithPassphrase,
   unlockWithPrf,
+  keepUnlockedInTab,
   wrapMethod,
 } from '../crypto/wrap';
 
@@ -21,6 +23,7 @@ export function Unlock({ onReady }: { onReady: () => void }) {
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [keep, setKeep] = useState(false);
 
   useEffect(() => {
     wrapMethod().then(setMethod, () => setError('IndexedDB is not available in this browser.'));
@@ -29,6 +32,7 @@ export function Unlock({ onReady }: { onReady: () => void }) {
   const run = async (action: () => Promise<boolean | void>) => {
     setBusy(true);
     setError('');
+    keepUnlockedInTab(keep);
     try {
       if ((await action()) === false) setError('Wrong passphrase.');
       else onReady();
@@ -38,6 +42,25 @@ export function Unlock({ onReady }: { onReady: () => void }) {
       setBusy(false);
     }
   };
+
+  const keepBox = (
+    <label className="nc-keep">
+      <input
+        type="checkbox"
+        data-testid="keep-unlocked"
+        checked={keep}
+        onChange={(e) => setKeep(e.target.checked)}
+      />
+      <span className="nc-keep-switch" aria-hidden="true" />
+      <span className="nc-keep-text">
+        <strong>Stay unlocked in this tab</strong>
+        <small>
+          Reloading this tab will not ask for the passphrase again. Closing the tab locks your
+          notes. Do not use this on a shared computer.
+        </small>
+      </span>
+    </label>
+  );
 
   const card = (children: ReactNode, testId: string) => (
     <div className="nc-unlock">
@@ -93,6 +116,7 @@ export function Unlock({ onReady }: { onReady: () => void }) {
             onChange={(e) => setPassphrase(e.target.value)}
           />
         </label>
+        {keepBox}
         <div className="nc-actions">
           <Button
             primary
@@ -151,6 +175,7 @@ export function Unlock({ onReady }: { onReady: () => void }) {
       <p className="nc-cap">
         {ARGON2_SENTENCE}. If you lose the passphrase and the backup, the note cannot be recovered.
       </p>
+      {keepBox}
       <div className="nc-actions">
         <Button
           primary

@@ -2,8 +2,8 @@
 // IndexedDB. Two ways to get it:
 //   passphrase     Argon2id in the note worker (same parameters as backups)
 //   webauthn-prf   the PRF extension of a WebAuthn credential, through HKDF
-// The key lives in memory for the session only. Only how to derive it (salt, parameters or
-// credential id) and a check value are stored.
+// The key lives in memory for the session; a tab can opt in to keeping it across reloads. Only
+// how to derive it (salt, parameters or credential id) and a check value are stored.
 import { open, seal } from './aead';
 import { b64decode, b64encode } from './bytes';
 import { ARGON2, SALT_BYTES, checkPassphrase } from './kdf';
@@ -13,9 +13,100 @@ import { callWorker } from '../worker/client';
 
 let sessionKey: CryptoKey | null = null;
 
+// "Stay unlocked in this tab" is opt-in. When it is on, the non-extractable key is also kept in a
+// second IndexedDB next to an id that sits in sessionStorage. A reload of the same tab finds both
+// and stays unlocked; closing the tab drops sessionStorage, so the stored key is deleted and never
+// opens again. The key never leaves the browser's key store. `vite dev` with the mock profile
+// keeps it by default, because every saved edit reloads the page.
+const TAB_MARK = 'nymira.tab-key';
+const keepSupported = typeof indexedDB !== 'undefined' && typeof sessionStorage !== 'undefined';
+const devKeeps = import.meta.env.DEV && import.meta.env.MODE === 'mock';
+let keepOn = keepSupported && devKeeps;
+
+/** Chooses whether the next unlock is kept for this tab. */
+export function keepUnlockedInTab(on: boolean) {
+  keepOn = keepSupported && (on || devKeeps);
+}
+/** True when this tab keeps the key across reloads. */
+export const keepsUnlocked = () => keepOn && sessionKey !== null;
+
+function tabMark(): string | null {
+  try {
+    return sessionStorage.getItem(TAB_MARK);
+  } catch {
+    return null;
+  }
+}
+function tabStore(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('nymira-tab-key', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('k');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+type Kept = { id: string; key: CryptoKey };
+async function tabRead(): Promise<Kept | null> {
+  const db = await tabStore();
+  return new Promise((resolve) => {
+    const get = db.transaction('k').objectStore('k').get('wrap');
+    get.onsuccess = () => {
+      db.close();
+      resolve((get.result as Kept | undefined) ?? null);
+    };
+    get.onerror = () => {
+      db.close();
+      resolve(null);
+    };
+  });
+}
+async function tabWrite(kept: Kept | null): Promise<void> {
+  try {
+    const db = await tabStore();
+    const store = db.transaction('k', 'readwrite').objectStore('k');
+    if (kept) store.put(kept, 'wrap');
+    else store.delete('wrap');
+    db.close();
+  } catch {
+    // Not kept: the next reload asks for the passphrase.
+  }
+}
+function keepKey(key: CryptoKey | null) {
+  if (!keepSupported) return;
+  if (!key) {
+    try {
+      sessionStorage.removeItem(TAB_MARK);
+    } catch {
+      // Nothing to remove.
+    }
+    keepOn = false;
+    void tabWrite(null);
+    return;
+  }
+  if (!keepOn) return;
+  const id = tabMark() ?? crypto.randomUUID();
+  try {
+    sessionStorage.setItem(TAB_MARK, id);
+  } catch {
+    return;
+  }
+  void tabWrite({ id, key });
+}
+if (keepSupported) {
+  const kept = await tabRead().catch(() => null);
+  if (kept && kept.id === tabMark()) {
+    sessionKey = kept.key;
+    keepOn = true;
+  } else if (kept) {
+    // From a tab that is gone: it never opens again.
+    await tabWrite(null);
+  }
+}
+
 const keyListeners = new Set<() => void>();
 const setKey = (key: CryptoKey | null) => {
   sessionKey = key;
+  keepKey(key);
   keyListeners.forEach((l) => l());
 };
 /** For the app shell, which shows whether the notes are unlocked. */
