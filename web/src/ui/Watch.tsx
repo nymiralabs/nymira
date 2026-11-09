@@ -1,5 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { due, noticeLevel, noticeText, remaining, watched } from '../leave/guard';
+import { Button } from '../marketing/kit';
+import { ExpiryBanner } from '../marketing/kit-close';
+import { DAY, due, noticeLevel, noticeText, remaining, watched } from '../leave/guard';
 import { leaveStore } from '../leave/store';
 import { isUnlocked } from '../crypto/wrap';
 import { useWallet } from './services';
@@ -39,12 +41,13 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
   return (
     <>
       {advice && (
-        <div className="warning" role="alert" data-testid="emergency-banner">
+        <div className="nc-banner" role="alert" data-testid="emergency-banner">
+          <span aria-hidden="true" />
           <p>{advice}</p>
           {screen !== 'close' && (
-            <button type="button" data-testid="emergency-go" onClick={onClose}>
+            <Button testId="emergency-go" onClick={onClose}>
               Open the Close screen
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -52,14 +55,15 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
         const expiry = record.expiry!;
         const what = due(expiry, now);
         return (
-          <div className="notice" key={record.id} data-testid="expiry-banner" data-due={what}>
-            <p>{noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}</p>
-            {screen !== 'close' && (
-              <button type="button" onClick={onClose}>
-                Open the Close screen
-              </button>
-            )}
-          </div>
+          <ExpiryBanner
+            key={record.id}
+            testId="expiry-banner"
+            due={what}
+            left={Math.min(14, Math.floor(remaining(expiry, now) / DAY))}
+            onOpen={screen !== 'close' ? onClose : undefined}
+          >
+            {noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
+          </ExpiryBanner>
         );
       })}
     </>

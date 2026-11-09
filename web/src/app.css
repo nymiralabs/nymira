@@ -103,7 +103,8 @@
   font-size: 13px;
   line-height: 20px;
 }
-.nm-app code {
+.nm-legacy code,
+.nm-app-plain code {
   font:
     13px/20px 'IBM Plex Mono',
     monospace;
@@ -178,12 +179,12 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-.nm-app input[type='text'],
-.nm-app input[type='password'],
-.nm-app input[type='number'],
-.nm-app input:not([type]),
-.nm-app textarea,
-.nm-app select {
+.nm-legacy input[type='text'],
+.nm-legacy input[type='password'],
+.nm-legacy input[type='number'],
+.nm-legacy input:not([type]),
+.nm-legacy textarea,
+.nm-legacy select {
   display: block;
   width: 100%;
   margin: 4px 0 12px;
@@ -196,7 +197,7 @@
     14px/20px 'IBM Plex Mono',
     monospace;
 }
-.nm-app select {
+.nm-legacy select {
   appearance: none;
   padding-right: 32px;
   background:
@@ -206,22 +207,22 @@
       no-repeat,
     var(--nm-bg);
 }
-.nm-app input:focus-visible,
-.nm-app textarea:focus-visible,
-.nm-app select:focus-visible,
-.nm-app button:focus-visible {
+.nm-legacy input:focus-visible,
+.nm-legacy textarea:focus-visible,
+.nm-legacy select:focus-visible,
+.nm-legacy button:focus-visible {
   outline: 2px solid var(--nm-accent);
   outline-offset: 2px;
 }
-.nm-app label:not([class]) {
+.nm-legacy label:not([class]) {
   display: block;
   margin: 12px 0 4px;
   color: var(--nm-muted);
   font-size: 13px;
   line-height: 20px;
 }
-.nm-app input[type='checkbox'],
-.nm-app input[type='radio'],
+.nm-legacy input[type='checkbox'],
+.nm-legacy input[type='radio'],
 .nm-legacy input[type='checkbox'],
 .nm-legacy input[type='radio'] {
   display: inline-block;
@@ -232,7 +233,7 @@
   accent-color: var(--nm-accent);
   flex: none;
 }
-.nm-app fieldset label {
+.nm-legacy fieldset label {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -242,13 +243,13 @@
   cursor: pointer;
 }
 
-.nm-app fieldset {
+.nm-legacy fieldset {
   margin: 16px 0;
   padding: 12px 16px;
   border: 1px solid var(--nm-line);
   border-radius: 0;
 }
-.nm-app legend {
+.nm-legacy legend {
   padding: 0 8px;
   color: var(--nm-muted);
   font:
@@ -294,7 +295,7 @@
   text-align: left;
   color: var(--nm-muted);
 }
-.nm-app pre {
+.nm-legacy pre {
   margin: 8px 0 12px;
   padding: 12px 16px;
   overflow: auto;
@@ -499,4 +500,13 @@
 }
 .nc-legal code {
   font-size: 11px;
+}
+
+/* ---- the sidebar card for a store with no note: the note card, empty ---- */
+.nc-notes button.nc-note-empty {
+  border-style: dashed;
+  color: var(--nm-muted);
+}
+.nc-notes button.nc-note-empty:hover small {
+  color: var(--nm-fg);
 }

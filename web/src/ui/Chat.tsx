@@ -96,6 +96,7 @@ export function Chat({
   const [prover, setProver] = useState<ProverState>({ status: 'loading' });
   const [selected, setSelected] = useState<string | null>(null);
   const [model, setModel] = useState(DEFAULT_MODEL);
+  const [idleDraft, setIdleDraft] = useState('');
   const [longJob, setLongJob] = useState(false);
   const [stream, setStream] = useState(false);
   const [input, setInput] = useState('');
@@ -372,7 +373,7 @@ export function Chat({
         <h1 className="nc-sr">Chat</h1>
         {(selected || idle) && (
           <div className="nc-chat-head">
-            {idle ? <div inert>{picker}</div> : picker}
+            {picker}
             {idle && (
               <div className="nc-chat-head-end">
                 <Chip>Example · sample data</Chip>
@@ -412,9 +413,15 @@ export function Chat({
                   Your prompt is encrypted to the model’s key before it leaves this page. The first
                   message opens a lease that reserves {bound}.
                 </p>
-                <div className="nc-suggest" inert>
+                <div className="nc-chat-fund">
+                  <p>Need a new note? Connect a wallet and fund one first.</p>
+                  <div>
+                    <Button onClick={onFund}>Fund a note</Button>
+                  </div>
+                </div>
+                <div className="nc-suggest">
                   {SUGGESTIONS.map((q) => (
-                    <button key={q} type="button" tabIndex={-1}>
+                    <button key={q} type="button" onClick={() => setIdleDraft(q)}>
                       {q}
                       <Icon name="right" size={14} />
                     </button>
@@ -612,16 +619,21 @@ export function Chat({
         </div>
         {idle && (
           <div className="nc-composer">
-            <div className="nc-compose-box nc-compose-idle">
-              <p>Fund a note to ask the model.</p>
-              <Button primary onClick={onFund}>
-                Fund a note
-              </Button>
+            <div className="nc-compose-box">
+              <textarea
+                rows={Math.min(8, Math.max(1, idleDraft.split('\n').length))}
+                value={idleDraft}
+                placeholder="Ask the model"
+                aria-label="Message"
+                onChange={(e) => setIdleDraft(e.target.value)}
+              />
+              <button type="button" className="nc-send" aria-label="Send" disabled>
+                <Icon name="right" size={16} />
+              </button>
             </div>
             <div className="nc-composer-foot">
-              <small className="nc-hint">
-                A note is prepaid USDC. You take back what you do not spend.
-              </small>
+              <small className="nc-hint">Fund a note to send</small>
+              <small className="nc-hint">Ctrl or ⌘ + Enter sends</small>
             </div>
           </div>
         )}

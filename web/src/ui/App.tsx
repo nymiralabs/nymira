@@ -10,6 +10,7 @@ import { isUnlocked, lock, requireKey, subscribeUnlocked } from '../crypto/wrap'
 import { loadNotes } from '../funding/flow';
 import { DAY, CLOSE_DAYS } from '../leave/guard';
 import { PROFILE } from '../profile';
+import { WALLET_NOTES } from '../wallet/notes';
 import { noteAad } from '../store/types';
 import { callWorker } from '../worker/client';
 import { Agents } from './Agents';
@@ -44,6 +45,19 @@ const NAV: readonly [Exclude<Screen, 'landing'>, string, IconName][] = [
 ];
 
 const THEME_KEY = 'nymira.theme';
+const SCREEN_KEY = 'nymira.screen';
+
+// A reload of this tab opens the screen it was on. A new tab starts at the landing page.
+function firstScreen(): Screen {
+  try {
+    const saved = sessionStorage.getItem(SCREEN_KEY);
+    if (saved === 'fund' || saved === 'chat' || saved === 'close' || saved === 'notes')
+      return saved;
+  } catch {
+    // No storage: the app starts at the landing page.
+  }
+  return 'landing';
+}
 
 function firstTheme(): Theme {
   try {
@@ -135,9 +149,10 @@ function Foot() {
 }
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>('landing');
+  const [screen, setScreen] = useState<Screen>(firstScreen);
   const [theme, setTheme] = useState<Theme>(firstTheme);
   const [drawer, setDrawer] = useState(false);
+  const [funded, setFunded] = useState(0);
   const [notesOpen, setNotesOpen] = useState(false);
   const [locked, setLocked] = useState(false);
   const [active, setActive] = useState<string | null>(null);
@@ -158,6 +173,14 @@ export function App() {
   };
   // The panel opens over the chat or notes screen, which stay mounted so a conversation goes on.
   const [privacy, setPrivacy] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      if (screen === 'landing' || screen === 'agents') sessionStorage.removeItem(SCREEN_KEY);
+      else sessionStorage.setItem(SCREEN_KEY, screen);
+    } catch {
+      // Not remembered: a reload starts at the landing page.
+    }
+  }, [screen]);
   const go = (next: Screen) => {
     setPrivacy(null);
     setDrawer(false);
@@ -170,7 +193,7 @@ export function App() {
   const backupState = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state);
   const owed = backupState?.needed === true;
   const unlocked = useSyncExternalStore(subscribeUnlocked, isUnlocked);
-  const notes = useShellNotes(unlocked, `${screen}|${owed}|${backupState?.leases ?? ''}`);
+  const notes = useShellNotes(unlocked, `${screen}|${owed}|${backupState?.leases ?? ''}|${funded}`);
 
   const flip = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -192,6 +215,13 @@ export function App() {
   useEffect(() => {
     if (originOk) void warmProver();
   }, []);
+
+  // A tab that had a wallet before a reload starts the wallet frame at once, so one click on
+  // "Reconnect" reaches the wallet while the click still counts as the user's.
+  const lostWallet = wallet.lostWallet;
+  useEffect(() => {
+    if (originOk && lostWallet) void wallet.start().catch(() => undefined);
+  }, [lostWallet, wallet]);
 
   if (!originOk) {
     return (
@@ -264,12 +294,23 @@ export function App() {
                   />
                 </li>
               ))}
+              {notes.length === 0 && (
+                <li data-show="true">
+                  <button
+                    type="button"
+                    className="nc-note-empty"
+                    onClick={() => go(unlocked ? 'fund' : 'chat')}
+                  >
+                    <span className="nc-note-line">
+                      <strong>No note yet</strong>
+                      <span>0.00 {PROFILE.tokenSymbol}</span>
+                    </span>
+                    <Strip n={10} solid={0} size="sm" />
+                    <small>{unlocked ? 'Fund a note' : 'Unlock to see your notes'}</small>
+                  </button>
+                </li>
+              )}
             </ul>
-            {notes.length === 0 && (
-              <p className="nc-cap">
-                {unlocked ? 'No funded note yet.' : 'Unlock to see your notes.'}
-              </p>
-            )}
           </div>
           <nav className="nc-nav" aria-label="Screens">
             <span className="nc-group">Screens</span>
@@ -369,7 +410,28 @@ export function App() {
                   : null
               }
               wallets={wallet.wallets}
+              again={
+                wallet.lostWallet
+                  ? (() => {
+                      const last = wallet.wallets.find((w) => w.id === wallet.lostWallet);
+                      return last ? { id: last.id, name: last.name } : null;
+                    })()
+                  : null
+              }
               onOpen={() => void wallet.start().catch(() => undefined)}
+              notes={Object.fromEntries(
+                Object.entries(WALLET_NOTES).map(([id, n]) => [
+                  id,
+                  <>
+                    <p>{n.text}</p>
+                    <p>
+                      <a href={n.issue} target="_blank" rel="noopener noreferrer">
+                        Read the report on Intear’s tracker
+                      </a>
+                    </p>
+                  </>,
+                ]),
+              )}
               onConnect={async (id) => {
                 await wallet.connect(id);
               }}
@@ -412,24 +474,28 @@ export function App() {
                   />
                 </div>
               )}
+              {screen === 'close' && <Close onFund={() => go('fund')} />}
+              {screen === 'agents' && showAgents && <Agents />}
               {screen === 'fund' && (
                 <Fund
                   vault={check}
                   recheck={recheck}
                   onChat={() => go('chat')}
                   onNotes={() => go('notes')}
+                  onFunded={() => setFunded((n) => n + 1)}
                 />
               )}
-              <div className="nm-legacy">
-                {screen === 'close' && <Close />}
-                {screen === 'notes' && (
-                  <div hidden={privacy !== null}>
-                    <Notes onPrivacy={setPrivacy} />
-                  </div>
-                )}
-                {screen === 'agents' && showAgents && <Agents />}
-                {privacy !== null && <Privacy noteId={privacy} onBack={() => setPrivacy(null)} />}
-              </div>
+              {screen === 'notes' && (
+                <div hidden={privacy !== null}>
+                  <Notes
+                    onPrivacy={setPrivacy}
+                    onChat={() => go('chat')}
+                    onClose={() => go('close')}
+                    onFund={() => go('fund')}
+                  />
+                </div>
+              )}
+              {privacy !== null && <Privacy noteId={privacy} onBack={() => setPrivacy(null)} />}
             </div>
           </main>
         </div>
