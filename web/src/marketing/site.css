@@ -3000,3 +3000,42 @@ body {
     transition: none;
   }
 }
+
+/* ---- who sees what (sentences from shared/privacy-strings.json) ---- */
+.nm-site .nm-who {
+  margin-top: 32px;
+  border: 1px solid var(--nm-line);
+}
+.nm-site .nm-who-lead {
+  margin: 0;
+  padding: 20px 24px;
+  color: var(--nm-fg);
+  border-bottom: 1px solid var(--nm-line);
+}
+.nm-site .nm-who dl {
+  margin: 0;
+}
+.nm-site .nm-who dl > div {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 24px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--nm-line);
+}
+.nm-site .nm-who dl > div:last-child {
+  border-bottom: 0;
+}
+.nm-site .nm-who dt {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  opacity: 0.7;
+}
+.nm-site .nm-who dd {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .nm-site .nm-who dl > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

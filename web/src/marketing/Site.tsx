@@ -13,6 +13,7 @@ import { LogoBackdrop } from './Visuals';
 import { AppConsole, type Tab } from './Console';
 import { ThemeToggle } from './ThemeToggle';
 import { Wordmark } from './Wordmark';
+import { WhoSees } from './WhoSees';
 import { nymiraMark } from './brand';
 import { TechnologyStrip } from './TechnologyStrip';
 import fontLicense from './fonts/OFL.txt?url';
@@ -76,17 +77,20 @@ function Action({
   children,
   secondary = false,
   onClick,
+  testId,
 }: {
   href: string;
   children: ReactNode;
   secondary?: boolean;
   onClick?: (e: React.MouseEvent) => void;
+  testId?: string;
 }) {
   return (
     <a
       className={`nm-button ${secondary ? 'nm-button-secondary' : ''}`}
       href={href}
       onClick={onClick}
+      data-testid={testId}
     >
       {children}
       <Arrow />
@@ -138,8 +142,20 @@ function Section({
   );
 }
 
-export function Site() {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+type SiteProps = {
+  /** Set when the site is the app's landing page: the theme is the app's own. */
+  theme?: 'dark' | 'light';
+  onTheme?: () => void;
+  /** Set when the site is the app's landing page: "Open web app" calls this. */
+  onOpenApp?: () => void;
+  /** Replaces the design-preview status in the footer. */
+  footerStatus?: ReactNode;
+};
+
+export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: SiteProps = {}) {
+  const [ownTheme, setTheme] = useState<'dark' | 'light'>('dark');
+  const theme = fixedTheme ?? ownTheme;
+  const flipTheme = onTheme ?? (() => setTheme(ownTheme === 'dark' ? 'light' : 'dark'));
   // The page behind the app shows during overscroll; keep it the theme's own colour.
   useEffect(() => {
     document.documentElement.style.backgroundColor = theme === 'dark' ? '#000' : '#fff';
@@ -151,6 +167,10 @@ export function Site() {
   const openApp = (e: React.MouseEvent) => {
     e.preventDefault();
     setMenu(false);
+    if (onOpenApp) {
+      onOpenApp();
+      return;
+    }
     setView('chat');
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
@@ -163,7 +183,7 @@ export function Site() {
           onTab={setView}
           onExit={() => setView('site')}
           theme={theme}
-          onTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          onTheme={flipTheme}
         />
       </div>
     );
@@ -192,10 +212,7 @@ export function Site() {
               </a>
             ))}
           </nav>
-          <ThemeToggle
-            theme={theme}
-            onTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          />
+          <ThemeToggle theme={theme} onTheme={flipTheme} />
           <div className="nm-header-actions">
             <a href="#local">Run locally</a>
             <a className="nm-small-button" href={app} onClick={openApp}>
@@ -239,12 +256,12 @@ export function Site() {
             Testnet preview · Test funds only <Arrow />
           </a>
           <h1 id="hero-title">Private credit. On your terms.</h1>
-          <p className="nm-hero-description">
+          <p className="nm-hero-description" data-testid="description">
             Prepaid AI credit backed by USDC on NEAR. Fund a note, use attested models without a
             Nymira account, and withdraw what you don’t spend.
           </p>
           <div className="nm-actions">
-            <Action href={app} onClick={openApp}>
+            <Action href={app} onClick={openApp} testId="open-app">
               Open web app
             </Action>
             <Action href="#how-it-works" secondary>
@@ -440,9 +457,14 @@ export function Site() {
         >
           <Privacy />
           <SetSize />
+          <WhoSees />
+          <p className="nm-inline-note" data-testid="tor-notice">
+            This web app cannot use Tor. The operator sees your IP address and the time of each
+            request. For IP protection use Tor Browser, or run <code>nymirad</code> on your own
+            machine.
+          </p>
           <p className="nm-inline-note">
-            Timing and usage can link requests. The web app cannot use Tor by itself. Use Tor
-            Browser or nymirad for IP protection. Other network participants can still observe
+            Timing and usage can link requests. Other network participants can still observe
             traffic.
           </p>
         </Section>
@@ -464,15 +486,22 @@ export function Site() {
           description="Web releases have signed manifests covering the bundle and its response headers. nymirad verify-web compares what the host serves with that signed release."
         >
           <Integrity />
+          <p className="nm-inline-note" data-testid="integrity-notice">
+            This page is code you load from a web host. A compromised host could serve a different
+            app, and nothing in your browser checks the bundle for you.{' '}
+            <code>nymirad verify-web</code> compares what the host serves with the release’s signed
+            manifest, but it catches a different app only if you run it and the host does not show
+            it a clean copy. People who will not trust that should run <code>nymirad</code> instead.
+          </p>
         </Section>
         <hr className="nm-divider" />
         <section id="limits" className="nm-limits" aria-labelledby="limits-title">
           <span className="nm-tag">TESTNET</span>
           <h2 id="limits-title">Test funds. Real limits.</h2>
-          <p>
-            The anonymity set is small and made of test notes. The contract has had no independent
-            review, and the team can still update its code. Notes expire: keep the latest backup and
-            follow the app’s exit deadlines.
+          <p data-testid="testnet-notice">
+            This is a testnet deployment with test funds only. The anonymity set is small and made
+            of test notes. The contract has had no independent review, and the team can still update
+            its code. Notes expire: keep the latest backup and follow the app’s exit deadlines.
           </p>
           <ExpiryLine />
           <dl className="nm-limit-facts">
@@ -519,7 +548,9 @@ export function Site() {
           <div className="nm-footer-brand">
             <Brand />
             <p>Private prepaid API credit on NEAR.</p>
-            <span className="nm-local-status">Local design preview · Unsigned</span>
+            {footerStatus ?? (
+              <span className="nm-local-status">Local design preview · Unsigned</span>
+            )}
           </div>
           <div>
             <h3>Product</h3>

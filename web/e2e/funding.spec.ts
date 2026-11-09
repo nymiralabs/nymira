@@ -22,7 +22,7 @@ import {
 test.describe('landing', () => {
   test('says what Nymira is, who sees what, and what it cannot do', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByTestId('description')).toContainText('prepaid credit');
+    await expect(page.getByTestId('description')).toContainText('Prepaid AI credit');
     await expect(page.getByTestId('who-sees-what')).toBeVisible();
     await expect(page.getByTestId('tor-notice')).toContainText('cannot use Tor');
     await expect(page.getByTestId('tor-notice')).toContainText('operator sees your IP address');

@@ -140,6 +140,12 @@ export function App() {
     );
   }
 
+  if (screen === 'landing') {
+    return (
+      <Landing onOpen={() => go('fund')} theme={theme} onTheme={flip} footerStatus={<Foot />} />
+    );
+  }
+
   const brand = (
     <button
       type="button"
@@ -150,35 +156,6 @@ export function App() {
       <Wordmark />
     </button>
   );
-
-  if (screen === 'landing') {
-    return (
-      <div className="nm-site nm-app" data-theme={theme}>
-        <header className="nm-app-landing-top">
-          {brand}
-          <nav className="nm-app-landing-nav" aria-label="Screens">
-            {NAV.map(([id, label]) => (
-              <button key={id} type="button" data-testid={`nav-${id}`} onClick={() => go(id)}>
-                {label}
-              </button>
-            ))}
-            {showAgents && (
-              <button type="button" data-testid="nav-agents" onClick={() => go('agents')}>
-                Agents
-              </button>
-            )}
-          </nav>
-          <ThemeToggle theme={theme} onTheme={flip} />
-        </header>
-        <main className="nm-app-plain">
-          <Landing onOpen={() => go('fund')} />
-        </main>
-        <footer className="nm-app-plain">
-          <Foot />
-        </footer>
-      </div>
-    );
-  }
 
   return (
     <div className="nm-site nm-app nm-console" data-theme={theme} data-drawer={drawer}>

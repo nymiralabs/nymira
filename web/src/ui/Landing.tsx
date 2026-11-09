@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import { Site } from '../marketing/Site';
 import { sentence } from '../privacy/strings';
 import { PROFILE } from '../profile';
 
@@ -101,31 +103,17 @@ export function WhoSeesWhat() {
   );
 }
 
-export function Landing({ onOpen }: { onOpen: () => void }) {
-  return (
-    <section data-testid="landing">
-      <h1>Nymira</h1>
-      <p className="lead" data-testid="description">
-        Private prepaid credit for AI chat on NEAR: fund a note with USDC, spend it on attested
-        models without an account, and take the rest back.
-      </p>
-      <WhoSeesWhat />
-      <Notices />
-      <p>
-        The operator cannot read your prompts. It does see when and from where you connect, and
-        timing and usage can still link your requests. The model reads your prompt. Closing a note
-        shows its ID, total spend and payout account on chain.
-      </p>
-      <p className="notice" data-testid="integrity-notice">
-        This page is code you load from a web host. A compromised host could serve a different app,
-        and nothing in your browser checks the bundle for you. <code>nymirad verify-web</code>{' '}
-        compares what the host serves with the release's signed manifest, but it catches a different
-        app only if you run it and the host does not show it a clean copy. People who will not trust
-        that should run <code>nymirad</code> instead.
-      </p>
-      <button type="button" className="primary" data-testid="open-app" onClick={onOpen}>
-        Try it
-      </button>
-    </section>
-  );
+/** The landing page is the site itself; "Open web app" goes to the Fund screen. */
+export function Landing({
+  onOpen,
+  theme,
+  onTheme,
+  footerStatus,
+}: {
+  onOpen: () => void;
+  theme: 'dark' | 'light';
+  onTheme: () => void;
+  footerStatus: ReactNode;
+}) {
+  return <Site theme={theme} onTheme={onTheme} onOpenApp={onOpen} footerStatus={footerStatus} />;
 }
