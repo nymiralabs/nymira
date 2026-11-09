@@ -154,9 +154,12 @@ export async function openChat(page: Page) {
 }
 
 export async function startConversation(page: Page) {
-  // With one note the conversation opens by itself; a list shows only when something needs a choice.
-  const use = page.getByTestId('chat-use-note');
-  if (await use.isVisible({ timeout: 1500 }).catch(() => false)) await use.click();
+  // With one note the conversation opens by itself; a list shows only when something needs a
+  // choice. The button can vanish while the click is on its way, which is fine.
+  await page
+    .getByTestId('chat-use-note')
+    .click({ timeout: 2000 })
+    .catch(() => undefined);
   await expect(page.getByTestId('chat-input')).toBeVisible();
 }
 
