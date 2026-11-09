@@ -35,3 +35,5 @@ Model families: Z.ai (site icon from z.ai) and Qwen (site icon from qwen.ai).
 
 These marks identify technologies used by Nymira.
 They do not indicate a partnership or endorsement. Trademarks belong to their respective owners.
+
+assets/chains/: simplified one-colour glyphs drawn for this app to label a source chain. They are not the chains' official marks and imply no endorsement.

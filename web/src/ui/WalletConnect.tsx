@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Button, WalletMark } from '../marketing/kit';
+import { Button, NoteDialog, WalletMark } from '../marketing/kit';
 import { PROFILE } from '../profile';
+import { WALLET_NOTES } from '../wallet/notes';
 import { useWallet } from './services';
 
 /**
@@ -49,9 +50,19 @@ export function SessionLost() {
 export function WalletConnect({ busy = false }: { busy?: boolean }) {
   const wallet = useWallet();
   const [error, setError] = useState('');
+  const [asked, setAsked] = useState('');
   useEffect(() => {
     void wallet.start();
   }, [wallet]);
+
+  const connect = async (id: string) => {
+    setError('');
+    try {
+      await wallet.connect(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   if (wallet.connected) {
     const name =
@@ -84,14 +95,7 @@ export function WalletConnect({ busy = false }: { busy?: boolean }) {
               primary
               testId={`connect-${w.id}`}
               disabled={busy}
-              onClick={async () => {
-                setError('');
-                try {
-                  await wallet.connect(w.id);
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : String(e));
-                }
-              }}
+              onClick={() => (w.id in WALLET_NOTES ? setAsked(w.id) : void connect(w.id))}
             >
               <span className="nc-wallet-item">
                 <WalletMark name={w.name} size={20} />
@@ -102,9 +106,27 @@ export function WalletConnect({ busy = false }: { busy?: boolean }) {
           ))}
         </div>
       </div>
+      {asked && WALLET_NOTES[asked] && (
+        <NoteDialog
+          title={`Before you connect ${wallet.wallets.find((w) => w.id === asked)?.name ?? 'this wallet'}`}
+          onCancel={() => setAsked('')}
+          onContinue={() => {
+            const id = asked;
+            setAsked('');
+            void connect(id);
+          }}
+        >
+          <p>{WALLET_NOTES[asked].text}</p>
+          <p>
+            <a href={WALLET_NOTES[asked].issue} target="_blank" rel="noopener noreferrer">
+              Read the report on Intear’s tracker
+            </a>
+          </p>
+        </NoteDialog>
+      )}
       <p className="nc-cap">
-        On {PROFILE.network}, Meteor and Intear are the supported wallets. Other wallets may work
-        and are not promised.
+        On {PROFILE.network}, Meteor is the tested wallet. Intear signs in, but its approval window
+        may not report back. Other wallets may work and are not promised.
       </p>
       {wallet.wallets.length === 0 && <p className="nc-cap">Starting the wallet connection…</p>}
       {wallet.skipped.map((s) => (

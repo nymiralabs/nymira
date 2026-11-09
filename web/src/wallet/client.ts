@@ -1,5 +1,6 @@
 // The app's side of the wallet frame: creates the sandboxed iframe, sends it requests and checks
 // what comes back. The frame is the only place NEAR Connect runs (host.ts explains why).
+import { walletRank } from './notes';
 import { PROFILE } from '../profile';
 import { verifyNep413 } from './nep413';
 import type {
@@ -97,7 +98,7 @@ export class WalletClient {
           }
           resolve();
         } else if (message.type === 'wallets') {
-          this.wallets = message.wallets;
+          this.wallets = [...message.wallets].sort((a, b) => walletRank(a.id) - walletRank(b.id));
           this.skipped = message.skipped;
           this.emit();
         } else if (message.type === 'ui') {
