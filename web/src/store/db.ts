@@ -57,6 +57,7 @@ export const putSetting = (name: string, value: unknown) =>
   run('meta', 'readwrite', (s) => s.put(value, `setting:${name}`));
 
 export const putNote = (note: NoteRecord) => run('notes', 'readwrite', (s) => s.put(note));
+export const deleteNote = (id: string) => run('notes', 'readwrite', (s) => s.delete(id));
 export const getNote = (id: string) =>
   run<NoteRecord | undefined>('notes', 'readonly', (s) => s.get(id));
 export const listNotes = () => run<NoteRecord[]>('notes', 'readonly', (s) => s.getAll());
