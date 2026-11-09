@@ -1,0 +1,45 @@
+/* Real-app additions to the console Notes screen; they only add what the preview has no markup for. */
+.nc-screen .nc-ledger-item + .nc-ledger-item {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-screen .nc-ledger-item .nc-ledger-row + .nc-ledger-row {
+  border-top: 0;
+}
+.nc-screen .nc-ledger-item[data-phase='rejected'] .nc-ledger-id strong {
+  color: var(--nm-muted);
+}
+.nc-screen .nc-ledger-more {
+  padding: 0 20px 16px;
+}
+.nc-screen .nc-ledger-bal small {
+  overflow-wrap: anywhere;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.nc-screen .nc-ledger-life {
+  justify-items: start;
+}
+.nc-screen .nc-ledger-act {
+  flex-wrap: wrap;
+}
+.nc-screen label.nc-file {
+  position: relative;
+  cursor: pointer;
+}
+.nc-screen label.nc-file input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.nc-screen label.nc-file:focus-within {
+  outline: 2px solid var(--nm-fg);
+  outline-offset: 2px;
+}
+.nc-screen label.nc-file[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nc-screen label.nc-file input:disabled {
+  cursor: not-allowed;
+}

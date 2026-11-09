@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import './notes.css';
+import notesIllustration from '../marketing/assets/app-notes.webp';
+import { Button, Card, Chip, Facts, Screen, Strip, clamp } from '../marketing/kit';
+import { LookupRow, NoteLedger, NoteLedgerRow, PassField } from '../marketing/kit-notes';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
@@ -22,19 +26,46 @@ const PHASE_TEXT: Record<NoteRecord['phase'], string> = {
   rejected: 'not accepted',
 };
 
+const TONE: Record<NoteRecord['phase'], 'plain' | 'good' | 'warn'> = {
+  prepared: 'plain',
+  backed_up: 'plain',
+  sending: 'warn',
+  sent: 'plain',
+  accepted: 'good',
+  rejected: 'warn',
+};
+
+/** Share of the note's life that has passed, from the app's own timestamps; null when unknown. */
+function lifeShare(note: NoteRecord): number | null {
+  if (note.depositedAt === undefined || note.expiry === undefined) return null;
+  const total = note.expiry * 1000 - note.depositedAt;
+  return total > 0 ? clamp((Date.now() - note.depositedAt) / total) : null;
+}
+
 function NoteRow({
   note,
+  index,
+  active,
+  onPick,
   onChanged,
   onPrivacy,
+  onChat,
+  onClose,
 }: {
   note: NoteRecord;
+  index: number;
+  active: boolean;
+  onPick: () => void;
   onChanged: () => void;
   onPrivacy: (noteId: string) => void;
+  onChat: () => void;
+  onClose: () => void;
 }) {
   const [hash, setHash] = useState(note.txHash ?? '');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const lookable = note.kind === 'pending' && note.phase !== 'rejected';
+  const share = lifeShare(note);
 
   const lookup = async () => {
     setBusy(true);
@@ -65,56 +96,82 @@ function NoteRow({
   };
 
   return (
-    <li data-testid="note-row" data-phase={note.phase}>
-      <strong>
-        {formatUnits(note.denomination, PROFILE.tokenDecimals)} {PROFILE.tokenSymbol}
-      </strong>{' '}
-      <span data-testid="note-phase">{PHASE_TEXT[note.phase]}</span>
-      {note.noteId !== undefined && <> · note #{note.noteId}</>}
-      {note.expiry !== undefined && <> · expires {formatDate(note.expiry)}</>}
-      <br />
-      <small>payout {note.payout}</small>
-      {note.phase === 'accepted' && note.kind === 'state' && (
-        <>
-          {' '}
-          <button type="button" data-testid="notes-privacy" onClick={() => onPrivacy(note.id)}>
-            Privacy panel
-          </button>
-        </>
-      )}
-      {lookable && (
-        <div>
-          <p className="hint">
-            If the page closed during the transfer, the note is found again from its deposit
-            receipt. Enter the transaction hash from your wallet’s history or the explorer (for a
-            note funded from another chain, the NEAR transaction 1Click or the Intents explorer
-            shows for your order). The lookup asks the RPC provider, which sees your IP address,
-            account and that hash.
-          </p>
-          <input
-            type="text"
-            aria-label="Transaction hash"
-            value={hash}
-            placeholder="transaction hash"
-            data-testid="lookup-hash"
-            onChange={(e) => setHash(e.target.value.trim())}
-          />
-          <button
-            type="button"
-            disabled={busy || hash === ''}
-            data-testid="lookup"
-            onClick={lookup}
-          >
-            Look up the deposit receipt
-          </button>
+    <div className="nc-ledger-item" data-testid="note-row" data-phase={note.phase}>
+      <NoteLedgerRow
+        index={index}
+        active={active}
+        pick={{ label: `Select note ${note.noteId ?? note.id}`, onPick }}
+        id={{
+          strong: note.noteId !== undefined ? `#${note.noteId}` : 'no id yet',
+          small: `${formatUnits(note.denomination, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}`,
+        }}
+        mid={<small>payout {note.payout}</small>}
+        life={
+          <>
+            <Chip tone={TONE[note.phase]}>
+              <span data-testid="note-phase">{PHASE_TEXT[note.phase]}</span>
+            </Chip>
+            {share !== null && <Strip n={30} solid={share * 30} size="sm" />}
+            {note.expiry !== undefined && <small>expires {formatDate(note.expiry)}</small>}
+          </>
+        }
+        actions={
+          <>
+            {note.phase === 'accepted' && note.kind === 'state' && (
+              <Button testId="notes-privacy" onClick={() => onPrivacy(note.id)}>
+                Privacy panel
+              </Button>
+            )}
+            <Button onClick={onChat}>Chat</Button>
+            <Button onClick={onClose}>Close</Button>
+          </>
+        }
+      />
+      {(lookable || msg) && (
+        <div className="nc-ledger-more">
+          {lookable && (
+            <>
+              <p className="nc-cap nc-cap-first">
+                If the page closed during the transfer, the note is found again from its deposit
+                receipt. Enter the transaction hash from your wallet’s history or the explorer (for
+                a note funded from another chain, the NEAR transaction 1Click or the Intents
+                explorer shows for your order). The lookup asks the RPC provider, which sees your IP
+                address, account and that hash.
+              </p>
+              <LookupRow
+                hash={hash}
+                onHash={setHash}
+                onLookup={lookup}
+                disabled={busy || hash === ''}
+                label="Look up the deposit receipt"
+                inputTestId="lookup-hash"
+                buttonTestId="lookup"
+              />
+            </>
+          )}
+          {msg && (
+            <p className="nc-msg" data-tone="ok" data-testid="lookup-result">
+              {msg}
+            </p>
+          )}
         </div>
       )}
-      {msg && <p data-testid="lookup-result">{msg}</p>}
-    </li>
+    </div>
   );
 }
 
-export function Notes({ onPrivacy }: { onPrivacy: (noteId: string) => void }) {
+export function Notes({
+  onPrivacy,
+  onChat,
+  onClose,
+  onFund,
+}: {
+  onPrivacy: (noteId: string) => void;
+  onChat: () => void;
+  onClose: () => void;
+  onFund: () => void;
+}) {
+  const [active, setActive] = useState(0);
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<NoteRecord[]>([]);
   const [pass, setPass] = useState('');
@@ -176,67 +233,144 @@ export function Notes({ onPrivacy }: { onPrivacy: (noteId: string) => void }) {
 
   if (!unlocked) return <Unlock onReady={() => setUnlocked(true)} />;
 
+  const sel = notes[Math.min(active, notes.length - 1)];
+  const enough = passphraseLength(pass) >= MIN_PASSPHRASE_LENGTH;
+  const openPrivacy = () =>
+    sel && sel.phase === 'accepted' && sel.kind === 'state' ? onPrivacy(sel.id) : onFund();
+
   return (
-    <section data-testid="notes">
-      <h2>Notes and backup</h2>
+    <Screen
+      testId="notes"
+      title="Notes and backup"
+      lead="Every note this browser holds. The note secrets are encrypted before they are stored, with a key that cannot be exported."
+      illustration={notesIllustration}
+      side={
+        <>
+          {sel && (
+            <section className="nc-sum">
+              <h2>{sel.noteId !== undefined ? `Note #${sel.noteId}` : 'Note'}</h2>
+              <p className="nc-big">
+                {formatUnits(sel.denomination, PROFILE.tokenDecimals)}{' '}
+                <small>{PROFILE.tokenSymbol}</small>
+              </p>
+              <Facts
+                rows={[
+                  ['Status', PHASE_TEXT[sel.phase]],
+                  ...(sel.depositedAt !== undefined
+                    ? ([['Deposited', formatDate(sel.depositedAt / 1000 + 1)]] as const)
+                    : []),
+                  ...(sel.expiry !== undefined
+                    ? ([['Expires', formatDate(sel.expiry)]] as const)
+                    : []),
+                  ['Payout account', sel.payout],
+                ]}
+              />
+              <div className="nc-actions">
+                <Button primary onClick={onChat}>
+                  Chat
+                </Button>
+                <Button onClick={onClose}>Close</Button>
+              </div>
+            </section>
+          )}
+          <section className="nc-sum">
+            <h2>Privacy</h2>
+            <p className="nc-cap nc-cap-first">
+              What anyone can read about this note on chain, beside what the operator saw for each
+              lease, with the set size of every lease.
+            </p>
+            <Button onClick={openPrivacy}>
+              {sel && sel.phase === 'accepted' && sel.kind === 'state'
+                ? 'Open the privacy panel'
+                : 'Fund a note first'}
+            </Button>
+          </section>
+        </>
+      }
+    >
       {notes.length === 0 ? (
-        <p data-testid="no-notes">No notes in this browser.</p>
+        <Card title="No notes">
+          <p className="nc-cap nc-cap-first" data-testid="no-notes">
+            No notes in this browser.
+          </p>
+          <Button primary onClick={onFund}>
+            Fund a note
+          </Button>
+        </Card>
       ) : (
-        <ul className="notes">
-          {notes.map((n) => (
-            <NoteRow key={n.id} note={n} onChanged={refresh} onPrivacy={onPrivacy} />
+        <NoteLedger columns={['Note', 'Payout', 'Its life']}>
+          {notes.map((n, i) => (
+            <NoteRow
+              key={n.id}
+              note={n}
+              index={i}
+              active={sel === n}
+              onPick={() => setActive(i)}
+              onChanged={refresh}
+              onPrivacy={onPrivacy}
+              onChat={onChat}
+              onClose={onClose}
+            />
           ))}
-        </ul>
+        </NoteLedger>
       )}
 
-      <h3>Backup and restore</h3>
-      <p className="hint">
-        A backup file is encrypted with {ARGON2_SENTENCE}. Do not keep it in a synced folder:
-        whoever opens it can spend the note. Without the File System Access API this page cannot
-        write the backup by itself after each change, so download one yourself; <code>nymirad</code>{' '}
-        or a Chromium browser backs up automatically.
-      </p>
-      <label>
-        Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)
-        <input
-          type="password"
-          autoComplete="off"
+      <Card title="Backup and restore">
+        <PassField
+          label={`Backup passphrase (at least ${MIN_PASSPHRASE_LENGTH} characters)`}
           value={pass}
-          data-testid="notes-backup-passphrase"
-          onChange={(e) => setPass(e.target.value)}
+          length={passphraseLength(pass)}
+          min={MIN_PASSPHRASE_LENGTH}
+          onChange={setPass}
+          testId="notes-backup-passphrase"
         />
-      </label>
-      <button
-        type="button"
-        data-testid="notes-backup-download"
-        disabled={busy || passphraseLength(pass) < MIN_PASSPHRASE_LENGTH || notes.length === 0}
-        onClick={onBackup}
-      >
-        Download a backup
-      </button>
-      <label>
-        Restore from a backup file
-        <input
-          type="file"
-          data-testid="restore-file"
-          disabled={busy || passphraseLength(pass) < MIN_PASSPHRASE_LENGTH}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            onRestore(file);
-          }}
-        />
-      </label>
-      {msg && (
-        <p className="ok" data-testid="notes-message">
-          {msg}
+        <div className="nc-actions">
+          {notes.length === 0 ? (
+            <Button primary testId="notes-backup-download" onClick={onFund}>
+              Fund a note to back up
+            </Button>
+          ) : (
+            <Button
+              primary
+              testId="notes-backup-download"
+              disabled={busy || !enough}
+              onClick={onBackup}
+            >
+              Download a backup
+            </Button>
+          )}
+          <label className="nc-button nc-file" aria-disabled={busy || !enough}>
+            Restore from a backup file
+            <input
+              type="file"
+              data-testid="restore-file"
+              disabled={busy || !enough}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                onRestore(file);
+              }}
+            />
+          </label>
+        </div>
+        {msg && (
+          <p className="nc-msg" data-tone="ok" data-testid="notes-message">
+            {msg}
+          </p>
+        )}
+        {error && (
+          <p className="nc-msg" data-tone="err" role="alert" data-testid="notes-error">
+            {error}
+          </p>
+        )}
+        <p className="nc-cap">
+          A backup file is encrypted with {ARGON2_SENTENCE}. Do not keep it in a synced folder:
+          whoever opens it can spend the note. Without the File System Access API this page cannot
+          write the backup by itself after each change, so download one yourself;{' '}
+          <code>nymirad</code> or a Chromium browser backs up automatically. A note this browser
+          already holds keeps its newer state: a backup is older by definition.
         </p>
-      )}
-      {error && (
-        <p className="error" role="alert" data-testid="notes-error">
-          {error}
-        </p>
-      )}
-    </section>
+      </Card>
+    </Screen>
   );
 }
