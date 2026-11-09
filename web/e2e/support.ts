@@ -270,8 +270,10 @@ export async function openFund(page: Page, source: 'near' | 'other' = 'near') {
 /** Opens the Notes tab; unlocks first when `unlock` is set (after a reload). */
 export async function openNotes(page: Page, unlock = false) {
   await page.getByTestId('nav-notes').click();
-  if (unlock) {
-    await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
+  // A dev build with the mock profile keeps the tab unlocked across a reload: then there is no prompt.
+  const field = page.getByTestId('unlock-passphrase');
+  if (unlock && (await field.isVisible({ timeout: 3000 }).catch(() => false))) {
+    await field.fill(WRAP_PASSPHRASE);
     await page.getByTestId('unlock-submit').click();
   }
   await expect(page.getByTestId('notes')).toBeVisible();

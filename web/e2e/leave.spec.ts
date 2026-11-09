@@ -73,8 +73,12 @@ async function reloadTo(page: Page, nav: 'nav-chat' | 'nav-close') {
   await page.reload();
   await enterApp(page);
   await page.getByTestId(nav).click();
-  await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
-  await page.getByTestId('unlock-submit').click();
+  // A dev build with the mock profile keeps the tab unlocked across a reload: then no prompt shows.
+  const field = page.getByTestId('unlock-passphrase');
+  if (await field.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await field.fill(WRAP_PASSPHRASE);
+    await page.getByTestId('unlock-submit').click();
+  }
 }
 
 const payoutDestination = (account: string) => toHex(destination(account));
@@ -391,7 +395,8 @@ test('the expiry guard can be switched off: nothing starts and leases are not cu
   expect(wallet.vaultCalls).toHaveLength(0);
   expect(stack.clearances).toHaveLength(0);
   await page.getByTestId('nav-chat').click();
-  await expect(page.getByTestId('chat-use-note')).toBeEnabled();
+  // Not blocked any more: the conversation opens by itself.
+  await expect(page.getByTestId('chat-input')).toBeVisible();
   await expect(page.getByTestId('note-near-expiry')).toHaveCount(0);
 });
 
@@ -403,7 +408,7 @@ test('on the operator’s emergency notice the app stops opening leases and sugg
   stack.reset();
   const wallet = await fundForLeaving(page, context);
   await openChat(page);
-  await expect(page.getByTestId('chat-use-note')).toBeEnabled();
+  await expect(page.getByTestId('chat-input')).toBeVisible();
   await startConversation(page);
   await say(page, 'before the notice');
   await endConversation(page);

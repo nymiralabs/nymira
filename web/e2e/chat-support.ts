@@ -154,7 +154,9 @@ export async function openChat(page: Page) {
 }
 
 export async function startConversation(page: Page) {
-  await page.getByTestId('chat-use-note').click();
+  // With one note the conversation opens by itself; a list shows only when something needs a choice.
+  const use = page.getByTestId('chat-use-note');
+  if (await use.isVisible({ timeout: 1500 }).catch(() => false)) await use.click();
   await expect(page.getByTestId('chat-input')).toBeVisible();
 }
 
