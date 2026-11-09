@@ -156,6 +156,7 @@ export function App() {
   const [notesOpen, setNotesOpen] = useState(false);
   const [locked, setLocked] = useState(false);
   const [active, setActive] = useState<string | null>(null);
+  const [preferred, setPreferred] = useState<string | null>(null);
   const [ipSeen, setIpSeen] = useState(() => {
     try {
       return sessionStorage.getItem('nymira.ip-seen') === '1';
@@ -194,6 +195,12 @@ export function App() {
   const owed = backupState?.needed === true;
   const unlocked = useSyncExternalStore(subscribeUnlocked, isUnlocked);
   const notes = useShellNotes(unlocked, `${screen}|${owed}|${backupState?.leases ?? ''}|${funded}`);
+  // The note the sidebar marks: the conversation's, else the one picked, else the first.
+  const current = notes.some((n) => n.key === active)
+    ? active
+    : notes.some((n) => n.key === preferred)
+      ? preferred
+      : (notes[0]?.key ?? null);
 
   const flip = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -283,14 +290,14 @@ export function App() {
             </button>
             <ul id="nc-note-list" role="listbox" aria-label="Notes">
               {notes.map((n, i) => (
-                <li
-                  key={n.key}
-                  data-show={notesOpen || n.key === active || (active === null && i === 0)}
-                >
+                <li key={n.key} data-show={notesOpen || n.key === current}>
                   <NoteRow
                     n={n}
-                    selected={n.key === active}
-                    onPick={() => (screen === 'chat' ? undefined : go('chat'))}
+                    selected={n.key === current}
+                    onPick={() => {
+                      setPreferred(n.key);
+                      if (screen !== 'chat') go('chat');
+                    }}
                   />
                 </li>
               ))}
@@ -460,8 +467,8 @@ export function App() {
                   </button>
                 </p>
               )}
-              <Watch screen={screen} onClose={() => setScreen('close')} />
             </div>
+            <Watch screen={screen} onClose={() => setScreen('close')} />
             {locked && <Unlock onReady={() => setLocked(false)} />}
             <div hidden={locked}>
               {screen === 'chat' && (
@@ -471,6 +478,7 @@ export function App() {
                     onPrivacy={setPrivacy}
                     onFund={() => go('fund')}
                     onActive={setActive}
+                    preferred={preferred}
                   />
                 </div>
               )}
@@ -492,6 +500,8 @@ export function App() {
                     onChat={() => go('chat')}
                     onClose={() => go('close')}
                     onFund={() => go('fund')}
+                    shell={notes}
+                    onChanged={() => setFunded((n) => n + 1)}
                   />
                 </div>
               )}

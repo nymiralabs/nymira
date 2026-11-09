@@ -6,6 +6,18 @@ import { leaveStore } from '../leave/store';
 import { isUnlocked } from '../crypto/wrap';
 import { useWallet } from './services';
 
+/** The notice with its first clause in bold, as the console shows it. */
+function NoticeLine({ text }: { text: string }) {
+  const cut = text.indexOf(' (');
+  const head = cut < 0 ? text : text.slice(0, cut);
+  return (
+    <>
+      <strong>{head.charAt(0).toUpperCase() + head.slice(1)}</strong>
+      {cut < 0 ? '' : text.slice(cut)}
+    </>
+  );
+}
+
 /**
  * Page-wide banners and the expiry guard's clock. The banners show the operator's emergency
  * notice and every open note that is within 14 days of its expiry. The guard runs while the app is
@@ -62,7 +74,9 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
             left={Math.min(14, Math.floor(remaining(expiry, now) / DAY))}
             onOpen={screen !== 'close' ? onClose : undefined}
           >
-            {noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
+            <NoticeLine
+              text={noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
+            />
           </ExpiryBanner>
         );
       })}
