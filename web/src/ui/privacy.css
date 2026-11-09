@@ -1,0 +1,33 @@
+/* The privacy panel in the app: every section is on one page, the tab row scrolls to them. */
+.nc .nc-privacy .nc-ptabs button[aria-current='true'] {
+  color: var(--nm-fg);
+}
+.nc .nc-privacy .nc-ptabs button[aria-current='true']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--nm-fg);
+}
+.nc .nc-privacy .nc-psec {
+  margin-top: 32px;
+  scroll-margin-top: 112px;
+}
+.nc .nc-privacy .nc-leases {
+  display: grid;
+  gap: 16px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nc .nc-privacy .nc-observers .nc-matrix-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+.nc .nc-privacy .nc-matrix-row > p[hidden] {
+  display: none;
+}
+.nc .nc-privacy .nc-address span[hidden] {
+  display: none;
+}
