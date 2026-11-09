@@ -862,6 +862,26 @@ export function Fund({
               onUnlocked={() => setUnlocked(true)}
             />
           )}
+          {!intentsPathsEnabled(PROFILE) && (
+            <>
+              <p className="nc-cap nc-picture-note" data-testid="intents-preview-note">
+                The steps of the cross-chain payment, as they look where it runs. They are a picture
+                here: nothing in them works on {PROFILE.network}.
+              </p>
+              <div className="nc-picture" inert>
+                <Intents
+                  vault={vault}
+                  denomination={denomination}
+                  size={sizeChoice(true, 'other')}
+                  onLocked={() => undefined}
+                  unlocked={unlocked}
+                  active={false}
+                  onUnlocked={() => undefined}
+                  preview
+                />
+              </div>
+            </>
+          )}
           {dryQuotesEnabled(PROFILE) && <Quotes denomination={denomination} />}
         </div>
       )}

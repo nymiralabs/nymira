@@ -79,6 +79,7 @@ export function Intents({
   unlocked,
   active,
   onUnlocked,
+  preview = false,
 }: {
   vault: VaultCheck | null;
   denomination: string;
@@ -90,6 +91,8 @@ export function Intents({
   /** This route is the one on screen: only then does it show the passphrase card. */
   active: boolean;
   onUnlocked: () => void;
+  /** A picture of the steps where the path does not run: both ways are drawn. */
+  preview?: boolean;
 }) {
   const pins = PROFILE.pins;
   const book = useMemo(
@@ -129,7 +132,7 @@ export function Intents({
   const wallet = useWallet();
   const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
   // Two-step path: 1Click pays the connected account, which signs the transfer to the vault.
-  const offered = intentsPaths(PROFILE);
+  const offered = preview ? (['direct', 'two-step'] as const) : intentsPaths(PROFILE);
   const [twoStep, setTwoStep] = useState(!offered.includes('direct'));
   const [gate, setGate] = useState<{ account: string; problem: string | null } | null>(null);
   const [arrived, setArrived] = useState(false);

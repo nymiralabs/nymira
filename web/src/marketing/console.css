@@ -4911,3 +4911,14 @@
     animation: none;
   }
 }
+
+/* A picture of steps that cannot run here: dimmed, and nothing in it takes a click. */
+.nc-picture {
+  margin-top: 8px;
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+.nc-picture + .nc-intents {
+  margin-top: 32px;
+}
