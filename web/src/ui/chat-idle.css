@@ -1,0 +1,22 @@
+/* The composer slot of a chat with no funded note: the same box, with the way to Fund inside. */
+.nc-compose-idle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 12px 12px 16px;
+}
+.nc-compose-idle p {
+  margin: 0;
+  color: var(--nm-muted);
+}
+.nc-compose-idle .nc-button {
+  margin: 0;
+  flex: none;
+}
+
+/* Without a note the inspector is short: keep the screen as tall as the window, so the composer
+   sits at the bottom as it does with a note. */
+.nc-screen.nc-chat-idle {
+  min-height: calc(100vh - 56px - 42px);
+}

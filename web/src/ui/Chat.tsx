@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import './chat-idle.css';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
@@ -345,6 +346,11 @@ export function Chat({
       void send();
     }
   };
+  // No funded note yet: the whole chat is shown, switched off, with a way to Fund.
+  const idle = !selected && notes.length === 0;
+  const picker = (
+    <ModelPicker models={MODEL_INFOS} value={model} onChange={setModel} testId="model-select" />
+  );
   const seal = busy && (
     <Seal
       title={busy}
@@ -358,18 +364,21 @@ export function Chat({
   );
 
   return (
-    <section data-testid="chat-screen" className="nc-screen nc-screen-side nc-chat-screen">
+    <section
+      data-testid="chat-screen"
+      className={`nc-screen nc-screen-side nc-chat-screen${idle ? ' nc-chat-idle' : ''}`}
+    >
       <div className="nc-chat-main">
         <h1 className="nc-sr">Chat</h1>
-        {selected && (
+        {(selected || idle) && (
           <div className="nc-chat-head">
-            <ModelPicker
-              models={MODEL_INFOS}
-              value={model}
-              onChange={setModel}
-              testId="model-select"
-            />
-            {!settled && (
+            {idle ? <div inert>{picker}</div> : picker}
+            {idle && (
+              <div className="nc-chat-head-end">
+                <Chip>Example · sample data</Chip>
+              </div>
+            )}
+            {selected && !settled && (
               <div className="nc-chat-head-end">
                 {leaseOpen ? (
                   <Chip tone="live">lease open · {bound} reserved</Chip>
@@ -395,7 +404,26 @@ export function Chat({
               to request an exit.
             </p>
           )}
-          {!selected && (
+          {idle && (
+            <div data-testid="chat-notes" style={{ display: 'contents' }}>
+              <div className="nc-empty">
+                <h2>Ask an attested model.</h2>
+                <p>
+                  Your prompt is encrypted to the model’s key before it leaves this page. The first
+                  message opens a lease that reserves {bound}.
+                </p>
+                <div className="nc-suggest" inert>
+                  {SUGGESTIONS.map((q) => (
+                    <button key={q} type="button" tabIndex={-1}>
+                      {q}
+                      <Icon name="right" size={14} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          {!selected && !idle && (
             <>
               <div className="nc-empty">
                 <h2>Ask an attested model.</h2>
@@ -405,16 +433,6 @@ export function Chat({
                 </p>
               </div>
               <div data-testid="chat-notes" style={{ display: 'grid', gap: 16 }}>
-                {notes.length === 0 && (
-                  <div className="nc-chat-fund">
-                    <p>No funded note yet. Fund one first.</p>
-                    <div>
-                      <Button primary onClick={onFund}>
-                        Fund a note
-                      </Button>
-                    </div>
-                  </div>
-                )}
                 <ul style={{ display: 'grid', gap: 12, listStyle: 'none', margin: 0, padding: 0 }}>
                   {notes.map(({ record, view }) => {
                     const near = leave.settings.enabled && leaseBlocked(view.expiry, nowSecs());
@@ -592,6 +610,21 @@ export function Chat({
             hasFile={fileHandle !== null}
           />
         </div>
+        {idle && (
+          <div className="nc-composer">
+            <div className="nc-compose-box nc-compose-idle">
+              <p>Fund a note to ask the model.</p>
+              <Button primary onClick={onFund}>
+                Fund a note
+              </Button>
+            </div>
+            <div className="nc-composer-foot">
+              <small className="nc-hint">
+                A note is prepaid USDC. You take back what you do not spend.
+              </small>
+            </div>
+          </div>
+        )}
         {selected && !settled && (
           <div className="nc-composer" onKeyDown={onKey}>
             <div className="nc-compose-box" data-busy={Boolean(busy)}>
@@ -708,6 +741,31 @@ export function Chat({
                   {a.trust ? badgeLabel(a.trust) : 'signature check pending until the lease ends'}
                 </p>
               ))}
+            </Fold>
+          </>
+        ) : idle ? (
+          <>
+            <section className="nc-sum">
+              <h2>Note #41</h2>
+              <p className="nc-big">
+                <span>0.98</span> <small>{PROFILE.tokenSymbol}</small>
+              </p>
+              <Strip n={20} solid={19.6} size="md" label="Example: 0.98 of 1 left" />
+              <p className="nc-sum-line">
+                <span>Expires in 29 days</span>
+                <span>of 1 {PROFILE.tokenSymbol}</span>
+              </p>
+            </section>
+            <section className="nc-sum">
+              <h2>Lease</h2>
+              <Strip n={10} solid={0} size="lg" label="Lease bound" />
+              <p className="nc-sum-line">
+                <span>not open · bound {bound}</span>
+                <span>used 0.000</span>
+              </p>
+            </section>
+            <Fold title="Verification" badge={<Chip>0 of {CHECK_ROWS.length}</Chip>}>
+              <VerifyList state={() => 'idle'} />
             </Fold>
           </>
         ) : (
