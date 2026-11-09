@@ -189,7 +189,7 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
     );
   }
   return (
-    <div className="nm-site" data-theme={theme}>
+    <div className="nm-site" data-theme={theme} data-testid="landing">
       <a className="nm-skip" href="#main-content">
         Skip to content
       </a>

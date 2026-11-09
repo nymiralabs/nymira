@@ -13,13 +13,24 @@ import { callWorker } from '../worker/client';
 
 let sessionKey: CryptoKey | null = null;
 
+const keyListeners = new Set<() => void>();
+const setKey = (key: CryptoKey | null) => {
+  sessionKey = key;
+  keyListeners.forEach((l) => l());
+};
+/** For the app shell, which shows whether the notes are unlocked. */
+export const subscribeUnlocked = (l: () => void) => {
+  keyListeners.add(l);
+  return () => void keyListeners.delete(l);
+};
+
 export const isUnlocked = () => sessionKey !== null;
 export function requireKey(): CryptoKey {
   if (!sessionKey) throw new Error('the note store is locked');
   return sessionKey;
 }
 export function lock() {
-  sessionKey = null;
+  setKey(null);
 }
 
 export async function wrapMethod(): Promise<WrapMeta['method'] | null> {
@@ -48,7 +59,7 @@ export async function createPassphraseWrap(passphrase: string): Promise<void> {
     kdf: { ...ARGON2, salt },
     check: await checkValue(key),
   });
-  sessionKey = key;
+  setKey(key);
 }
 
 export async function unlockWithPassphrase(passphrase: string): Promise<boolean> {
@@ -61,7 +72,7 @@ export async function unlockWithPassphrase(passphrase: string): Promise<boolean>
     params: meta.kdf,
   });
   if (!(await verify(key, meta))) return false;
-  sessionKey = key;
+  setKey(key);
   return true;
 }
 
@@ -140,7 +151,7 @@ export async function createPrfWrap(): Promise<void> {
     prfSalt: b64encode(prfSalt),
     check: await checkValue(key),
   });
-  sessionKey = key;
+  setKey(key);
 }
 
 export async function unlockWithPrf(): Promise<boolean> {
@@ -149,6 +160,6 @@ export async function unlockWithPrf(): Promise<boolean> {
   const output = await prfAssert(b64decode(meta.credentialId), b64decode(meta.prfSalt));
   const key = await keyFromPrf(output);
   if (!(await verify(key, meta))) return false;
-  sessionKey = key;
+  setKey(key);
   return true;
 }

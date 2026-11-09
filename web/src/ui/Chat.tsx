@@ -9,7 +9,22 @@ import { callWorker } from '../worker/client';
 import { backupDue } from '../chat/backup-policy';
 import { retireBackup } from '../chat/retire-backup';
 import { DEFAULT_BOUND, DEFAULT_MODEL, LONG_JOB_BOUND, MODELS } from '../chat/models';
-import { Cells, Cipher } from '../marketing/Board';
+import { Count } from '../marketing/Board';
+import { Icon } from '../marketing/Icon';
+import {
+  Button,
+  CHECK_ROWS,
+  Chip,
+  END_ROWS,
+  Facts,
+  Fold,
+  ModelPicker,
+  Seal,
+  Strip,
+  VerifyList,
+  clamp,
+  modelInfo,
+} from '../marketing/kit';
 import { chatDeps, warmProver, type ProverState } from '../chat/runtime';
 import { ChatError, ChatSession, type Answer, type Message, type Settled } from '../chat/session';
 import { badgeLabel } from '../chat/attest/signature';
@@ -30,21 +45,27 @@ type PickerWindow = Window & {
   showSaveFilePicker?: (o: unknown) => Promise<FsHandle>;
 };
 
+const SUGGESTIONS = [
+  'Explain how a prepaid note works.',
+  'What does the operator see?',
+  'How do I get my balance back?',
+] as const;
+
+const MODEL_INFOS = MODELS.map((m) => modelInfo(m.id, Number(m.inputNano), Number(m.outputNano)));
+
 const nowSecs = () => Math.floor(Date.now() / 1000);
 const fsAccess = () => typeof (window as PickerWindow).showSaveFilePicker === 'function';
 
 function Badge({ settled }: { settled: Settled }) {
   const t = settled.trust;
   return (
-    <div
-      data-testid="badge"
-      data-kind={t.result}
-      className={`nm-app-badge ${t.result === 'not_verified' ? 'warning' : 'ok'}`}
-    >
-      <p>
-        <strong data-testid="badge-text">{badgeLabel(t)}</strong>
+    <div data-testid="badge" data-kind={t.result}>
+      <h3>
+        <Chip tone={t.result === 'not_verified' ? 'warn' : 'good'}>
+          <span data-testid="badge-text">{badgeLabel(t)}</span>
+        </Chip>
         {t.result === 'not_verified' && <> ({t.reason})</>}
-      </p>
+      </h3>
       <p data-testid="encryption-line">
         Encryption: your messages were end-to-end encrypted to the model’s attested key; the
         operator saw the model, settings, message count and size, usage and timing.
@@ -60,9 +81,14 @@ function Badge({ settled }: { settled: Settled }) {
 export function Chat({
   vault,
   onPrivacy,
+  onFund,
+  onActive,
 }: {
   vault: VaultCheck | null;
   onPrivacy: (noteId: string) => void;
+  onFund: () => void;
+  /** The note the conversation uses, or null, for the note list in the sidebar. */
+  onActive: (recordId: string | null) => void;
 }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<{ record: NoteRecord; view: NoteView }[]>([]);
@@ -75,6 +101,7 @@ export function Chat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [busy, setBusy] = useState('');
+  const [busyKind, setBusyKind] = useState<'send' | 'end'>('send');
   const [error, setError] = useState('');
   const [settled, setSettled] = useState<Settled | null>(null);
   const [attestation, setAttestation] = useState('');
@@ -87,6 +114,10 @@ export function Chat({
   useEffect(() => {
     warmProver().then(setProver);
   }, []);
+
+  useEffect(() => {
+    onActive(selected);
+  }, [selected, onActive]);
 
   useEffect(() => {
     if (unlocked) void leaveStore.checkEmergency(true);
@@ -144,9 +175,13 @@ export function Chat({
 
   if (prover.status === 'off') {
     return (
-      <section data-testid="chat-off" className="nm-app-plain-screen">
-        <h1>Chat</h1>
-        <p className="warning">{prover.reason} Chat is off in this build.</p>
+      <section data-testid="chat-off" className="nc-screen">
+        <div className="nc-screen-main">
+          <h1>Chat</h1>
+          <p className="nc-notice" role="alert">
+            {prover.reason} Chat is off in this build.
+          </p>
+        </div>
       </section>
     );
   }
@@ -175,6 +210,7 @@ export function Chat({
     setMessages(next);
     setInput('');
     try {
+      setBusyKind('send');
       setBusy('Checking the model’s attestation, then sending…');
       const answer = await s.send(next, { model, stream });
       setMessages([...next, { role: 'assistant', content: answer.text }]);
@@ -223,6 +259,7 @@ export function Chat({
     const s = session.current;
     if (!s) return;
     setError('');
+    setBusyKind('end');
     setBusy('Ending the lease and checking the signatures…');
     try {
       const result = await s.end({ pollMs: 500 });
@@ -259,6 +296,7 @@ export function Chat({
 
   const settleOpen = async (record: NoteRecord) => {
     setError('');
+    setBusyKind('end');
     setBusy('Settling the lease this note has open…');
     try {
       const deps = await chatDeps(requireKey);
@@ -286,147 +324,348 @@ export function Chat({
   const open = selected ? session.current : null;
   const leaseOpen = Boolean(open?.lease?.token);
   const pass12 = passphraseLength(passphrase) >= MIN_PASSPHRASE_LENGTH;
-  const bound = units(longJob ? LONG_JOB_BOUND : DEFAULT_BOUND);
+  const boundBase = longJob ? LONG_JOB_BOUND : DEFAULT_BOUND;
+  const bound = units(boundBase);
   const current = selected ? notes.find((n) => n.record.id === selected) : undefined;
-  // The share of the deposit still on the note, in tenths, for the cell bar.
-  const tenths = (n?: { record: NoteRecord; view: NoteView }) => {
-    if (!n) return { filled: 0, part: 0 };
+  // The share of the deposit still on the note, 0 to 1, for the cells.
+  const shareOf = (n?: { record: NoteRecord; view: NoteView }) => {
+    if (!n) return 0;
     try {
-      const share = Number(BigInt(n.view.balance)) / Number(BigInt(n.record.denomination));
-      const t = Math.max(0, Math.min(1, share)) * 10;
-      return { filled: Math.floor(t), part: t % 1 };
+      return clamp(Number(BigInt(n.view.balance)) / Number(BigInt(n.record.denomination)));
     } catch {
-      return { filled: 0, part: 0 };
+      return 0;
     }
   };
+  const decimals = 10 ** PROFILE.tokenDecimals;
+  const used = answers.reduce((t, a) => t + a.usageMicro, 0);
+  const boundNum = Number(boundBase);
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !busy) {
       e.preventDefault();
       void send();
     }
   };
+  const seal = busy && (
+    <Seal
+      title={busy}
+      titleTestId="chat-busy"
+      badge={<Chip tone="live">working</Chip>}
+      tag={busyKind === 'send' ? 'X25519 · XChaCha20-Poly1305' : 'signed usage'}
+      rows={busyKind === 'send' ? CHECK_ROWS : END_ROWS}
+      done={0}
+      auto
+    />
+  );
 
   return (
-    <section data-testid="chat-screen" className="nm-app-body nm-app-chat-screen">
-      <div className="nm-app-main">
-        <h1>Chat</h1>
-        <p className="nm-app-lead">
-          Ask an attested model. Your prompt is encrypted to its key before it leaves this page.
-        </p>
-        <p data-testid="prover-status" className="hint nm-app-status" data-status={prover.status}>
-          {prover.status === 'loading' && 'Loading the proving key (SHA-256 checked)…'}
-          {prover.status === 'ready' &&
-            `Proving key loaded and checked (${(prover.bytes / 1e6).toFixed(1)} MB, ${prover.ms} ms).`}
-          {prover.status === 'failed' && `The proving key was refused: ${prover.reason}`}
-        </p>
-        {vault?.status === 'mismatch' && (
-          <p className="warning" role="alert">
-            The vault differs from what this build expects, so no new lease will open.
-          </p>
-        )}
-        {leave.emergency && !selected && (
-          <p className="warning" role="alert" data-testid="chat-emergency">
-            The operator posted an emergency notice. No new lease is opened. Use the Close screen to
-            request an exit.
-          </p>
-        )}
-        {!selected && (
-          <div data-testid="chat-notes" className="nm-app-picker">
-            {notes.length === 0 && (
-              <p className="nm-app-empty">No funded note yet. Fund one first.</p>
+    <section data-testid="chat-screen" className="nc-screen nc-screen-side nc-chat-screen">
+      <div className="nc-chat-main">
+        <h1 className="nc-sr">Chat</h1>
+        {selected && (
+          <div className="nc-chat-head">
+            <ModelPicker
+              models={MODEL_INFOS}
+              value={model}
+              onChange={setModel}
+              testId="model-select"
+            />
+            {!settled && (
+              <div className="nc-chat-head-end">
+                {leaseOpen ? (
+                  <Chip tone="live">lease open · {bound} reserved</Chip>
+                ) : (
+                  <Chip>no lease yet</Chip>
+                )}
+                <Button testId="chat-end" disabled={Boolean(busy) || !leaseOpen} onClick={end}>
+                  End conversation
+                </Button>
+              </div>
             )}
-            <ul className="nm-app-note-cards">
-              {notes.map(({ record, view }) => {
-                const t = tenths({ record, view });
-                const near = leave.settings.enabled && leaseBlocked(view.expiry, nowSecs());
-                return (
-                  <li key={record.id} data-testid="chat-note" className="nm-app-note-card">
-                    <div className="nm-app-note-top">
-                      <span>
-                        <strong className="nm-app-note-balance">{units(view.balance)}</strong>
-                        <small>
-                          note #{view.noteId} · expires {formatDate(view.expiry)}
-                        </small>
-                      </span>
-                      {view.pending && (
-                        <em data-testid="note-pending" className="nm-app-chip">
-                          (a lease is not settled)
-                        </em>
-                      )}
-                    </div>
-                    <Cells n={10} filled={t.filled} part={t.part} />
-                    <div className="nm-app-note-actions">
-                      {view.pending ? (
-                        <button
-                          type="button"
-                          data-testid="chat-settle"
-                          className="primary"
-                          onClick={() => settleOpen(record)}
-                        >
-                          Settle the open lease
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          data-testid="chat-use-note"
-                          className="primary"
-                          disabled={prover.status !== 'ready' || leave.emergency !== null || near}
-                          onClick={() => start(record)}
-                        >
-                          Chat with this note
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        data-testid="chat-privacy"
-                        onClick={() => onPrivacy(record.id)}
-                      >
-                        Privacy panel
-                      </button>
-                    </div>
-                    {near && (
-                      <em data-testid="note-near-expiry" className="nm-app-note-warn">
-                        (expires within 5 days: no new lease; close it or request an exit)
-                      </em>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            <label className="nm-app-toggle">
-              <input
-                type="checkbox"
-                data-testid="long-job"
-                checked={longJob}
-                onChange={(e) => setLongJob(e.target.checked)}
-              />
-              <span>
-                Long job
-                <small>
-                  0.50 USDC lease class; fewer notes share it, so it is easier to tell apart
-                </small>
-              </span>
-            </label>
           </div>
         )}
-        {selected && (
+        <div className="nc-thread" aria-live="polite">
+          {vault?.status === 'mismatch' && (
+            <p className="nc-notice" role="alert">
+              The vault differs from what this build expects, so no new lease will open.
+            </p>
+          )}
+          {leave.emergency && !selected && (
+            <p className="nc-notice" role="alert" data-testid="chat-emergency">
+              The operator posted an emergency notice. No new lease is opened. Use the Close screen
+              to request an exit.
+            </p>
+          )}
+          {!selected && (
+            <>
+              <div className="nc-empty">
+                <h2>Ask an attested model.</h2>
+                <p>
+                  Choose a note to chat with. Your prompt is encrypted to the model’s key before it
+                  leaves this page. The first message opens a lease that reserves {bound}.
+                </p>
+              </div>
+              <div data-testid="chat-notes" style={{ display: 'grid', gap: 16 }}>
+                {notes.length === 0 && (
+                  <div className="nc-chat-fund">
+                    <p>No funded note yet. Fund one first.</p>
+                    <div>
+                      <Button primary onClick={onFund}>
+                        Fund a note
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <ul style={{ display: 'grid', gap: 12, listStyle: 'none', margin: 0, padding: 0 }}>
+                  {notes.map(({ record, view }) => {
+                    const near = leave.settings.enabled && leaseBlocked(view.expiry, nowSecs());
+                    return (
+                      <li key={record.id} data-testid="chat-note" className="nc-chat-fund">
+                        <span className="nc-note-line">
+                          <strong>#{view.noteId}</strong>
+                          <span>{units(view.balance)}</span>
+                        </span>
+                        <Strip
+                          n={10}
+                          solid={shareOf({ record, view }) * 10}
+                          size="sm"
+                          label={`${units(view.balance)} of ${units(record.denomination)} left`}
+                        />
+                        <p>
+                          Expires {formatDate(view.expiry)}{' '}
+                          {view.pending && (
+                            <Chip tone="warn">
+                              <span data-testid="note-pending">(a lease is not settled)</span>
+                            </Chip>
+                          )}
+                        </p>
+                        {near && (
+                          <p className="nc-notice" data-testid="note-near-expiry">
+                            (expires within 5 days: no new lease; close it or request an exit)
+                          </p>
+                        )}
+                        <div className="nc-actions nc-actions-first">
+                          {view.pending ? (
+                            <Button primary testId="chat-settle" onClick={() => settleOpen(record)}>
+                              Settle the open lease
+                            </Button>
+                          ) : (
+                            <Button
+                              primary
+                              testId="chat-use-note"
+                              disabled={
+                                prover.status !== 'ready' || leave.emergency !== null || near
+                              }
+                              onClick={() => start(record)}
+                            >
+                              Chat with this note
+                            </Button>
+                          )}
+                          <Button testId="chat-privacy" onClick={() => onPrivacy(record.id)}>
+                            Privacy panel
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <label className="nc-check">
+                  <input
+                    type="checkbox"
+                    data-testid="long-job"
+                    checked={longJob}
+                    onChange={(e) => setLongJob(e.target.checked)}
+                  />
+                  <span>
+                    Long job
+                    <small>
+                      0.50 USDC lease class; fewer notes share it, so it is easier to tell apart
+                    </small>
+                  </span>
+                </label>
+              </div>
+              {seal}
+            </>
+          )}
+          {selected && (
+            <>
+              {messages.length === 0 && !busy && !settled && (
+                <div className="nc-empty">
+                  <h2>Ask an attested model.</h2>
+                  <p>
+                    Your prompt is encrypted to its key before it leaves this page. The first
+                    message opens a lease that reserves {bound}. The proof for it is made while you
+                    type.
+                  </p>
+                  <div className="nc-suggest">
+                    {SUGGESTIONS.map((q) => (
+                      <button key={q} type="button" onClick={() => setInput(q)}>
+                        {q}
+                        <Icon name="right" size={14} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {leaseOpen && (
+                <p className="nc-divider">
+                  <span>Lease opened · reserves {bound}</span>
+                </p>
+              )}
+              <ol
+                data-testid="conversation"
+                style={{ display: 'contents', listStyle: 'none', margin: 0, padding: 0 }}
+              >
+                {messages.map((m, i) => {
+                  const answer =
+                    m.role === 'assistant'
+                      ? answers[messages.slice(0, i).filter((x) => x.role === 'assistant').length]
+                      : undefined;
+                  return (
+                    <li key={i} className="nc-turn" data-role={m.role === 'user' ? 'you' : 'model'}>
+                      <span className={m.role === 'user' ? 'nc-sr' : 'nc-who'}>
+                        {m.role === 'user' ? 'You' : model}
+                      </span>
+                      <p>{m.content}</p>
+                      {answer && (
+                        <div className="nc-meta">
+                          <Chip>sealed to its key</Chip>
+                          <Chip>usage {units(String(answer.usageMicro))}</Chip>
+                          <Chip tone={answer.trust ? 'good' : 'plain'}>
+                            {answer.trust
+                              ? badgeLabel(answer.trust)
+                              : 'signature checked at the end'}
+                          </Chip>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+              {seal}
+              {settled && (
+                <>
+                  <p className="nc-divider">
+                    <span>Lease closed · charged {units(settled.charge)}</span>
+                  </p>
+                  <div data-testid="settled" className="nc-settled">
+                    <Badge settled={settled} />
+                    <p data-testid="cost-line">
+                      Lease cost: {units(settled.charge)} (recomputed from the signed usage and the
+                      vault’s rules: {units(settled.expected)}). Balance now{' '}
+                      {units(settled.balance)}.
+                    </p>
+                    {settled.overcharged && (
+                      <p className="nc-settled-note" role="alert" data-testid="charge-warning">
+                        The operator charged more than one charge step above what the signed usage
+                        and the vault’s rules give. Keep this note’s record and consider leaving the
+                        operator.
+                      </p>
+                    )}
+                    <Button
+                      primary
+                      onClick={() => {
+                        session.current = null;
+                        setSelected(null);
+                        setSettled(null);
+                        void refresh();
+                      }}
+                    >
+                      New conversation
+                    </Button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+          {error && (
+            <p className="nc-msg" data-tone="err" role="alert" data-testid="chat-error">
+              {error}
+            </p>
+          )}
+          <BackupPrompt
+            backup={backup}
+            passphrase={passphrase}
+            setPassphrase={setPassphrase}
+            pass12={pass12}
+            onDownload={downloadBackup}
+            onChoose={chooseFile}
+            hasFile={fileHandle !== null}
+          />
+        </div>
+        {selected && !settled && (
+          <div className="nc-composer" onKeyDown={onKey}>
+            <div className="nc-compose-box" data-busy={Boolean(busy)}>
+              <textarea
+                data-testid="chat-input"
+                rows={Math.min(8, Math.max(1, input.split('\n').length))}
+                value={input}
+                placeholder="Ask the model"
+                aria-label="Message"
+                onChange={(e) => setInput(e.target.value)}
+              />
+              <button
+                type="button"
+                className="nc-send"
+                data-testid="chat-send"
+                aria-label="Send"
+                disabled={Boolean(busy) || !input.trim()}
+                onClick={send}
+              >
+                <Icon name="right" size={16} />
+              </button>
+            </div>
+            <div className="nc-composer-foot">
+              <small className="nc-hint">Ctrl or ⌘ + Enter sends</small>
+            </div>
+          </div>
+        )}
+      </div>
+      <aside className="nc-inspector" aria-label="Note and lease">
+        {selected ? (
           <>
-            <div className="nm-app-controls">
-              <label className="nm-app-field">
-                <span>Model</span>
-                <select
-                  data-testid="model-select"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                >
-                  {MODELS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="nm-app-toggle">
+            <section className="nc-sum">
+              <h2>Note #{current?.view.noteId ?? ''}</h2>
+              <p className="nc-big">
+                <Count value={current ? Number(BigInt(current.view.balance)) / decimals : 0} />{' '}
+                <small>{PROFILE.tokenSymbol}</small>
+              </p>
+              <Strip
+                n={20}
+                solid={shareOf(current) * 20}
+                size="md"
+                label={
+                  current
+                    ? `${units(current.view.balance)} of ${units(current.record.denomination)} left`
+                    : undefined
+                }
+              />
+              <p className="nc-sum-line">
+                <span>{current ? `Expires ${formatDate(current.view.expiry)}` : '…'}</span>
+                <span>{current ? `of ${units(current.record.denomination)}` : ''}</span>
+              </p>
+            </section>
+            <section className="nc-sum">
+              <h2>Lease</h2>
+              <Strip
+                n={10}
+                solid={settled ? clamp(Number(settled.charge) / boundNum) * 10 : 0}
+                reserved={leaseOpen ? 10 : 0}
+                drain={leaseOpen ? clamp(used / boundNum) : 0}
+                size="lg"
+                label="Lease bound"
+              />
+              <p className="nc-sum-line">
+                <span>
+                  <span data-testid="lease-status">
+                    {leaseOpen ? 'open' : settled ? 'settled' : 'not open'}
+                  </span>{' '}
+                  · bound {bound}
+                </span>
+                <span>used {units(String(used))}</span>
+              </p>
+            </section>
+            <section className="nc-sum">
+              <label className="nc-check">
                 <input
                   type="checkbox"
                   data-testid="stream"
@@ -438,191 +677,86 @@ export function Chat({
                   <small>Expected to come back gateway-signed, not model-signed</small>
                 </span>
               </label>
-            </div>
-            <ol data-testid="conversation" className="nm-chat-thread">
-              {messages.map((m, i) => (
-                <li key={i} data-role={m.role} className="nm-app-turn">
-                  <strong>{m.role === 'user' ? 'You' : 'Model'}:</strong>{' '}
-                  <span className="nm-app-turn-text">{m.content}</span>
-                </li>
-              ))}
-            </ol>
-            {messages.length === 0 && !busy && (
-              <p className="nm-app-empty">
-                Your first message opens a lease that reserves {bound}. The proof for it is made
-                while you type.
-              </p>
-            )}
-            {busy && (
-              <div className="nm-app-busy" role="status">
-                <Cipher run rows={2} cols={36} />
-                <p data-testid="chat-busy">{busy}</p>
-              </div>
-            )}
-            {!settled && (
-              <div className="nm-chat-composer" onKeyDown={onKey}>
-                <textarea
-                  data-testid="chat-input"
-                  value={input}
-                  rows={3}
-                  placeholder="Ask the model"
-                  onChange={(e) => setInput(e.target.value)}
-                  aria-label="Message"
-                />
-                <div className="nm-chat-composer-bar">
-                  <small>Ctrl or ⌘ + Enter sends</small>
-                  <span>
-                    <button
-                      type="button"
-                      data-testid="chat-end"
-                      disabled={Boolean(busy) || !leaseOpen}
-                      onClick={end}
-                    >
-                      End conversation
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="chat-send"
-                      className="primary"
-                      disabled={Boolean(busy)}
-                      onClick={send}
-                    >
-                      Send
-                    </button>
-                  </span>
-                </div>
-              </div>
-            )}
-            {settled && (
-              <div data-testid="settled" className="nm-app-settled">
-                <Badge settled={settled} />
-                <p data-testid="cost-line">
-                  Lease cost: {units(settled.charge)} (recomputed from the signed usage and the
-                  vault’s rules: {units(settled.expected)}). Balance now {units(settled.balance)}.
-                </p>
-                {settled.overcharged && (
-                  <p className="warning" role="alert" data-testid="charge-warning">
-                    The operator charged more than one charge step above what the signed usage and
-                    the vault’s rules give. Keep this note’s record and consider leaving the
-                    operator.
-                  </p>
-                )}
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => {
-                    session.current = null;
-                    setSelected(null);
-                    setSettled(null);
-                    void refresh();
-                  }}
-                >
-                  New conversation
-                </button>
-              </div>
-            )}
-          </>
-        )}
-        {!selected && busy && (
-          <div className="nm-app-busy" role="status">
-            <Cipher run rows={2} cols={36} />
-            <p data-testid="chat-busy">{busy}</p>
-          </div>
-        )}
-        {error && (
-          <p className="error" role="alert" data-testid="chat-error">
-            {error}
-          </p>
-        )}
-        <BackupPrompt
-          backup={backup}
-          passphrase={passphrase}
-          setPassphrase={setPassphrase}
-          pass12={pass12}
-          onDownload={downloadBackup}
-          onChoose={chooseFile}
-          hasFile={fileHandle !== null}
-        />
-      </div>
-      <aside className="nm-app-side" aria-label="Note and lease">
-        {selected ? (
-          <>
-            <h2>Note #{current?.view.noteId ?? ''}</h2>
-            <dl className="nm-app-facts">
-              <div>
-                <dt>Balance at start</dt>
-                <dd>{current ? units(current.view.balance) : '…'}</dd>
-              </div>
-              <div>
-                <dt>Expires</dt>
-                <dd>{current ? formatDate(current.view.expiry) : '…'}</dd>
-              </div>
-            </dl>
-            <Cells n={10} filled={tenths(current).filled} part={tenths(current).part} />
-            <p className="nm-app-cap">Each cell is a tenth of the deposit.</p>
-            <h2>Lease</h2>
-            <dl className="nm-app-facts">
-              <div>
-                <dt>Status</dt>
-                <dd data-testid="lease-status">{leaseOpen ? 'open' : 'not open'}</dd>
-              </div>
-              <div>
-                <dt>Bound</dt>
-                <dd>{bound}</dd>
-              </div>
-            </dl>
-            <p className="nm-app-cap">
-              The bound is reserved while the lease is open. Only the charge leaves the note.
-            </p>
-            {attestation && (
-              <>
-                <h2>Attestation</h2>
-                <p data-testid="attestation-line" className="hint">
+            </section>
+            <Fold
+              title="Verification"
+              badge={
+                <Chip tone={attestation ? 'good' : 'plain'}>
+                  {attestation ? CHECK_ROWS.length : 0} of {CHECK_ROWS.length}
+                </Chip>
+              }
+            >
+              <VerifyList
+                state={(i) =>
+                  attestation ? 'pass' : busy && busyKind === 'send' && i === 0 ? 'run' : 'idle'
+                }
+              />
+              {attestation && (
+                <p data-testid="attestation-line" className="nc-cap">
                   {attestation}
                 </p>
-              </>
-            )}
-            {answers.length > 0 && <h2>Answers</h2>}
-            {answers.map((a) => (
-              <p
-                key={a.id}
-                className="hint nm-app-answer"
-                data-testid="answer"
-                data-trust={a.trust?.result ?? 'pending'}
-              >
-                Answer {a.id}: {a.promptTokens} in, {a.completionTokens} out tokens, about{' '}
-                {units(String(a.usageMicro))} of usage ·{' '}
-                {a.trust ? badgeLabel(a.trust) : 'signature check pending until the lease ends'}
-              </p>
-            ))}
-            <button type="button" data-testid="chat-privacy" onClick={() => onPrivacy(selected)}>
-              Privacy panel
-            </button>
+              )}
+              {answers.map((a) => (
+                <p
+                  key={a.id}
+                  className="nc-cap"
+                  data-testid="answer"
+                  data-trust={a.trust?.result ?? 'pending'}
+                >
+                  Answer {a.id}: {a.promptTokens} in, {a.completionTokens} out tokens, about{' '}
+                  {units(String(a.usageMicro))} of usage ·{' '}
+                  {a.trust ? badgeLabel(a.trust) : 'signature check pending until the lease ends'}
+                </p>
+              ))}
+            </Fold>
           </>
         ) : (
-          <>
+          <section className="nc-sum">
             <h2>How a chat works</h2>
-            <dl className="nm-app-facts">
-              <div>
-                <dt>Lease</dt>
-                <dd>{bound} reserved</dd>
-              </div>
-              <div>
-                <dt>Prompt</dt>
-                <dd>encrypted to the model’s key</dd>
-              </div>
-              <div>
-                <dt>End</dt>
-                <dd>only the charge leaves</dd>
-              </div>
-            </dl>
-          </>
+            <Facts
+              rows={[
+                ['Lease', `${bound} reserved`],
+                ['Prompt', 'encrypted to the model’s key'],
+                ['End', 'only the charge leaves'],
+              ]}
+            />
+          </section>
         )}
-        <p className="hint" data-testid="chat-limits">
-          This web app cannot hide your IP address from the operator, NEAR AI’s gateway or an RPC
-          provider, and the browser cannot use Tor. Use Tor Browser or <code>nymirad</code> for
-          that.
-        </p>
+        <Fold title="Who sees what">
+          <Facts
+            rows={[
+              ['Operator', 'model, sizes, timing'],
+              ['Model', 'your prompt'],
+              ['Chain', 'nothing until you close'],
+            ]}
+          />
+          <p className="nc-cap" data-testid="chat-limits">
+            This web app cannot hide your IP address from the operator, NEAR AI’s gateway or an RPC
+            provider, and the browser cannot use Tor. Use Tor Browser or <code>nymirad</code> for
+            that.
+          </p>
+        </Fold>
+        <Fold title="About the lease">
+          <p className="nc-cap">
+            A lease reserves its bound while it is open. When it closes, only the charge leaves the
+            note. The proof for the first lease is made while you type.
+          </p>
+        </Fold>
+        <div className="nc-sum">
+          <p data-testid="prover-status" className="nc-cap" data-status={prover.status}>
+            {prover.status === 'loading' && 'Loading the proving key (SHA-256 checked)…'}
+            {prover.status === 'ready' &&
+              `Proving key loaded and checked (${(prover.bytes / 1e6).toFixed(1)} MB, ${prover.ms} ms).`}
+            {prover.status === 'failed' && `The proving key was refused: ${prover.reason}`}
+          </p>
+        </div>
+        {selected && (
+          <div className="nc-sum nc-privacy-link">
+            <Button testId="chat-privacy" onClick={() => onPrivacy(selected)}>
+              <Icon name="shield" size={14} /> Privacy panel
+            </Button>
+          </div>
+        )}
       </aside>
     </section>
   );
@@ -640,35 +774,34 @@ function BackupPrompt(p: {
   const canPick = fsAccess();
   if (!p.backup?.needed && !(canPick && !p.hasFile && p.backup)) return null;
   return (
-    <div data-testid="backup-prompt" className="notice">
+    <div data-testid="backup-prompt" className="nc-chat-fund" role="status">
       <p>
         {canPick
           ? 'Your note changed. Choose a file once and the app rewrites an encrypted backup after every lease.'
           : 'Your note changed. Download an encrypted backup now: a lost latest state lets the operator defeat your exit and can cost the remaining balance. This browser cannot write to a chosen file; nymirad or a Chromium browser backs up automatically.'}
       </p>
-      <label>
-        Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters; not in a synced folder){' '}
+      <label className="nc-field">
+        <span>
+          Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters; not in a synced folder)
+        </span>
         <input
           type="password"
           data-testid="backup-passphrase"
           value={p.passphrase}
           onChange={(e) => p.setPassphrase(e.target.value)}
         />
-      </label>{' '}
-      {canPick ? (
-        <button type="button" data-testid="backup-choose" disabled={!p.pass12} onClick={p.onChoose}>
-          Choose backup file
-        </button>
-      ) : (
-        <button
-          type="button"
-          data-testid="backup-download"
-          disabled={!p.pass12}
-          onClick={p.onDownload}
-        >
-          Download backup
-        </button>
-      )}
+      </label>
+      <div>
+        {canPick ? (
+          <Button testId="backup-choose" disabled={!p.pass12} onClick={p.onChoose}>
+            Choose backup file
+          </Button>
+        ) : (
+          <Button testId="backup-download" disabled={!p.pass12} onClick={p.onDownload}>
+            Download backup
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

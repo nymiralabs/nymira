@@ -179,6 +179,8 @@ test('leaving and observer lists, a long refusal is cut, no Intents line for a n
 
   // A long refusal is cut to 300 characters.
   stack.set({ refusal: 'x'.repeat(2000) });
+  // The landing has no screen nav: the app opens from its button.
+  await page.getByTestId('open-app').click();
   await openChat(page);
   await page.getByTestId('chat-privacy').click();
   await page.getByTestId('reuse-check').click();
