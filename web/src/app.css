@@ -1,0 +1,704 @@
+/* The web app on the shared design layer: tokens, fonts and the console shell come from
+   marketing/site.css. This file adds what the real screens need: forms, notices, lists and the
+   chat. Every rule is scoped to .nm-app, so nothing reaches the wallet frame or the landing. */
+
+.nm-app {
+  --nm-err: #ff9b9b;
+  --nm-warn: #f0c674;
+}
+.nm-app[data-theme='light'] {
+  --nm-err: #a31919;
+  --nm-warn: #7a4a00;
+}
+
+/* ---- the plain frame: landing, origin refusal, a screen with no side panel ---- */
+.nm-app-landing-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px 24px;
+}
+.nm-app-landing-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 8px;
+}
+.nm-app-landing-nav button {
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: var(--nm-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+.nm-app-landing-nav button:hover {
+  color: var(--nm-fg);
+}
+.nm-app-plain {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 24px 48px;
+}
+.nm-app-plain-screen {
+  max-width: 760px;
+}
+.nm-app button.brand {
+  display: block;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  min-height: 0;
+  cursor: pointer;
+}
+.nm-app-foot {
+  display: grid;
+  gap: 4px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app-foot a:hover {
+  color: var(--nm-fg);
+  text-decoration: underline;
+}
+
+/* ---- console shell, buttons in the nav ---- */
+.nm-console-nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    background-color 160ms;
+}
+.nm-console-nav button:hover {
+  color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nm-console-nav button[aria-current='page'] {
+  color: var(--nm-fg);
+  background: var(--nm-raised);
+  box-shadow: inset 2px 0 0 var(--nm-fg);
+}
+.nm-console-content {
+  padding: 0;
+}
+.nm-console-content > .warning,
+.nm-console-content > .notice,
+.nm-console-content > .banner {
+  width: min(712px, calc(100% - 48px));
+  max-width: none;
+  margin: 16px auto 0;
+}
+
+/* ---- a screen without a side panel ---- */
+.nm-console-content > section:not(.nm-app-body),
+.nm-console-content > div > section:not(.nm-app-body) {
+  max-width: 760px;
+  margin-inline: auto;
+  padding: 32px 24px 80px;
+}
+.nm-console-content h1,
+.nm-app-plain h1,
+.nm-console-content section > h2:first-child {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 36px;
+}
+.nm-console-content section h2,
+.nm-console-content section h3 {
+  font-weight: 400;
+}
+.nm-console-content section h2:not(:first-child) {
+  margin-top: 32px;
+  font-size: 18px;
+  line-height: 26px;
+}
+.nm-console-content section h3 {
+  margin: 28px 0 8px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-console-content p,
+.nm-app-plain p {
+  margin: 0 0 12px;
+  max-width: 68ch;
+  line-height: 24px;
+  text-wrap: pretty;
+}
+.nm-console-content a:not(.nm-app-button),
+.nm-app-plain a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nm-app .lead {
+  color: var(--nm-muted);
+  font-size: 17px;
+  line-height: 26px;
+}
+.nm-app .hint {
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nm-app code {
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+}
+
+/* ---- notices, warnings, errors: a bordered panel, never a coloured side stripe ---- */
+.nm-app .notice,
+.nm-app .banner,
+.nm-app .warning {
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  color: var(--nm-fg);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nm-app .warning {
+  border-color: var(--nm-warn);
+}
+.nm-app .error {
+  color: var(--nm-err);
+}
+.nm-app .error::before {
+  content: 'Error · ';
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app .ok {
+  color: var(--nm-good);
+}
+
+/* ---- buttons, fields, lists in the content area ---- */
+.nm-console-content button,
+.nm-app-plain button:not(.brand) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin: 0 8px 8px 0;
+  padding: 8px 16px;
+  border: 1px solid var(--nm-muted);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nm-fg);
+  font:
+    14px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  transition:
+    background-color 160ms,
+    opacity 160ms;
+}
+.nm-console-content button:hover:not(:disabled),
+.nm-app-plain button:not(.brand):hover:not(:disabled) {
+  background: var(--nm-raised);
+}
+.nm-console-content button.primary,
+.nm-app-plain button.primary {
+  border-color: var(--nm-button);
+  background: var(--nm-button);
+  color: var(--nm-button-text);
+}
+.nm-console-content button.primary:hover:not(:disabled),
+.nm-app-plain button.primary:hover:not(:disabled) {
+  background: var(--nm-button);
+  opacity: 0.88;
+}
+.nm-console-content button:disabled,
+.nm-app-plain button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nm-app input[type='text'],
+.nm-app input[type='password'],
+.nm-app input[type='number'],
+.nm-app input:not([type]),
+.nm-app textarea,
+.nm-app select {
+  display: block;
+  width: 100%;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  font:
+    14px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app select {
+  appearance: none;
+  padding-right: 32px;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--nm-muted) 50%) right 16px center / 5px 5px
+      no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--nm-muted) 50%) right 11px center / 5px 5px
+      no-repeat,
+    var(--nm-bg);
+}
+.nm-app input:focus-visible,
+.nm-app textarea:focus-visible,
+.nm-app select:focus-visible,
+.nm-app button:focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nm-app label {
+  display: block;
+  margin: 12px 0 4px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nm-app input[type='checkbox'],
+.nm-app input[type='radio'],
+.nm-console input[type='checkbox'],
+.nm-console input[type='radio'] {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--nm-accent);
+  flex: none;
+}
+.nm-app fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 0;
+  color: var(--nm-fg);
+  cursor: pointer;
+}
+.nm-console-content .nm-app-side h2 {
+  margin: 24px 0 8px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-console-content .nm-app-side h2:first-child {
+  margin-top: 0;
+}
+.nm-console-content .nm-app-cap {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+.nm-app fieldset {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+}
+.nm-app legend {
+  padding: 0 8px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app ul.wallets,
+.nm-app ul.notes {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.nm-app ul.notes li {
+  margin: 0 0 12px;
+  padding: 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  line-height: 24px;
+}
+.nm-app ul.notes li small {
+  color: var(--nm-muted);
+}
+.nm-app .leases {
+  padding: 0;
+  list-style: none;
+}
+.nm-app .leases li {
+  padding: 10px 0;
+  border-top: 1px solid var(--nm-line);
+}
+.nm-app .columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 24px;
+}
+.nm-app .columns dd {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.nm-app .price th {
+  padding-right: 16px;
+  font-weight: 400;
+  text-align: left;
+  color: var(--nm-muted);
+}
+.nm-app pre {
+  margin: 8px 0 12px;
+  padding: 12px 16px;
+  overflow: auto;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-code-bg);
+  color: var(--nm-code-fg);
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+}
+
+/* ---- who sees what (landing) ---- */
+.nm-app .who {
+  margin: 24px 0;
+}
+.nm-app .who svg {
+  width: 100%;
+  height: auto;
+}
+.nm-app .who .box rect {
+  fill: none;
+  stroke: var(--nm-line);
+  stroke-width: 1.5;
+}
+.nm-app .who .arrow path {
+  stroke: var(--nm-muted);
+  stroke-width: 1.5;
+  fill: none;
+}
+.nm-app .who text {
+  fill: var(--nm-fg);
+  font:
+    12px 'IBM Plex Mono',
+    monospace;
+  text-anchor: middle;
+}
+.nm-app .who .head text {
+  font-weight: 700;
+}
+
+/* ---- the sandboxed wallet frame: invisible and click-through until a popup is on screen ---- */
+.wallet-frame {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+  pointer-events: none;
+  z-index: 40;
+}
+.wallet-frame.active {
+  pointer-events: auto;
+}
+
+/* ---- chat ---- */
+.nm-app-chat-screen {
+  padding: 0;
+}
+.nm-app-chat-screen .nm-app-main {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 56px - 38px);
+}
+.nm-app-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--nm-muted);
+  flex: none;
+}
+.nm-app-status[data-status='ready']::before {
+  background: var(--nm-good);
+  border-color: var(--nm-good);
+}
+.nm-app-status[data-status='loading']::before {
+  animation: nm-app-load 1.1s ease-in-out infinite;
+}
+.nm-app-status[data-status='failed'] {
+  color: var(--nm-err);
+}
+.nm-app-status[data-status='failed']::before {
+  background: var(--nm-err);
+  border-color: var(--nm-err);
+}
+@keyframes nm-app-load {
+  50% {
+    background: var(--nm-muted);
+  }
+}
+.nm-app-empty {
+  padding: 20px 0;
+  color: var(--nm-muted);
+}
+.nm-app-note-cards {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+.nm-app-note-card {
+  padding: 20px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nm-app-note-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.nm-app-note-balance {
+  display: block;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 32px;
+}
+.nm-app-note-top small {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app-note-card .nm-cells {
+  height: 14px;
+  margin: 16px 0;
+}
+.nm-app-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+}
+.nm-app-note-warn {
+  display: block;
+  margin-top: 4px;
+  color: var(--nm-warn);
+  font-size: 13px;
+  font-style: normal;
+}
+.nm-app label.nm-app-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 0;
+  color: var(--nm-fg);
+  cursor: pointer;
+}
+.nm-app-toggle small {
+  display: block;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nm-app-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: end;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nm-app-controls .nm-app-field {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+.nm-app-controls .nm-app-field span {
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app-controls select {
+  margin: 0;
+}
+.nm-chat-thread {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nm-chat-thread:empty {
+  display: none;
+}
+.nm-app-turn {
+  max-width: 100%;
+  font-size: 15px;
+  line-height: 26px;
+  overflow-wrap: anywhere;
+}
+.nm-app-turn-text {
+  white-space: pre-wrap;
+}
+.nm-app-turn strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app-turn[data-role='user'] {
+  align-self: end;
+  justify-self: end;
+  max-width: 85%;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-raised);
+}
+.nm-app-turn[data-role='assistant'] {
+  padding: 4px 0 16px;
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nm-app-busy {
+  display: grid;
+  gap: 6px;
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nm-app-busy p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nm-chat-composer {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: 16px 0 24px;
+  background: var(--nm-bg);
+}
+.nm-chat-composer textarea {
+  margin: 0;
+  resize: vertical;
+  min-height: 84px;
+  font:
+    15px/24px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nm-chat-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.nm-chat-composer-bar small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-chat-composer-bar button {
+  margin: 0 0 0 8px;
+}
+.nm-app-settled {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nm-app-settled p {
+  margin: 0;
+}
+.nm-app-settled button {
+  justify-self: start;
+}
+.nm-app-badge {
+  display: grid;
+  gap: 8px;
+}
+.nm-app-badge p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+.nm-app-badge strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+.nm-app-badge.warning::before {
+  content: none;
+}
+.nm-app-answer {
+  margin: 0 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  overflow-wrap: anywhere;
+}
+.nm-app-side > button {
+  margin-top: 8px;
+}
+.nm-app-side .hint {
+  margin: 16px 0 0;
+}
+@media (max-width: 900px) {
+  .nm-console-content > section:not(.nm-app-body),
+  .nm-console-content > div > section:not(.nm-app-body) {
+    padding: 24px 16px 48px;
+  }
+  .nm-app-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nm-app-chat-screen .nm-app-main {
+    min-height: 0;
+  }
+  .nm-app-turn[data-role='user'] {
+    max-width: 100%;
+  }
+  .nm-chat-composer-bar small {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nm-app-status[data-status='loading']::before {
+    animation: none;
+  }
+}
