@@ -15,8 +15,107 @@
   flex: none;
 }
 
-/* Without a note the inspector is short: keep the screen as tall as the window, so the composer
-   sits at the bottom as it does with a note. */
+/* Without a note the inspector is short: the screen takes the height left under the header and
+   the notice, whatever that is, so the composer sits at the bottom as it does with a note. */
+.nc-content,
+.nc-content > div:has(.nc-chat-idle),
+.nc-content > div > div:has(.nc-chat-idle) {
+  display: flex;
+  flex-direction: column;
+}
+.nc-content > div:has(.nc-chat-idle),
+.nc-content > div > div:has(.nc-chat-idle) {
+  flex: 1;
+}
 .nc-screen.nc-chat-idle {
-  min-height: calc(100vh - 56px - 42px);
+  flex: 1;
+  min-height: 0;
+}
+
+/* The note list that shows when a conversation cannot open by itself: rows, not cards. */
+.nc-pick {
+  display: grid;
+  gap: 16px;
+  max-width: 640px;
+}
+.nc-pick-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--nm-line);
+}
+.nc-pick-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 14px 16px;
+}
+.nc-pick-row + .nc-pick-row {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-pick-id,
+.nc-pick-life {
+  display: grid;
+  gap: 6px;
+}
+.nc-pick-id strong {
+  font-size: 18px;
+  font-weight: 500;
+}
+.nc-pick-id small,
+.nc-pick-life small,
+.nc-pick-why {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-pick-act {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.nc-pick-why {
+  grid-column: 1 / -1;
+}
+.nc-pick-why[data-tone='err'] {
+  color: var(--nc-err);
+}
+@media (max-width: 700px) {
+  .nc-pick-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-pick-act {
+    justify-content: flex-start;
+  }
+}
+
+/* What opens in the inspector keeps a rhythm: facts, then a note, each with room above. */
+.nc-fold-body > * + * {
+  margin-top: 12px;
+}
+.nc-fold-body > .nc-cap {
+  margin-bottom: 0;
+}
+.nc-fold-body .nc-facts + .nc-cap {
+  margin-top: 14px;
+}
+.nc-inspector .nc-fold:last-child {
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nc-fold-body .nc-cap[data-status='failed'] {
+  color: var(--nc-err);
+}
+
+/* The empty state sits a fixed distance from the top instead of being centred: opening a fold in
+   the inspector makes the screen taller, and a centred block would slide down with it. No auto margin below: what follows (the note
+   list) stays right under it instead of being pushed to the bottom. */
+.nc-chat-screen .nc-empty {
+  margin-block: clamp(24px, 10vh, 96px) 0;
+}
+.nc-chat-screen .nc-empty + .nc-pick {
+  margin-top: 24px;
 }

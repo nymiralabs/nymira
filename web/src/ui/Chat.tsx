@@ -84,12 +84,15 @@ export function Chat({
   onPrivacy,
   onFund,
   onActive,
+  preferred,
 }: {
   vault: VaultCheck | null;
   onPrivacy: (noteId: string) => void;
   onFund: () => void;
   /** The note the conversation uses, or null, for the note list in the sidebar. */
   onActive: (recordId: string | null) => void;
+  /** The note picked in the sidebar: the conversation opens on it without a list to choose from. */
+  preferred: string | null;
 }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<{ record: NoteRecord; view: NoteView }[]>([]);
@@ -296,6 +299,20 @@ export function Chat({
     }
   };
 
+  // With a note picked (the first one by default) there is nothing to choose: the conversation
+  // opens on it. The list stays for what needs a decision: an open lease to settle, a note too
+  // close to its expiry, an emergency notice.
+  useEffect(() => {
+    if (selected || busy || settled || error || !unlocked) return;
+    if (prover.status !== 'ready' || leave.emergency !== null) return;
+    const target = notes.find((n) => n.record.id === preferred) ?? notes[0];
+    if (!target || target.view.pending) return;
+    if (leave.settings.enabled && leaseBlocked(target.view.expiry, nowSecs())) return;
+    void start(target.record);
+    // `start` only reads state that the guards above already cover.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, preferred, selected, busy, settled, error, unlocked, prover.status, leave.emergency]);
+
   const settleOpen = async (record: NoteRecord) => {
     setError('');
     setBusyKind('end');
@@ -435,40 +452,46 @@ export function Chat({
               <div className="nc-empty">
                 <h2>Ask an attested model.</h2>
                 <p>
-                  Choose a note to chat with. Your prompt is encrypted to the model’s key before it
-                  leaves this page. The first message opens a lease that reserves {bound}.
+                  {notes.length > 1 ? 'Choose a note to chat with. ' : ''}Your prompt is encrypted
+                  to the model’s key before it leaves this page. The first message opens a lease
+                  that reserves {bound}.
                 </p>
               </div>
-              <div data-testid="chat-notes" style={{ display: 'grid', gap: 16 }}>
-                <ul style={{ display: 'grid', gap: 12, listStyle: 'none', margin: 0, padding: 0 }}>
+              <div data-testid="chat-notes" className="nc-pick">
+                <ul className="nc-pick-list">
                   {notes.map(({ record, view }) => {
                     const near = leave.settings.enabled && leaseBlocked(view.expiry, nowSecs());
+                    const why =
+                      prover.status === 'loading'
+                        ? 'Loading the proving key (SHA-256 checked)…'
+                        : prover.status === 'failed'
+                          ? `Chat is off: the proving key was refused (${prover.reason}).`
+                          : leave.emergency !== null
+                            ? 'The operator’s emergency notice stops new leases.'
+                            : null;
                     return (
-                      <li key={record.id} data-testid="chat-note" className="nc-chat-fund">
-                        <span className="nc-note-line">
+                      <li key={record.id} data-testid="chat-note" className="nc-pick-row">
+                        <span className="nc-pick-id">
                           <strong>#{view.noteId}</strong>
-                          <span>{units(view.balance)}</span>
+                          <small>{units(view.balance)}</small>
                         </span>
-                        <Strip
-                          n={10}
-                          solid={shareOf({ record, view }) * 10}
-                          size="sm"
-                          label={`${units(view.balance)} of ${units(record.denomination)} left`}
-                        />
-                        <p>
-                          Expires {formatDate(view.expiry)}{' '}
-                          {view.pending && (
-                            <Chip tone="warn">
-                              <span data-testid="note-pending">(a lease is not settled)</span>
-                            </Chip>
-                          )}
-                        </p>
-                        {near && (
-                          <p className="nc-notice" data-testid="note-near-expiry">
-                            (expires within 5 days: no new lease; close it or request an exit)
-                          </p>
-                        )}
-                        <div className="nc-actions nc-actions-first">
+                        <span className="nc-pick-life">
+                          <Strip
+                            n={10}
+                            solid={shareOf({ record, view }) * 10}
+                            size="sm"
+                            label={`${units(view.balance)} of ${units(record.denomination)} left`}
+                          />
+                          <small>
+                            Expires {formatDate(view.expiry)}{' '}
+                            {view.pending && (
+                              <Chip tone="warn">
+                                <span data-testid="note-pending">(a lease is not settled)</span>
+                              </Chip>
+                            )}
+                          </small>
+                        </span>
+                        <span className="nc-pick-act">
                           {view.pending ? (
                             <Button primary testId="chat-settle" onClick={() => settleOpen(record)}>
                               Settle the open lease
@@ -488,20 +511,35 @@ export function Chat({
                           <Button testId="chat-privacy" onClick={() => onPrivacy(record.id)}>
                             Privacy panel
                           </Button>
-                        </div>
+                        </span>
+                        {near && (
+                          <small className="nc-pick-why" data-testid="note-near-expiry">
+                            (expires within 5 days: no new lease; close it or request an exit)
+                          </small>
+                        )}
+                        {!near && why && (
+                          <small
+                            className="nc-pick-why"
+                            data-tone={prover.status === 'failed' ? 'err' : undefined}
+                            data-testid="chat-blocked"
+                          >
+                            {why}
+                          </small>
+                        )}
                       </li>
                     );
                   })}
                 </ul>
-                <label className="nc-check">
+                <label className="nc-keep">
                   <input
                     type="checkbox"
                     data-testid="long-job"
                     checked={longJob}
                     onChange={(e) => setLongJob(e.target.checked)}
                   />
-                  <span>
-                    Long job
+                  <span className="nc-keep-switch" aria-hidden="true" />
+                  <span className="nc-keep-text">
+                    <strong>Long job</strong>
                     <small>
                       0.50 USDC lease class; fewer notes share it, so it is easier to tell apart
                     </small>
@@ -632,7 +670,10 @@ export function Chat({
               </button>
             </div>
             <div className="nc-composer-foot">
-              <small className="nc-hint">Fund a note to send</small>
+              <div className="nc-worst">
+                <Strip n={10} solid={0} reserved={10} size="sm" />
+                <small>Fund a note to send</small>
+              </div>
               <small className="nc-hint">Ctrl or ⌘ + Enter sends</small>
             </div>
           </div>
@@ -660,6 +701,20 @@ export function Chat({
               </button>
             </div>
             <div className="nc-composer-foot">
+              <div className="nc-worst">
+                <Strip
+                  n={10}
+                  solid={0}
+                  reserved={10}
+                  drain={leaseOpen ? clamp(used / boundNum) : 0}
+                  size="sm"
+                />
+                <small>
+                  {leaseOpen
+                    ? `Used ${units(String(used))} of ${bound}`
+                    : `The first message reserves ${bound}`}
+                </small>
+              </div>
               <small className="nc-hint">Ctrl or ⌘ + Enter sends</small>
             </div>
           </div>
@@ -811,15 +866,13 @@ export function Chat({
             A lease reserves its bound while it is open. When it closes, only the charge leaves the
             note. The proof for the first lease is made while you type.
           </p>
-        </Fold>
-        <div className="nc-sum">
           <p data-testid="prover-status" className="nc-cap" data-status={prover.status}>
             {prover.status === 'loading' && 'Loading the proving key (SHA-256 checked)…'}
             {prover.status === 'ready' &&
               `Proving key loaded and checked (${(prover.bytes / 1e6).toFixed(1)} MB, ${prover.ms} ms).`}
             {prover.status === 'failed' && `The proving key was refused: ${prover.reason}`}
           </p>
-        </div>
+        </Fold>
         {selected && (
           <div className="nc-sum nc-privacy-link">
             <Button testId="chat-privacy" onClick={() => onPrivacy(selected)}>
