@@ -145,6 +145,34 @@ function Quotes({ denomination }: { denomination: string }) {
               </div>
             );
           })}
+          {PROFILE.oneClick.shortlist.slice(rows.length).map((asset) => {
+            const [, chain = asset.label] = asset.label.split(' on ');
+            return (
+              <div key={asset.label} className="nc-src nc-src-static" data-testid="quote-pending">
+                <span className="nc-chain" data-chain={chain.toLowerCase()} aria-hidden="true" />
+                <span className="nc-src-name">{chain}</span>
+                <span className="nc-src-price">
+                  <i>asking 1Click…</i>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!(on && rows) && (
+        <div className="nc-src-list" data-testid="quote-sources">
+          {PROFILE.oneClick.shortlist.map((asset) => {
+            const [, chain = asset.label] = asset.label.split(' on ');
+            return (
+              <div key={asset.label} className="nc-src nc-src-static">
+                <span className="nc-chain" data-chain={chain.toLowerCase()} aria-hidden="true" />
+                <span className="nc-src-name">{chain}</span>
+                <span className="nc-src-price">
+                  <i>turn on live prices to see the cost</i>
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
@@ -183,6 +211,7 @@ export function Fund({
   const [persist, setPersist] = useState<Persist>('unknown');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [intentsLocked, setIntentsLocked] = useState(false);
   const [acceptance, setAcceptance] = useState<Acceptance | null>(null);
   const [rpcRead, setRpcRead] = useState(false);
   const [route, setRoute] = useState<'near' | 'other'>(() => {
@@ -332,6 +361,29 @@ export function Fund({
     );
   }
 
+  const sizeChoice = (locked: boolean, via: 'near' | 'other') => (
+    <div className="nc-choices" role="radiogroup" aria-label="Denomination">
+      {pins.config.denominations.map((d) => (
+        <label key={d} className="nc-tile">
+          <input
+            type="radio"
+            name={`denomination-${via}`}
+            value={d}
+            checked={denomination === d}
+            disabled={locked}
+            data-testid={via === 'near' ? `denomination-${d}` : `intents-denomination-${d}`}
+            onChange={() => setDenomination(d)}
+          />
+          <strong>{units(d)}</strong>
+          <Strip n={11} solid={Math.round((Number(d) / biggest) * 10)} reserved={1} size="sm" />
+          <small>
+            You send {units(notePrice(d))}: {units(d)} stays yours, {units(fee)} is the fee.
+          </small>
+        </label>
+      ))}
+    </div>
+  );
+
   const flags = [Boolean(sender), Boolean(sender), payoutReady, backedUp, accepted !== null];
   const now = busy === 'send' ? 4 : flags.findIndex((f) => !f);
   const stepState = (i: number) => (flags[i] ? 'done' : i === now ? 'now' : 'next');
@@ -347,7 +399,12 @@ export function Fund({
         <FundSide
           amount={amount}
           unit={PROFILE.tokenSymbol}
-          strip={{ solid: accepted ? 20 : 0, reserved: accepted ? 1 : 0 }}
+          strip={{
+            solid: accepted ? 20 : 0,
+            reserved: accepted ? 1 : 0,
+            mode: accepted ? undefined : busy === 'send' ? 'busy' : 'idle',
+            ready: (flags.filter(Boolean).length / flags.length) * 20,
+          }}
           yours={`${amount.toFixed(2)} yours · cells of ${(amount / 20).toFixed(3)}`}
           facts={[
             ['Denomination', <span data-testid="price-denomination">{units(denomination)}</span>],
@@ -450,31 +507,7 @@ export function Fund({
           </li>
           <li data-s={stepState(1)}>
             <h2>Size</h2>
-            <div className="nc-choices" role="radiogroup" aria-label="Denomination">
-              {pins.config.denominations.map((d) => (
-                <label key={d} className="nc-tile">
-                  <input
-                    type="radio"
-                    name="denomination"
-                    value={d}
-                    checked={denomination === d}
-                    disabled={created}
-                    data-testid={`denomination-${d}`}
-                    onChange={() => setDenomination(d)}
-                  />
-                  <strong>{units(d)}</strong>
-                  <Strip
-                    n={11}
-                    solid={Math.round((Number(d) / biggest) * 10)}
-                    reserved={1}
-                    size="sm"
-                  />
-                  <small>
-                    You send {units(notePrice(d))}: {units(d)} stays yours, {units(fee)} is the fee.
-                  </small>
-                </label>
-              ))}
-            </div>
+            {sizeChoice(created, 'near')}
             {PROFILE.network === 'testnet' && (
               <p className="nc-cap" data-testid="faucet">
                 Test {PROFILE.tokenSymbol} is Circle's testnet token. Get it at{' '}
@@ -674,25 +707,22 @@ export function Fund({
                 data-testid="accepted"
               >
                 <Chip tone="good">deposit accepted</Chip>
-                <Facts
-                  rows={[
-                    ['Note', <strong data-testid="note-id">#{accepted.event.noteId}</strong>],
-                    [
-                      'Expires',
-                      <strong data-testid="note-expiry">
-                        {formatDate(accepted.event.expiry)}
-                      </strong>,
-                    ],
-                    [
-                      'Receipt',
-                      accepted.source === 'wallet'
-                        ? 'Read from your wallet'
-                        : accepted.source === 'rpc'
-                          ? 'Read from the RPC provider'
-                          : 'Your wallet never answered, so the app found the note on the vault itself.',
-                    ],
-                  ]}
-                />
+                <p className="nc-done-line">
+                  <span>
+                    Note <strong data-testid="note-id">#{accepted.event.noteId}</strong>
+                  </span>
+                  <span>
+                    expires{' '}
+                    <strong data-testid="note-expiry">{formatDate(accepted.event.expiry)}</strong>
+                  </span>
+                  <span>
+                    {accepted.source === 'wallet'
+                      ? 'receipt from your wallet'
+                      : accepted.source === 'rpc'
+                        ? 'receipt from the RPC provider'
+                        : 'found on the vault itself, your wallet never answered'}
+                  </span>
+                </p>
                 {accepted.source === 'chain' && (
                   <p className="nc-msg" data-tone="warn" data-testid="chain-found-warning">
                     Without the wallet’s receipt the app could not check the payout account. Open
@@ -700,8 +730,7 @@ export function Fund({
                     <strong>{note.payout}</strong>.
                   </p>
                 )}
-                <h3 className="nc-result-sub">Before you chat</h3>
-                <ul>
+                <ul className="nc-done-list">
                   {note.txHash && (
                     <li>
                       <a
@@ -713,19 +742,19 @@ export function Fund({
                         Open the deposit receipt in the explorer
                       </a>
                       <small>
-                        Check there that the payout account is <strong>{note.payout}</strong>. This
-                        page is the code you would have to trust to tell you that, so look at the
-                        chain itself.
+                        Check that the payout account is <strong>{note.payout}</strong>. This page
+                        is the code you would have to trust to tell you that, so look at the chain
+                        itself.
                       </small>
                     </li>
                   )}
                   <li>
                     <Button testId="calendar" onClick={onCalendar}>
-                      Download a calendar reminder for the expiry
+                      Add the expiry to a calendar
                     </Button>
                     <small>
-                      The reminder has a generic title and no note data. A calendar that syncs to a
-                      provider tells that provider the date.
+                      Generic title, no note data. A calendar that syncs to a provider tells that
+                      provider the date.
                     </small>
                   </li>
                   <li data-testid="wait-hint">
@@ -734,16 +763,13 @@ export function Fund({
                       A lease opened right after funding is easy to link to the deposit by timing.
                     </small>
                   </li>
-                  <li>
-                    <span>Download a fresh backup from the Notes tab.</span>
-                    <small>It now holds the note’s wallet state.</small>
-                  </li>
                 </ul>
                 <div className="nc-actions">
                   <Button primary onClick={onChat}>
                     Chat with this note
                   </Button>
                   <Button onClick={onNotes}>Download a fresh backup in Notes</Button>
+                  <small>It now holds the note’s wallet state.</small>
                 </div>
               </div>
             ) : (
@@ -829,6 +855,8 @@ export function Fund({
             <Intents
               vault={vault}
               denomination={denomination}
+              size={sizeChoice(intentsLocked, 'other')}
+              onLocked={setIntentsLocked}
               unlocked={unlocked}
               active={route === 'other'}
               onUnlocked={() => setUnlocked(true)}

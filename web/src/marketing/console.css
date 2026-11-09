@@ -4799,3 +4799,115 @@
 .nc-result.nc-done ul {
   justify-self: stretch;
 }
+
+/* Accepted deposit: one summary line, then a quiet table of checks, then the actions. */
+.nc-result.nc-done {
+  gap: 8px;
+  padding: 12px 16px;
+}
+.nc-done-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-done-line strong {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+.nc-result.nc-done .nc-done-list {
+  gap: 0;
+}
+.nc-done-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 20px;
+  padding: 8px 0;
+}
+.nc-done-list > li > small {
+  margin: 0;
+}
+.nc-done-list .nc-button {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 14px;
+}
+.nc-result.nc-done .nc-actions {
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-result.nc-done .nc-actions small {
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .nc-done-list > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.nc-done-list a {
+  font-size: 14px;
+  line-height: 20px;
+}
+.nc-result.nc-done .nc-actions {
+  align-self: stretch;
+}
+
+/* The fund inspector's cells: a slow scan while the note waits, a quicker one while the wallet
+   answers, brighter outlines as the setup steps finish, and a sweep when the deposit lands. */
+.nc-strip[data-mode] span[data-k='e'],
+.nc-strip[data-mode] span[data-k='r'] {
+  animation:
+    nc-cell-in 420ms var(--nc-ease) backwards,
+    nc-scan 4200ms ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 18ms), calc(var(--i, 0) * 110ms + 700ms);
+}
+.nc-strip[data-mode='busy'] span[data-k='e'],
+.nc-strip[data-mode='busy'] span[data-k='r'] {
+  animation-duration: 420ms, 1200ms;
+  animation-delay: 0ms, calc(var(--i, 0) * 50ms);
+}
+@keyframes nc-scan {
+  0%,
+  26%,
+  100% {
+    background-color: transparent;
+  }
+  10% {
+    background-color: color-mix(in srgb, var(--nm-fg) 16%, transparent);
+    border-color: var(--nm-muted);
+  }
+}
+.nc-strip span[data-ready]:not([data-k='f']) {
+  border-color: var(--nm-muted);
+}
+.nc-strip-lg span[data-k='f'] {
+  animation:
+    nc-cell-in 420ms var(--nc-ease) backwards,
+    nc-cell-land 900ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 18ms), calc(var(--i, 0) * 38ms);
+}
+@keyframes nc-cell-land {
+  30% {
+    background-color: var(--nm-good);
+    border-color: var(--nm-good);
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-strip[data-mode] span,
+  .nc-strip-lg span[data-k='f'] {
+    animation: none;
+  }
+}

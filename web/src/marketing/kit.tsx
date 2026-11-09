@@ -35,6 +35,8 @@ export function Strip({
   drain = 0,
   size = 'md',
   label,
+  mode,
+  ready = 0,
 }: {
   n?: number;
   solid: number;
@@ -43,10 +45,15 @@ export function Strip({
   drain?: number;
   size?: 'sm' | 'md' | 'lg';
   label?: string;
+  /** `idle` and `busy` run a quiet scan over the empty cells. */
+  mode?: 'idle' | 'busy';
+  /** Cells to outline brighter: how far the setup has come. May be a fraction. */
+  ready?: number;
 }) {
   return (
     <div
       className={`nc-strip nc-strip-${size}`}
+      data-mode={mode}
       style={vars({ '--n': n, '--drain': drain })}
       role={label ? 'img' : undefined}
       aria-label={label}
@@ -60,6 +67,7 @@ export function Strip({
           <span
             key={i}
             data-k={kind}
+            data-ready={i < ready ? '' : undefined}
             style={vars({
               '--p': s,
               '--i': Math.min(i, 24),
@@ -969,7 +977,7 @@ export function FundSide({
 }: {
   amount: number;
   unit: string;
-  strip: { solid: number; reserved: number };
+  strip: { solid: number; reserved: number; mode?: 'idle' | 'busy'; ready?: number };
   /** The line under the cells, left side. */
   yours: string;
   facts: readonly (readonly [string, ReactNode])[];
@@ -994,6 +1002,8 @@ export function FundSide({
           reserved={strip.reserved}
           size="lg"
           label="Note and fee"
+          mode={strip.mode}
+          ready={strip.ready}
         />
         <p className="nc-sum-line">
           <span>{yours}</span>

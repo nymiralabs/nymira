@@ -2,6 +2,7 @@
 // up the note secret, asks 1Click for a signed quote, shows what the payment costs and who sees
 // what, and only then shows the deposit address. The user pays from their own wallet on the source
 // chain. Progress comes from 1Click; the note is accepted from the vault's `deposit` event.
+import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { BackupSteps, Button, Chip, Facts, Fold } from '../marketing/kit';
 import { Icon } from '../marketing/Icon';
@@ -54,6 +55,7 @@ import type { QuoteAsset } from '../profiles/types';
 import type { NoteRecord } from '../store/types';
 import { download, formatDate, formatUnits, readFile } from './format';
 import { archivalRpc, rpc, useWallet } from './services';
+import { WalletConnect } from './WalletConnect';
 import { Unlock } from './Unlock';
 
 /** The quote's deadline as the person's local time; an unreadable value is shown as it came. */
@@ -72,12 +74,18 @@ const POLL_MS = 5000;
 export function Intents({
   vault,
   denomination,
+  size,
+  onLocked,
   unlocked,
   active,
   onUnlocked,
 }: {
   vault: VaultCheck | null;
   denomination: string;
+  /** The size picker of the Fund screen, shown as the first step. */
+  size: ReactNode;
+  /** Tells the picker to lock once a note exists. */
+  onLocked: (locked: boolean) => void;
   unlocked: boolean;
   /** This route is the one on screen: only then does it show the passphrase card. */
   active: boolean;
@@ -115,6 +123,7 @@ export function Intents({
   const [copied, setCopied] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => onLocked(note !== null), [note, onLocked]);
   const noteRef = useRef<NoteRecord | null>(null);
   noteRef.current = note;
   const wallet = useWallet();
@@ -546,20 +555,30 @@ export function Intents({
           </div>
         </dl>
       </Fold>
-      {twoStep && (account === '' || (gate?.account === account && gate.problem)) && (
-        <div data-testid="intents-two-step">
-          {account === '' && (
-            <p className="nc-intents-line">Connect a wallet (top right) to use this path.</p>
-          )}
-          {gate?.account === account && gate.problem && (
-            <p className="nc-msg" data-tone="err" data-testid="intents-two-step-problem">
-              {gate.problem}
-            </p>
-          )}
-        </div>
-      )}
 
       <ol className="nc-steps">
+        <li data-s="done">
+          <h2>Size</h2>
+          {size}
+        </li>
+        {twoStep && (
+          <li
+            data-s={
+              account === '' ? 'now' : gate?.account === account && gate.problem ? 'now' : 'done'
+            }
+          >
+            <h2>Wallet</h2>
+            <p className="nc-cap nc-cap-first">
+              The second step is a transfer you sign, so this path needs your NEAR wallet.
+            </p>
+            <WalletConnect busy={busy !== ''} />
+            {gate?.account === account && gate.problem && (
+              <p className="nc-msg" data-tone="err" data-testid="intents-two-step-problem">
+                {gate.problem}
+              </p>
+            )}
+          </li>
+        )}
         <li data-s={stepState(0)}>
           <h2>Source</h2>
           <p className="nc-cap nc-cap-first">Pick the chain and token you pay from.</p>
