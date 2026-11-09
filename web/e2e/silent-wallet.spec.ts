@@ -15,6 +15,7 @@ import {
   scriptChain,
   workdir,
   type WalletMode,
+  enterApp,
 } from './support';
 
 test.describe.configure({ timeout: 240_000 });
@@ -167,7 +168,7 @@ test('after a reload the app says the wallet connection is gone and offers to co
   await expect(page.getByTestId('session-lost')).toHaveCount(0);
 
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await expect(page.getByTestId('session-lost')).toContainText('not connected any more');
   await expect(page.getByTestId('session-lost')).toContainText('forgets the connection on purpose');
   await page.getByTestId('reconnect').click();

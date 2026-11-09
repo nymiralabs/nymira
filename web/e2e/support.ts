@@ -252,10 +252,19 @@ export async function newFundingWallet(
 
 // ---- page drivers ----
 
-export async function openFund(page: Page) {
+/** After a reload the tab reopens on the screen it was on; otherwise the landing page shows. */
+export async function enterApp(page: Page) {
+  const open = page.getByTestId('open-app');
+  await expect(open.or(page.getByTestId('nav-fund'))).toBeVisible();
+  if (await open.isVisible()) await open.click();
+}
+
+export async function openFund(page: Page, source: 'near' | 'other' = 'near') {
   await page.goto('/');
   await page.getByTestId('open-app').click();
   await expect(page.getByTestId('fund')).toBeVisible();
+  // The page starts on the NEAR route; the other chain route is a tile away.
+  if (source === 'other') await page.getByTestId('fund-source-other').check({ force: true });
 }
 
 /** Opens the Notes tab; unlocks first when `unlock` is set (after a reload). */
@@ -287,11 +296,11 @@ export async function connectWallet(page: Page) {
   await expect(page.getByTestId('connected')).toContainText(SENDER);
 }
 
-export async function setUpPassphrase(page: Page, passphrase = WRAP_PASSPHRASE) {
+export async function setUpPassphrase(page: Page, passphrase = WRAP_PASSPHRASE, ready = 'prepare') {
   await page.getByTestId('setup-passphrase').fill(passphrase);
   await page.getByTestId('setup-confirm').fill(passphrase);
   await page.getByTestId('setup-submit').click();
-  await expect(page.getByTestId('prepare')).toBeVisible();
+  await expect(page.getByTestId(ready)).toBeVisible();
 }
 
 /** Connects, sets the passphrase and creates the note secret; stops before the backup. */

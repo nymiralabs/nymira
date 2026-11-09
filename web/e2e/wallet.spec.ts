@@ -15,6 +15,7 @@ import {
   setUpPassphrase,
   watch,
   workdir,
+  enterApp,
 } from './support';
 
 test('testnet quotes: off by default, quote only, dummy refund, no note data, cached and rate limited', async ({
@@ -23,7 +24,7 @@ test('testnet quotes: off by default, quote only, dummy refund, no note data, ca
 }) => {
   await newFundingWallet(context);
   await fetch(`${ONECLICK}/requests`, { method: 'DELETE' });
-  await openFund(page);
+  await openFund(page, 'other');
   await expect(page.getByTestId('quotes-notice')).toContainText('1Click');
   await expect(page.getByTestId('quotes-notice')).toContainText('IP address');
   await expect(page.getByTestId('quotes-notice')).toContainText('Tor Browser');
@@ -204,7 +205,7 @@ test('a passkey with PRF wraps the notes and unlocks them after a reload', async
 
   // After a reload the same passkey unlocks the same note store.
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await page.getByTestId('nav-notes').click();
   await page.getByTestId('unlock-prf').click();
   await expect(page.getByTestId('note-row')).toHaveAttribute('data-phase', 'backed_up');

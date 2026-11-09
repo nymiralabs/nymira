@@ -43,6 +43,7 @@ import {
   scriptChain,
   watch,
   workdir,
+  enterApp,
 } from './support';
 
 test.describe.configure({ timeout: 360_000 });
@@ -70,7 +71,7 @@ async function fundForLeaving(page: Page, context: BrowserContext, expiryInDays?
 /** After a reload the app starts again: unlock, no wallet connected. */
 async function reloadTo(page: Page, nav: 'nav-chat' | 'nav-close') {
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await page.getByTestId(nav).click();
   await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
   await page.getByTestId('unlock-submit').click();

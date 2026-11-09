@@ -28,6 +28,7 @@ import {
   readBackup,
   setUpPassphrase,
   workdir,
+  enterApp,
 } from './support';
 
 test.describe.configure({ timeout: 300_000 });
@@ -53,17 +54,22 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
   });
   await openFund(page);
   await expect(page.getByTestId('vault-ok')).toBeVisible();
+  // The page opens on the NEAR route: nothing has been asked of 1Click.
+  expect(await sentToOneClick()).toEqual([]);
+  // Choosing the route asks 1Click nothing; only Show sources does.
+  await page.getByTestId('fund-source-other').check({ force: true });
+  await page.waitForTimeout(1500);
+  expect(await sentToOneClick()).toEqual([]);
   await expect(page.getByTestId('intents-tor')).toContainText('must not go through Tor');
   await expect(page.getByTestId('intents-privacy')).toHaveText(
     'On this path 1Click and the Intents explorer pair your source wallet with this deposit. The proofs are designed to keep the vault and the operator from tying your spending to this deposit, but while few notes are open, and without Tor, your spending can still be matched to it by time and network address. Wait a while between depositing and your first chat.',
   );
   await expect(page.getByTestId('intents-terms')).toContainText('Terms for this path');
-  // The NEAR USDC flow stays beside it.
-  await expect(page.getByTestId('send')).toBeVisible();
-  await setUpPassphrase(page);
+  // The NEAR USDC route is one switch away.
+  await expect(page.getByTestId('fund-source-near')).toBeVisible();
+  await setUpPassphrase(page, undefined, 'intents-prepare');
 
-  // Sources come from signed dry quotes and nothing was asked before the click.
-  expect(await sentToOneClick()).toEqual([]);
+  // Sources come from signed dry quotes, asked when the person presses Show sources.
   await page.getByTestId('intents-load-sources').click();
   const sources = page.getByTestId('intents-source');
   await expect(sources).toHaveCount(2, { timeout: 40_000 });
@@ -217,13 +223,13 @@ const REFUND = '0x00000000000000000000000000000000000000aa';
 async function toReview(page: Page, context: BrowserContext, twoStep = false) {
   const wallet = await newFundingWallet(context);
   await fetch(`${ONECLICK}/requests`, { method: 'DELETE' });
-  await openFund(page);
+  await openFund(page, 'other');
   await expect(page.getByTestId('vault-ok')).toBeVisible();
   if (twoStep) {
     await connectWallet(page);
     await page.getByTestId('intents-path-two-step').check();
   }
-  await setUpPassphrase(page);
+  await setUpPassphrase(page, undefined, 'intents-prepare');
   await page.getByTestId('intents-load-sources').click();
   const sources = page.getByTestId('intents-source');
   await expect(sources).toHaveCount(2, { timeout: 40_000 });
@@ -319,7 +325,7 @@ test('Intents funding resumes after a reload and confirms the note', async ({
   const stored = (await pageSurfaces(page)).filter((s) => s.startsWith('idb:')).join('\n');
   expect(stored).not.toContain(address);
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
   await page.getByTestId('unlock-submit').click();
   await expect(page.getByTestId('intents-address')).toHaveText(address, { timeout: 30_000 });
@@ -524,10 +530,10 @@ test('the two-step path is not offered to an account with no NEAR', async ({
   stack.reset();
   await newFundingWallet(context);
   await control({ cmd: 'set_account', account: SENDER, spec: { amount: '0' } });
-  await openFund(page);
+  await openFund(page, 'other');
   await expect(page.getByTestId('vault-ok')).toBeVisible();
   await connectWallet(page);
-  await setUpPassphrase(page);
+  await setUpPassphrase(page, undefined, 'intents-prepare');
   await page.getByTestId('intents-path-two-step').check();
   await expect(page.getByTestId('intents-two-step-problem')).toContainText('too little NEAR');
   await expect(page.getByTestId('intents-load-sources')).toBeDisabled();

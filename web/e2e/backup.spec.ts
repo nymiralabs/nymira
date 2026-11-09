@@ -15,6 +15,7 @@ import {
   readBackup,
   watch,
   workdir,
+  enterApp,
 } from './support';
 
 test('no transfer without a downloaded and test-restored backup; a wrong file does not count', async ({
@@ -78,7 +79,7 @@ test('after a crash the note is found again from its deposit receipt', async ({
 
   // The page is reloaded: the sealed note is still there, marked as interrupted.
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await openNotes(page, true);
   const row = page.getByTestId('note-row');
   await expect(row).toHaveAttribute('data-phase', 'sending');
@@ -148,7 +149,7 @@ test('@webkit restore from a backup file after the site data was purged', async 
 
   // The restored note is sealed under the new key: reload, unlock with the new passphrase, see it.
   await page2.reload();
-  await page2.getByTestId('open-app').click();
+  await enterApp(page2);
   await page2.getByTestId('nav-notes').click();
   await page2.getByTestId('unlock-passphrase').fill('a wrong guess at the passphrase');
   await page2.getByTestId('unlock-submit').click();
