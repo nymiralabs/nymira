@@ -4127,3 +4127,675 @@
     animation: none;
   }
 }
+
+/* ---- the backup steps and the payout check: quiet rows, no inner numbers ---- */
+.nc-sub {
+  border: 0;
+}
+.nc-sub > li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 18px 0;
+}
+.nc-sub > li + li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-sub > li[data-on='true'] strong::after {
+  content: none;
+}
+.nc-sub-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 8px;
+  border: 1px solid var(--nm-muted);
+}
+.nc-sub > li[data-on='true'] .nc-sub-dot {
+  border-color: var(--nm-good);
+  background: var(--nm-good);
+}
+.nc-sub-why {
+  margin: 2px 0 0;
+  max-width: 56ch;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-sub > li > .nc-button {
+  margin-top: 0;
+}
+@media (max-width: 640px) {
+  .nc-sub > li {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+  .nc-sub > li > .nc-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+.nc-pay {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+.nc-pay .nc-fp {
+  margin: 0;
+}
+.nc-pay .nc-fp code {
+  font-size: 20px;
+}
+.nc-pay .nc-keep {
+  margin: 0;
+}
+.nc-pay .nc-msg {
+  margin: 0;
+}
+
+/* ---- where the money comes from: one quiet switch above the funding steps ---- */
+.nc-route {
+  min-width: 0;
+  margin: 0 0 28px;
+  padding: 0;
+  border: 0;
+}
+.nc-seg {
+  display: inline-grid;
+  grid-auto-flow: column;
+  border: 1px solid var(--nm-line);
+}
+.nc-seg label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 20px;
+  min-height: 44px;
+  color: var(--nm-muted);
+  font-size: 15px;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    background-color 160ms;
+}
+.nc-seg label + label {
+  border-left: 1px solid var(--nm-line);
+}
+.nc-seg input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.nc-seg label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.nc-seg label:hover {
+  color: var(--nm-fg);
+}
+.nc-seg label:has(input:checked) {
+  background: var(--nm-raised);
+  color: var(--nm-fg);
+}
+.nc-seg label:has(input:focus-visible) {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+/* The marks are masks, so they take the brand colour in both themes. */
+.nc-logo {
+  display: inline-block;
+  opacity: 0.6;
+  background: var(--logo);
+  mask: var(--mark) center / contain no-repeat;
+  transition: opacity 160ms;
+}
+.nc-logo-near {
+  --mark: url('./assets/brands/near-dark.svg');
+  --logo: #00ec97;
+  width: 53px;
+  height: 13px;
+}
+.nc-logo-eth {
+  --mark: url('./assets/brands/ethereum-dark.svg');
+  --logo: #627eea;
+  width: 16px;
+  height: 16px;
+}
+.nm-site[data-theme='light'] .nc-logo-near {
+  --logo: #00a36c;
+}
+.nc-seg label:has(input:checked) .nc-logo,
+.nc-seg label:hover .nc-logo {
+  opacity: 1;
+}
+
+/* The terms line on the left, the money source switch on the right. */
+.nc-fund-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin: 0 0 28px;
+}
+.nc-fund-top .nc-terms {
+  margin: 0;
+  padding-top: 12px;
+}
+.nc-fund-top .nc-route {
+  margin: 0;
+  display: grid;
+  justify-items: end;
+}
+@media (max-width: 640px) {
+  .nc-fund-top .nc-route {
+    justify-items: start;
+  }
+}
+
+/* ---- from another chain: the same steps as the NEAR route, without a box around them ---- */
+.nc-intents {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+.nc-intents-way {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.nc-intents-way .nc-seg label {
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+.nc-intents-way p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-intents-line {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-intents > .nc-fold {
+  margin: 0;
+}
+.nc-intents .nc-steps {
+  margin-top: 8px;
+}
+
+/* A backup row that is not its turn yet: title, one line and the button, nothing to fill in.
+   It stays readable (muted, not faded twice), and its fields wait out of the way. */
+.nc .nc-sub > li[data-locked='true'] {
+  opacity: 1;
+}
+.nc .nc-sub > li[data-locked='true'] strong {
+  color: var(--nm-muted);
+}
+.nc .nc-sub > li[data-locked='true'] .nc-field,
+.nc .nc-sub > li[data-locked='true'] .nc-pass,
+.nc .nc-sub > li[data-locked='true'] .nc-sub-main > small {
+  display: none;
+}
+.nc .nc-sub > li[data-locked='true'] > .nc-button {
+  border-style: dashed;
+  border-color: var(--nm-line);
+  color: var(--nm-muted);
+  opacity: 1;
+}
+.nc .nc-sub > li[data-locked='true'] .nc-dot,
+.nc .nc-sub > li[data-locked='true'] .nc-sub-dot {
+  border-color: var(--nm-line);
+}
+
+/* The terms of the other-chain route: the console's own rows (as .nc-facts), with prose in them. */
+.nc-terms-list {
+  margin: 0;
+}
+.nc-terms-list > div {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 4px 24px;
+  padding: 12px 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-terms-list dt {
+  color: var(--nm-muted);
+  font:
+    12px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-terms-list dd {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+@media (max-width: 720px) {
+  .nc-terms-list > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- where you pay from: one quiet row per chain ---- */
+.nc-src-list {
+  display: grid;
+  gap: 6px;
+}
+.nc-src {
+  position: relative;
+  display: grid;
+  grid-template-columns: 8px 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  margin: 0;
+  padding: 0 18px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-src:hover:not(:has(input:disabled)) {
+  border-color: var(--nm-muted);
+}
+.nc-src:has(input:checked) {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-src:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+.nc-src:has(input:focus-visible) {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nc-src input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.nc-src-dot {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--nm-muted);
+  transition:
+    background-color 160ms,
+    border-color 160ms;
+}
+.nc-src:has(input:checked) .nc-src-dot {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+}
+.nc-src-name {
+  font-size: 15px;
+  line-height: 24px;
+}
+.nc-src-price {
+  color: var(--nm-muted);
+  font:
+    13px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.nc-src-price b {
+  color: var(--nm-fg);
+  font-size: 15px;
+  font-weight: 500;
+}
+/* The marks are masks in one 18px box, so a tall mark and a wide one weigh the same. */
+.nc-chain {
+  width: 24px;
+  height: 24px;
+  background: var(--chain, var(--nm-muted));
+  mask: var(--mark, none) center / 18px 18px no-repeat;
+}
+.nc-chain[data-chain='ethereum'] {
+  --mark: url('./assets/brands/ethereum-dark.svg');
+  --chain: #627eea;
+}
+.nc-chain[data-chain='solana'] {
+  --mark: url('./assets/chains/solana.svg');
+  --chain: #9945ff;
+}
+.nc-chain[data-chain='base'] {
+  --mark: url('./assets/chains/base.svg');
+  --chain: #3c8aff;
+}
+.nc-chain[data-chain='arbitrum'] {
+  --mark: url('./assets/chains/arbitrum.svg');
+  --chain: #28a0f0;
+}
+
+/* The line above the chain rows: where the prices come from, and a round-arrow refresh. */
+.nc-src-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 10px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-src-refresh {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--nm-line);
+  background: transparent;
+  color: var(--nm-muted);
+  cursor: pointer;
+  transition:
+    color 160ms,
+    border-color 160ms;
+}
+.nc-src-refresh:hover:not(:disabled) {
+  border-color: var(--nm-muted);
+  color: var(--nm-fg);
+}
+.nc-src-refresh:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.nc-src-refresh[data-busy='true'] .nm-icon {
+  animation: nc-spin 900ms linear infinite;
+}
+@keyframes nc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-src-refresh[data-busy='true'] .nm-icon {
+    animation: none;
+  }
+}
+
+/* A row that only shows a price (the testnet quotes): no selection dot. */
+.nc-src-static {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  cursor: default;
+}
+.nc-src-price i {
+  margin-left: 8px;
+  color: var(--nm-muted);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* The note on the switch: this route shows prices only on this network. */
+.nc-seg-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 16px;
+}
+
+/* The deposit address: the one thing to copy. */
+.nc-deposit code {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.nc-deposit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* A waiting line with a slow pulse; still when motion is reduced. */
+.nc-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-status i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--nm-accent);
+  animation: nc-pulse 1600ms ease-in-out infinite;
+}
+@keyframes nc-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-status i {
+    animation: none;
+  }
+}
+
+.nc-actions[hidden] {
+  display: none;
+}
+
+/* A disabled choice keeps its real input out of sight: the browser's disabled look must not show it. */
+.nc .nc-seg input,
+.nc .nc-src input,
+.nc .nc-keep input,
+.nc .nc-seg input:disabled,
+.nc .nc-src input:disabled,
+.nc .nc-keep input:disabled {
+  opacity: 0;
+  border: 0;
+  background: transparent;
+  appearance: none;
+}
+
+/* A choice that can no longer change looks switched off. */
+.nc .nc-seg label:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nc .nc-seg label:has(input:disabled):hover {
+  color: var(--nm-muted);
+}
+.nc .nc-seg label:has(input:disabled:checked) {
+  color: var(--nm-fg);
+}
+.nc .nc-seg input:disabled {
+  cursor: not-allowed;
+}
+/* The way out of a funding in progress: quiet, at the foot of the steps. */
+.nc-intents-cancel {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--nm-soft-line);
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-intents-cancel p {
+  margin: 0;
+  max-width: 68ch;
+}
+.nc-intents-cancel > .nc-button {
+  justify-self: start;
+}
+
+/* A button that cannot be undone: the error colour, outlined; filled only to confirm. */
+.nc-danger {
+  border-color: var(--nc-err);
+  color: var(--nc-err);
+}
+.nc-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--nc-err) 14%, transparent);
+}
+.nc-danger:focus-visible {
+  outline: 2px solid var(--nc-err);
+  outline-offset: 2px;
+}
+.nc-danger-solid {
+  background: var(--nc-err);
+  color: var(--nm-bg);
+}
+.nc-danger-solid:hover:not(:disabled) {
+  background: var(--nc-err);
+  opacity: 0.88;
+}
+
+/* The one opt-in for asking 1Click: the button, and in plain words what it sends. */
+.nc-src-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 4px;
+}
+.nc-src-ask p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* A short stop before connecting a wallet with a known problem. */
+.nc-dialog {
+  width: min(480px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  color: var(--nm-fg);
+}
+.nc-dialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+.nc-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 26px;
+}
+.nc-dialog-body p {
+  margin: 0 0 10px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-dialog-body a {
+  color: var(--nm-fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nc-dialog .nc-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* A result in the Send step: a calm block with a state dot, a short line and one next action. */
+.nc-result {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nc-result[data-tone='err'] {
+  border-color: var(--nc-err);
+}
+.nc-result[data-tone='warn'] {
+  border-color: var(--nc-warn);
+}
+.nc-result[data-tone='good'] {
+  border-color: var(--nm-good);
+}
+.nc-result p {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-result-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nc-result-head strong {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+}
+.nc-result-head i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--nm-muted);
+}
+.nc-result[data-tone='err'] .nc-result-head i {
+  background: var(--nc-err);
+}
+.nc-result[data-tone='warn'] .nc-result-head i {
+  background: var(--nc-warn);
+}
+.nc-result[data-tone='good'] .nc-result-head i {
+  background: var(--nm-good);
+}
+.nc-result[data-tone='err'] > p {
+  color: var(--nc-err);
+}
+.nc-result .nc-facts {
+  margin: 0;
+}
+.nc-result-sub {
+  margin: 8px 0 0;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-result .nc-actions {
+  margin-top: 4px;
+}
+.nc-accepted ul {
+  gap: 0;
+}
+.nc-accepted li {
+  padding: 12px 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+
+/* The accepted card keeps its facts and list at full width inside the left-aligned grid. */
+.nc-result.nc-done .nc-facts,
+.nc-result.nc-done ul {
+  justify-self: stretch;
+}

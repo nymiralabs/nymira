@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Cipher, Count } from './Board';
 import { Icon, type IconName } from './Icon';
-import claudeLogo from './assets/brands/agent-claude.svg';
-import codexLogo from './assets/brands/agent-codex.svg';
-import cursorLogo from './assets/brands/agent-cursor.svg';
-import ironclawLogo from './assets/brands/agent-ironclaw.png';
-import vscodeLogo from './assets/brands/agent-vscode.png';
 import qwenLogo from './assets/brands/model-qwen.png';
 import zaiLogo from './assets/brands/model-zai.svg';
 import intearLogo from './assets/brands/wallet-intear.svg';
@@ -14,6 +9,7 @@ import fundIllustration from './assets/app-fund.webp';
 import notesIllustration from './assets/app-notes.webp';
 import closeIllustration from './assets/app-close.webp';
 import agentsIllustration from './assets/app-agents.webp';
+import { ClientGrid, ClientMark, CLIENTS, type ClientId, type ClientInfo } from './kit-agents';
 import { ThemeToggle } from './ThemeToggle';
 import {
   BackupSteps,
@@ -41,7 +37,10 @@ import {
   reduced,
   vars,
 } from './kit';
+import { ExitDays, ExpiryBanner, FlowSteps, GuardTimeline } from './kit-close';
+import { LookupRow, NoteLedger, NoteLedgerRow, PassField } from './kit-notes';
 import { Wordmark } from './Wordmark';
+import { FLAG_NAME, SetCells, SetLegend, type Flag } from './kit-privacy';
 
 // The Nymira web app as a console, designed on the landing site's material: cells for money and
 // time, mono for data, accent only where something is reserved, running or waiting for you.
@@ -693,7 +692,7 @@ function Fund({
           <p className="nc-cap">
             {wallet
               ? 'The vault matches what this build expects: code hash, verifying keys, settings and access keys.'
-              : 'On testnet, Meteor and Intear are the supported wallets. Other wallets may work and are not promised.'}
+              : 'On testnet, Meteor is the tested wallet. Other wallets may work and are not promised.'}
           </p>
         </li>
         <li data-s={stepState(1)} data-locked={!open(1)}>
@@ -1025,65 +1024,54 @@ function Notes({
         </>
       }
     >
-      <div className="nc-ledger" role="table" aria-label="Notes">
-        <div className="nc-ledger-head" role="row">
-          <span>Note</span>
-          <span>Balance</span>
-          <span>Its 30 days</span>
-          <span />
-        </div>
+      <NoteLedger columns={['Note', 'Balance', 'Its 30 days']}>
         {notes.map((n, i) => (
-          <div
-            className="nc-ledger-row"
-            role="row"
+          <NoteLedgerRow
             key={n.id}
-            data-active={i === active}
-            style={vars({ '--r': i })}
-          >
-            <button
-              type="button"
-              className="nc-ledger-pick"
-              aria-pressed={i === active}
-              aria-label={`Select note ${n.id}`}
-              onClick={() => onPick(i)}
-            />
-            <span className="nc-ledger-id">
-              <strong>#{n.id}</strong>
-              <small>{n.size} USDC</small>
-            </span>
-            <span className="nc-ledger-bal">
-              <strong>
-                <Count value={n.balance} />
-              </strong>
-              <Strip n={10} solid={clamp(n.balance / n.size) * 10} size="sm" />
-            </span>
-            <span className="nc-ledger-life" data-late={n.status === 'expiring'}>
-              <Strip n={30} solid={n.day} size="sm" />
-              <small>{statusText(n)}</small>
-            </span>
-            <span className="nc-ledger-act">
-              <Button
-                onClick={() => {
-                  onPick(i);
-                  go('chat');
-                }}
-                disabled={n.status === 'closed'}
-              >
-                Chat
-              </Button>
-              <Button
-                onClick={() => {
-                  onPick(i);
-                  go('close');
-                }}
-                disabled={n.status === 'closed'}
-              >
-                Close
-              </Button>
-            </span>
-          </div>
+            index={i}
+            active={i === active}
+            pick={{ label: `Select note ${n.id}`, onPick: () => onPick(i) }}
+            id={{ strong: `#${n.id}`, small: `${n.size} USDC` }}
+            mid={
+              <>
+                <strong>
+                  <Count value={n.balance} />
+                </strong>
+                <Strip n={10} solid={clamp(n.balance / n.size) * 10} size="sm" />
+              </>
+            }
+            late={n.status === 'expiring'}
+            life={
+              <>
+                <Strip n={30} solid={n.day} size="sm" />
+                <small>{statusText(n)}</small>
+              </>
+            }
+            actions={
+              <>
+                <Button
+                  onClick={() => {
+                    onPick(i);
+                    go('chat');
+                  }}
+                  disabled={n.status === 'closed'}
+                >
+                  Chat
+                </Button>
+                <Button
+                  onClick={() => {
+                    onPick(i);
+                    go('close');
+                  }}
+                  disabled={n.status === 'closed'}
+                >
+                  Close
+                </Button>
+              </>
+            }
+          />
         ))}
-      </div>
+      </NoteLedger>
       <Card
         title="Backup and restore"
         aside={backup.saved ? <Chip tone="good">saved</Chip> : <Chip tone="warn">out of date</Chip>}
@@ -1107,14 +1095,7 @@ function Notes({
             </li>
           ))}
         </ul>
-        <label className="nc-field">
-          <span>Backup passphrase</span>
-          <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} />
-        </label>
-        <div className="nc-pass" aria-hidden="true">
-          <Strip n={12} solid={Math.min(pass.length, 12)} size="sm" />
-          <small>{Math.min(pass.length, 12)} of 12 characters</small>
-        </div>
+        <PassField label="Backup passphrase" value={pass} min={12} onChange={setPass} />
         <div className="nc-actions">
           <Button primary disabled={pass.length < 12} onClick={onBackup}>
             Download a backup
@@ -1140,17 +1121,13 @@ function Notes({
           Enter the transaction hash from your wallet’s history or the explorer. The lookup asks the
           RPC provider, which sees your IP address, account and that hash.
         </p>
-        <div className="nc-lookup">
-          <input
-            value={hash}
-            placeholder="transaction hash"
-            aria-label="Transaction hash"
-            onChange={(e) => setHash(e.target.value.trim())}
-          />
-          <Button disabled={hash.length < 8 || lookup === 'looking'} onClick={doLookup}>
-            {lookup === 'looking' ? 'Looking…' : 'Look up the receipt'}
-          </Button>
-        </div>
+        <LookupRow
+          hash={hash}
+          onHash={setHash}
+          onLookup={doLookup}
+          disabled={hash.length < 8 || lookup === 'looking'}
+          label={lookup === 'looking' ? 'Looking…' : 'Look up the receipt'}
+        />
         {lookup !== '' && lookup !== 'looking' && (
           <p className="nc-msg" data-tone="ok">
             {lookup}
@@ -1365,27 +1342,19 @@ function Close({
       </fieldset>
 
       {path === 'exit' && (
-        <div className="nc-exit">
-          <Strip n={7} solid={days} size="lg" label="Waiting days" />
-          <div className="nc-exit-key">
-            <span data-on={run === 0}>request_exit</span>
-            <span data-on={run > 0 && days < 7}>{days > 0 ? `day ${days} of 7` : '7 days'}</span>
-            <span data-on={days === 7}>finalize_exit</span>
-          </div>
+        <ExitDays days={days} requested={run > 0}>
           <p className="nc-cap">
             request_exit and finalize_exit need a little NEAR for gas. Any account can send them,
             and the payout still goes to the payout account.
           </p>
-        </div>
+        </ExitDays>
       )}
-      <ol className="nc-flow">
-        {stages.map((s, i) => (
-          <li key={s} data-s={run >= doneAt[i]! ? 'done' : run >= i + 1 ? 'now' : 'next'}>
-            <span aria-hidden="true">{run >= doneAt[i]! ? '✓' : i + 1}</span>
-            {s}
-          </li>
-        ))}
-      </ol>
+      <FlowSteps
+        steps={stages.map((text, i) => ({
+          text,
+          s: run >= doneAt[i]! ? 'done' : run >= i + 1 ? 'now' : 'next',
+        }))}
+      />
       <label className="nc-check">
         <input
           type="checkbox"
@@ -1425,74 +1394,6 @@ function Close({
 
 // ---------------------------------------------------------------------------------------------
 // Agents
-
-type ClientId = 'claude' | 'cursor' | 'vscode' | 'codex' | 'ironclaw';
-interface ClientInfo {
-  id: ClientId;
-  name: string;
-  logo: string;
-  via: 'MCP over stdio' | 'OpenAI-compatible API';
-  status: string;
-  host?: string;
-  file?: string;
-  transport: 'tcp' | 'unix';
-}
-const CLIENTS: readonly ClientInfo[] = [
-  {
-    id: 'claude',
-    name: 'Claude Desktop',
-    logo: claudeLogo,
-    via: 'MCP over stdio',
-    status: 'entry generated',
-    host: 'claude-desktop',
-    file: 'claude_desktop_config.json',
-    transport: 'unix',
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor',
-    logo: cursorLogo,
-    via: 'MCP over stdio',
-    status: 'entry generated, host not run',
-    host: 'cursor',
-    file: '~/.cursor/mcp.json',
-    transport: 'unix',
-  },
-  {
-    id: 'vscode',
-    name: 'VS Code',
-    logo: vscodeLogo,
-    via: 'MCP over stdio',
-    status: 'entry generated',
-    host: 'vscode',
-    file: '.vscode/mcp.json',
-    transport: 'unix',
-  },
-  {
-    id: 'ironclaw',
-    name: 'IronClaw',
-    logo: ironclawLogo,
-    via: 'OpenAI-compatible API',
-    status: 'recipe in the README',
-    transport: 'tcp',
-  },
-  {
-    id: 'codex',
-    name: 'Codex',
-    logo: codexLogo,
-    via: 'OpenAI-compatible API',
-    status: 'not documented here',
-    transport: 'tcp',
-  },
-];
-
-function ClientMark({ client, size = 28 }: { client: ClientInfo; size?: number }) {
-  return (
-    <span className="nc-client-mark" style={vars({ '--s': `${size}px` })}>
-      <img src={client.logo} alt="" width={size} height={size} draggable={false} />
-    </span>
-  );
-}
 
 interface Agent {
   name: string;
@@ -1652,22 +1553,7 @@ function Agents({ wallet }: { wallet: Wallet | null }) {
       </Card>
 
       <Card title="Connect a client" aside={<Chip>pick one</Chip>}>
-        <div className="nc-clients" role="radiogroup" aria-label="Client">
-          {CLIENTS.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              role="radio"
-              aria-checked={pick === c.id}
-              onClick={() => choose(c)}
-            >
-              <ClientMark client={c} size={36} />
-              <strong>{c.name}</strong>
-              <small>{c.via}</small>
-              <em>{c.status}</em>
-            </button>
-          ))}
-        </div>
+        <ClientGrid pick={pick} onPick={choose} />
         <div className="nc-newagent">
           <label className="nc-field">
             <span>Agent name</span>
@@ -1957,38 +1843,6 @@ const SAMPLE_LEASES: readonly SampleLease[] = [
   },
 ];
 
-/** The set as cells: one per note that could have paid. */
-function SetCells({ ext, team, label }: { ext: number; team: number; label: string }) {
-  return (
-    <div className="nc-setcells" role="img" aria-label={label}>
-      {Array.from({ length: ext + team }, (_, i) => (
-        <span
-          key={i}
-          data-k={i < ext ? (i === 0 ? 'own' : 'ext') : 'team'}
-          style={vars({ '--i': i })}
-        />
-      ))}
-    </div>
-  );
-}
-
-function SetLegend() {
-  return (
-    <p className="nc-setlegend">
-      <span>
-        <i data-k="own" /> your note
-      </span>
-      <span>
-        <i data-k="ext" /> external
-      </span>
-      <span>
-        <i data-k="team" /> the team’s
-      </span>
-    </p>
-  );
-}
-
-type Flag = { kind: 'stands' | 'small' | 'timing'; text: string };
 const flagsOf = (l: SampleLease): Flag[] => {
   const out: Flag[] = [];
   if (l.bound > 0.1) out.push({ kind: 'stands', text: P.standsOut(`${usd(l.bound)} USDC`) });
@@ -1996,7 +1850,6 @@ const flagsOf = (l: SampleLease): Flag[] => {
   if (l.extBetween < 5 || l.gap.includes('minute')) out.push({ kind: 'timing', text: P.timing });
   return out;
 };
-const FLAG_NAME = { stands: 'stands out', small: 'small set', timing: 'timing' } as const;
 
 /** One lease, in full: what the operator recorded, how many notes could have paid, what to watch. */
 function LeaseDetail({ l, i }: { l: SampleLease; i: number }) {
@@ -2608,18 +2461,13 @@ function Banners({ notes, onClose }: { notes: Note[]; onClose: () => void }) {
         const left = 30 - n.day;
         const level = left <= 2 ? 2 : left <= 7 ? 7 : 14;
         return (
-          <div className="nc-banner" role="status" key={n.id}>
-            <Strip n={14} solid={14 - left} size="sm" label={`${left} days left`} />
-            <p>
-              <strong>
-                Note #{n.id} expires in {left} days
-              </strong>{' '}
-              ({level}-day notice). At 5 days this app stops opening leases on it and, while it is
-              open, starts a close; at 3 days it starts an exit. Each waits for your wallet
-              signature.
-            </p>
-            <Button onClick={onClose}>Open the Close screen</Button>
-          </div>
+          <ExpiryBanner key={n.id} left={left} onOpen={onClose}>
+            <strong>
+              Note #{n.id} expires in {left} days
+            </strong>{' '}
+            ({level}-day notice). At 5 days this app stops opening leases on it and, while it is
+            open, starts a close; at 3 days it starts an exit. Each waits for your wallet signature.
+          </ExpiryBanner>
         );
       })}
     </>
@@ -2630,14 +2478,6 @@ function Banners({ notes, onClose }: { notes: Note[]; onClose: () => void }) {
 function GuardCard() {
   const [guard, setGuard] = useState(true);
   const [atEnd, setAtEnd] = useState(false);
-  const marks: readonly [number, string][] = [
-    [14, 'notice'],
-    [7, 'notice'],
-    [5, 'no new leases · close'],
-    [3, 'exit'],
-    [2, 'notice'],
-    [0, 'to the treasury'],
-  ];
   return (
     <Card
       title="Expiry guard"
@@ -2649,17 +2489,7 @@ function GuardCard() {
         days and, if the close did not go through, an exit at 3 days. Each waits for your wallet
         signature.
       </p>
-      <div className="nc-guard" data-off={!guard}>
-        <Strip n={14} solid={0} size="lg" label="The last 14 days" />
-        <ol>
-          {marks.map(([d, t]) => (
-            <li key={d} style={vars({ '--d': d })}>
-              <b>{d}d</b>
-              <span>{t}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <GuardTimeline off={!guard} />
       <label className="nc-check">
         <input type="checkbox" checked={guard} onChange={(e) => setGuard(e.target.checked)} />
         <span>

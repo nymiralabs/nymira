@@ -258,6 +258,50 @@ export function IpChip() {
   );
 }
 
+/** A short stop before something that needs a word first: a native modal, with a way on and out. */
+export function NoteDialog({
+  title,
+  children,
+  onContinue,
+  onCancel,
+  continueLabel = 'Continue',
+}: {
+  title: string;
+  children: ReactNode;
+  onContinue: () => void;
+  onCancel: () => void;
+  continueLabel?: string;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="nc-dialog"
+      data-testid="wallet-note"
+      aria-labelledby="nc-dialog-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        onCancel();
+      }}
+    >
+      <h2 id="nc-dialog-title">{title}</h2>
+      <div className="nc-dialog-body">{children}</div>
+      <div className="nc-actions">
+        <Button onClick={onCancel} testId="wallet-note-cancel">
+          Cancel
+        </Button>
+        <Button primary onClick={onContinue} testId="wallet-note-continue">
+          {continueLabel}
+        </Button>
+      </div>
+    </dialog>
+  );
+}
+
 /** The wallet control in the top bar: pick a wallet to connect, or see which one is. */
 export function WalletMenu({
   wallet,
@@ -266,8 +310,14 @@ export function WalletMenu({
   onDisconnect,
   onOpen,
   delay = 0,
+  again = null,
+  notes,
 }: {
   wallet: { account: string; name: string } | null;
+  /** A note to show when a wallet is picked, keyed by wallet id (a known problem, say). */
+  notes?: Record<string, ReactNode>;
+  /** The wallet this tab used before a reload: one click connects it again. */
+  again?: { id: string; name: string } | null;
   wallets: readonly { id: string; name: string }[];
   /** Resolves when the wallet has answered; a rejection is shown in the menu. */
   onConnect: (id: string) => void | Promise<void>;
@@ -280,6 +330,7 @@ export function WalletMenu({
   const [open, setOpen] = useState(false);
   const [asking, setAsking] = useState('');
   const [error, setError] = useState('');
+  const [asked, setAsked] = useState('');
   const timer = useRef(0);
   const holder = useRef<HTMLDivElement>(null);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -327,6 +378,17 @@ export function WalletMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
+          if (!wallet && again) {
+            setError('');
+            setAsking(again.id);
+            void Promise.resolve(onConnect(again.id))
+              .catch((e: unknown) => {
+                setError(e instanceof Error ? e.message : String(e));
+                setOpen(true);
+              })
+              .finally(() => setAsking(''));
+            return;
+          }
           if (!open) onOpen?.();
           setOpen(!open);
         }}
@@ -337,6 +399,15 @@ export function WalletMenu({
             <span>{wallet.account}</span>
             <i className="nc-dot" aria-hidden="true" />
           </>
+        ) : again ? (
+          asking === again.id ? (
+            'Connecting…'
+          ) : (
+            <>
+              <WalletMark name={again.name} size={20} />
+              <span>Reconnect {again.name}</span>
+            </>
+          )
         ) : (
           'Connect wallet'
         )}
@@ -375,7 +446,7 @@ export function WalletMenu({
                   type="button"
                   role="menuitem"
                   disabled={asking !== ''}
-                  onClick={() => pick(w.id)}
+                  onClick={() => (notes && w.id in notes ? setAsked(w.id) : pick(w.id))}
                 >
                   <span className="nc-wallet-item">
                     <WalletMark name={w.name} size={24} />
@@ -392,6 +463,19 @@ export function WalletMenu({
             </>
           )}
         </div>
+      )}
+      {asked && notes?.[asked] && (
+        <NoteDialog
+          title={`Before you connect ${wallets.find((w) => w.id === asked)?.name ?? 'this wallet'}`}
+          onCancel={() => setAsked('')}
+          onContinue={() => {
+            const id = asked;
+            setAsked('');
+            pick(id);
+          }}
+        >
+          {notes[asked]}
+        </NoteDialog>
       )}
     </div>
   );
@@ -777,11 +861,15 @@ export function BackupSteps({
   fileReady?: boolean;
 }) {
   const picker = useRef<HTMLInputElement>(null);
+  const downloadNow = created && !downloaded;
+  const chooseNow = downloaded && !tested;
   return (
     <ol className="nc-sub" data-testid={created ? `${prefix}backup-panel` : undefined}>
       <li data-on={created}>
-        <div>
-          <strong>Create the note secret</strong>
+        <i className="nc-sub-dot" aria-hidden="true" />
+        <div className="nc-sub-main">
+          <strong>Create the secret</strong>
+          <p className="nc-sub-why">Made in this browser and stored encrypted.</p>
           {createNote}
         </div>
         <Button
@@ -794,8 +882,10 @@ export function BackupSteps({
         </Button>
       </li>
       <li data-on={downloaded} data-locked={!created}>
+        <i className="nc-sub-dot" aria-hidden="true" />
         <div className="nc-sub-main">
-          <strong>Download the backup</strong>
+          <strong>Download an encrypted backup</strong>
+          <p className="nc-sub-why">Without this file, a lost browser means a lost balance.</p>
           <label className="nc-field">
             <span>Backup passphrase</span>
             <input
@@ -816,6 +906,7 @@ export function BackupSteps({
           {params}
         </div>
         <Button
+          primary={downloadNow}
           disabled={downloadDisabled}
           testId={`${prefix}backup-download`}
           onClick={onDownload}
@@ -824,11 +915,19 @@ export function BackupSteps({
         </Button>
       </li>
       <li data-on={tested} data-locked={!downloaded}>
-        <div>
-          <strong>Test that it opens</strong>
-          {tested ? testedNote : <small>Choose the file you just downloaded.</small>}
+        <i className="nc-sub-dot" aria-hidden="true" />
+        <div className="nc-sub-main">
+          <strong>Check the backup</strong>
+          {tested ? (
+            testedNote
+          ) : (
+            <p className="nc-sub-why">
+              Open the file you saved. The transfer unlocks after it opens.
+            </p>
+          )}
         </div>
         <Button
+          primary={chooseNow}
           disabled={chooseDisabled}
           onClick={onFile ? () => picker.current?.click() : onChoose}
         >
