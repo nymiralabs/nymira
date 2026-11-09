@@ -100,14 +100,16 @@ export function Card({
   aside,
   children,
   className = '',
+  testId,
 }: {
   title?: string;
   aside?: ReactNode;
   children: ReactNode;
   className?: string;
+  testId?: string;
 }) {
   return (
-    <section className={`nc-card ${className}`}>
+    <section className={`nc-card ${className}`} data-testid={testId}>
       {title && (
         <header>
           <h2>{title}</h2>
@@ -153,15 +155,17 @@ export function Screen({
   children,
   side,
   illustration,
+  testId,
 }: {
   title: string;
   lead: ReactNode;
   children: ReactNode;
   side?: ReactNode;
   illustration?: string;
+  testId?: string;
 }) {
   return (
-    <div className={`nc-screen ${side ? 'nc-screen-side' : ''}`}>
+    <div className={`nc-screen ${side ? 'nc-screen-side' : ''}`} data-testid={testId}>
       <div className="nc-screen-main">
         <div className={illustration ? 'nc-screen-intro nc-screen-intro-art' : 'nc-screen-intro'}>
           <div>
@@ -653,13 +657,15 @@ export function Fold({
   title,
   badge,
   children,
+  testId,
 }: {
   title: string;
   badge?: ReactNode;
   children: ReactNode;
+  testId?: string;
 }) {
   return (
-    <details className="nc-fold">
+    <details className="nc-fold" data-testid={testId}>
       <summary>
         <span>{title}</span>
         {badge}
@@ -715,5 +721,199 @@ export function VerifyList({ state }: { state: (i: number) => 'idle' | 'run' | '
         <span className="nc-sr">partly checked</span>
       </li>
     </ol>
+  );
+}
+
+/** The three sub-steps of "Protect and back up": the secret, the encrypted backup, the restore test. */
+export function BackupSteps({
+  prefix = '',
+  created,
+  createLabel,
+  createDisabled,
+  onCreate,
+  createNote,
+  pass,
+  onPass,
+  passDisabled,
+  passMin,
+  params,
+  downloaded,
+  downloadLabel,
+  downloadDisabled,
+  onDownload,
+  tested,
+  testedNote,
+  chooseLabel,
+  chooseDisabled,
+  onChoose,
+  onFile,
+  fileReady = false,
+}: {
+  /** Test id prefix, so two copies on one page stay apart. */
+  prefix?: string;
+  created: boolean;
+  createLabel: string;
+  createDisabled: boolean;
+  onCreate: () => void;
+  createNote?: ReactNode;
+  pass: string;
+  onPass: (value: string) => void;
+  passDisabled: boolean;
+  passMin: number;
+  params: ReactNode;
+  downloaded: boolean;
+  downloadLabel: string;
+  downloadDisabled: boolean;
+  onDownload: () => void;
+  tested: boolean;
+  testedNote?: ReactNode;
+  chooseLabel: string;
+  chooseDisabled: boolean;
+  /** Without `onFile` the button just calls this. */
+  onChoose?: () => void;
+  /** With `onFile` the button opens a file chooser and hands over the chosen file. */
+  onFile?: (file: File | undefined) => void;
+  /** The file chooser exists once there is a backup to test. */
+  fileReady?: boolean;
+}) {
+  const picker = useRef<HTMLInputElement>(null);
+  return (
+    <ol className="nc-sub" data-testid={created ? `${prefix}backup-panel` : undefined}>
+      <li data-on={created}>
+        <div>
+          <strong>Create the note secret</strong>
+          {createNote}
+        </div>
+        <Button
+          primary={!created}
+          disabled={createDisabled}
+          testId={created ? undefined : `${prefix}prepare`}
+          onClick={onCreate}
+        >
+          {createLabel}
+        </Button>
+      </li>
+      <li data-on={downloaded} data-locked={!created}>
+        <div className="nc-sub-main">
+          <strong>Download the backup</strong>
+          <label className="nc-field">
+            <span>Backup passphrase</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={pass}
+              disabled={passDisabled}
+              data-testid={`${prefix}backup-passphrase`}
+              onChange={(e) => onPass(e.target.value)}
+            />
+          </label>
+          <div className="nc-pass" aria-hidden="true">
+            <Strip n={12} solid={Math.min(pass.length, 12)} size="sm" />
+            <small>
+              {Math.min(pass.length, 12)} of {passMin} characters
+            </small>
+          </div>
+          {params}
+        </div>
+        <Button
+          disabled={downloadDisabled}
+          testId={`${prefix}backup-download`}
+          onClick={onDownload}
+        >
+          {downloadLabel}
+        </Button>
+      </li>
+      <li data-on={tested} data-locked={!downloaded}>
+        <div>
+          <strong>Test that it opens</strong>
+          {tested ? testedNote : <small>Choose the file you just downloaded.</small>}
+        </div>
+        <Button
+          disabled={chooseDisabled}
+          onClick={onFile ? () => picker.current?.click() : onChoose}
+        >
+          {chooseLabel}
+        </Button>
+        {onFile && fileReady && (
+          <input
+            ref={picker}
+            hidden
+            type="file"
+            data-testid={`${prefix}backup-file`}
+            disabled={chooseDisabled}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Cleared so choosing the same file again (after a typo) fires again.
+              e.target.value = '';
+              onFile(file);
+            }}
+          />
+        )}
+      </li>
+    </ol>
+  );
+}
+
+/** The inspector of the fund screen: the note, what it costs, where it pays, what leaves the page. */
+export function FundSide({
+  amount,
+  unit,
+  strip,
+  yours,
+  facts,
+  factsTestId,
+  caption,
+  closes,
+  leaves,
+  limits,
+  testnetNote,
+}: {
+  amount: number;
+  unit: string;
+  strip: { solid: number; reserved: number };
+  /** The line under the cells, left side. */
+  yours: string;
+  facts: readonly (readonly [string, ReactNode])[];
+  factsTestId?: string;
+  caption: string;
+  closes: readonly (readonly [string, ReactNode])[];
+  leaves: ReactNode;
+  limits: readonly (readonly [string, ReactNode])[];
+  /** Shown under the limits, for a build that is not the real thing. */
+  testnetNote?: ReactNode;
+}) {
+  return (
+    <>
+      <section className="nc-sum">
+        <h2>The note</h2>
+        <p className="nc-big">
+          <Count value={amount} /> <small>{unit}</small>
+        </p>
+        <Strip
+          n={21}
+          solid={strip.solid}
+          reserved={strip.reserved}
+          size="lg"
+          label="Note and fee"
+        />
+        <p className="nc-sum-line">
+          <span>{yours}</span>
+          <span>+ fee</span>
+        </p>
+        <div data-testid={factsTestId}>
+          <Facts rows={facts} />
+        </div>
+        <p className="nc-cap">{caption}</p>
+      </section>
+      <section className="nc-sum">
+        <h2>When it closes</h2>
+        <Facts rows={closes} />
+      </section>
+      <Fold title="What leaves this page">{leaves}</Fold>
+      <Fold title="Limits">
+        <Facts rows={limits} />
+        {testnetNote}
+      </Fold>
+    </>
   );
 }

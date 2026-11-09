@@ -412,8 +412,15 @@ export function App() {
                   />
                 </div>
               )}
+              {screen === 'fund' && (
+                <Fund
+                  vault={check}
+                  recheck={recheck}
+                  onChat={() => go('chat')}
+                  onNotes={() => go('notes')}
+                />
+              )}
               <div className="nm-legacy">
-                {screen === 'fund' && <Fund vault={check} recheck={recheck} />}
                 {screen === 'close' && <Close />}
                 {screen === 'notes' && (
                   <div hidden={privacy !== null}>

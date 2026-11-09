@@ -3,6 +3,7 @@
 // what, and only then shows the deposit address. The user pays from their own wallet on the source
 // chain. Progress comes from 1Click; the note is accepted from the vault's `deposit` event.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { BackupSteps, Button, Card, Chip, Facts, Fold } from '../marketing/kit';
 import { PROFILE } from '../profile';
 import {
   accountFingerprint,
@@ -397,447 +398,498 @@ export function Intents({
     (r): r is Extract<QuoteOutcome, { quote: unknown }> => 'quote' in r,
   );
 
+  const created = stage !== 'none' && stage !== 'rejected';
+  const backedUp = created && stage !== 'prepared';
+  const flags = [
+    source !== null && refund.trim() !== '',
+    validPayout && confirmed && typeof assessment === 'object' && assessment !== null,
+    backedUp,
+    attempt !== null && !expired,
+    accepted !== null,
+  ];
+  const now = flags.findIndex((f) => !f);
+  const stepState = (i: number) => (flags[i] ? 'done' : i === now ? 'now' : 'next');
+
   return (
-    <section data-testid="intents">
-      <h3>Fund from another chain</h3>
-      <p className="hint" data-testid="intents-tor">
+    <Card
+      title="Fund from another chain"
+      aside={<Chip>{twoStep ? 'two steps' : 'direct'}</Chip>}
+      testId="intents"
+    >
+      <p className="nc-cap nc-cap-first" data-testid="intents-tor">
         If you use Tor Browser: 1Click calls on this page must not go through Tor, because 1Click
         does not accept Tor traffic. Use a normal browser for this step, or fund with{' '}
         {PROFILE.tokenSymbol} on NEAR above.
       </p>
-      <p className="warning" data-testid="intents-privacy">
+      <p className="nc-notice" data-testid="intents-privacy">
         {twoStep ? `${PRIVACY} ${PRIVACY_TWO_STEP}` : PRIVACY}
       </p>
-      <details data-testid="intents-terms">
-        <summary>Terms for this path</summary>
-        <p>
+      <Fold title="Terms for this path" testId="intents-terms">
+        <p className="nc-cap nc-cap-first">
           You pay 1Click from your own wallet. 1Click and its solvers hold the funds while they are
           in transit and decide the exchange rate within the quote you accept. Nymira does not
           operate 1Click, cannot refund a failed order, and receives nothing from it. Quotes are
           kept on this device only. A refunded payment goes to the refund address you enter, on the
           source chain. Read the terms of use linked at the top of this page as well.
         </p>
-      </details>
-      <p className="hint">
+      </Fold>
+      <p className="nc-cap">
         The quote and status requests go from this page to 1Click, which sees your IP address (and,
         once you ask for a real quote, your refund address, the note’s commitment and the payout
         account).
       </p>
 
       {offered.length > 1 && (
-        <fieldset data-testid="intents-path" disabled={stage !== 'none'}>
-          <legend>How the vault is paid</legend>
-          <label>
+        <div
+          className="nc-radios nc-intents-path"
+          role="radiogroup"
+          aria-label="How the vault is paid"
+          data-testid="intents-path"
+        >
+          <label className="nc-tile">
             <input
               type="radio"
               name="intents-path"
               data-testid="intents-path-direct"
               checked={!twoStep}
+              disabled={stage !== 'none'}
               onChange={() => setTwoStep(false)}
             />
-            1Click pays the vault directly
+            <span>1Click pays the vault directly</span>
           </label>
-          <label>
+          <label className="nc-tile">
             <input
               type="radio"
               name="intents-path"
               data-testid="intents-path-two-step"
               checked={twoStep}
+              disabled={stage !== 'none'}
               onChange={() => setTwoStep(true)}
             />
-            1Click pays my NEAR account, then my wallet pays the vault (two steps)
+            <span>1Click pays my NEAR account, then my wallet pays the vault (two steps)</span>
           </label>
-        </fieldset>
+        </div>
       )}
       {twoStep && (
         <div data-testid="intents-two-step">
-          <p className="warning" data-testid="intents-two-step-notice">
+          <p className="nc-notice" data-testid="intents-two-step-notice">
             {TWO_STEP_NOTICE}
           </p>
-          {account === '' && <p className="hint">Connect a wallet above to use this path.</p>}
+          {account === '' && <p className="nc-cap">Connect a wallet above to use this path.</p>}
           {gate?.account === account && gate.problem && (
-            <p className="error" data-testid="intents-two-step-problem">
+            <p className="nc-msg" data-tone="err" data-testid="intents-two-step-problem">
               {gate.problem}
             </p>
           )}
-          <p className="hint">
+          <p className="nc-cap">
             Checking the account shows it to the RPC provider, next to your IP address.
           </p>
         </div>
       )}
 
-      <h4>Source</h4>
-      <button
-        type="button"
-        data-testid="intents-load-sources"
-        disabled={
-          busy !== '' || !vaultOk || stage !== 'none' || !twoStepOk || (twoStep && account === '')
-        }
-        onClick={loadSources}
-      >
-        {busy === 'sources' ? 'Asking 1Click…' : 'Show sources'}
-      </button>
-      {rows && (
-        <ul>
-          {listed.map(({ quote }) => {
-            const asset = PROFILE.oneClick.shortlist.find((a) => a.label === quote.label);
-            return asset ? (
-              <li key={asset.assetId}>
-                <label>
-                  <input
-                    type="radio"
-                    name="intents-source"
-                    data-testid="intents-source"
-                    disabled={stage !== 'none'}
-                    checked={source?.assetId === asset.assetId}
-                    onChange={() => setSource(asset)}
-                  />
-                  {asset.label}: about {quote.amountInFormatted} in
-                </label>
-              </li>
-            ) : null;
-          })}
-        </ul>
-      )}
-      {rows && busy !== 'sources' && listed.length === 0 && (
-        <p className="warning" data-testid="intents-no-sources">
-          1Click offers no source for this amount right now.
-        </p>
-      )}
-      <label>
-        Refund address on the source chain
-        <input
-          type="text"
-          value={refund}
-          data-testid="intents-refund"
-          disabled={stage !== 'none'}
-          onChange={(e) => setRefund(e.target.value)}
-        />
-      </label>
-
-      <h4>Payout account</h4>
-      <p>
-        The vault pays this NEAR account when you close the note or exit. It is written into the
-        deposit message and cannot be changed afterwards. Use a fresh account that nothing else
-        links to you.
-      </p>
-      <input
-        type="text"
-        aria-label="Payout account"
-        value={payout}
-        data-testid="intents-payout"
-        disabled={stage !== 'none'}
-        onChange={(e) => setPayout(e.target.value.trim())}
-      />
-      {problem && (
-        <p className="error" data-testid="intents-payout-problem">
-          {problem}
-        </p>
-      )}
-      {validPayout && (
-        <>
-          <p>
-            Fingerprint of <strong>{payout}</strong>:{' '}
-            <code data-testid="intents-fingerprint">{fingerprint}</code>. Check the account letter
-            by letter.
-          </p>
-          <label>
-            <input
-              type="checkbox"
-              checked={confirmed}
-              data-testid="intents-fingerprint-confirm"
-              onChange={(e) => setConfirmed(e.target.checked)}
-            />
-            This is the account I want paid.
-          </label>
-          <p className="hint">
-            Checking this account asks the RPC provider about it, so the provider sees it next to
-            your IP address.
-          </p>
-          {assessment === 'failed' && (
-            <p className="warning" data-testid="intents-assess-failed">
-              The account could not be checked.
+      <ol className="nc-steps nc-intents-steps">
+        <li data-s={stepState(0)}>
+          <h2>Source</h2>
+          <div className="nc-actions nc-actions-first">
+            <Button
+              testId="intents-load-sources"
+              disabled={
+                busy !== '' ||
+                !vaultOk ||
+                stage !== 'none' ||
+                !twoStepOk ||
+                (twoStep && account === '')
+              }
+              onClick={loadSources}
+            >
+              {busy === 'sources' ? 'Asking 1Click…' : 'Show sources'}
+            </Button>
+          </div>
+          {rows && (
+            <div className="nc-radios" role="radiogroup" aria-label="Source">
+              {listed.map(({ quote }) => {
+                const asset = PROFILE.oneClick.shortlist.find((a) => a.label === quote.label);
+                return asset ? (
+                  <label key={asset.assetId} className="nc-tile">
+                    <input
+                      type="radio"
+                      name="intents-source"
+                      data-testid="intents-source"
+                      disabled={stage !== 'none'}
+                      checked={source?.assetId === asset.assetId}
+                      onChange={() => setSource(asset)}
+                    />
+                    <span>{asset.label}</span>
+                    <code>about {quote.amountInFormatted} in</code>
+                  </label>
+                ) : null;
+              })}
+            </div>
+          )}
+          {rows && busy !== 'sources' && listed.length === 0 && (
+            <p className="nc-msg" data-tone="warn" data-testid="intents-no-sources">
+              1Click offers no source for this amount right now.
             </p>
           )}
-          {typeof assessment === 'object' && assessment !== null && (
+          <label className="nc-field">
+            <span>Refund address on the source chain</span>
+            <input
+              type="text"
+              value={refund}
+              data-testid="intents-refund"
+              disabled={stage !== 'none'}
+              onChange={(e) => setRefund(e.target.value)}
+            />
+          </label>
+        </li>
+        <li data-s={stepState(1)}>
+          <h2>Payout account</h2>
+          <p className="nc-cap nc-cap-first">
+            The vault pays this NEAR account when you close the note or exit. It is written into the
+            deposit message and cannot be changed afterwards. Use a fresh account that nothing else
+            links to you.
+          </p>
+          <label className="nc-field">
+            <span>Payout account</span>
+            <input
+              type="text"
+              value={payout}
+              data-testid="intents-payout"
+              disabled={stage !== 'none'}
+              onChange={(e) => setPayout(e.target.value.trim())}
+            />
+          </label>
+          {problem && (
+            <p className="nc-msg" data-tone="err" data-testid="intents-payout-problem">
+              {problem}
+            </p>
+          )}
+          {validPayout && (
             <>
-              {!assessment.registered && (
-                <p className="warning" data-testid="intents-warn-unregistered">
-                  This account is not registered with the {PROFILE.tokenSymbol} token. A payout to
-                  it would wait until it is registered (call <code>storage_deposit</code> for it).
+              <div className="nc-fp">
+                <small>Fingerprint of {payout}</small>
+                <code data-testid="intents-fingerprint">{fingerprint}</code>
+                <p>Check the account letter by letter.</p>
+              </div>
+              <label className="nc-check">
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  data-testid="intents-fingerprint-confirm"
+                  onChange={(e) => setConfirmed(e.target.checked)}
+                />
+                <span>
+                  This is the account I want paid.
+                  <small>
+                    Checking this account asks the RPC provider about it, so the provider sees it
+                    next to your IP address.
+                  </small>
+                </span>
+              </label>
+              {assessment === 'failed' && (
+                <p className="nc-msg" data-tone="warn" data-testid="intents-assess-failed">
+                  The account could not be checked.
                 </p>
               )}
-              {assessment.registered && !assessment.fresh && (
-                <p className="warning" data-testid="intents-warn-not-fresh">
-                  This account already holds {PROFILE.tokenSymbol}, so it is not fresh. A payout to
-                  it is easy to link to its history.
-                </p>
+              {typeof assessment === 'object' && assessment !== null && (
+                <>
+                  {!assessment.registered && (
+                    <p className="nc-msg" data-tone="warn" data-testid="intents-warn-unregistered">
+                      This account is not registered with the {PROFILE.tokenSymbol} token. A payout
+                      to it would wait until it is registered (call <code>storage_deposit</code> for
+                      it).
+                    </p>
+                  )}
+                  {assessment.registered && !assessment.fresh && (
+                    <p className="nc-msg" data-tone="warn" data-testid="intents-warn-not-fresh">
+                      This account already holds {PROFILE.tokenSymbol}, so it is not fresh. A payout
+                      to it is easy to link to its history.
+                    </p>
+                  )}
+                  {assessment.registered && assessment.fresh && (
+                    <p className="nc-msg" data-tone="ok">
+                      Registered with the token and holding none yet: a fresh account.
+                    </p>
+                  )}
+                </>
               )}
             </>
           )}
-        </>
-      )}
-      <p className="hint" data-testid="intents-costs">
-        Closing a note through the operator costs the close fee ({units(pins.config.close_fee)}). An
-        exit or a payout claim needs a little NEAR for gas, which can come from any account.
-      </p>
-
-      <h4>Protect and back up</h4>
-      {!unlocked ? (
-        <p className="hint">Set or enter your passphrase in step 4 above first.</p>
-      ) : stage === 'none' || stage === 'rejected' ? (
-        <button
-          type="button"
-          className="primary"
-          data-testid="intents-prepare"
-          disabled={!ready || busy !== ''}
-          onClick={onPrepare}
-        >
-          {busy === 'prepare' ? 'Creating the note…' : 'Create the note secret'}
-        </button>
-      ) : (
-        <div data-testid="intents-backup-panel">
-          <label>
-            Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={backupPass}
-              data-testid="intents-backup-passphrase"
-              onChange={(e) => setBackupPass(e.target.value)}
+          <p className="nc-cap" data-testid="intents-costs">
+            Closing a note through the operator costs the close fee ({units(pins.config.close_fee)}
+            ). An exit or a payout claim needs a little NEAR for gas, which can come from any
+            account.
+          </p>
+        </li>
+        <li data-s={stepState(2)}>
+          <h2>Protect and back up</h2>
+          {!unlocked ? (
+            <p className="nc-cap nc-cap-first">
+              Set or enter your passphrase in step 4 above first.
+            </p>
+          ) : (
+            <BackupSteps
+              prefix="intents-"
+              created={created}
+              createLabel={
+                created
+                  ? 'Created'
+                  : busy === 'prepare'
+                    ? 'Creating the note…'
+                    : 'Create the secret'
+              }
+              createDisabled={created || !ready || busy !== ''}
+              onCreate={onPrepare}
+              pass={backupPass}
+              onPass={setBackupPass}
+              passDisabled={!created}
+              passMin={MIN_PASSPHRASE_LENGTH}
+              params={null}
+              downloaded={downloaded}
+              downloadLabel={busy === 'download' ? 'Encrypting…' : `Download (${BACKUP_EXTENSION})`}
+              downloadDisabled={
+                passphraseLength(backupPass) < MIN_PASSPHRASE_LENGTH ||
+                busy !== '' ||
+                stage !== 'prepared'
+              }
+              onDownload={onDownload}
+              tested={backedUp}
+              testedNote={
+                <small data-testid="intents-backup-tested">
+                  Backup downloaded and test-restored. The note secret is stored on this device.
+                </small>
+              }
+              chooseLabel={backedUp ? 'Restores' : 'Choose the file'}
+              chooseDisabled={stage !== 'prepared' || !downloaded || busy !== ''}
+              onFile={onChooseBackup}
+              fileReady={stage === 'prepared' && downloaded}
             />
-          </label>
-          <button
-            type="button"
-            data-testid="intents-backup-download"
-            disabled={
-              passphraseLength(backupPass) < MIN_PASSPHRASE_LENGTH ||
-              busy !== '' ||
-              stage !== 'prepared'
-            }
-            onClick={onDownload}
-          >
-            {busy === 'download' ? 'Encrypting…' : `Download the backup (${BACKUP_EXTENSION})`}
-          </button>
-          {stage === 'prepared' && downloaded && (
-            <label>
-              Now choose the file you just downloaded, to test that it opens
-              <input
-                type="file"
-                data-testid="intents-backup-file"
-                disabled={busy !== ''}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = '';
-                  onChooseBackup(file);
-                }}
-              />
-            </label>
           )}
-          {stage !== 'prepared' && (
-            <p className="ok" data-testid="intents-backup-tested">
-              Backup downloaded and test-restored. The note secret is stored on this device.
-            </p>
-          )}
-        </div>
-      )}
-
-      <h4>Quote</h4>
-      <button
-        type="button"
-        className="primary"
-        data-testid="intents-quote"
-        disabled={stage !== 'backed_up' || shown || busy !== '' || (attempt !== null && !expired)}
-        onClick={onQuote}
-      >
-        {busy === 'quote' ? 'Asking 1Click…' : 'Get the quote'}
-      </button>
-      {error && (
-        <p className="error" role="alert" data-testid="intents-error">
-          {error}
-        </p>
-      )}
-      {expired && (
-        <button
-          type="button"
-          data-testid="intents-requote"
-          disabled={busy !== ''}
-          onClick={onQuote}
-        >
-          Get a new quote
-        </button>
-      )}
-      {attempt && !expired && (
-        <div data-testid="intents-review">
-          <p>
-            Deadline: <strong data-testid="intents-deadline">{String(q.deadline)}</strong>
-          </p>
-          <p data-testid="intents-cost">
-            You pay about <strong>{String(q.amountInFormatted)}</strong> ({attempt.source}).{' '}
-            <strong>{String(q.amountOutFormatted)}</strong> {PROFILE.tokenSymbol} is delivered (
-            {units(price)}: the denomination plus the note fee). The difference is the all-in cost.
-            It includes 1Click’s documented fee for keyless use, {KEYLESS_FEE_BPS} basis points of
-            the amount delivered; the quote does not itemise it, so no split is shown.
-          </p>
-          <p data-testid="intents-fees">
-            {fees.length === 0
-              ? 'The quote lists no other fees.'
-              : `Other fees the quote lists: ${fees.map(([n, v]) => `${n}=${JSON.stringify(v)}`).join(', ')}.`}
-          </p>
-          <p>
-            Refund address: <code data-testid="intents-refund-shown">{attempt.refund}</code>
-          </p>
-          <p className="hint" data-testid="intents-trust">
-            {TRUST_NOTE}
-          </p>
-          {!shown && (
-            <button
-              type="button"
-              className="primary"
-              data-testid="intents-show-address"
-              disabled={busy !== ''}
-              onClick={onShowAddress}
+        </li>
+        <li data-s={stepState(3)}>
+          <h2>Quote</h2>
+          <div className="nc-actions nc-actions-first">
+            <Button
+              primary
+              testId="intents-quote"
+              disabled={
+                stage !== 'backed_up' || shown || busy !== '' || (attempt !== null && !expired)
+              }
+              onClick={onQuote}
             >
-              Show the deposit address
-            </button>
-          )}
-        </div>
-      )}
-
-      {shown && attempt && (
-        <div data-testid="intents-address-panel">
-          <p>
-            Pay from your own wallet on the source chain. Send exactly{' '}
-            <strong>{String(q.amountInFormatted)}</strong> to:
-          </p>
-          <p>
-            <code data-testid="intents-address">{String(q.depositAddress)}</code>
-            {typeof q.depositMemo === 'string' && q.depositMemo !== '' && (
-              <>
-                {' '}
-                with memo <code data-testid="intents-memo">{q.depositMemo}</code>
-              </>
+              {busy === 'quote' ? 'Asking 1Click…' : 'Get the quote'}
+            </Button>
+            {expired && (
+              <Button testId="intents-requote" disabled={busy !== ''} onClick={onQuote}>
+                Get a new quote
+              </Button>
             )}
-          </p>
-          <p data-testid="intents-progress">{progress || 'Waiting for your payment.'}</p>
-          {pendingReason && !accepted && !booked && (
-            <p className="warning" data-testid="intents-pending">
-              The deposit is not accepted yet: {pendingReason}.
+          </div>
+          {error && (
+            <p className="nc-msg" data-tone="err" role="alert" data-testid="intents-error">
+              {error}
             </p>
           )}
-          <p className="hint" data-testid="intents-route">
-            {ROUTE_FALLBACK}
-          </p>
-        </div>
-      )}
-
-      {twoStep && arrived && !accepted && attempt?.via && note && (
-        <div data-testid="intents-second-step">
-          <p>
-            The {PROFILE.tokenSymbol} is in <strong>{attempt.via}</strong>. Sign the transfer to the
-            vault in your wallet.
-          </p>
-          {refunded && (
-            <p className="warning" data-testid="intents-refunded">
-              The vault did not accept the transfer and the token returned the {PROFILE.tokenSymbol}
-              . It is still in {attempt.via}, and this note is unspent. You can deposit again.
+          {attempt && !expired && (
+            <div data-testid="intents-review">
+              <Facts
+                rows={[
+                  [
+                    'Deadline',
+                    <strong data-testid="intents-deadline">{String(q.deadline)}</strong>,
+                  ],
+                  [
+                    'Refund address',
+                    <code data-testid="intents-refund-shown">{attempt.refund}</code>,
+                  ],
+                ]}
+              />
+              <p className="nc-cap" data-testid="intents-cost">
+                You pay about <strong>{String(q.amountInFormatted)}</strong> ({attempt.source}).{' '}
+                <strong>{String(q.amountOutFormatted)}</strong> {PROFILE.tokenSymbol} is delivered (
+                {units(price)}: the denomination plus the note fee). The difference is the all-in
+                cost. It includes 1Click’s documented fee for keyless use, {KEYLESS_FEE_BPS} basis
+                points of the amount delivered; the quote does not itemise it, so no split is shown.
+              </p>
+              <p className="nc-cap" data-testid="intents-fees">
+                {fees.length === 0
+                  ? 'The quote lists no other fees.'
+                  : `Other fees the quote lists: ${fees.map(([n, v]) => `${n}=${JSON.stringify(v)}`).join(', ')}.`}
+              </p>
+              <p className="nc-cap" data-testid="intents-trust">
+                {TRUST_NOTE}
+              </p>
+              {!shown && (
+                <div className="nc-actions">
+                  <Button
+                    primary
+                    testId="intents-show-address"
+                    disabled={busy !== ''}
+                    onClick={onShowAddress}
+                  >
+                    Show the deposit address
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </li>
+        <li data-s={stepState(4)} data-locked={!shown && !accepted && !booked}>
+          <h2>Pay</h2>
+          {!shown && !accepted && !booked && (
+            <p className="nc-cap nc-cap-first">
+              The deposit address is shown once you accept the quote.
             </p>
           )}
-          <button
-            type="button"
-            className="primary"
-            data-testid="intents-sign"
-            disabled={busy !== '' || note.phase === 'sent' || account !== attempt.via}
-            onClick={onSign}
-          >
-            {busy === 'sign'
-              ? 'Waiting for the wallet…'
-              : refunded
-                ? 'Deposit again'
-                : 'Sign the transfer'}
-          </button>
-          {account !== attempt.via && <p className="hint">Connect {attempt.via} to sign.</p>}
-        </div>
-      )}
+          {shown && attempt && (
+            <div data-testid="intents-address-panel">
+              <p className="nc-cap nc-cap-first">
+                Pay from your own wallet on the source chain. Send exactly{' '}
+                <strong>{String(q.amountInFormatted)}</strong> to:
+              </p>
+              <div className="nc-fp">
+                <small>Deposit address</small>
+                <code data-testid="intents-address">{String(q.depositAddress)}</code>
+                {typeof q.depositMemo === 'string' && q.depositMemo !== '' && (
+                  <small>
+                    with memo <code data-testid="intents-memo">{q.depositMemo}</code>
+                  </small>
+                )}
+              </div>
+              <p className="nc-msg" data-testid="intents-progress">
+                {progress || 'Waiting for your payment.'}
+              </p>
+              {pendingReason && !accepted && !booked && (
+                <p className="nc-msg" data-tone="warn" data-testid="intents-pending">
+                  The deposit is not accepted yet: {pendingReason}.
+                </p>
+              )}
+              <p className="nc-cap" data-testid="intents-route">
+                {ROUTE_FALLBACK}
+              </p>
+            </div>
+          )}
 
-      {waiting !== undefined && note && (
-        <p className="hint" data-testid="intents-pending-payout">
-          {waiting === '0'
-            ? `Nothing is pending in the vault for ${note.payout}.`
-            : `${units(waiting)} is pending in the vault for ${note.payout}. This is an account total across deposits and does not confirm a note.`}{' '}
-          Reading it showed the payout account to the RPC provider, next to your IP address.
-        </p>
-      )}
+          {twoStep && arrived && !accepted && attempt?.via && note && (
+            <div data-testid="intents-second-step">
+              <p className="nc-cap">
+                The {PROFILE.tokenSymbol} is in <strong>{attempt.via}</strong>. Sign the transfer to
+                the vault in your wallet.
+              </p>
+              {refunded && (
+                <p className="nc-msg" data-tone="warn" data-testid="intents-refunded">
+                  The vault did not accept the transfer and the token returned the{' '}
+                  {PROFILE.tokenSymbol}. It is still in {attempt.via}, and this note is unspent. You
+                  can deposit again.
+                </p>
+              )}
+              <div className="nc-actions">
+                <Button
+                  primary
+                  testId="intents-sign"
+                  disabled={busy !== '' || note.phase === 'sent' || account !== attempt.via}
+                  onClick={onSign}
+                >
+                  {busy === 'sign'
+                    ? 'Waiting for the wallet…'
+                    : refunded
+                      ? 'Deposit again'
+                      : 'Sign the transfer'}
+                </Button>
+              </div>
+              {account !== attempt.via && <p className="nc-cap">Connect {attempt.via} to sign.</p>}
+            </div>
+          )}
 
-      {(booked ?? accepted)?.bookings.length ? (
-        <div className="warning" data-testid="intents-booked">
-          <h4>
-            {booked ? 'The vault booked this delivery without a note' : 'The vault also booked'}
-          </h4>
-          {(booked ?? accepted)?.bookings.map((b) => (
-            <p key={`${b.event}${b.reason}${b.amount}`} data-testid="intents-booking">
-              {explainBooking(b)}
-            </p>
-          ))}
-          {(booked ?? accepted)?.bookings.some((b) => b.event === 'payout_pending') && note && (
-            <p>
-              <button
-                type="button"
-                data-testid="intents-claim"
-                disabled={!wallet.connected || leave.busy !== null}
-                onClick={() => void leaveStore.claim(note)}
-              >
-                Claim payout
-              </button>{' '}
-              {!wallet.connected && 'Connect a wallet above to send it. '}
-              {leave.message}
-              {leave.error && <span className="error"> {leave.error}</span>}
+          {waiting !== undefined && note && (
+            <p className="nc-msg" data-testid="intents-pending-payout">
+              {waiting === '0'
+                ? `Nothing is pending in the vault for ${note.payout}.`
+                : `${units(waiting)} is pending in the vault for ${note.payout}. This is an account total across deposits and does not confirm a note.`}{' '}
+              Reading it showed the payout account to the RPC provider, next to your IP address.
             </p>
           )}
-        </div>
-      ) : null}
 
-      {accepted && note && (
-        <div className="ok" data-testid="intents-accepted">
-          <h4>Deposit accepted</h4>
-          <p>
-            Note <strong data-testid="intents-note-id">#{accepted.event.noteId}</strong>, expires{' '}
-            <strong>{formatDate(accepted.event.expiry)}</strong>. The deposit event was read from
-            the destination transaction’s receipts.
-          </p>
-          {note.txHash && (
-            <p>
-              <a
-                data-testid="intents-explorer-link"
-                href={PROFILE.explorerTxUrl(note.txHash)}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open the deposit receipt in the explorer
-              </a>
-              . On this path no wallet shows the payout account, so read it there: it must be{' '}
-              <strong>{note.payout}</strong>.
-            </p>
+          {(booked ?? accepted)?.bookings.length ? (
+            <div className="nc-notice" data-testid="intents-booked">
+              <strong>
+                {booked ? 'The vault booked this delivery without a note' : 'The vault also booked'}
+              </strong>
+              {(booked ?? accepted)?.bookings.map((b) => (
+                <p key={`${b.event}${b.reason}${b.amount}`} data-testid="intents-booking">
+                  {explainBooking(b)}
+                </p>
+              ))}
+              {(booked ?? accepted)?.bookings.some((b) => b.event === 'payout_pending') && note && (
+                <>
+                  <div className="nc-actions">
+                    <Button
+                      testId="intents-claim"
+                      disabled={!wallet.connected || leave.busy !== null}
+                      onClick={() => void leaveStore.claim(note)}
+                    >
+                      Claim payout
+                    </Button>
+                  </div>
+                  <p className="nc-cap">
+                    {!wallet.connected && 'Connect a wallet above to send it. '}
+                    {leave.message}
+                    {leave.error && <span> {leave.error}</span>}
+                  </p>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {accepted && note && (
+            <div className="nc-done nc-accepted" data-testid="intents-accepted">
+              <Chip tone="good">deposit accepted</Chip>
+              <p>
+                Note <strong data-testid="intents-note-id">#{accepted.event.noteId}</strong> expires{' '}
+                <strong>{formatDate(accepted.event.expiry)}</strong>. The deposit event was read
+                from the destination transaction’s receipts.
+              </p>
+              <ul>
+                {note.txHash && (
+                  <li>
+                    <a
+                      data-testid="intents-explorer-link"
+                      href={PROFILE.explorerTxUrl(note.txHash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Open the deposit receipt in the explorer
+                    </a>
+                    <small>
+                      On this path no wallet shows the payout account, so read it there: it must be{' '}
+                      <strong>{note.payout}</strong>.
+                    </small>
+                  </li>
+                )}
+                <li>
+                  <Button
+                    testId="intents-calendar"
+                    onClick={() =>
+                      download(
+                        expiryCalendar(accepted.event.expiry, crypto.randomUUID(), Date.now()),
+                        'note-expiry.ics',
+                        'text/calendar',
+                      )
+                    }
+                  >
+                    Download a calendar reminder for the expiry
+                  </Button>
+                  <small>
+                    The reminder has a generic title and no note data. Download a fresh backup from
+                    the Notes tab: it now holds the note’s wallet state. Wait a while before your
+                    first chat.
+                  </small>
+                </li>
+              </ul>
+            </div>
           )}
-          <button
-            type="button"
-            data-testid="intents-calendar"
-            onClick={() =>
-              download(
-                expiryCalendar(accepted.event.expiry, crypto.randomUUID(), Date.now()),
-                'note-expiry.ics',
-                'text/calendar',
-              )
-            }
-          >
-            Download a calendar reminder for the expiry
-          </button>
-          <p className="hint">
-            The reminder has a generic title and no note data. Download a fresh backup from the
-            Notes tab: it now holds the note’s wallet state. Wait a while before your first chat.
-          </p>
-        </div>
-      )}
-    </section>
+        </li>
+      </ol>
+    </Card>
   );
 }

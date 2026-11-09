@@ -213,7 +213,7 @@
   outline: 2px solid var(--nm-accent);
   outline-offset: 2px;
 }
-.nm-app label {
+.nm-app label:not([class]) {
   display: block;
   margin: 12px 0 4px;
   color: var(--nm-muted);

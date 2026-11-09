@@ -16,6 +16,7 @@ import closeIllustration from './assets/app-close.webp';
 import agentsIllustration from './assets/app-agents.webp';
 import { ThemeToggle } from './ThemeToggle';
 import {
+  BackupSteps,
   Button,
   Card,
   Chip,
@@ -23,6 +24,7 @@ import {
   END_ROWS,
   Facts,
   Fold,
+  FundSide,
   type ModelInfo,
   IpChip,
   ModelPicker,
@@ -626,61 +628,36 @@ function Fund({
       lead="Deposit USDC from a NEAR wallet in a fixed size. The note secret is made in this browser and never leaves it."
       illustration={fundIllustration}
       side={
-        <>
-          <section className="nc-sum">
-            <h2>The note</h2>
-            <p className="nc-big">
-              <Count value={size} /> <small>USDC</small>
-            </p>
-            <Strip
-              n={21}
-              solid={step === 'form' ? 0 : step === 'sending' ? Math.min(fill, 20) : 20}
-              reserved={step === 'form' ? 0 : step === 'sending' ? (fill > 20 ? 1 : 0) : 1}
-              size="lg"
-              label="Note and fee"
-            />
-            <p className="nc-sum-line">
-              <span>
-                {usd(size)} yours · cells of {usd(size / 20, 3)}
-              </span>
-              <span>+ fee</span>
-            </p>
-            <Facts
-              rows={[
-                ['Denomination', `${usd(size)} USDC`],
-                ['Note fee', `${usd(fee)} USDC`],
-                ['You send', <strong key="s">{usd(size + fee)} USDC</strong>],
-              ]}
-            />
-            <p className="nc-cap">
-              The fee is not refunded. The denomination is yours to spend or get back.
-            </p>
-          </section>
-          <section className="nc-sum">
-            <h2>When it closes</h2>
-            <Facts
-              rows={[
-                ['Paid to', payoutReady || wallet ? target || '…' : 'connect a wallet'],
-                ['Expires', '30 days after the deposit'],
-              ]}
-            />
-          </section>
-          <Fold title="What leaves this page">
+        <FundSide
+          amount={size}
+          unit="USDC"
+          strip={{
+            solid: step === 'form' ? 0 : step === 'sending' ? Math.min(fill, 20) : 20,
+            reserved: step === 'form' ? 0 : step === 'sending' ? (fill > 20 ? 1 : 0) : 1,
+          }}
+          yours={`${usd(size)} yours · cells of ${usd(size / 20, 3)}`}
+          facts={[
+            ['Denomination', `${usd(size)} USDC`],
+            ['Note fee', `${usd(fee)} USDC`],
+            ['You send', <strong key="s">{usd(size + fee)} USDC</strong>],
+          ]}
+          caption="The fee is not refunded. The denomination is yours to spend or get back."
+          closes={[
+            ['Paid to', payoutReady || wallet ? target || '…' : 'connect a wallet'],
+            ['Expires', '30 days after the deposit'],
+          ]}
+          leaves={
             <p className="nc-cap">
               After the transfer the app reads the deposit event from your wallet’s receipt. If the
               wallet gives no receipt, it asks the RPC provider, which then sees your IP address,
               account, the transaction hash and the time.
             </p>
-          </Fold>
-          <Fold title="Limits">
-            <Facts
-              rows={[
-                ['Open deposits', 'capped at 100 USDC'],
-                ['Sizes', '1 or 5 USDC'],
-              ]}
-            />
-          </Fold>
-        </>
+          }
+          limits={[
+            ['Open deposits', 'capped at 100 USDC'],
+            ['Sizes', '1 or 5 USDC'],
+          ]}
+        />
       }
     >
       <p className="nc-terms">
@@ -843,60 +820,39 @@ function Fund({
             The secret is stored encrypted before anything is sent. Then you download a backup and
             check it by opening it again: only after that does the app offer the transfer.
           </p>
-          <ol className="nc-sub">
-            <li data-on={secret}>
-              <div>
-                <strong>Create the note secret</strong>
-                {secret && (
-                  <small>
-                    Persistent storage: granted. The browser will not clear this site’s data under
-                    disk pressure.
-                  </small>
-                )}
-              </div>
-              <Button disabled={!payoutReady || secret || locked} onClick={() => setSecret(true)}>
-                {secret ? 'Created' : 'Create the secret'}
-              </Button>
-            </li>
-            <li data-on={downloaded} data-locked={!secret}>
-              <div className="nc-sub-main">
-                <strong>Download the backup</strong>
-                <label className="nc-field">
-                  <span>Backup passphrase</span>
-                  <input
-                    type="password"
-                    value={pass}
-                    disabled={!secret || downloaded || locked}
-                    onChange={(e) => setPass(e.target.value)}
-                  />
-                </label>
-                <div className="nc-pass" aria-hidden="true">
-                  <Strip n={12} solid={Math.min(pass.length, 12)} size="sm" />
-                  <small>{Math.min(pass.length, 12)} of 12 characters</small>
-                </div>
+          <BackupSteps
+            created={secret}
+            createLabel={secret ? 'Created' : 'Create the secret'}
+            createDisabled={!payoutReady || secret || locked}
+            onCreate={() => setSecret(true)}
+            createNote={
+              secret && (
                 <small>
-                  Encrypted with Argon2id, 64 MiB of memory, 3 passes, 1 lane. Do not keep the file
-                  in a synced folder: a copy in the cloud can be opened by guessing the passphrase,
-                  and whoever opens it can spend the note.
+                  Persistent storage: granted. The browser will not clear this site’s data under
+                  disk pressure.
                 </small>
-              </div>
-              <Button
-                disabled={!secret || !long || downloaded || locked}
-                onClick={() => setDownloaded(true)}
-              >
-                {downloaded ? 'Downloaded' : 'Download (.nymira-backup)'}
-              </Button>
-            </li>
-            <li data-on={tested} data-locked={!downloaded}>
-              <div>
-                <strong>Test that it opens</strong>
-                <small>Choose the file you just downloaded.</small>
-              </div>
-              <Button disabled={!downloaded || tested || locked} onClick={() => setTested(true)}>
-                {tested ? 'Restores' : 'Choose the file'}
-              </Button>
-            </li>
-          </ol>
+              )
+            }
+            pass={pass}
+            onPass={setPass}
+            passDisabled={!secret || downloaded || locked}
+            passMin={12}
+            params={
+              <small>
+                Encrypted with Argon2id, 64 MiB of memory, 3 passes, 1 lane. Do not keep the file in
+                a synced folder: a copy in the cloud can be opened by guessing the passphrase, and
+                whoever opens it can spend the note.
+              </small>
+            }
+            downloaded={downloaded}
+            downloadLabel={downloaded ? 'Downloaded' : 'Download (.nymira-backup)'}
+            downloadDisabled={!secret || !long || downloaded || locked}
+            onDownload={() => setDownloaded(true)}
+            tested={tested}
+            chooseLabel={tested ? 'Restores' : 'Choose the file'}
+            chooseDisabled={!downloaded || tested || locked}
+            onChoose={() => setTested(true)}
+          />
         </li>
         <li data-s={stepState(4)} data-locked={!(payoutReady && secret && tested)}>
           <h2>Send</h2>

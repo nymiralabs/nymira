@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Button, WalletMark } from '../marketing/kit';
 import { PROFILE } from '../profile';
 import { useWallet } from './services';
 
@@ -12,34 +13,39 @@ export function SessionLost() {
   const last = wallet.wallets.find((w) => w.id === wallet.lostWallet);
   if (wallet.connected || !wallet.lostWallet) return null;
   return (
-    <div className="notice" data-testid="session-lost">
+    <div className="nc-notice" data-testid="session-lost">
       <p>
         Your wallet is not connected any more. The wallet runs in a sealed frame that keeps nothing
         on this device, so a reload or a new visit forgets the connection on purpose. Connect again
         to continue.
       </p>
       {last && (
-        <button
-          type="button"
-          data-testid="reconnect"
-          onClick={async () => {
-            setError('');
-            try {
-              await wallet.connect(last.id);
-            } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
-            }
-          }}
-        >
-          Reconnect with {last.name}
-        </button>
+        <div className="nc-actions">
+          <Button
+            testId="reconnect"
+            onClick={async () => {
+              setError('');
+              try {
+                await wallet.connect(last.id);
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              }
+            }}
+          >
+            Reconnect with {last.name}
+          </Button>
+        </div>
       )}
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="nc-msg" data-tone="err">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
 
-/** The wallet list and the connected account. The same buttons the Fund screen has. */
+/** The wallet list and the connected account, as the first step of a flow. */
 export function WalletConnect({ busy = false }: { busy?: boolean }) {
   const wallet = useWallet();
   const [error, setError] = useState('');
@@ -48,25 +54,35 @@ export function WalletConnect({ busy = false }: { busy?: boolean }) {
   }, [wallet]);
 
   if (wallet.connected) {
+    const name =
+      wallet.wallets.find((w) => w.id === wallet.connected?.walletId)?.name ??
+      wallet.connected.walletId;
     return (
-      <p data-testid="connected">
-        Connected as <strong data-testid="account">{wallet.connected.accountId}</strong>
-      </p>
+      <div className="nc-row">
+        <span data-testid="connected">
+          Connected as <strong data-testid="account">{wallet.connected.accountId}</strong>
+          {wallet.connected.signature === 'valid'
+            ? ' (sign-in signature checked)'
+            : ' (this browser cannot check the sign-in signature)'}
+        </span>
+        <span className="nc-wallet-chip">
+          <WalletMark name={name} size={20} />
+          {name}
+        </span>
+      </div>
     );
   }
   return (
-    <div>
+    <>
       <SessionLost />
-      <p>
-        On {PROFILE.network}, Meteor and Intear are the supported wallets. Other wallets may work
-        and are not promised.
-      </p>
-      <ul className="wallets">
-        {wallet.wallets.map((w) => (
-          <li key={w.id}>
-            <button
-              type="button"
-              data-testid={`connect-${w.id}`}
+      <div className="nc-row">
+        <span>No wallet connected.</span>
+        <div className="nc-actions nc-actions-first">
+          {wallet.wallets.map((w) => (
+            <Button
+              key={w.id}
+              primary
+              testId={`connect-${w.id}`}
               disabled={busy}
               onClick={async () => {
                 setError('');
@@ -77,18 +93,30 @@ export function WalletConnect({ busy = false }: { busy?: boolean }) {
                 }
               }}
             >
-              {w.name}
-              {w.injected ? ' (browser extension)' : ''}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {wallet.wallets.length === 0 && <p className="hint">Starting the wallet connection…</p>}
+              <span className="nc-wallet-item">
+                <WalletMark name={w.name} size={20} />
+                {w.name}
+                {w.injected ? ' (browser extension)' : ''}
+              </span>
+            </Button>
+          ))}
+        </div>
+      </div>
+      <p className="nc-cap">
+        On {PROFILE.network}, Meteor and Intear are the supported wallets. Other wallets may work
+        and are not promised.
+      </p>
+      {wallet.wallets.length === 0 && <p className="nc-cap">Starting the wallet connection…</p>}
+      {wallet.skipped.map((s) => (
+        <p key={s.id} className="nc-msg" data-tone="warn" data-testid="wallet-skipped">
+          {s.id} is not offered: {s.reason}
+        </p>
+      ))}
       {error && (
-        <p className="error" data-testid="connect-error">
+        <p className="nc-msg" data-tone="err" data-testid="connect-error">
           {error}
         </p>
       )}
-    </div>
+    </>
   );
 }

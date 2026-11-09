@@ -876,7 +876,10 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.nc-choices button {
+.nc-choices button,
+.nc-choices label,
+.nc-radios label {
+  position: relative;
   display: grid;
   gap: 10px;
   padding: 14px 16px;
@@ -891,16 +894,37 @@
     border-color 160ms,
     background-color 160ms;
 }
-.nc-choices button:hover:not(:disabled) {
+.nc-choices button:hover:not(:disabled),
+.nc-choices label:hover:not(:has(input:disabled)) {
   border-color: var(--nm-muted);
 }
-.nc-choices button[aria-checked='true'] {
+.nc-choices button[aria-checked='true'],
+.nc-choices label:has(input:checked) {
   border-color: var(--nm-fg);
   background: var(--nm-raised);
 }
-.nc-choices button:disabled {
+.nc-choices button:disabled,
+.nc-choices label:has(input:disabled) {
   opacity: 0.6;
   cursor: default;
+}
+/* A real radio inside a tile: it covers the tile, so a click or a keyboard check lands on it. */
+.nc .nc-choices input[type='radio'],
+.nc .nc-radios input[type='radio'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.nc-choices label:has(input:focus-visible),
+.nc-radios label:has(input:focus-visible) {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
 }
 .nc-choices strong {
   font-size: 20px;
@@ -2315,10 +2339,13 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.nc-radios button {
-  display: grid;
+.nc-radios button,
+.nc-radios label {
   gap: 6px;
   padding: 12px 16px;
+}
+.nc-radios button {
+  display: grid;
   border: 1px solid var(--nm-line);
   border-radius: 0;
   background: transparent;
@@ -2330,14 +2357,17 @@
     border-color 160ms,
     background-color 160ms;
 }
-.nc-radios button:hover:not(:disabled) {
+.nc-radios button:hover:not(:disabled),
+.nc-radios label:hover:not(:has(input:disabled)) {
   border-color: var(--nm-muted);
 }
-.nc-radios button[aria-checked='true'] {
+.nc-radios button[aria-checked='true'],
+.nc-radios label:has(input:checked) {
   border-color: var(--nm-fg);
   background: var(--nm-raised);
 }
-.nc-radios button:disabled {
+.nc-radios button:disabled,
+.nc-radios label:has(input:disabled) {
   opacity: 0.6;
   cursor: default;
 }
@@ -3379,6 +3409,20 @@
   margin: 8px 0 16px;
   font-size: 14px;
   line-height: 22px;
+}
+/* The unlock card inside a step of the fund screen: no full-height frame, a step-sized heading. */
+.nc-steps .nc-unlock {
+  min-height: 0;
+  padding: 0;
+  place-items: start;
+}
+.nc-steps .nc-unlock-card {
+  width: 100%;
+}
+.nc-steps .nc-unlock-card h1 {
+  margin-top: 16px;
+  font-size: 18px;
+  line-height: 26px;
 }
 .nc .nc-link {
   display: inline;
