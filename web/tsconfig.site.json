@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/marketing", "vite.site.config.ts"]
+}
