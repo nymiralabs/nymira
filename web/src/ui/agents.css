@@ -1,0 +1,58 @@
+/* Agents screen: only what console.css has no rule for. */
+.nc-screen[data-testid='agents'] .nc-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-screen[data-testid='agents'] .nc-notice {
+  margin-bottom: 0;
+}
+.nc-screen[data-testid='agents'] .nc-msg.nc-list {
+  color: inherit;
+  padding-left: 30px;
+}
+.nc-screen[data-testid='agents'] .nc-models {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+.nc-screen[data-testid='agents'] .nc-models legend {
+  padding: 0;
+  margin-bottom: 8px;
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-screen[data-testid='agents'] .nc-agent-steps {
+  margin-top: 28px;
+}
+.nc-screen[data-testid='agents'] .nc-agent-steps .nc-clients {
+  margin-bottom: 4px;
+}
+.nc-screen[data-testid='agents'] .nc-sign {
+  margin-top: 16px;
+}
+.nc-screen[data-testid='agents'] .nc-cmds li > .nc-actions {
+  margin-top: 8px;
+}
+.nc-screen[data-testid='agents'] .nc-recipe {
+  display: grid;
+  gap: 8px;
+}
+.nc-screen[data-testid='agents'] .nc-recipe > p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-screen[data-testid='agents'] .nc-card-body > .nc-recipe .nc-cmds {
+  margin-top: 4px;
+}
