@@ -3,7 +3,8 @@
 // what, and only then shows the deposit address. The user pays from their own wallet on the source
 // chain. Progress comes from 1Click; the note is accepted from the vault's `deposit` event.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { BackupSteps, Button, Card, Chip, Facts, Fold } from '../marketing/kit';
+import { BackupSteps, Button, Chip, Facts, Fold } from '../marketing/kit';
+import { Icon } from '../marketing/Icon';
 import { PROFILE } from '../profile';
 import {
   accountFingerprint,
@@ -53,6 +54,15 @@ import type { QuoteAsset } from '../profiles/types';
 import type { NoteRecord } from '../store/types';
 import { download, formatDate, formatUnits, readFile } from './format';
 import { archivalRpc, rpc, useWallet } from './services';
+import { Unlock } from './Unlock';
+
+/** The quote's deadline as the person's local time; an unreadable value is shown as it came. */
+function deadlineText(value: unknown): string {
+  const at = Date.parse(String(value));
+  return Number.isNaN(at)
+    ? String(value)
+    : new Date(at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
 
 const units = (v: bigint | string) =>
   `${formatUnits(v, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}`;
@@ -63,10 +73,15 @@ export function Intents({
   vault,
   denomination,
   unlocked,
+  active,
+  onUnlocked,
 }: {
   vault: VaultCheck | null;
   denomination: string;
   unlocked: boolean;
+  /** This route is the one on screen: only then does it show the passphrase card. */
+  active: boolean;
+  onUnlocked: () => void;
 }) {
   const pins = PROFILE.pins;
   const book = useMemo(
@@ -97,6 +112,8 @@ export function Intents({
   const [waiting, setWaiting] = useState<string | undefined>();
   const [pendingReason, setPendingReason] = useState('');
   const [busy, setBusy] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
   const noteRef = useRef<NoteRecord | null>(null);
   noteRef.current = note;
@@ -273,6 +290,7 @@ export function Intents({
         setNote(n);
         setAttempt(saved);
         setRefund(saved.refund);
+        setPayout(n.payout);
         setSource(PROFILE.oneClick.shortlist.find((a) => a.label === saved.source) ?? null);
         setShown(n.phase === 'sending' || n.phase === 'sent');
         if (saved.via) {
@@ -310,6 +328,30 @@ export function Intents({
         setRows((previous) => [...(previous ?? []), outcome]);
       }
     });
+
+  /** Drops the funding in progress: the note is marked rejected and the form starts again. */
+  const cancelFunding = () =>
+    act('cancel', async () => {
+      if (!note) return;
+      await update(note, { phase: 'rejected' });
+      setNote(null);
+      setAttempt(null);
+      setShown(false);
+      setExpired(false);
+      setProgress('');
+      setPendingReason('');
+      setDownloaded(false);
+      setBackupPass('');
+      setPayout('');
+      setConfirmed(false);
+      setAssessment(null);
+      setRefunded(false);
+      setArrived(false);
+      setCancelling(false);
+    });
+
+  const canLoad =
+    busy === '' && vaultOk && stage === 'none' && twoStepOk && !(twoStep && account === '');
 
   const onPrepare = () =>
     act('prepare', async () => {
@@ -402,7 +444,7 @@ export function Intents({
   const backedUp = created && stage !== 'prepared';
   const flags = [
     source !== null && refund.trim() !== '',
-    validPayout && confirmed && typeof assessment === 'object' && assessment !== null,
+    created || (validPayout && confirmed && typeof assessment === 'object' && assessment !== null),
     backedUp,
     attempt !== null && !expired,
     accepted !== null,
@@ -411,106 +453,171 @@ export function Intents({
   const stepState = (i: number) => (flags[i] ? 'done' : i === now ? 'now' : 'next');
 
   return (
-    <Card
-      title="Fund from another chain"
-      aside={<Chip>{twoStep ? 'two steps' : 'direct'}</Chip>}
-      testId="intents"
-    >
-      <p className="nc-cap nc-cap-first" data-testid="intents-tor">
-        If you use Tor Browser: 1Click calls on this page must not go through Tor, because 1Click
-        does not accept Tor traffic. Use a normal browser for this step, or fund with{' '}
-        {PROFILE.tokenSymbol} on NEAR above.
-      </p>
-      <p className="nc-notice" data-testid="intents-privacy">
-        {twoStep ? `${PRIVACY} ${PRIVACY_TWO_STEP}` : PRIVACY}
-      </p>
-      <Fold title="Terms for this path" testId="intents-terms">
-        <p className="nc-cap nc-cap-first">
-          You pay 1Click from your own wallet. 1Click and its solvers hold the funds while they are
-          in transit and decide the exchange rate within the quote you accept. Nymira does not
-          operate 1Click, cannot refund a failed order, and receives nothing from it. Quotes are
-          kept on this device only. A refunded payment goes to the refund address you enter, on the
-          source chain. Read the terms of use linked at the top of this page as well.
-        </p>
-      </Fold>
-      <p className="nc-cap">
-        The quote and status requests go from this page to 1Click, which sees your IP address (and,
-        once you ask for a real quote, your refund address, the note’s commitment and the payout
-        account).
-      </p>
-
+    <section className="nc-intents" data-testid="intents">
       {offered.length > 1 && (
-        <div
-          className="nc-radios nc-intents-path"
-          role="radiogroup"
-          aria-label="How the vault is paid"
-          data-testid="intents-path"
-        >
-          <label className="nc-tile">
-            <input
-              type="radio"
-              name="intents-path"
-              data-testid="intents-path-direct"
-              checked={!twoStep}
-              disabled={stage !== 'none'}
-              onChange={() => setTwoStep(false)}
-            />
-            <span>1Click pays the vault directly</span>
-          </label>
-          <label className="nc-tile">
-            <input
-              type="radio"
-              name="intents-path"
-              data-testid="intents-path-two-step"
-              checked={twoStep}
-              disabled={stage !== 'none'}
-              onChange={() => setTwoStep(true)}
-            />
-            <span>1Click pays my NEAR account, then my wallet pays the vault (two steps)</span>
-          </label>
+        <div className="nc-intents-way">
+          <div
+            className="nc-seg nc-intents-path"
+            role="radiogroup"
+            aria-label="How the vault is paid"
+            data-testid="intents-path"
+          >
+            <label>
+              <input
+                type="radio"
+                name="intents-path"
+                data-testid="intents-path-direct"
+                checked={!twoStep}
+                disabled={stage !== 'none'}
+                onChange={() => setTwoStep(false)}
+              />
+              <span>Direct</span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="intents-path"
+                data-testid="intents-path-two-step"
+                checked={twoStep}
+                disabled={stage !== 'none'}
+                onChange={() => setTwoStep(true)}
+              />
+              <span>Two steps</span>
+            </label>
+          </div>
+          <p>
+            {twoStep
+              ? '1Click pays your NEAR account, then you sign the transfer to the vault.'
+              : '1Click pays the vault.'}
+          </p>
         </div>
       )}
-      {twoStep && (
+      <p className="nc-intents-line">
+        {PRIVACY.split('. ')[0]}.{twoStep ? ` ${PRIVACY_TWO_STEP}` : ''}
+      </p>
+      <Fold title="Terms for this path" testId="intents-terms">
+        <dl className="nc-terms-list">
+          <div>
+            <dt>Who sees this payment</dt>
+            <dd data-testid="intents-privacy">
+              {twoStep ? `${PRIVACY} ${PRIVACY_TWO_STEP}` : PRIVACY}
+            </dd>
+          </div>
+          {twoStep && (
+            <div>
+              <dt>Why two steps</dt>
+              <dd data-testid="intents-two-step-notice">{TWO_STEP_NOTICE}</dd>
+            </div>
+          )}
+          <div>
+            <dt>Who holds the money</dt>
+            <dd>
+              You pay 1Click from your own wallet. 1Click and its solvers hold the funds while they
+              are in transit and decide the exchange rate within the quote you accept. Nymira does
+              not operate 1Click, cannot refund a failed order, and receives nothing from it.
+            </dd>
+          </div>
+          <div>
+            <dt>Quotes and refunds</dt>
+            <dd>
+              Quotes are kept on this device only. A refunded payment goes to the refund address you
+              enter, on the source chain. Read the terms of use linked at the top of this page as
+              well.
+            </dd>
+          </div>
+          <div>
+            <dt>What the requests show</dt>
+            <dd>
+              The quote and status requests go from this page to 1Click, which sees your IP address
+              (and, once you ask for a real quote, your refund address, the note’s commitment and
+              the payout account).
+              {twoStep
+                ? ' Checking the account shows it to the RPC provider, next to your IP address.'
+                : ''}
+            </dd>
+          </div>
+          <div>
+            <dt>Tor Browser</dt>
+            <dd data-testid="intents-tor">
+              If you use Tor Browser: 1Click calls on this page must not go through Tor, because
+              1Click does not accept Tor traffic. Use a normal browser for this step, or fund with{' '}
+              {PROFILE.tokenSymbol} on NEAR instead.
+            </dd>
+          </div>
+        </dl>
+      </Fold>
+      {twoStep && (account === '' || (gate?.account === account && gate.problem)) && (
         <div data-testid="intents-two-step">
-          <p className="nc-notice" data-testid="intents-two-step-notice">
-            {TWO_STEP_NOTICE}
-          </p>
-          {account === '' && <p className="nc-cap">Connect a wallet above to use this path.</p>}
+          {account === '' && (
+            <p className="nc-intents-line">Connect a wallet (top right) to use this path.</p>
+          )}
           {gate?.account === account && gate.problem && (
             <p className="nc-msg" data-tone="err" data-testid="intents-two-step-problem">
               {gate.problem}
             </p>
           )}
-          <p className="nc-cap">
-            Checking the account shows it to the RPC provider, next to your IP address.
-          </p>
         </div>
       )}
 
-      <ol className="nc-steps nc-intents-steps">
+      <ol className="nc-steps">
         <li data-s={stepState(0)}>
           <h2>Source</h2>
-          <div className="nc-actions nc-actions-first">
-            <Button
-              testId="intents-load-sources"
-              disabled={
-                busy !== '' ||
-                !vaultOk ||
-                stage !== 'none' ||
-                !twoStepOk ||
-                (twoStep && account === '')
-              }
-              onClick={loadSources}
-            >
-              {busy === 'sources' ? 'Asking 1Click…' : 'Show sources'}
-            </Button>
-          </div>
+          <p className="nc-cap nc-cap-first">Pick the chain and token you pay from.</p>
+          {rows === null && source === null && (
+            <div className="nc-src-ask">
+              <Button
+                testId="intents-load-sources"
+                disabled={!canLoad || busy !== ''}
+                onClick={loadSources}
+              >
+                {busy === 'sources' ? 'Asking 1Click…' : 'Show sources'}
+              </Button>
+              <p>
+                {twoStep && account === ''
+                  ? 'Connect a wallet (top right) first.'
+                  : 'Asks 1Click for prices. 1Click sees your IP address.'}
+              </p>
+            </div>
+          )}
+          {rows !== null && (
+            <div className="nc-src-head">
+              <span>{busy === 'sources' ? 'Asking 1Click…' : 'Prices from 1Click'}</span>
+              <button
+                type="button"
+                className="nc-src-refresh"
+                data-testid="intents-refresh-sources"
+                data-busy={busy === 'sources'}
+                aria-label="Refresh prices (asks 1Click again)"
+                title="Refresh prices (asks 1Click again)"
+                disabled={!canLoad}
+                onClick={loadSources}
+              >
+                <Icon name="refresh" size={14} />
+              </button>
+            </div>
+          )}
+          {rows === null && source !== null && (
+            <div className="nc-src-list">
+              <div className="nc-src nc-src-static">
+                <span
+                  className="nc-chain"
+                  data-chain={(source.label.split(' on ')[1] ?? '').toLowerCase()}
+                  aria-hidden="true"
+                />
+                <span className="nc-src-name">{source.label.split(' on ')[1] ?? source.label}</span>
+                <span className="nc-src-price">{source.label.split(' on ')[0]}</span>
+              </div>
+            </div>
+          )}
           {rows && (
-            <div className="nc-radios" role="radiogroup" aria-label="Source">
+            <div className="nc-src-list" role="radiogroup" aria-label="Source">
               {listed.map(({ quote }) => {
                 const asset = PROFILE.oneClick.shortlist.find((a) => a.label === quote.label);
-                return asset ? (
-                  <label key={asset.assetId} className="nc-tile">
+                if (!asset) return null;
+                const [token = '', chain = asset.label] = asset.label.split(' on ');
+                const price = Number.parseFloat(String(quote.amountInFormatted));
+                return (
+                  <label key={asset.assetId} className="nc-src" aria-label={asset.label}>
                     <input
                       type="radio"
                       name="intents-source"
@@ -519,10 +626,24 @@ export function Intents({
                       checked={source?.assetId === asset.assetId}
                       onChange={() => setSource(asset)}
                     />
-                    <span>{asset.label}</span>
-                    <code>about {quote.amountInFormatted} in</code>
+                    <i className="nc-src-dot" aria-hidden="true" />
+                    <span
+                      className="nc-chain"
+                      data-chain={chain.toLowerCase()}
+                      aria-hidden="true"
+                    />
+                    <span className="nc-src-name">{chain}</span>
+                    <span className="nc-src-price">
+                      {Number.isFinite(price) ? (
+                        <>
+                          <b>{price.toFixed(4)}</b> {token}
+                        </>
+                      ) : (
+                        String(quote.amountInFormatted)
+                      )}
+                    </span>
                   </label>
-                ) : null;
+                );
               })}
             </div>
           )}
@@ -546,8 +667,7 @@ export function Intents({
           <h2>Payout account</h2>
           <p className="nc-cap nc-cap-first">
             The vault pays this NEAR account when you close the note or exit. It is written into the
-            deposit message and cannot be changed afterwards. Use a fresh account that nothing else
-            links to you.
+            deposit message and cannot be changed. Use a fresh account.
           </p>
           <label className="nc-field">
             <span>Payout account</span>
@@ -564,31 +684,29 @@ export function Intents({
               {problem}
             </p>
           )}
-          {validPayout && (
-            <>
+          {validPayout && stage === 'none' && (
+            <div className="nc-pay">
               <div className="nc-fp">
                 <small>Fingerprint of {payout}</small>
                 <code data-testid="intents-fingerprint">{fingerprint}</code>
-                <p>Check the account letter by letter.</p>
+                <p>Compare this code with the same account in your wallet.</p>
               </div>
-              <label className="nc-check">
+              <label className="nc-keep">
                 <input
                   type="checkbox"
                   checked={confirmed}
                   data-testid="intents-fingerprint-confirm"
                   onChange={(e) => setConfirmed(e.target.checked)}
                 />
-                <span>
-                  This is the account I want paid.
-                  <small>
-                    Checking this account asks the RPC provider about it, so the provider sees it
-                    next to your IP address.
-                  </small>
+                <span className="nc-keep-switch" aria-hidden="true" />
+                <span className="nc-keep-text">
+                  <strong>This is the account I want paid</strong>
+                  <small>The RPC provider will see it next to your IP address.</small>
                 </span>
               </label>
               {assessment === 'failed' && (
                 <p className="nc-msg" data-tone="warn" data-testid="intents-assess-failed">
-                  The account could not be checked.
+                  The account could not be looked up. Check the name, or try again in a moment.
                 </p>
               )}
               {typeof assessment === 'object' && assessment !== null && (
@@ -613,7 +731,7 @@ export function Intents({
                   )}
                 </>
               )}
-            </>
+            </div>
           )}
           <p className="nc-cap" data-testid="intents-costs">
             Closing a note through the operator costs the close fee ({units(pins.config.close_fee)}
@@ -624,9 +742,9 @@ export function Intents({
         <li data-s={stepState(2)}>
           <h2>Protect and back up</h2>
           {!unlocked ? (
-            <p className="nc-cap nc-cap-first">
-              Set or enter your passphrase in step 4 above first.
-            </p>
+            active ? (
+              <Unlock onReady={onUnlocked} />
+            ) : null
           ) : (
             <BackupSteps
               prefix="intents-"
@@ -645,7 +763,7 @@ export function Intents({
               passDisabled={!created}
               passMin={MIN_PASSPHRASE_LENGTH}
               params={null}
-              downloaded={downloaded}
+              downloaded={downloaded || backedUp}
               downloadLabel={busy === 'download' ? 'Encrypting…' : `Download (${BACKUP_EXTENSION})`}
               downloadDisabled={
                 passphraseLength(backupPass) < MIN_PASSPHRASE_LENGTH ||
@@ -668,7 +786,10 @@ export function Intents({
         </li>
         <li data-s={stepState(3)}>
           <h2>Quote</h2>
-          <div className="nc-actions nc-actions-first">
+          <div
+            className="nc-actions nc-actions-first"
+            hidden={attempt !== null && !expired && !error}
+          >
             <Button
               primary
               testId="intents-quote"
@@ -695,30 +816,43 @@ export function Intents({
               <Facts
                 rows={[
                   [
-                    'Deadline',
-                    <strong data-testid="intents-deadline">{String(q.deadline)}</strong>,
+                    'You pay',
+                    <strong data-testid="intents-pay-amount">
+                      {String(q.amountInFormatted)} {attempt.source.split(' on ')[0]}
+                    </strong>,
+                  ],
+                  ['On', attempt.source.split(' on ')[1] ?? attempt.source],
+                  [
+                    'You receive',
+                    <>
+                      {String(q.amountOutFormatted)} {PROFILE.tokenSymbol}
+                    </>,
                   ],
                   [
-                    'Refund address',
-                    <code data-testid="intents-refund-shown">{attempt.refund}</code>,
+                    'Valid until',
+                    <strong data-testid="intents-deadline">{deadlineText(q.deadline)}</strong>,
                   ],
+                  ['Refund to', <code data-testid="intents-refund-shown">{attempt.refund}</code>],
                 ]}
               />
-              <p className="nc-cap" data-testid="intents-cost">
-                You pay about <strong>{String(q.amountInFormatted)}</strong> ({attempt.source}).{' '}
-                <strong>{String(q.amountOutFormatted)}</strong> {PROFILE.tokenSymbol} is delivered (
-                {units(price)}: the denomination plus the note fee). The difference is the all-in
-                cost. It includes 1Click’s documented fee for keyless use, {KEYLESS_FEE_BPS} basis
-                points of the amount delivered; the quote does not itemise it, so no split is shown.
-              </p>
-              <p className="nc-cap" data-testid="intents-fees">
-                {fees.length === 0
-                  ? 'The quote lists no other fees.'
-                  : `Other fees the quote lists: ${fees.map(([n, v]) => `${n}=${JSON.stringify(v)}`).join(', ')}.`}
-              </p>
-              <p className="nc-cap" data-testid="intents-trust">
-                {TRUST_NOTE}
-              </p>
+              <Fold title="How the cost is made up">
+                <p className="nc-cap nc-cap-first" data-testid="intents-cost">
+                  You pay about <strong>{String(q.amountInFormatted)}</strong> ({attempt.source}).{' '}
+                  <strong>{String(q.amountOutFormatted)}</strong> {PROFILE.tokenSymbol} is delivered
+                  ({units(price)}: the denomination plus the note fee). The difference is the all-in
+                  cost. It includes 1Click’s documented fee for keyless use, {KEYLESS_FEE_BPS} basis
+                  points of the amount delivered; the quote does not itemise it, so no split is
+                  shown.
+                </p>
+                <p className="nc-cap" data-testid="intents-fees">
+                  {fees.length === 0
+                    ? 'The quote lists no other fees.'
+                    : `Other fees the quote lists: ${fees.map(([n, v]) => `${n}=${JSON.stringify(v)}`).join(', ')}.`}
+                </p>
+                <p className="nc-cap" data-testid="intents-trust">
+                  {TRUST_NOTE}
+                </p>
+              </Fold>
               {!shown && (
                 <div className="nc-actions">
                   <Button
@@ -747,8 +881,25 @@ export function Intents({
                 Pay from your own wallet on the source chain. Send exactly{' '}
                 <strong>{String(q.amountInFormatted)}</strong> to:
               </p>
-              <div className="nc-fp">
-                <small>Deposit address</small>
+              <div className="nc-fp nc-deposit">
+                <div className="nc-deposit-head">
+                  <small>Deposit address</small>
+                  <button
+                    type="button"
+                    className="nc-link"
+                    onClick={() => {
+                      void navigator.clipboard
+                        ?.writeText(String(q.depositAddress))
+                        .then(() => {
+                          setCopied(true);
+                          window.setTimeout(() => setCopied(false), 1600);
+                        })
+                        .catch(() => undefined);
+                    }}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
                 <code data-testid="intents-address">{String(q.depositAddress)}</code>
                 {typeof q.depositMemo === 'string' && q.depositMemo !== '' && (
                   <small>
@@ -756,7 +907,8 @@ export function Intents({
                   </small>
                 )}
               </div>
-              <p className="nc-msg" data-testid="intents-progress">
+              <p className="nc-status" data-testid="intents-progress">
+                <i aria-hidden="true" />
                 {progress || 'Waiting for your payment.'}
               </p>
               {pendingReason && !accepted && !booked && (
@@ -764,9 +916,11 @@ export function Intents({
                   The deposit is not accepted yet: {pendingReason}.
                 </p>
               )}
-              <p className="nc-cap" data-testid="intents-route">
-                {ROUTE_FALLBACK}
-              </p>
+              <Fold title="If delivery is delayed">
+                <p className="nc-cap nc-cap-first" data-testid="intents-route">
+                  {ROUTE_FALLBACK}
+                </p>
+              </Fold>
             </div>
           )}
 
@@ -890,6 +1044,43 @@ export function Intents({
           )}
         </li>
       </ol>
-    </Card>
+      {created && !accepted && !booked && (
+        <div className="nc-intents-cancel" data-testid="intents-cancel-row">
+          {note?.phase === 'sent' ? (
+            <p>The payment has reached the vault. It cannot be cancelled here.</p>
+          ) : cancelling ? (
+            <>
+              <p>
+                {shown
+                  ? 'Cancel this funding? If you already sent money, do not cancel: it can still arrive. Keep your backup file and restore it from Notes.'
+                  : 'Cancel this funding and start again? Nothing has been paid.'}
+              </p>
+              <div className="nc-actions nc-actions-first">
+                <button
+                  type="button"
+                  className="nc-button nc-danger nc-danger-solid"
+                  data-testid="intents-cancel-confirm"
+                  disabled={busy !== ''}
+                  onClick={cancelFunding}
+                >
+                  Yes, cancel
+                </button>
+                <Button onClick={() => setCancelling(false)}>Keep going</Button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="nc-button nc-danger"
+              data-testid="intents-cancel"
+              disabled={busy !== ''}
+              onClick={() => (shown ? setCancelling(true) : cancelFunding())}
+            >
+              Cancel and start over
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import fundIllustration from '../marketing/assets/app-fund.webp';
-import { BackupSteps, Button, Card, Chip, FundSide, Screen, Strip } from '../marketing/kit';
+import { BackupSteps, Button, Chip, Facts, FundSide, Screen, Strip } from '../marketing/kit';
 import { PROFILE } from '../profile';
 import { assessPayout, accountFingerprint, type PayoutAssessment } from '../chain/token';
 import type { VaultCheck } from '../chain/vault';
@@ -96,47 +96,58 @@ function Quotes({ denomination }: { denomination: string }) {
   }, [on, denomination, book]);
 
   return (
-    <Card
-      title="Fund from another chain"
-      aside={<Chip>quote only on {PROFILE.network}</Chip>}
-      testId="quotes"
-    >
-      <p className="nc-cap nc-cap-first" data-testid="quote-only">
+    <section className="nc-intents" data-testid="quotes">
+      <p className="nc-intents-line" data-testid="quote-only">
         {QUOTE_ONLY}
       </p>
-      <label className="nc-check">
+      <label className="nc-keep">
         <input
           type="checkbox"
           checked={on}
           data-testid="quotes-toggle"
           onChange={(e) => setOn(e.target.checked)}
         />
-        <span>Show live quotes</span>
+        <span className="nc-keep-switch" aria-hidden="true" />
+        <span className="nc-keep-text">
+          <strong>Show live prices</strong>
+          <small data-testid="quotes-notice">
+            Asking 1Click for a quote shows it your IP address. This page cannot use Tor, so Tor
+            Browser is recommended. The request carries a dummy refund address and placeholder
+            values, never your note.
+          </small>
+        </span>
       </label>
-      <p className="nc-cap" data-testid="quotes-notice">
-        Asking 1Click for a quote shows it your IP address. This page cannot use Tor, so Tor Browser
-        is recommended. The request carries a dummy refund address and placeholder values, never
-        your note.
-      </p>
       {on && rows && (
-        <div className="nc-quotes">
-          {rows.map((row) => (
-            <span key={row.label} data-testid="quote-row">
-              {'quote' in row ? (
-                <>
-                  {row.label}: about {row.quote.amountInFormatted} in, to receive{' '}
-                  {units(notePrice(denomination))} <strong>quote only</strong>
-                </>
-              ) : (
-                <>
-                  {row.label}: {row.error} <strong>quote only</strong>
-                </>
-              )}
-            </span>
-          ))}
+        <div className="nc-src-list">
+          {rows.map((row) => {
+            const [token = '', chain = row.label] = row.label.split(' on ');
+            const price =
+              'quote' in row ? Number.parseFloat(String(row.quote.amountInFormatted)) : NaN;
+            return (
+              <div key={row.label} className="nc-src nc-src-static" data-testid="quote-row">
+                <span className="nc-chain" data-chain={chain.toLowerCase()} aria-hidden="true" />
+                <span className="nc-src-name">{chain}</span>
+                <span className="nc-src-price">
+                  {'quote' in row ? (
+                    <>
+                      <b>
+                        {Number.isFinite(price)
+                          ? price.toFixed(4)
+                          : String(row.quote.amountInFormatted)}
+                      </b>{' '}
+                      {token}
+                    </>
+                  ) : (
+                    row.error
+                  )}{' '}
+                  <i>quote only</i>
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -147,11 +158,13 @@ export function Fund({
   recheck,
   onChat,
   onNotes,
+  onFunded,
 }: {
   vault: VaultCheck | null;
   recheck: () => void;
   onChat: () => void;
   onNotes: () => void;
+  onFunded: () => void;
 }) {
   const wallet = useWallet();
   const pins = PROFILE.pins;
@@ -172,6 +185,20 @@ export function Fund({
   const [error, setError] = useState('');
   const [acceptance, setAcceptance] = useState<Acceptance | null>(null);
   const [rpcRead, setRpcRead] = useState(false);
+  const [route, setRoute] = useState<'near' | 'other'>(() => {
+    try {
+      return sessionStorage.getItem('nymira.route') === 'other' ? 'other' : 'near';
+    } catch {
+      return 'near';
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('nymira.route', route);
+    } catch {
+      // Not remembered: a reload starts on the NEAR route.
+    }
+  }, [route]);
   const outcomeRef = useRef<unknown>(null);
 
   const sender = wallet.connected?.accountId ?? '';
@@ -271,6 +298,7 @@ export function Fund({
           });
       setAcceptance(result);
       if ('record' in result) setNote(result.record);
+      if (result.status === 'accepted') onFunded();
     });
 
   const onCalendar = () => {
@@ -286,6 +314,7 @@ export function Fund({
   const created = stage !== 'none' && stage !== 'rejected';
   const backedUp = created && stage !== 'prepared';
   const accepted = acceptance?.status === 'accepted' ? acceptance : null;
+  const otherRoute = intentsPathsEnabled(PROFILE) || dryQuotesEnabled(PROFILE);
   const scale = 10 ** PROFILE.tokenDecimals;
   const amount = Number(BigInt(denomination)) / scale;
   const biggest = Math.max(...(pins?.config.denominations ?? [denomination]).map(Number));
@@ -365,361 +394,449 @@ export function Fund({
         />
       }
     >
-      <p className="nc-terms" data-testid="terms-fund">
-        By funding a note you accept the{' '}
-        <a
-          href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          terms of use
-        </a>
-        .
-      </p>
-      <ol className="nc-steps">
-        <li data-s={stepState(0)}>
-          <h2>Wallet</h2>
-          <WalletConnect busy={busy !== ''} />
-          <VaultBanner check={vault} onRecheck={recheck} />
-        </li>
-        <li data-s={stepState(1)}>
-          <h2>Size</h2>
-          <div className="nc-choices" role="radiogroup" aria-label="Denomination">
-            {pins.config.denominations.map((d) => (
-              <label key={d} className="nc-tile">
+      <div className="nc-fund-top">
+        <p className="nc-terms" data-testid="terms-fund">
+          By funding a note you accept the{' '}
+          <a
+            href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            terms of use
+          </a>
+          .
+        </p>
+        {otherRoute && (
+          <fieldset className="nc-route">
+            <legend className="nc-sr">Where is the money coming from?</legend>
+            <div className="nc-seg">
+              <label>
                 <input
                   type="radio"
-                  name="denomination"
-                  value={d}
-                  checked={denomination === d}
-                  disabled={created}
-                  data-testid={`denomination-${d}`}
-                  onChange={() => setDenomination(d)}
+                  name="route"
+                  data-testid="fund-source-near"
+                  checked={route === 'near'}
+                  onChange={() => setRoute('near')}
                 />
-                <strong>{units(d)}</strong>
-                <Strip
-                  n={11}
-                  solid={Math.round((Number(d) / biggest) * 10)}
-                  reserved={1}
-                  size="sm"
-                />
-                <small>
-                  You send {units(notePrice(d))}: {units(d)} stays yours, {units(fee)} is the fee.
-                </small>
+                <span>
+                  {PROFILE.tokenSymbol} on
+                  <span className="nc-logo nc-logo-near" role="img" aria-label="NEAR" />
+                </span>
               </label>
-            ))}
-          </div>
-          {PROFILE.network === 'testnet' && (
-            <p className="nc-cap" data-testid="faucet">
-              Test {PROFILE.tokenSymbol} is Circle's testnet token. Get it at{' '}
-              <a href={PROFILE.faucetUrl ?? '#'} target="_blank" rel="noopener noreferrer">
-                faucet.circle.com
-              </a>{' '}
-              (choose Near Testnet; 20 {PROFILE.tokenSymbol} per request, one request per address
-              every 2 hours). Call <code>storage_deposit</code> on the token for your account before
-              the transfer, and for the payout account if it is another one.
-            </p>
-          )}
-        </li>
-        <li data-s={stepState(2)}>
-          <h2>Payout account</h2>
-          <p className="nc-cap nc-cap-first">
-            When you close the note, or leave through an exit, the vault pays this account. It is
-            fixed at deposit.
-          </p>
-          <div className="nc-radios" role="radiogroup" aria-label="Payout account">
-            <label className="nc-tile">
-              <input
-                type="radio"
-                name="payout"
-                checked={payoutMode === 'self'}
-                data-testid="payout-self"
-                onChange={() => setPayoutMode('self')}
-              />
-              <span>My sending account</span>
-              <code data-testid="payout-account">{sender || 'connect a wallet'}</code>
-            </label>
-            <label className="nc-tile">
-              <input
-                type="radio"
-                name="payout"
-                checked={payoutMode === 'other'}
-                data-testid="payout-other"
-                onChange={() => setPayoutMode('other')}
-              />
-              <span>Another account</span>
-              <code>{other.trim() || 'a fresh account'}</code>
-            </label>
-          </div>
-          {payoutMode === 'self' ? (
-            <p className="nc-cap" data-testid="payout-default-note">
-              The deposit message will not name a payout account, so there is nothing in it to
-              alter. For a payout that is not linked to this account on chain, use a fresh account
-              instead.
-            </p>
-          ) : (
-            <div className="nc-other">
-              <label className="nc-field">
-                <span>Payout account</span>
+              <label>
                 <input
-                  type="text"
-                  value={other}
-                  placeholder="fresh-account.testnet"
-                  data-testid="payout-input"
-                  onChange={(e) => setOther(e.target.value)}
+                  type="radio"
+                  name="route"
+                  data-testid="fund-source-other"
+                  checked={route === 'other'}
+                  onChange={() => setRoute('other')}
                 />
+                <span>
+                  <span className="nc-logo nc-logo-eth" aria-hidden="true" />
+                  Another chain
+                  {!intentsPathsEnabled(PROFILE) && <em className="nc-seg-tag">quote only</em>}
+                </span>
               </label>
-              {other !== '' && !isAccountId(payout) && (
-                <p className="nc-msg" data-tone="err">
-                  Not a valid NEAR account id.
-                </p>
-              )}
-              {isAccountId(payout) && payout === sender && (
-                <p className="nc-msg">That is your sending account: choose the first option.</p>
-              )}
-              {isAccountId(payout) && payout !== sender && (
-                <>
-                  <div className="nc-fp" data-testid="fingerprint-box">
-                    <small>Fingerprint of {payout}</small>
-                    <code data-testid="fingerprint">{fingerprint}</code>
-                    <p>
-                      Check the account letter by letter. A swapped account is the way this page
-                      could cost you the payout.
-                    </p>
-                  </div>
-                  <label className="nc-check">
-                    <input
-                      type="checkbox"
-                      checked={fingerprintOk}
-                      data-testid="fingerprint-confirm"
-                      onChange={(e) => setFingerprintOk(e.target.checked)}
-                    />
-                    <span>
-                      This is the account I want paid.
-                      <small>
-                        Checking this account asks the RPC provider about it, so the provider sees
-                        it next to your IP address.
-                      </small>
-                    </span>
-                  </label>
-                  {assessment === 'checking' && <p className="nc-msg">Checking the account…</p>}
-                  {assessment === 'failed' && (
-                    <p className="nc-msg" data-tone="warn" data-testid="assess-failed">
-                      The account could not be checked.
-                    </p>
-                  )}
-                  {typeof assessment === 'object' && assessment !== null && (
-                    <>
-                      {!assessment.registered && (
-                        <p className="nc-msg" data-tone="warn" data-testid="warn-unregistered">
-                          This account is not registered with the {PROFILE.tokenSymbol} token. A
-                          payout to it would wait until it is registered (call{' '}
-                          <code>storage_deposit</code> for it).
-                        </p>
-                      )}
-                      {assessment.registered && !assessment.fresh && (
-                        <p className="nc-msg" data-tone="warn" data-testid="warn-not-fresh">
-                          This account already holds {PROFILE.tokenSymbol}, so it is not fresh. A
-                          payout to it is easy to link to its history.
-                        </p>
-                      )}
-                      {assessment.registered && assessment.fresh && (
-                        <p className="nc-msg" data-tone="ok">
-                          Registered with the token and holding none yet: a fresh account.
-                        </p>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
             </div>
-          )}
-        </li>
-        <li data-s={stepState(3)}>
-          <h2>Protect and back up</h2>
-          {!unlocked ? (
-            <Unlock onReady={() => setUnlocked(true)} />
-          ) : (
-            <>
-              <p className="nc-cap nc-cap-first">
-                The secret is stored encrypted before anything is sent. Then you download a backup
-                and check it by opening it again: only after that does the app offer the transfer.
-              </p>
-              <BackupSteps
-                created={created}
-                createLabel={
-                  created
-                    ? 'Created'
-                    : busy === 'prepare'
-                      ? 'Creating the note…'
-                      : 'Create the secret'
-                }
-                createDisabled={
-                  created || !vaultOk || !wallet.connected || !payoutReady || busy !== ''
-                }
-                onCreate={onPrepare}
-                createNote={
-                  created && (
-                    <small data-testid="persist-status">
-                      Persistent storage:{' '}
-                      {persist === 'granted'
-                        ? 'granted. The browser will not clear this site’s data under disk pressure.'
-                        : persist === 'denied'
-                          ? 'not granted. The browser may clear this site’s data, so keep the backup file safe.'
-                          : 'not supported by this browser. Keep the backup file safe.'}
-                    </small>
-                  )
-                }
-                pass={backupPass}
-                onPass={setBackupPass}
-                passDisabled={!created}
-                passMin={MIN_PASSPHRASE_LENGTH}
-                params={
-                  <small data-testid="backup-params">
-                    The file is encrypted with {ARGON2_SENTENCE}, the same settings that wrap your
-                    notes. Do not keep it in a synced folder: a copy in the cloud can be opened by
-                    guessing the passphrase, and whoever opens it can spend the note.
+          </fieldset>
+        )}
+      </div>
+      <div hidden={route !== 'near'}>
+        <ol className="nc-steps">
+          <li data-s={stepState(0)}>
+            <h2>Wallet</h2>
+            <WalletConnect busy={busy !== ''} />
+            <VaultBanner check={vault} onRecheck={recheck} />
+          </li>
+          <li data-s={stepState(1)}>
+            <h2>Size</h2>
+            <div className="nc-choices" role="radiogroup" aria-label="Denomination">
+              {pins.config.denominations.map((d) => (
+                <label key={d} className="nc-tile">
+                  <input
+                    type="radio"
+                    name="denomination"
+                    value={d}
+                    checked={denomination === d}
+                    disabled={created}
+                    data-testid={`denomination-${d}`}
+                    onChange={() => setDenomination(d)}
+                  />
+                  <strong>{units(d)}</strong>
+                  <Strip
+                    n={11}
+                    solid={Math.round((Number(d) / biggest) * 10)}
+                    reserved={1}
+                    size="sm"
+                  />
+                  <small>
+                    You send {units(notePrice(d))}: {units(d)} stays yours, {units(fee)} is the fee.
                   </small>
-                }
-                downloaded={downloaded}
-                downloadLabel={
-                  busy === 'download' ? 'Encrypting…' : `Download (${BACKUP_EXTENSION})`
-                }
-                downloadDisabled={
-                  passphraseLength(backupPass) < MIN_PASSPHRASE_LENGTH ||
-                  busy !== '' ||
-                  stage !== 'prepared'
-                }
-                onDownload={onDownload}
-                tested={backedUp}
-                testedNote={
-                  <small data-testid="backup-tested">Backup downloaded and test-restored.</small>
-                }
-                chooseLabel={backedUp ? 'Restores' : 'Choose the file'}
-                chooseDisabled={stage !== 'prepared' || !downloaded || busy !== ''}
-                onFile={onChooseBackup}
-                fileReady={stage === 'prepared' && downloaded}
-              />
-            </>
-          )}
-        </li>
-        <li data-s={stepState(4)} data-locked={!created || stage === 'prepared'}>
-          <h2>Send</h2>
-          {accepted && note ? (
-            <div className="nc-done nc-accepted" data-testid="accepted">
-              <Chip tone="good">deposit accepted</Chip>
-              <p>
-                Note <strong data-testid="note-id">#{accepted.event.noteId}</strong> expires{' '}
-                <strong data-testid="note-expiry">{formatDate(accepted.event.expiry)}</strong>.{' '}
-                {accepted.source === 'wallet'
-                  ? 'The receipt was read from your wallet.'
-                  : accepted.source === 'rpc'
-                    ? 'The receipt was read from the RPC provider.'
-                    : 'Your wallet never answered, so the app found the note on the vault itself.'}
+                </label>
+              ))}
+            </div>
+            {PROFILE.network === 'testnet' && (
+              <p className="nc-cap" data-testid="faucet">
+                Test {PROFILE.tokenSymbol} is Circle's testnet token. Get it at{' '}
+                <a href={PROFILE.faucetUrl ?? '#'} target="_blank" rel="noopener noreferrer">
+                  faucet.circle.com
+                </a>{' '}
+                (choose Near Testnet; 20 {PROFILE.tokenSymbol} per request, one request per address
+                every 2 hours). Call <code>storage_deposit</code> on the token for your account
+                before the transfer, and for the payout account if it is another one.
               </p>
-              {accepted.source === 'chain' && (
-                <p className="nc-msg" data-tone="warn" data-testid="chain-found-warning">
-                  Without the wallet’s receipt the app could not check the payout account. Open the
-                  transaction in your wallet’s history or the explorer and check that it pays{' '}
-                  <strong>{note.payout}</strong>.
+            )}
+          </li>
+          <li data-s={stepState(2)}>
+            <h2>Payout account</h2>
+            <p className="nc-cap nc-cap-first">
+              When you close the note, or leave through an exit, the vault pays this account. It is
+              fixed at deposit.
+            </p>
+            <div className="nc-radios" role="radiogroup" aria-label="Payout account">
+              <label className="nc-tile">
+                <input
+                  type="radio"
+                  name="payout"
+                  checked={payoutMode === 'self'}
+                  data-testid="payout-self"
+                  onChange={() => setPayoutMode('self')}
+                />
+                <span>My sending account</span>
+                <code data-testid="payout-account">{sender || 'connect a wallet'}</code>
+              </label>
+              <label className="nc-tile">
+                <input
+                  type="radio"
+                  name="payout"
+                  checked={payoutMode === 'other'}
+                  data-testid="payout-other"
+                  onChange={() => setPayoutMode('other')}
+                />
+                <span>Another account</span>
+                <code>{other.trim() || 'a fresh account'}</code>
+              </label>
+            </div>
+            {payoutMode === 'self' ? (
+              <p className="nc-cap" data-testid="payout-default-note">
+                The deposit message will not name a payout account, so there is nothing in it to
+                alter. For a payout that is not linked to this account on chain, use a fresh account
+                instead.
+              </p>
+            ) : (
+              <div className="nc-other">
+                <label className="nc-field">
+                  <span>Payout account</span>
+                  <input
+                    type="text"
+                    value={other}
+                    placeholder="fresh-account.testnet"
+                    data-testid="payout-input"
+                    onChange={(e) => setOther(e.target.value)}
+                  />
+                </label>
+                {other !== '' && !isAccountId(payout) && (
+                  <p className="nc-msg" data-tone="err">
+                    Not a valid NEAR account id.
+                  </p>
+                )}
+                {isAccountId(payout) && payout === sender && (
+                  <p className="nc-msg">That is your sending account: choose the first option.</p>
+                )}
+                {isAccountId(payout) && payout !== sender && (
+                  <div className="nc-pay">
+                    <div className="nc-fp" data-testid="fingerprint-box">
+                      <small>Fingerprint of {payout}</small>
+                      <code data-testid="fingerprint">{fingerprint}</code>
+                      <p>Compare this code with the same account in your wallet.</p>
+                    </div>
+                    <label className="nc-keep">
+                      <input
+                        type="checkbox"
+                        checked={fingerprintOk}
+                        data-testid="fingerprint-confirm"
+                        onChange={(e) => setFingerprintOk(e.target.checked)}
+                      />
+                      <span className="nc-keep-switch" aria-hidden="true" />
+                      <span className="nc-keep-text">
+                        <strong>This is the account I want paid</strong>
+                        <small>The RPC provider will see it next to your IP address.</small>
+                      </span>
+                    </label>
+                    {assessment === 'checking' && <p className="nc-msg">Checking the account…</p>}
+                    {assessment === 'failed' && (
+                      <p className="nc-msg" data-tone="warn" data-testid="assess-failed">
+                        The account could not be looked up. Check the name, or try again in a
+                        moment.
+                      </p>
+                    )}
+                    {typeof assessment === 'object' && assessment !== null && (
+                      <>
+                        {!assessment.registered && (
+                          <p className="nc-msg" data-tone="warn" data-testid="warn-unregistered">
+                            This account is not registered with the {PROFILE.tokenSymbol} token. A
+                            payout to it would wait until it is registered (call{' '}
+                            <code>storage_deposit</code> for it).
+                          </p>
+                        )}
+                        {assessment.registered && !assessment.fresh && (
+                          <p className="nc-msg" data-tone="warn" data-testid="warn-not-fresh">
+                            This account already holds {PROFILE.tokenSymbol}, so it is not fresh. A
+                            payout to it is easy to link to its history.
+                          </p>
+                        )}
+                        {assessment.registered && assessment.fresh && (
+                          <p className="nc-msg" data-tone="ok">
+                            Registered with the token and holding none yet: a fresh account.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </li>
+          <li data-s={stepState(3)}>
+            <h2>Protect and back up</h2>
+            {!unlocked ? (
+              route === 'near' ? (
+                <Unlock onReady={() => setUnlocked(true)} />
+              ) : null
+            ) : (
+              <>
+                <p className="nc-cap nc-cap-first">
+                  Nothing is sent until you have a backup that opens.
                 </p>
-              )}
-              <ul>
-                {note.txHash && (
+                <BackupSteps
+                  created={created}
+                  createLabel={
+                    created
+                      ? 'Created'
+                      : busy === 'prepare'
+                        ? 'Creating the note…'
+                        : 'Create the secret'
+                  }
+                  createDisabled={
+                    created || !vaultOk || !wallet.connected || !payoutReady || busy !== ''
+                  }
+                  onCreate={onPrepare}
+                  createNote={
+                    created && (
+                      <small data-testid="persist-status">
+                        Persistent storage:{' '}
+                        {persist === 'granted'
+                          ? 'granted. The browser will not clear this site’s data under disk pressure.'
+                          : persist === 'denied'
+                            ? 'not granted. The browser may clear this site’s data, so keep the backup file safe.'
+                            : 'not supported by this browser. Keep the backup file safe.'}
+                      </small>
+                    )
+                  }
+                  pass={backupPass}
+                  onPass={setBackupPass}
+                  passDisabled={!created}
+                  passMin={MIN_PASSPHRASE_LENGTH}
+                  params={
+                    <small data-testid="backup-params">
+                      Encrypted with {ARGON2_SENTENCE}. Do not keep the file in a synced folder:
+                      whoever opens it can spend the note.
+                    </small>
+                  }
+                  downloaded={downloaded || backedUp}
+                  downloadLabel={
+                    busy === 'download' ? 'Encrypting…' : `Download (${BACKUP_EXTENSION})`
+                  }
+                  downloadDisabled={
+                    passphraseLength(backupPass) < MIN_PASSPHRASE_LENGTH ||
+                    busy !== '' ||
+                    stage !== 'prepared'
+                  }
+                  onDownload={onDownload}
+                  tested={backedUp}
+                  testedNote={
+                    <small data-testid="backup-tested">Backup downloaded and test-restored.</small>
+                  }
+                  chooseLabel={backedUp ? 'Restores' : 'Choose the file'}
+                  chooseDisabled={stage !== 'prepared' || !downloaded || busy !== ''}
+                  onFile={onChooseBackup}
+                  fileReady={stage === 'prepared' && downloaded}
+                />
+              </>
+            )}
+          </li>
+          <li data-s={stepState(4)} data-locked={!created || stage === 'prepared'}>
+            <h2>Send</h2>
+            {accepted && note ? (
+              <div
+                className="nc-result nc-accepted nc-done"
+                data-tone="good"
+                data-testid="accepted"
+              >
+                <Chip tone="good">deposit accepted</Chip>
+                <Facts
+                  rows={[
+                    ['Note', <strong data-testid="note-id">#{accepted.event.noteId}</strong>],
+                    [
+                      'Expires',
+                      <strong data-testid="note-expiry">
+                        {formatDate(accepted.event.expiry)}
+                      </strong>,
+                    ],
+                    [
+                      'Receipt',
+                      accepted.source === 'wallet'
+                        ? 'Read from your wallet'
+                        : accepted.source === 'rpc'
+                          ? 'Read from the RPC provider'
+                          : 'Your wallet never answered, so the app found the note on the vault itself.',
+                    ],
+                  ]}
+                />
+                {accepted.source === 'chain' && (
+                  <p className="nc-msg" data-tone="warn" data-testid="chain-found-warning">
+                    Without the wallet’s receipt the app could not check the payout account. Open
+                    the transaction in your wallet’s history or the explorer and check that it pays{' '}
+                    <strong>{note.payout}</strong>.
+                  </p>
+                )}
+                <h3 className="nc-result-sub">Before you chat</h3>
+                <ul>
+                  {note.txHash && (
+                    <li>
+                      <a
+                        data-testid="explorer-link"
+                        href={PROFILE.explorerTxUrl(note.txHash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open the deposit receipt in the explorer
+                      </a>
+                      <small>
+                        Check there that the payout account is <strong>{note.payout}</strong>. This
+                        page is the code you would have to trust to tell you that, so look at the
+                        chain itself.
+                      </small>
+                    </li>
+                  )}
                   <li>
-                    <a
-                      data-testid="explorer-link"
-                      href={PROFILE.explorerTxUrl(note.txHash)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Open the deposit receipt in the explorer
-                    </a>
+                    <Button testId="calendar" onClick={onCalendar}>
+                      Download a calendar reminder for the expiry
+                    </Button>
                     <small>
-                      Check there that the payout account is <strong>{note.payout}</strong>. This
-                      page is the code you would have to trust to tell you that, so look at the
-                      chain itself.
+                      The reminder has a generic title and no note data. A calendar that syncs to a
+                      provider tells that provider the date.
                     </small>
                   </li>
-                )}
-                <li>
-                  <Button testId="calendar" onClick={onCalendar}>
-                    Download a calendar reminder for the expiry
+                  <li data-testid="wait-hint">
+                    <span>Wait a while before your first chat.</span>
+                    <small>
+                      A lease opened right after funding is easy to link to the deposit by timing.
+                    </small>
+                  </li>
+                  <li>
+                    <span>Download a fresh backup from the Notes tab.</span>
+                    <small>It now holds the note’s wallet state.</small>
+                  </li>
+                </ul>
+                <div className="nc-actions">
+                  <Button primary onClick={onChat}>
+                    Chat with this note
                   </Button>
-                  <small>
-                    The reminder has a generic title and no note data. A calendar that syncs to a
-                    provider tells that provider the date.
-                  </small>
-                </li>
-                <li data-testid="wait-hint">
-                  <span>Wait a while before your first chat.</span>
-                  <small>
-                    A lease opened right after funding is easy to link to the deposit by timing.
-                  </small>
-                </li>
-                <li>
-                  <span>Download a fresh backup from the Notes tab.</span>
-                  <small>It now holds the note’s wallet state.</small>
-                </li>
-              </ul>
-              <div className="nc-actions">
-                <Button primary onClick={onChat}>
-                  Chat with this note
-                </Button>
-                <Button onClick={onNotes}>Download a fresh backup in Notes</Button>
+                  <Button onClick={onNotes}>Download a fresh backup in Notes</Button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <>
-              <div className="nc-actions nc-actions-first">
-                <Button primary testId="send" disabled={!ready || busy !== ''} onClick={onSend}>
-                  {busy === 'send'
-                    ? 'Waiting for the wallet and the receipt…'
-                    : `Send ${units(price)}`}
-                </Button>
+            ) : (
+              <>
+                <div className="nc-actions nc-actions-first">
+                  <Button primary testId="send" disabled={!ready || busy !== ''} onClick={onSend}>
+                    {busy === 'send' ? 'Sending…' : `Send ${units(price)}`}
+                  </Button>
+                </div>
+                {busy === 'send' && (
+                  <p className="nc-status" data-testid="send-waiting">
+                    <i aria-hidden="true" />
+                    Waiting for your wallet. Approve the transaction in its window; the app then
+                    reads the receipt.
+                  </p>
+                )}
+                {!ready && (
+                  <p className="nc-cap">
+                    {!sender
+                      ? 'Connect a wallet first.'
+                      : !payoutReady
+                        ? 'Choose where the payout goes.'
+                        : !vaultOk
+                          ? 'Funding is stopped until the vault check passes.'
+                          : 'Create the secret, download the backup and test it first.'}
+                  </p>
+                )}
+              </>
+            )}
+            {error && (
+              <div className="nc-result" data-tone="err" role="alert">
+                <div className="nc-result-head">
+                  <i aria-hidden="true" />
+                  <strong>That did not go through</strong>
+                </div>
+                <p data-testid="fund-error">{error}</p>
+                {/wallet|transfer|deposit|transaction/i.test(error) && (
+                  <div className="nc-actions nc-actions-first">
+                    <Button onClick={onNotes}>Look in Notes</Button>
+                  </div>
+                )}
               </div>
-              {!ready && (
-                <p className="nc-cap">
-                  {!sender
-                    ? 'Connect a wallet first.'
-                    : !payoutReady
-                      ? 'Choose where the payout goes.'
-                      : !vaultOk
-                        ? 'Funding is stopped until the vault check passes.'
-                        : 'Create the secret, download the backup and test it first.'}
+            )}
+            {rpcRead && (
+              <p className="nc-cap" data-testid="rpc-read-notice">
+                The receipt was read from the RPC provider: it saw your IP address, account, the
+                transaction hash and the time.
+              </p>
+            )}
+            {acceptance?.status === 'rejected' && (
+              <div className="nc-result" data-tone="err">
+                <div className="nc-result-head">
+                  <i aria-hidden="true" />
+                  <strong>Not accepted</strong>
+                </div>
+                <p data-testid="rejected">
+                  The deposit was not accepted: {acceptance.reason}. Check your wallet; a refused
+                  transfer is refunded by the token.
                 </p>
-              )}
-            </>
+              </div>
+            )}
+            {acceptance?.status === 'pending' && (
+              <div className="nc-result" data-tone="warn">
+                <div className="nc-result-head">
+                  <i aria-hidden="true" />
+                  <strong>Not confirmed yet</strong>
+                </div>
+                <p data-testid="pending">
+                  The deposit is not confirmed yet: {acceptance.reason}. You can look it up from the
+                  Notes tab.
+                </p>
+                <div className="nc-actions nc-actions-first">
+                  <Button onClick={onNotes}>Look it up in Notes</Button>
+                </div>
+              </div>
+            )}
+          </li>
+        </ol>
+      </div>
+      {otherRoute && (
+        <div hidden={route !== 'other'}>
+          {intentsPathsEnabled(PROFILE) && (
+            <Intents
+              vault={vault}
+              denomination={denomination}
+              unlocked={unlocked}
+              active={route === 'other'}
+              onUnlocked={() => setUnlocked(true)}
+            />
           )}
-          {error && (
-            <p className="nc-msg" data-tone="err" role="alert" data-testid="fund-error">
-              {error}
-            </p>
-          )}
-          {rpcRead && (
-            <p className="nc-msg" data-testid="rpc-read-notice">
-              The receipt was read from the RPC provider: it saw your IP address, account, the
-              transaction hash and the time.
-            </p>
-          )}
-          {acceptance?.status === 'rejected' && (
-            <p className="nc-msg" data-tone="err" data-testid="rejected">
-              The deposit was not accepted: {acceptance.reason}. Check your wallet; a refused
-              transfer is refunded by the token.
-            </p>
-          )}
-          {acceptance?.status === 'pending' && (
-            <p className="nc-msg" data-tone="warn" data-testid="pending">
-              The deposit is not confirmed yet: {acceptance.reason}. You can look it up from the
-              Notes tab.
-            </p>
-          )}
-        </li>
-      </ol>
-      {intentsPathsEnabled(PROFILE) && (
-        <Intents vault={vault} denomination={denomination} unlocked={unlocked} />
+          {dryQuotesEnabled(PROFILE) && <Quotes denomination={denomination} />}
+        </div>
       )}
-      {dryQuotesEnabled(PROFILE) && <Quotes denomination={denomination} />}
     </Screen>
   );
 }
