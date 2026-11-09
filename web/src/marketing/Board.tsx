@@ -425,7 +425,15 @@ export function Wave({ run, rows = 3, cols = 34 }: { run: boolean; rows?: number
 }
 
 /** A hash as single characters, so a match can sweep across it. */
-export function HashLine({ value, lit, size = 11 }: { value: string; lit: boolean; size?: number }) {
+export function HashLine({
+  value,
+  lit,
+  size = 11,
+}: {
+  value: string;
+  lit: boolean;
+  size?: number;
+}) {
   return (
     <code className={`nm-hashline ${lit ? 'nm-hashline-lit' : ''}`} style={{ fontSize: size }}>
       {value.split('').map((c, i) => (
