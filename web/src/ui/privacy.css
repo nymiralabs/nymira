@@ -886,3 +886,355 @@
     animation: none;
   }
 }
+
+/* ---- tighter overview: the sections sit closer together ---- */
+.nc .nc-privacy .nc-ppanel {
+  padding-top: 24px;
+}
+.nc .nc-privacy .nc-ppanel > section + section,
+.nc .nc-privacy .nc-ppanel > section + .nc-card,
+.nc .nc-privacy .nc-ppanel > .nc-card {
+  margin-top: 28px;
+}
+.nc .nc-privacy .nc-where .nc-journey {
+  margin-top: 14px;
+}
+.nc .nc-privacy .nc-glance ul {
+  margin-top: 10px;
+}
+.nc .nc-privacy .nc-flags .nc-cap-first {
+  margin-bottom: 0;
+}
+
+/* ---- what joins the two views: two nodes, a gap in the proof, three channels across it ---- */
+.nc-linkmap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 20px;
+  margin: 14px 0 12px;
+}
+.nc-link-node {
+  display: grid;
+  gap: 4px;
+  padding: 14px 18px;
+  border: 1px solid var(--nm-fg);
+  background: var(--nm-bg);
+}
+.nc-link-node b {
+  font-size: 15px;
+  font-weight: 500;
+}
+.nc-link-node small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-link-mid {
+  display: grid;
+  gap: 10px;
+}
+.nc-link-gap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.nc-link-gap i {
+  height: 1px;
+  background: var(--nm-fg);
+}
+.nc-link-gap em {
+  padding: 2px 10px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+.nc-link-mid ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-link-mid li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+.nc-link-mid li i {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--nm-muted) 0 5px, transparent 5px 10px);
+  background-size: 10px 1px;
+  animation: nc-dash 1.4s linear infinite;
+}
+.nc-link-mid li span {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  text-align: center;
+}
+.nc-link-solid {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  text-align: center;
+}
+.nc-link-solid i {
+  height: 2px;
+  background: var(--nc-warn);
+  transform-origin: left;
+  animation: nc-axis 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.nc-link-solid em {
+  color: var(--nc-warn);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+@media (max-width: 700px) {
+  .nc-linkmap {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .nc-link-node {
+    justify-items: start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-link-mid li i,
+  .nc-link-solid i {
+    animation: none;
+  }
+}
+
+.nc .nc-privacy .nc-ppanel {
+  gap: 0;
+}
+.nc .nc-privacy .nc-link-gap {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.nc-link-mid p {
+  max-width: none;
+}
+.nc .nc-privacy .nc-join [data-testid='link-sentence'] {
+  max-width: none;
+  margin: 0;
+  padding: 14px 18px;
+  border: 1px solid var(--nm-soft-line);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc .nc-privacy .nc-join [data-testid='link-sentence'] strong {
+  color: var(--nm-fg);
+  font-weight: 400;
+}
+.nc .nc-privacy .nc-join [data-testid='link-sentence'] span {
+  color: var(--nm-muted);
+}
+
+.nc .nc-privacy .nc-link-mid p {
+  max-width: none;
+}
+
+/* ---- at a glance: the figure on the left, three facts on the right ---- */
+.nc .nc-privacy .nc-glance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  margin-top: 10px;
+  border: 1px solid var(--nm-line);
+}
+.nc .nc-privacy .nc-glance-main {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px 22px 20px;
+}
+.nc .nc-privacy .nc-glance-k,
+.nc .nc-privacy .nc-glance-side dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-figure-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+.nc .nc-privacy .nc-figure-of {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-figure-row .nc-chip {
+  align-self: center;
+  margin-left: auto;
+}
+.nc .nc-privacy .nc-glance-cap {
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc .nc-privacy .nc-glance-fail {
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc .nc-privacy .nc-glance-side {
+  display: grid;
+  align-content: stretch;
+  margin: 0;
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc .nc-privacy .nc-glance-side > div {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 14px 20px;
+}
+.nc .nc-privacy .nc-glance-side > div + div {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc .nc-privacy .nc-glance-side dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc .nc-privacy .nc-glance-side dd b {
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+.nc .nc-privacy .nc-glance-side dd small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 22px;
+  margin-left: auto;
+}
+.nc .nc-privacy .nc-spark i {
+  width: 5px;
+  background: var(--nm-muted);
+  transform-origin: bottom;
+  animation: nc-bar-up 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.nc .nc-privacy .nc-spark i[data-small='true'] {
+  background: var(--nc-warn);
+}
+@media (max-width: 1000px) {
+  .nc .nc-privacy .nc-glance-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc .nc-privacy .nc-glance-side {
+    border-left: 0;
+    border-top: 1px solid var(--nm-soft-line);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc .nc-privacy .nc-spark i {
+    animation: none;
+  }
+}
+
+/* the dashes move by exactly one period, so the loop has no seam */
+.nc-link-mid li i {
+  animation-name: nc-dash-10;
+}
+@keyframes nc-dash-10 {
+  to {
+    background-position-x: 10px;
+  }
+}
+
+/* One lease at a time: the picker chooses it, the others stay folded away. */
+.nc .nc-privacy .nc-leases > li[hidden] {
+  display: none;
+}
+.nc .nc-privacy .nc-lease-pick button[aria-pressed='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+
+/* the lease picker is one strip you scroll sideways, however many leases there are */
+.nc .nc-privacy .nc-lease-pick {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0 0;
+  padding: 0 0 6px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc .nc-privacy .nc-lease-pick li {
+  flex: none;
+}
+.nc .nc-privacy .nc-lease-pick button {
+  min-width: 132px;
+  height: 100%;
+}
+.nc .nc-privacy .nc-flags-more {
+  margin-top: 10px;
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+
+/* many bars share the width instead of squeezing the later ones away */
+.nc-bar {
+  flex: 1 1 0;
+  min-width: 14px;
+  max-width: 56px;
+}
+.nc-bar small {
+  font-size: 9px;
+}
+@media (max-width: 700px) {
+  .nc .nc-privacy .nc-flags li {
+    align-items: flex-start;
+  }
+  .nc .nc-privacy .nc-flags li .nc-chip {
+    align-self: flex-start;
+  }
+}
+@media (max-width: 700px) {
+  .nc-bars-plot {
+    gap: 3px;
+  }
+  .nc-bar {
+    min-width: 6px;
+  }
+  .nc-bar small {
+    display: none;
+  }
+}
+
+/* with many bars the stagger stops at the ninth, so the chart is whole in well under a second */
+.nc-bar-total {
+  animation-delay: calc(min(var(--i, 0), 8) * 60ms);
+}
+@media (max-width: 700px) {
+  .nc-bars-line small {
+    display: none;
+  }
+}

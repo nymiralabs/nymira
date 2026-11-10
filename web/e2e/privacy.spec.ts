@@ -111,6 +111,8 @@ test('six notes, three on the team: set size 3 (external) and 6; drops, later cl
     'matching a lease to a deposit is easy',
   );
   await page.getByRole('tab', { name: /^Leases/ }).click();
+  // One lease shows at a time: pick the first one.
+  await page.getByRole('list', { name: 'Leases' }).getByRole('button').first().click();
   await expect(rows.nth(0).getByTestId('small-set')).toBeVisible();
   // The raw open-note count never stands alone.
   await expect(rows.nth(0)).not.toContainText(/open notes/i);

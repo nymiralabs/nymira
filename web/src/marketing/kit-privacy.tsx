@@ -198,3 +198,53 @@ export function SetGauge({ external, total }: { external: number; total: number 
     </div>
   );
 }
+
+/**
+ * The two views of a note and what stands between them. While the note stays, the proofs leave no
+ * link between the deposit and the leases, and three channels can still join them; once it has
+ * started to leave, one solid line ties the leases to the note ID.
+ */
+export function LinkDiagram({ left }: { left: boolean }) {
+  return (
+    <div className="nc-linkmap" data-left={left} aria-hidden="true">
+      <span className="nc-link-node">
+        <b>On chain</b>
+        <small>deposit</small>
+      </span>
+      <div className="nc-link-mid">
+        {left ? (
+          <p className="nc-link-solid">
+            <i />
+            <em>note ID</em>
+          </p>
+        ) : (
+          <>
+            <p className="nc-link-gap">
+              <i />
+              <em>no zero-knowledge link</em>
+              <i />
+            </p>
+            <ul>
+              <li>
+                <i />
+                <span>network address</span>
+              </li>
+              <li>
+                <i />
+                <span>timing and usage metadata</span>
+              </li>
+              <li>
+                <i />
+                <span>timing alone, while the set is small</span>
+              </li>
+            </ul>
+          </>
+        )}
+      </div>
+      <span className="nc-link-node">
+        <b>Operator</b>
+        <small>leases</small>
+      </span>
+    </div>
+  );
+}

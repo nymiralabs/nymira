@@ -12,6 +12,7 @@ import type { NoteStatus } from '../marketing/kit';
 import {
   FLAG_NAME,
   Journey,
+  LinkDiagram,
   SetBars,
   SetGauge,
   SetCells,
@@ -86,7 +87,12 @@ function useLeaseView(record: LeaseRecord, note: NoteRecord) {
 }
 
 /** One lease, in full: what the operator recorded, how many notes could have paid, what to watch. */
-function LeaseRow({ record, note, open }: LeaseItem & { note: NoteRecord }) {
+function LeaseRow({
+  record,
+  note,
+  open,
+  hidden,
+}: LeaseItem & { note: NoteRecord; hidden?: boolean }) {
   const { figure, cover, flags } = useLeaseView(record, note);
   const s = record.sampling;
   const sampling = [
@@ -102,6 +108,7 @@ function LeaseRow({ record, note, open }: LeaseItem & { note: NoteRecord }) {
       id={slug(record.leaseId || record.openedAt)}
       data-testid="lease-row"
       data-lease={record.leaseId}
+      hidden={hidden}
     >
       <header>
         <h3 data-testid="lease-time">{utc(record.openedAt)}</h3>
@@ -405,19 +412,142 @@ const SECTIONS = [
 
 type Tab = (typeof SECTIONS)[number][0];
 
-/** Opens the lease tab if needed, then brings one lease row into view. */
-const showLease = (setTab: (t: Tab) => void, id: string) => {
-  setTab('leases');
-  window.setTimeout(
-    () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
-    60,
-  );
+const ago = (secs: number) => {
+  const d = Math.max(0, Math.floor(Date.now() / 1000) - secs);
+  return d < 90
+    ? 'just now'
+    : d < 5400
+      ? `${Math.round(d / 60)} min ago`
+      : d < 129_600
+        ? `${Math.round(d / 3600)} h ago`
+        : `${Math.round(d / 86_400)} days ago`;
 };
+
+/** The set now beside the latest lease, how many there are and whether anything is flagged. */
+export function Glance({
+  now,
+  lastAt,
+  sizes,
+  leaseCount,
+  flags,
+  lastView,
+}: {
+  now: Now;
+  lastAt: number | undefined;
+  /** External count of each lease, oldest first. */
+  sizes: number[];
+  leaseCount: number;
+  flags: number;
+  lastView: boolean;
+}) {
+  const top = Math.max(5, ...sizes);
+  return (
+    <section className="nc-glance" data-testid="now-figure">
+      <h2>At a glance</h2>
+      <div className="nc-glance-grid">
+        <div className="nc-glance-main">
+          <span className="nc-glance-k">Set size now</span>
+          {now.status === 'loading' && (
+            <span className="nc-hold-inline">
+              <WaitBar /> Reading the vault…
+            </span>
+          )}
+          {now.status === 'failed' && (
+            <span className="nc-glance-fail" data-testid="now-text">
+              {sentence('now_label')}: {fill('unavailable', { why: now.why })}
+            </span>
+          )}
+          {now.status === 'ok' && (
+            <>
+              <div className="nc-figure-row">
+                <span className="nc-figure" aria-hidden="true">
+                  {now.size.external}
+                  <small>external</small>
+                </span>
+                <span className="nc-figure-of" aria-hidden="true">
+                  of {now.size.total} in all
+                </span>
+                <Chip tone={small(now.size.external) ? 'warn' : 'good'}>
+                  {small(now.size.external) ? 'small set' : 'not small'}
+                </Chip>
+              </div>
+              <SetCells
+                ext={now.size.external}
+                team={now.size.total - now.size.external}
+                label="Notes that could pay now"
+              />
+              <SetGauge external={now.size.external} total={now.size.total} />
+              <SetLegend />
+              <span className="nc-glance-cap" data-testid="now-text">
+                {sentence('now_label')}: {headline(now.size)}
+              </span>
+              {differences(now.size, lastView).map((d) => (
+                <small key={d} className="nc-glance-cap" data-testid="now-difference">
+                  {d}
+                </small>
+              ))}
+            </>
+          )}
+        </div>
+        <dl className="nc-glance-side">
+          <div>
+            <dt>Latest lease</dt>
+            <dd>
+              {lastAt === undefined ? (
+                'No lease has been made on this note yet.'
+              ) : (
+                <>
+                  {utc(lastAt).slice(0, 16)} <small>{ago(lastAt)}</small>
+                </>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Leases on this note</dt>
+            <dd>
+              <b>{leaseCount}</b>
+              {sizes.length > 0 && (
+                <span className="nc-spark" role="img" aria-label="External set size of each lease">
+                  {sizes.slice(-12).map((n, i) => (
+                    <i
+                      key={i}
+                      data-small={small(n)}
+                      style={{ height: `${Math.max(12, (n / top) * 100)}%` }}
+                    />
+                  ))}
+                </span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Flags</dt>
+            <dd>
+              <Chip tone={flags ? 'warn' : 'good'}>{flags}</Chip>
+              <small>{flags ? 'see What to watch' : 'nothing to watch'}</small>
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+  );
+}
 
 function Panel({ note, view, onBack }: { note: NoteRecord; view: NoteView; onBack: () => void }) {
   const [now, setNow] = useState<Now>({ status: 'loading' });
   const [more, setMore] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
+  const [leaseKey, setLeaseKey] = useState<string | null>(null);
+  const [allFlagsOpen, setAllFlagsOpen] = useState(false);
+  useEffect(() => {
+    if (tab !== 'leases') return;
+    document
+      .querySelector<HTMLElement>('.nc-lease-pick button[aria-pressed="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [tab, leaseKey]);
+  const openLease = (id: string) => {
+    setTab('leases');
+    setLeaseKey(id);
+  };
   const leases: LeaseItem[] = [
     ...view.leases.map((record) => ({ record, open: false })),
     ...(view.active ? [{ record: (view.active as ActiveLease).record, open: true }] : []),
@@ -461,6 +591,13 @@ function Panel({ note, view, onBack }: { note: NoteRecord; view: NoteView; onBac
     return flagsOf(l.record, figure, thin(cover)).map((f) => ({ ...f, l }));
   });
   const last = leases[leases.length - 1];
+  const keyOf = (l: LeaseItem) => slug(l.record.leaseId || l.record.openedAt);
+  const activeKey =
+    leaseKey !== null && leases.some((l) => keyOf(l) === leaseKey)
+      ? leaseKey
+      : last
+        ? keyOf(last)
+        : null;
   const daysLeft =
     note.expiry !== undefined ? Math.ceil((note.expiry - Date.now() / 1000) / 86_400) : 30;
   const mark: { status: NoteStatus; day: number; text?: string } = {
@@ -611,58 +748,16 @@ function Panel({ note, view, onBack }: { note: NoteRecord; view: NoteView; onBac
           <h2>Where this note is</h2>
           <Journey stages={stages} />
         </section>
-        <section className="nc-glance" data-testid="now-figure">
-          <h2>At a glance</h2>
-          <ul>
-            <li className="nc-glance-main">
-              <span className="nc-glance-k">Set size now</span>
-              <span className="nc-glance-v">
-                {now.status === 'loading' && (
-                  <span className="nc-hold-inline">
-                    <WaitBar /> Reading the vault…
-                  </span>
-                )}
-                {now.status === 'failed' && (
-                  <span data-testid="now-text">
-                    {sentence('now_label')}: {fill('unavailable', { why: now.why })}
-                  </span>
-                )}
-                {now.status === 'ok' && (
-                  <>
-                    <span className="nc-figure" aria-hidden="true">
-                      {now.size.external}
-                      <small>external</small>
-                    </span>
-                    <span data-testid="now-text">
-                      {sentence('now_label')}: {headline(now.size)}
-                    </span>
-                    <SetCells
-                      ext={now.size.external}
-                      team={now.size.total - now.size.external}
-                      label="Notes that could pay now"
-                    />
-                    <SetGauge external={now.size.external} total={now.size.total} />
-                    <SetLegend />
-                  </>
-                )}
-              </span>
-              {now.status === 'ok' &&
-                differences(now.size, lastView).map((d) => (
-                  <small key={d} data-testid="now-difference">
-                    {d}
-                  </small>
-                ))}
-            </li>
-            <li>
-              <span className="nc-glance-k">Latest lease</span>
-              <span className="nc-glance-v">
-                {last ? utc(last.record.openedAt) : 'No lease has been made on this note yet.'}
-              </span>
-              <span className="nc-glance-k">Leases on this note</span>
-              <span className="nc-glance-v">{leases.length}</span>
-            </li>
-          </ul>
-        </section>
+        <Glance
+          now={now}
+          lastAt={last?.record.openedAt}
+          sizes={leases.flatMap((l) =>
+            isFigure(l.record.setSize) ? [l.record.setSize.external] : [],
+          )}
+          leaseCount={leases.length}
+          flags={allFlags.length}
+          lastView={lastView}
+        />
 
         <section className="nc-flags">
           <h2>
@@ -671,41 +766,51 @@ function Panel({ note, view, onBack }: { note: NoteRecord; view: NoteView; onBac
           {allFlags.length === 0 ? (
             <p className="nc-cap nc-cap-first">No lease on this note has a flag.</p>
           ) : (
-            <ul>
-              {allFlags.map((f) => (
-                <li key={f.l.record.leaseId + f.kind}>
-                  <Chip tone="warn">{FLAG_NAME[f.kind]}</Chip>
-                  <span>{f.text}</span>
-                  <button
-                    type="button"
-                    className="nc-link"
-                    onClick={() =>
-                      showLease(setTab, slug(f.l.record.leaseId || f.l.record.openedAt))
-                    }
-                  >
-                    {utc(f.l.record.openedAt).slice(5, 16)}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul>
+                {(allFlagsOpen ? allFlags : allFlags.slice(-3)).map((f) => (
+                  <li key={f.l.record.leaseId + f.kind}>
+                    <Chip tone="warn">{FLAG_NAME[f.kind]}</Chip>
+                    <span>{f.text}</span>
+                    <button
+                      type="button"
+                      className="nc-link"
+                      onClick={() => openLease(slug(f.l.record.leaseId || f.l.record.openedAt))}
+                    >
+                      {utc(f.l.record.openedAt).slice(5, 16)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {allFlags.length > 3 && (
+                <button
+                  type="button"
+                  className="nc-link nc-flags-more"
+                  aria-expanded={allFlagsOpen}
+                  onClick={() => setAllFlagsOpen(!allFlagsOpen)}
+                >
+                  {allFlagsOpen ? 'Show the latest 3' : `Show all ${allFlags.length}`}
+                </button>
+              )}
+            </>
           )}
         </section>
 
         <section className="nc-join" data-testid="link-column">
           <h2>What joins the two views</h2>
-          <div className="nc-join-diagram" aria-hidden="true">
-            <span>
-              <b>On chain</b>
-              <small>deposit</small>
-            </span>
-            <i />
-            <span>
-              <b>Operator</b>
-              <small>leases</small>
-            </span>
-          </div>
+          <LinkDiagram left={left} />
           <p data-testid="link-sentence" data-left={left}>
-            {sentence(left ? 'link_left' : 'link_open')}
+            {(() => {
+              const full = sentence(left ? 'link_left' : 'link_open');
+              const cut = full.indexOf('. ');
+              return cut < 0 ? (
+                full
+              ) : (
+                <>
+                  <strong>{full.slice(0, cut + 1)}</strong> <span>{full.slice(cut + 2)}</span>
+                </>
+              );
+            })()}
           </p>
         </section>
       </div>
@@ -728,15 +833,16 @@ function Panel({ note, view, onBack }: { note: NoteRecord; view: NoteView; onBac
               stops={stops}
               startLabel={`deposit ${utc(depositedAt).slice(0, 10)}`}
               endLabel="now"
-              onPick={(k) => showLease(setTab, k)}
+              onPick={(k) => openLease(k)}
             />
-            {bars.length > 0 && <SetBars bars={bars} onPick={(k) => showLease(setTab, k)} />}
+            {bars.length > 0 && <SetBars bars={bars.slice(-24)} onPick={(k) => openLease(k)} />}
             <ul className="nc-lease-pick" aria-label="Leases">
               {leases.map((l) => (
                 <li key={l.record.leaseId || l.record.openedAt}>
                   <button
                     type="button"
-                    onClick={() => showLease(setTab, slug(l.record.leaseId || l.record.openedAt))}
+                    aria-pressed={keyOf(l) === activeKey}
+                    onClick={() => openLease(keyOf(l))}
                   >
                     <span className="nc-lp-top">
                       <strong>{utc(l.record.openedAt).slice(5, 16)}</strong>
@@ -753,7 +859,12 @@ function Panel({ note, view, onBack }: { note: NoteRecord; view: NoteView; onBac
             </ul>
             <ul className="nc-leases">
               {leases.map((l) => (
-                <LeaseRow key={l.record.leaseId || l.record.openedAt} {...l} note={note} />
+                <LeaseRow
+                  key={l.record.leaseId || l.record.openedAt}
+                  {...l}
+                  note={note}
+                  hidden={keyOf(l) !== activeKey}
+                />
               ))}
             </ul>
           </>
