@@ -18,6 +18,7 @@ import { nymiraMark } from './brand';
 import { TechnologyStrip } from './TechnologyStrip';
 import fontLicense from './fonts/OFL.txt?url';
 import brandCredits from './assets/brands/credits.txt?url';
+import nearLogo from './assets/brands/near-dark.svg';
 import privateNoteIllustration from './assets/private-note-illustration.webp';
 import clientRoutesIllustration from './assets/client-routes.webp';
 import localNotesIllustration from './assets/local-notes-illustration.webp';
@@ -196,7 +197,10 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
       <div className="nm-announcement">
         <a href={`${source}#readme`}>
           <span className="nm-tag">TESTNET</span>
-          <span>Nymira is live on NEAR testnet</span>
+          <span>
+            Nymira is live on <img className="nm-announcement-near" src={nearLogo} alt="NEAR" />{' '}
+            testnet
+          </span>
           <span className="nm-announcement-more">
             Read the project overview <Arrow />
           </span>
