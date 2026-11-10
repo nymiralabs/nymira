@@ -13,7 +13,7 @@ function NoticeLine({ text }: { text: string }) {
   return (
     <>
       <strong>{head.charAt(0).toUpperCase() + head.slice(1)}</strong>
-      {cut < 0 ? '' : text.slice(cut)}
+      {cut < 0 ? '' : <span className="nc-notice-rest">{text.slice(cut)}</span>}
     </>
   );
 }

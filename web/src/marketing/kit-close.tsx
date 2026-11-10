@@ -21,7 +21,11 @@ export function ExpiryBanner({
     <div className="nc-banner" role="status" data-testid={testId} data-due={due}>
       <Strip n={14} solid={14 - left} size="sm" label={`${left} days left`} />
       <p>{children}</p>
-      {onOpen && <Button onClick={onOpen}>Open the Close screen</Button>}
+      {onOpen && (
+        <Button onClick={onOpen}>
+          <span className="nc-m-hide">Open the </span>Close screen
+        </Button>
+      )}
     </div>
   );
 }
@@ -204,7 +208,11 @@ export function ExpiryStack({
               <Icon name="chevron" size={12} />
             </button>
           )}
-          {onOpen && <Button onClick={onOpen}>Open the Close screen</Button>}
+          {onOpen && (
+            <Button onClick={onOpen}>
+              <span className="nc-m-hide">Open the </span>Close screen
+            </Button>
+          )}
         </div>
       </div>
       {rest.length > 0 && (
