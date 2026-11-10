@@ -431,17 +431,34 @@ export function Agents() {
               value={name}
               onChange={setName}
             />
-            <label className="nc-field">
+            <div className="nc-field ag-seg-field">
               <span>Transport</span>
-              <select
+              <div
+                className="ag-seg"
+                role="radiogroup"
+                aria-label="Transport"
                 data-testid="c-transport"
-                value={cmd.transport}
-                onChange={(e) => setCmd({ ...cmd, transport: e.target.value as 'tcp' | 'unix' })}
               >
-                <option value="tcp">tcp (loopback port 8788)</option>
-                <option value="unix">unix (another user on this machine)</option>
-              </select>
-            </label>
+                {(
+                  [
+                    ['tcp', 'tcp', 'loopback port 8788'],
+                    ['unix', 'unix', 'another user on this machine'],
+                  ] as const
+                ).map(([value, name, note]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={cmd.transport === value}
+                    data-testid={`c-transport-${value}`}
+                    onClick={() => setCmd({ ...cmd, transport: value })}
+                  >
+                    <strong>{name}</strong>
+                    <small>{note}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
             {cmd.transport === 'unix' && (
               <Field
                 label="Agent user"
