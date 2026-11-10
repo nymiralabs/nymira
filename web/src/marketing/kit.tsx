@@ -197,7 +197,7 @@ export function Screen({
 
 // ---- the console shell and the chat parts, shared with the real app ----
 
-export type NoteStatus = 'open' | 'expiring' | 'exiting' | 'closed';
+export type NoteStatus = 'open' | 'leased' | 'expiring' | 'closing' | 'exiting' | 'closed';
 export interface RowNote {
   id: number;
   size: number;
@@ -530,7 +530,7 @@ export function NoteRow({
         </span>
       </span>
       <Strip n={10} solid={clamp(n.balance / n.size) * 10} size="sm" />
-      <small>{statusText(n)}</small>
+      <Status n={n} />
     </button>
   );
 }
@@ -539,11 +539,75 @@ export const statusText = (n: Pick<RowNote, 'status' | 'day' | 'text'>) =>
   n.text ??
   (n.status === 'expiring'
     ? `expires in ${30 - n.day} days`
-    : n.status === 'exiting'
-      ? 'exit requested'
-      : n.status === 'closed'
-        ? 'closed'
-        : 'open');
+    : n.status === 'leased'
+      ? 'lease open'
+      : n.status === 'closing'
+        ? 'closing'
+        : n.status === 'exiting'
+          ? 'exit requested'
+          : n.status === 'closed'
+            ? 'closed'
+            : 'open');
+
+/** Six cells that light one after the other: something is being read or loaded. */
+export function WaitBar() {
+  return (
+    <i className="nc-wait" aria-hidden="true">
+      <b />
+      <b />
+      <b />
+      <b />
+      <b />
+      <b />
+    </i>
+  );
+}
+
+/**
+ * A screen or a block that has nothing to show yet: it says what it waits for (`wait`), that
+ * there is nothing to show (`none`) or that it failed (`err`).
+ */
+export function Waiting({
+  title,
+  text,
+  tone = 'wait',
+  flat = false,
+  testId,
+  children,
+}: {
+  title: string;
+  /** No frame: it sits inside a card that already has one. */
+  flat?: boolean;
+  testId?: string;
+  text?: ReactNode;
+  tone?: 'wait' | 'none' | 'err';
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      className="nc-hold"
+      data-tone={tone}
+      data-flat={flat || undefined}
+      data-testid={testId}
+      role={tone === 'err' ? 'alert' : 'status'}
+    >
+      {tone === 'wait' && <WaitBar />}
+      <strong>{title}</strong>
+      {text && <p>{text}</p>}
+      {children}
+    </div>
+  );
+}
+
+/** One line under a note: a small mark that tells the state at a glance, then the words. */
+export function Status({ n }: { n: Pick<RowNote, 'status' | 'day' | 'text'> }) {
+  return (
+    <small className="nc-state" data-s={n.status}>
+      <i aria-hidden="true" />
+      {statusText(n)}
+    </small>
+  );
+}
 
 export interface ModelInfo {
   id: string;

@@ -3922,7 +3922,7 @@
   font-size: 13px;
   line-height: 20px;
 }
-.nc-chain,
+.nc-onchain,
 .nc-observers,
 .nc-leave,
 .nc-limits {
@@ -4921,4 +4921,1129 @@
 }
 .nc-picture + .nc-intents {
   margin-top: 32px;
+}
+
+/* Space between a caption and the button after it, and between a button row and the text after it. */
+.nc-cap + .nc-button {
+  margin-top: 16px;
+}
+.nc-actions + .nc-cap,
+.nc-actions + .nc-msg {
+  margin-top: 16px;
+}
+
+/* ---- find a deposit: what it needs, then two routes, each with what the provider sees ---- */
+.nc-find-help {
+  max-width: 68ch;
+  display: grid;
+  gap: 8px;
+}
+.nc-find-help p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+.nc-find-help p:first-child {
+  color: var(--nm-fg);
+}
+.nc-find-note {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, auto));
+  justify-content: start;
+  gap: 8px 40px;
+  margin: 20px 0 0;
+  padding: 14px 0;
+  border-block: 1px solid var(--nm-soft-line);
+}
+.nc-find-note dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-find-note dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.nc-find-routes {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 32px;
+  margin-top: 20px;
+}
+.nc-find-routes section {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.nc-find-routes h3 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.nc-find-routes .nc-cap {
+  margin: 0;
+}
+.nc-find-routes .nc-button {
+  justify-self: start;
+}
+@media (max-width: 760px) {
+  .nc-find-routes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+}
+
+/* Unconfirmed notes fold: a chevron at the right says it opens. */
+.nc-unconfirmed > summary {
+  position: relative;
+  padding-right: 48px;
+}
+.nc-unconfirmed > summary::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  width: 7px;
+  height: 7px;
+  border: solid var(--nm-muted);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nc-unconfirmed[open] > summary::after {
+  transform: translateY(-30%) rotate(225deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-unconfirmed > summary::after {
+    transition: none;
+  }
+}
+
+/* Find a deposit: the old pending-row divider and padding go; the note strip carries the lines. */
+.nc-find-help + .nc-pending {
+  margin-top: 16px;
+  padding: 0;
+  border-top: 0;
+  gap: 0;
+}
+.nc-find-help + .nc-pending .nc-find-note {
+  margin-top: 0;
+}
+
+.nc-privacy-link .nc-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- chat inspector: two settings as switches, one row each ---- */
+.nc-toggles {
+  display: grid;
+  gap: 4px;
+}
+.nc-toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.nc-toggle + .nc-toggle {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.nc-toggle-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.nc-toggle-text strong {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+.nc-toggle-text small {
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-wrap: pretty;
+}
+.nc-toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border: 1px solid var(--nm-muted);
+  transition:
+    background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nc-toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: var(--nm-muted);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 200ms;
+}
+.nc-toggle:hover .nc-toggle-switch {
+  border-color: var(--nm-fg);
+}
+.nc-toggle input:checked ~ .nc-toggle-switch {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+}
+.nc-toggle input:checked ~ .nc-toggle-switch::after {
+  background: var(--nm-bg);
+  transform: translateX(16px);
+}
+.nc-toggle input:active ~ .nc-toggle-switch::after {
+  width: 18px;
+}
+.nc-toggle input:checked:active ~ .nc-toggle-switch::after {
+  transform: translateX(12px);
+}
+.nc-toggle input:focus-visible ~ .nc-toggle-switch {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nc-toggle:has(input:disabled) {
+  cursor: not-allowed;
+}
+.nc-toggle:has(input:disabled) .nc-toggle-switch {
+  opacity: 0.4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-toggle-switch,
+  .nc-toggle-switch::after {
+    transition: none;
+  }
+}
+
+/* ---- note status: a small mark and the words, the same everywhere a note is named ---- */
+.nc-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--nm-muted);
+}
+.nc-state > i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentColor;
+  background: currentColor;
+}
+.nc-state[data-s='open'] > i {
+  color: var(--nm-good);
+}
+.nc-state[data-s='leased'] {
+  color: var(--nm-accent);
+}
+.nc-state[data-s='leased'] > i {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 2px,
+    color-mix(in srgb, var(--nm-accent) 70%, transparent) 2px 3px
+  );
+}
+.nc-state[data-s='expiring'],
+.nc-state[data-s='closing'],
+.nc-state[data-s='exiting'] {
+  color: var(--nc-warn);
+}
+.nc-state[data-s='closing'] > i {
+  animation: nc-state-blink 1.4s steps(2, jump-none) infinite;
+}
+.nc-state[data-s='exiting'] > i {
+  background: linear-gradient(currentColor, currentColor) center / 100% 1px no-repeat;
+}
+.nc-state[data-s='closed'] > i {
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 0.5px),
+    currentColor calc(50% - 0.5px) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px)
+  );
+}
+@keyframes nc-state-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-state[data-s='closing'] > i {
+    animation: none;
+  }
+}
+.nc-notes button[data-status='closed'] .nc-note-line strong {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.nc-notes button[data-status='closing'],
+.nc-notes button[data-status='exiting'] {
+  border-style: dashed;
+}
+.nc-notes button .nc-state {
+  color: var(--nm-muted);
+}
+.nc-notes button .nc-state[data-s='expiring'],
+.nc-notes button .nc-state[data-s='closing'],
+.nc-notes button .nc-state[data-s='exiting'] {
+  color: var(--nc-warn);
+}
+.nc-notes button .nc-state[data-s='leased'] {
+  color: var(--nm-accent);
+}
+
+/* ---- the lease bar above a conversation, and the receipt after it ends ---- */
+.nc-lease-bar {
+  gap: 16px;
+}
+.nc-lease-bar > .nc-state {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-lease-bar[data-open='true'] .nc-button {
+  border-color: var(--nm-fg);
+}
+.nc-receipt {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 16px 0 0;
+  border: 1px solid var(--nm-line);
+}
+.nc-receipt > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.nc-receipt > div + div {
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc-receipt dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-receipt dd {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.nc-receipt > div:last-child dd {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+@media (max-width: 700px) {
+  .nc-receipt {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-receipt > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--nm-soft-line);
+  }
+}
+.nc-chat-head-end.nc-lease-bar {
+  margin-left: auto;
+}
+.nc-settled .nc-receipt {
+  width: 100%;
+  max-width: none;
+}
+
+/* Narrow screens: the lease bar takes its own full row, the button keeps one line. */
+.nc-chat-head-end .nc-button {
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .nc-chat-head-end.nc-lease-bar {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .nc-lease-bar > .nc-state {
+    min-width: 0;
+    flex: 1 1 12ch;
+  }
+}
+
+.nc-sum-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nc-sum-head h2 {
+  margin: 0;
+}
+.nc-sum-head .nc-state {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+
+/* Notes table: every cell has the same two lines, so the rows read straight across. */
+.nc-ledger-id strong,
+.nc-ledger-bal strong {
+  line-height: 18px;
+}
+.nc-ledger-id small,
+.nc-ledger-bal small,
+.nc-ledger-life small {
+  line-height: 18px;
+}
+.nc-ledger-bal .nc-strip,
+.nc-ledger-life .nc-strip {
+  margin-block: 5px;
+}
+.nc-facts dd .nc-state {
+  justify-content: flex-end;
+}
+
+/* Notes table: the 30-day strip sits right over its status line; cells share one top line. */
+.nc-ledger-id,
+.nc-ledger-bal,
+.nc-ledger-life {
+  align-self: start;
+}
+.nc-ledger-life {
+  gap: 0;
+}
+.nc-ledger-life .nc-strip {
+  margin-bottom: 0;
+}
+
+/* Notes table: each cell sits in the middle of its row; strip and status stay close together. */
+.nc-ledger-id,
+.nc-ledger-bal,
+.nc-ledger-life {
+  align-self: center;
+}
+.nc-ledger-life {
+  gap: 4px;
+}
+.nc-ledger-life .nc-strip {
+  margin-block: 0;
+}
+
+/* ---- notes filter: one row of toggles with a count each ---- */
+.nc-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 12px;
+}
+.nc-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    12px/20px 'IBM Plex Mono',
+    monospace;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    color 160ms,
+    background-color 160ms;
+}
+.nc-filter button:hover:not(:disabled) {
+  border-color: var(--nm-muted);
+  color: var(--nm-fg);
+}
+.nc-filter button[aria-pressed='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+  color: var(--nm-fg);
+}
+.nc-filter button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.nc-filter button span {
+  color: var(--nm-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The screen art fades out toward its edges, so the picture never ends in a hard line. */
+.nc-screen-intro-art img {
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, #000 14%, #000 86%, transparent),
+    linear-gradient(to bottom, transparent, #000 14%, #000 80%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent, #000 14%, #000 86%, transparent),
+    linear-gradient(to bottom, transparent, #000 14%, #000 80%, transparent);
+  mask-composite: intersect;
+}
+
+/* Sidebar: only the note list scrolls. The brand, the screens and the foot stay where they are. */
+.nc-side {
+  overflow: hidden;
+}
+.nc-side > .nc-brand,
+.nc-side > .nc-nav,
+.nc-side > .nc-foot,
+.nc-side .nc-nav,
+.nc-side .nc-foot {
+  flex: none;
+}
+.nc-side .nc-notes {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.nc-side .nc-notes > ul {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc-side .nc-notes > ul::-webkit-scrollbar {
+  width: 3px;
+}
+.nc-side .nc-notes > ul::-webkit-scrollbar-thumb {
+  background: var(--nm-line);
+}
+.nc-side .nc-notes > ul::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nc-side > .nc-brand-row {
+  flex: none;
+}
+
+/* ---- nothing to show yet: a short statement with a moving bar, or a plain "none" ---- */
+.nc-hold {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+  margin: 24px 0;
+  padding: 20px 24px;
+  border: 1px solid var(--nm-line);
+}
+.nc-hold strong {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+.nc-hold p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+.nc-hold[data-tone='none'] {
+  border-style: dashed;
+}
+.nc-hold[data-tone='err'] {
+  border-color: var(--nc-err);
+}
+.nc-hold[data-tone='err'] strong {
+  color: var(--nc-err);
+}
+.nc-hold .nc-wait {
+  margin-bottom: 4px;
+}
+.nc-hold .nc-wait b {
+  width: 18px;
+  height: 8px;
+}
+.nc-hold-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--nm-muted);
+}
+[data-testid='prover-status'] .nc-wait,
+[data-testid='withdrawal-prover-status'] .nc-wait {
+  margin-right: 10px;
+  vertical-align: 1px;
+}
+.nc-hold .nc-wait {
+  justify-self: start;
+}
+.nc-hold[data-flat] {
+  max-width: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+.nc-screen-intro + .nc-notice {
+  margin-top: 20px;
+}
+[data-testid='public-sentence'] ~ .nc-cap {
+  margin-top: 14px;
+}
+.nc .nc-hold p {
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc .nc-hold[data-flat] strong {
+  font-size: 15px;
+}
+
+/* Note list: no native bar, so the cards keep their width. A 2px thumb shows where you are. */
+.nc-side .nc-notes > .nc-notes-scroll {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.nc-side .nc-notes .nc-notes-scroll > ul {
+  min-height: 0;
+  padding-right: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ft, 0px),
+    #000 calc(100% - var(--fb, 0px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ft, 0px),
+    #000 calc(100% - var(--fb, 0px)),
+    transparent
+  );
+}
+.nc-side .nc-notes .nc-notes-scroll > ul::-webkit-scrollbar {
+  display: none;
+}
+.nc-notes-scroll[data-scroll='false'] > ul {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.nc-thumb {
+  position: absolute;
+  top: 0;
+  right: -9px;
+  width: 2px;
+  background: var(--nm-muted);
+  opacity: 0;
+  transition: opacity 200ms;
+  pointer-events: none;
+}
+.nc-notes-scroll[data-scroll='true']:hover .nc-thumb,
+.nc-notes-scroll[data-scroll='true']:focus-within .nc-thumb {
+  opacity: 0.7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-thumb {
+    transition: none;
+  }
+}
+
+/* Several expiring notes in one banner: the soonest as a normal banner, the rest folded under it. */
+.nc-banner-stack {
+  display: block;
+  padding: 0;
+}
+.nc-banner-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+}
+.nc-banner-row p {
+  margin: 0;
+}
+.nc-banner-act {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.nc-banner-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nc-banner-more:hover {
+  color: var(--nm-fg);
+}
+.nc-banner-more .nm-icon {
+  transition: transform 220ms var(--nc-ease);
+  transform: rotate(90deg);
+}
+.nc-banner-stack[data-open='true'] .nc-banner-more .nm-icon {
+  transform: rotate(-90deg);
+}
+.nc-banner-rest {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 260ms var(--nc-ease);
+}
+.nc-banner-rest[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+.nc-banner-rest > ul {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+.nc-banner-rest li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+@media (max-width: 900px) {
+  .nc-banner-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .nc-banner-act {
+    justify-content: space-between;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-banner-rest,
+  .nc-banner-more .nm-icon {
+    transition: none;
+  }
+}
+
+/* The folded notes: a 14-day rail, each note in the column of the days it has left. */
+.nc-banner-rest > .nc-banner-fold {
+  min-height: 0;
+  overflow: hidden;
+}
+.nc-runway {
+  display: grid;
+  gap: 14px;
+  padding: 16px 24px 18px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-runway-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-runway-sum b {
+  margin-right: 6px;
+  color: var(--nm-fg);
+  font-weight: 400;
+}
+.nc-runway-sum span[data-due] b {
+  color: var(--nc-warn);
+}
+.nc-runway-rail {
+  display: grid;
+  grid-template-columns: repeat(15, minmax(0, 1fr));
+  border: 1px solid var(--nm-line);
+}
+.nc-day {
+  display: grid;
+  grid-template-rows: minmax(76px, auto) auto;
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc-day:first-child {
+  border-left: 0;
+}
+.nc-day[data-zone='close'] {
+  background: color-mix(in srgb, var(--nc-warn) 7%, transparent);
+}
+.nc-day[data-zone='exit'] {
+  background: color-mix(in srgb, var(--nc-warn) 15%, transparent);
+}
+.nc-day[data-notice] small {
+  color: var(--nm-fg);
+}
+.nc-day small {
+  padding: 4px 0;
+  border-top: 1px solid var(--nm-soft-line);
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  text-align: center;
+}
+.nc-day-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 6px 4px;
+}
+.nc-mk {
+  min-height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  font:
+    10px/20px 'IBM Plex Mono',
+    monospace;
+  text-align: center;
+  cursor: pointer;
+  animation: nc-mk-in 320ms var(--nc-ease) backwards;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-mk[data-due='close'],
+.nc-mk[data-due='exit'] {
+  border-color: var(--nc-warn);
+}
+.nc-mk[data-due='exit'] {
+  background: var(--nc-warn);
+  color: #000;
+}
+.nc-mk:hover,
+.nc-mk[aria-pressed='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+  color: var(--nm-bg);
+}
+.nc-mk:focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+@keyframes nc-mk-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.nc-runway-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 0;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-runway-key i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border: 1px solid var(--nc-warn);
+  vertical-align: -1px;
+}
+.nc-runway-key i[data-zone='close'] {
+  background: color-mix(in srgb, var(--nc-warn) 14%, transparent);
+}
+.nc-runway-key i[data-zone='exit'] {
+  background: color-mix(in srgb, var(--nc-warn) 45%, transparent);
+}
+.nc-runway-unit {
+  margin-left: auto;
+}
+.nc-runway-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  min-height: 22px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-runway-info strong {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+.nc-runway-info span {
+  color: var(--nc-warn);
+}
+.nc-runway-info em,
+.nc-runway-info b {
+  color: var(--nm-muted);
+  font:
+    11px/18px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+  font-weight: 400;
+}
+.nc-runway-info b[data-due] {
+  color: var(--nc-warn);
+}
+@media (max-width: 700px) {
+  .nc-runway {
+    padding: 14px 16px 16px;
+  }
+  .nc-day {
+    grid-template-rows: minmax(64px, auto) auto;
+  }
+  .nc-day-stack {
+    padding: 6px 2px;
+  }
+  .nc-mk {
+    min-height: 14px;
+    padding: 0;
+  }
+  .nc-mk span {
+    display: none;
+  }
+  .nc-day small {
+    font-size: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-mk {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ---- the rail, alive: it plays when the banner opens ---- */
+.nc-runway-rail {
+  position: relative;
+  overflow: hidden;
+}
+/* a scan line crosses the rail once, left to right, and lights the days it passes */
+.nc-runway-rail::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--nm-fg);
+  box-shadow: 0 0 14px 2px color-mix(in srgb, var(--nm-fg) 40%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.nc-banner-rest[data-open='true'] .nc-runway-rail::after {
+  animation: nc-sweep 1100ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+@keyframes nc-sweep {
+  0% {
+    left: 0;
+    opacity: 0.9;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+.nc-banner-rest[data-open='true'] .nc-day small {
+  animation: nc-day-lit 700ms ease-out backwards;
+  animation-delay: calc(var(--c, 0) * 62ms);
+}
+@keyframes nc-day-lit {
+  from {
+    color: var(--nm-fg);
+    background: color-mix(in srgb, var(--nm-fg) 16%, transparent);
+  }
+}
+/* the markers drop in behind the scan line, column by column */
+.nc-banner-rest[data-open='true'] .nc-mk {
+  animation: nc-mk-drop 420ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--c, 0) * 62ms + 160ms);
+}
+.nc-day-stack {
+  --c: inherit;
+}
+.nc-day .nc-mk {
+  animation-delay: calc(var(--c, 0) * 62ms + 160ms);
+}
+@keyframes nc-mk-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+/* the exit days breathe: a slow warm wash, so the urgent end of the rail is felt before it is read */
+.nc-day[data-zone='exit'] {
+  position: relative;
+}
+.nc-day[data-zone='exit']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--nc-warn) 10%, transparent);
+  opacity: 0;
+  animation: nc-breathe 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes nc-breathe {
+  50% {
+    opacity: 1;
+  }
+}
+.nc-mk-more {
+  border-style: dashed;
+  color: var(--nm-muted);
+}
+.nc-runway-info {
+  animation: nc-info-in 220ms var(--nc-ease) backwards;
+}
+@keyframes nc-info-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+.nc-mk:active {
+  transform: scale(0.94);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-runway-rail::after,
+  .nc-day[data-zone='exit']::before {
+    display: none;
+  }
+  .nc-banner-rest[data-open='true'] .nc-day small,
+  .nc-banner-rest[data-open='true'] .nc-mk,
+  .nc-runway-info {
+    animation: none;
+  }
+}
+
+/* ---- the rail, calmer: the urgent end speaks first, and everything is done in about 0.3 s ---- */
+.nc-runway-rail::after,
+.nc-day[data-zone='exit']::before {
+  display: none;
+}
+.nc-banner-rest[data-open='true'] .nc-day small {
+  animation: none;
+}
+.nc-banner-rest[data-open='true'] .nc-mk,
+.nc-day .nc-mk {
+  animation: nc-mk-pop 220ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--u, 2) * 60ms + 40ms);
+}
+@keyframes nc-mk-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+}
+.nc-banner-rest:not([data-open='true']) .nc-mk {
+  animation: none;
+}
+/* the exit markers get one soft pulse when the rail opens, not a loop */
+.nc-banner-rest[data-open='true'] .nc-mk[data-due='exit'] {
+  animation:
+    nc-mk-pop 220ms var(--nc-ease) 40ms backwards,
+    nc-mk-ping 700ms ease-out 300ms 1;
+}
+@keyframes nc-mk-ping {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--nc-warn) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+.nc-runway-info {
+  animation-duration: 140ms;
+}
+.nc-banner-rest {
+  transition-duration: 200ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-banner-rest[data-open='true'] .nc-mk,
+  .nc-day .nc-mk,
+  .nc-banner-rest[data-open='true'] .nc-mk[data-due='exit'] {
+    animation: none;
+  }
+}
+
+/* Foot of the rail: the chosen note on the left, the two zones on the right, one thin line. */
+.nc-runway-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 20px;
+}
+.nc-runway-foot .nc-runway-info {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-runway-foot .nc-runway-key {
+  gap: 4px 16px;
+  font-size: 10px;
+  line-height: 14px;
+}
+.nc-runway-foot .nc-runway-key i {
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+}
+.nc-runway {
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+/* Folded notes take no room at all, however many there are. */
+.nc-notes li[data-show='false'] {
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc-notes ul {
+  gap: 0;
+}
+.nc-notes li[data-show='false'] {
+  margin-top: 0;
+}
+.nc-notes li[data-show='true'] ~ li[data-show='true'] {
+  margin-top: 6px;
+}
+
+.nc-runway-info .nc-runway-more {
+  flex-basis: 100%;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
 }
