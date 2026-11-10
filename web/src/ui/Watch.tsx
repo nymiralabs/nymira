@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Button } from '../marketing/kit';
-import { ExpiryBanner } from '../marketing/kit-close';
+import { ExpiryBanner, ExpiryStack } from '../marketing/kit-close';
 import { DAY, due, noticeLevel, noticeText, remaining, watched } from '../leave/guard';
 import { leaveStore } from '../leave/store';
 import { isUnlocked } from '../crypto/wrap';
@@ -63,23 +63,47 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
           )}
         </div>
       )}
-      {near.map(({ record, view }) => {
-        const expiry = record.expiry!;
-        const what = due(expiry, now);
-        return (
-          <ExpiryBanner
-            key={record.id}
-            testId="expiry-banner"
-            due={what}
-            left={Math.min(14, Math.floor(remaining(expiry, now) / DAY))}
-            onOpen={screen !== 'close' ? onClose : undefined}
-          >
-            <NoticeLine
-              text={noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
-            />
-          </ExpiryBanner>
-        );
-      })}
+      {near.length === 1 &&
+        near.map(({ record, view }) => {
+          const expiry = record.expiry!;
+          return (
+            <ExpiryBanner
+              key={record.id}
+              testId="expiry-banner"
+              due={due(expiry, now)}
+              left={Math.min(14, Math.floor(remaining(expiry, now) / DAY))}
+              onOpen={screen !== 'close' ? onClose : undefined}
+            >
+              <NoticeLine
+                text={noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
+              />
+            </ExpiryBanner>
+          );
+        })}
+      {near.length > 1 && (
+        <ExpiryStack
+          onOpen={screen !== 'close' ? onClose : undefined}
+          items={near.map(({ record, view }) => {
+            const expiry = record.expiry!;
+            return {
+              id: record.id,
+              noteId: view.noteId,
+              due: due(expiry, now),
+              left: Math.min(14, Math.floor(remaining(expiry, now) / DAY)),
+              level: noticeLevel(expiry, now),
+              when:
+                remaining(expiry, now) >= DAY
+                  ? `expires in ${Math.floor(remaining(expiry, now) / DAY)} ${Math.floor(remaining(expiry, now) / DAY) === 1 ? 'day' : 'days'}`
+                  : 'expires in less than a day',
+              text: (
+                <NoticeLine
+                  text={noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
+                />
+              ),
+            };
+          })}
+        />
+      )}
     </>
   );
 }

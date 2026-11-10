@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Icon, type IconName } from '../marketing/Icon';
 import { Wordmark } from '../marketing/Wordmark';
 import { ThemeToggle } from '../marketing/ThemeToggle';
@@ -97,6 +97,8 @@ function useShellNotes(unlocked: boolean, refreshOn: string): ShellNote[] {
             const left = Math.max(0, Math.ceil((view.expiry - now) / DAY));
             const state = record.leave?.state;
             const gone = state === 'closed' || state === 'exited';
+            const wait = record.leave?.deadline;
+            const days = wait === undefined ? null : Math.max(0, Math.ceil((wait - now) / DAY));
             return {
               key: record.id,
               id: view.noteId,
@@ -104,13 +106,28 @@ function useShellNotes(unlocked: boolean, refreshOn: string): ShellNote[] {
               balance: gone ? 0 : Number(BigInt(view.balance)) / scale,
               status: gone
                 ? 'closed'
-                : state
-                  ? 'exiting'
-                  : left <= CLOSE_DAYS
-                    ? 'expiring'
-                    : 'open',
+                : state === 'closing'
+                  ? 'closing'
+                  : state
+                    ? 'exiting'
+                    : left <= CLOSE_DAYS
+                      ? 'expiring'
+                      : view.pending
+                        ? 'leased'
+                        : 'open',
               day: 30 - left,
-              ...(state === 'closing' ? { text: 'closing' } : {}),
+              ...(state === 'exited'
+                ? { text: 'exited, paid out' }
+                : state === 'exiting'
+                  ? {
+                      text:
+                        days === null
+                          ? 'exit requested'
+                          : days === 0
+                            ? 'exit can be finalized'
+                            : `exit: ${days} ${days === 1 ? 'day' : 'days'} left`,
+                    }
+                  : {}),
             };
           }),
         );
@@ -174,6 +191,8 @@ export function App() {
   };
   // The panel opens over the chat or notes screen, which stay mounted so a conversation goes on.
   const [privacy, setPrivacy] = useState<string | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [thumb, setThumb] = useState({ top: 0, h: 0, show: false, ft: 0, fb: 0 });
   useEffect(() => {
     try {
       if (screen === 'landing' || screen === 'agents') sessionStorage.removeItem(SCREEN_KEY);
@@ -196,6 +215,34 @@ export function App() {
   const unlocked = useSyncExternalStore(subscribeUnlocked, isUnlocked);
   const notes = useShellNotes(unlocked, `${screen}|${owed}|${backupState?.leases ?? ''}|${funded}`);
   // The note the sidebar marks: the conversation's, else the one picked, else the first.
+  // The note list scrolls on its own and draws its own thin thumb: the native bar would take width
+  // from the cards the moment the list overflows.
+  useEffect(() => {
+    const ul = listRef.current;
+    if (!ul) return;
+    const update = () => {
+      const over = ul.scrollHeight - ul.clientHeight;
+      if (over <= 1)
+        return setThumb((t) => (t.show ? { top: 0, h: 0, show: false, ft: 0, fb: 0 } : t));
+      const h = Math.max(24, (ul.clientHeight / ul.scrollHeight) * ul.clientHeight);
+      const top = (ul.scrollTop / over) * (ul.clientHeight - h);
+      setThumb({
+        top: Math.round(top),
+        h: Math.round(h),
+        show: true,
+        ft: ul.scrollTop > 2 ? 14 : 0,
+        fb: over - ul.scrollTop > 2 ? 14 : 0,
+      });
+    };
+    update();
+    ul.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(ul);
+    return () => {
+      ul.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, [notes.length, notesOpen]);
   const current = notes.some((n) => n.key === active)
     ? active
     : notes.some((n) => n.key === preferred)
@@ -288,36 +335,47 @@ export function App() {
               <span className="nc-notes-count">{notes.length}</span>
               <Icon name="chevron" size={12} />
             </button>
-            <ul id="nc-note-list" role="listbox" aria-label="Notes">
-              {notes.map((n, i) => (
-                <li key={n.key} data-show={notesOpen || n.key === current}>
-                  <NoteRow
-                    n={n}
-                    selected={n.key === current}
-                    onPick={() => {
-                      setPreferred(n.key);
-                      if (screen !== 'chat') go('chat');
-                    }}
-                  />
-                </li>
-              ))}
-              {notes.length === 0 && (
-                <li data-show="true">
-                  <button
-                    type="button"
-                    className="nc-note-empty"
-                    onClick={() => go(unlocked ? 'fund' : 'chat')}
-                  >
-                    <span className="nc-note-line">
-                      <strong>No note yet</strong>
-                      <span>0.00 {PROFILE.tokenSymbol}</span>
-                    </span>
-                    <Strip n={10} solid={0} size="sm" />
-                    <small>{unlocked ? 'Fund a note' : 'Unlock to see your notes'}</small>
-                  </button>
-                </li>
-              )}
-            </ul>
+            <div
+              className="nc-notes-scroll"
+              data-scroll={thumb.show}
+              style={{ ['--ft' as string]: `${thumb.ft}px`, ['--fb' as string]: `${thumb.fb}px` }}
+            >
+              <ul id="nc-note-list" role="listbox" aria-label="Notes" ref={listRef}>
+                {notes.map((n, i) => (
+                  <li key={n.key} data-show={notesOpen || n.key === current}>
+                    <NoteRow
+                      n={n}
+                      selected={n.key === current}
+                      onPick={() => {
+                        setPreferred(n.key);
+                        if (screen !== 'chat') go('chat');
+                      }}
+                    />
+                  </li>
+                ))}
+                {notes.length === 0 && (
+                  <li data-show="true">
+                    <button
+                      type="button"
+                      className="nc-note-empty"
+                      onClick={() => go(unlocked ? 'fund' : 'chat')}
+                    >
+                      <span className="nc-note-line">
+                        <strong>No note yet</strong>
+                        <span>0.00 {PROFILE.tokenSymbol}</span>
+                      </span>
+                      <Strip n={10} solid={0} size="sm" />
+                      <small>{unlocked ? 'Fund a note' : 'Unlock to see your notes'}</small>
+                    </button>
+                  </li>
+                )}
+              </ul>
+              <i
+                className="nc-thumb"
+                aria-hidden="true"
+                style={{ height: thumb.h, transform: `translateY(${thumb.top}px)` }}
+              />
+            </div>
           </div>
           <nav className="nc-nav" aria-label="Screens">
             <span className="nc-group">Screens</span>
