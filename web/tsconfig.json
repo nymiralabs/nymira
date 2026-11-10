@@ -28,7 +28,6 @@
     "e2e",
     "test",
     "vite.config.ts",
-    "vite.site.config.ts",
     "playwright.config.ts",
     "headers.ts",
     "scripts"

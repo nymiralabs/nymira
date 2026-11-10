@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
 import { Button, Strip, vars } from './kit';
 
-// The parts of the Notes screen that the preview (Console.tsx) and the real app (ui/Notes.tsx)
-// share: the note ledger, the passphrase field with its cell strip, and the deposit lookup row.
+// The parts of the Notes screen (ui/Notes.tsx): the note ledger, the passphrase field with its cell strip, and the deposit lookup row.
 
 export function NoteLedger({
   columns,
