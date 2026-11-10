@@ -1,5 +1,7 @@
 # nymira-mcp
 
+[README](../README.md) · [Website](https://nymira.pages.dev) · [Documentation](https://nymira.pages.dev/#docs) · [Try it in 20 minutes](../JUDGES.md) · [Threat model](../THREAT_MODEL.md) · [Releases](https://github.com/nymiralabs/nymira/releases)
+
 An MCP server over stdio for one Nymira agent token. It adds no authority of its own: it forwards three calls to the owner's `nymirad` and returns the answers. Every policy check stays in `nymirad`.
 
 | Tool | What it does |
@@ -15,6 +17,8 @@ Amounts are USD decimal strings with six places. Results are in `structuredConte
 `charged_usd` is what this call cost at the pinned prices, recomputed by `nymirad` from the usage in the answer. It covers the call alone. The lease's final charge adds the slot fee and the charge step, and shows in `nymira_balance` once the lease has retired.
 
 ## Install at a fixed path
+
+No release has been published yet. Until one is, build the package from a checkout (`cd mcp && npm ci && npm run build`) and point the host entry at `mcp/dist/index.js`. The steps below describe the install from a release.
 
 The release tarball carries the locked dependencies, so the install reads nothing from a registry and the one hash covers everything that runs. Each release has four files: `nymira-mcp-X.Y.Z.tgz`, `RELEASE_NOTES.md` (the package hash, the source commit), `SHA256SUMS` and `SHA256SUMS.minisig`. The notes are signed through `SHA256SUMS` with the project's minisign key, the one in `web/pins/release-signing.pub`. Take that key from this repository, not from the release page.
 

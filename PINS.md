@@ -1,6 +1,8 @@
 # Pins
 
-What this repository is built from, with the checks behind each choice. Re-checked on 2026-11-01.
+[README](README.md) · [Website](https://nymira.pages.dev) · [Documentation](https://nymira.pages.dev/#docs) · [Try it in 20 minutes](JUDGES.md) · [Threat model](THREAT_MODEL.md) · [Releases](https://github.com/nymiralabs/nymira/releases)
+
+What this repository is built from, with the checks behind each choice. Pins re-checked on 2026-11-01; the vault reproducible build was checked again on 5 November. Upstream versions were not re-checked since 1 November.
 
 ## zkapi
 
@@ -22,7 +24,7 @@ What this repository is built from, with the checks behind each choice. Re-check
 
 ## NEAR AI SDK
 
-`nearai-inference-sdk` stays at `=0.1.0`, the version the vendor patch targets. The ticket expected only an RC of 0.2.0; stable 0.2.0 (2026-10-27) and 0.2.1 (2026-10-29) are out. Both still call `.no_proxy()` in `cloud_api.rs`, `nvidia.rs` and `provenance.rs`, so the Tor patch still applies. Diff 0.2.1 against 0.1.0 before moving the pin.
+`nearai-inference-sdk` 0.1.0 is vendored in `vendor/nearai-inference-sdk/` with a Nymira patch that sends its requests through SOCKS5. It stays at 0.1.0, the version the patch targets. The ticket expected only an RC of 0.2.0; stable 0.2.0 (2026-10-27) and 0.2.1 (2026-10-29) are out. Both still call `.no_proxy()` in `cloud_api.rs`, `nvidia.rs` and `provenance.rs`, so the Tor patch still applies. Diff 0.2.1 against 0.1.0 before moving the pin.
 
 ## NEAR Intents
 

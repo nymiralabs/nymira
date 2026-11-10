@@ -1,3 +1,18 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/wordmark-dark.svg">
+    <img src="assets/readme/wordmark-light.svg" alt="Nymira" width="200">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="README.md">README</a> ·
+  <a href="https://nymira.pages.dev">Website</a> ·
+  <a href="https://nymira.pages.dev/#docs">Documentation</a> ·
+  <a href="THREAT_MODEL.md">Threat model</a> ·
+  <a href="https://github.com/nymiralabs/nymira/releases">Releases</a>
+</p>
+
 # Try Nymira in 20 minutes
 
 Nymira is private, prepaid API credits on NEAR. You put test USDC into a note, spend it on an attested model without an account, and take the rest back. This guide takes you from nothing to a first answer and a close. Everything runs on NEAR testnet with Circle's test USDC, which has no value. Read [the README](README.md) and [THREAT_MODEL.md](THREAT_MODEL.md) for what is and is not protected.
@@ -19,7 +34,7 @@ The operator runs on a home machine. If the status link does not answer, it is o
 
 You need a desktop browser and about 20 minutes.
 
-1. **Get a wallet account.** Open <https://nymira.pages.dev>, press Fund, and connect Intear Wallet on testnet. Intear is the wallet tested end to end. Meteor signs in and Fund worked in our Chrome test. Close worked in Safari and in a Chromium-based browser but failed once in Chrome on our own machine, so we do not promise it. You need a little test NEAR for gas.
+1. **Get a wallet account.** Open <https://nymira.pages.dev>, press Fund, and connect Meteor or Intear Wallet on testnet. Meteor works on testnet. Intear signs in, but its approval window can fail to report back; the app then reads the vault to see whether the transaction landed. You need a little test NEAR for gas.
 2. **Get test USDC.** Go to <https://faucet.circle.com>, choose Near Testnet, and ask for USDC for your account. A request gives 20 USDC, and each address can ask once every 2 hours.
 3. **Register with the token.** The USDC contract only accepts an account that has paid for its storage. Register your account once (0.00125 NEAR), here with [near-cli-rs](https://github.com/near/near-cli-rs):
    ```bash
@@ -42,7 +57,7 @@ Test models available: `z-ai/glm-5.3-flash` (default), `Qwen/Qwen3.6-35B-A3B-FP8
 
 1. Download `nymirad` from the latest release and check the signature and hashes as in [the README](README.md#download-nymirad).
 2. Download `request.pk` and `withdrawal.pk` from the `final` release of [nymira-ceremony](https://github.com/nymiralabs/nymira-ceremony) into one directory. `nymirad` refuses files whose hash differs from the one built into it.
-3. Provide Tor. On a Mac with Apple silicon, follow the README: Homebrew's `tor` 0.4.9.15, or your own Tor with `--socks 127.0.0.1:9050`. On Linux no Tor package is pinned, so run your own and use `--socks`.
+3. Provide Tor. On a Mac with Apple silicon, follow the README: Homebrew's `tor` 0.4.9.15, or your own Tor with `--socks 127.0.0.1:9050`. The 0.1.2 release pins only the macOS Tor package, so on Linux run your own Tor and use `--socks`. A build from main also pins Debian 12's `tor` 0.4.9.11-0+deb12u1 (see the README).
 4. Set up the state directory:
    ```bash
    nymirad init --rpc https://rpc.testnet.fastnear.com --operator https://nymira-operator.tail0484c4.ts.net --account YOUR.testnet --setup-dir DIR_WITH_THE_TWO_KEYS --local-only
@@ -74,7 +89,8 @@ The stack is a sandbox vault with a mock token and a fake NEAR AI gateway, so no
 
 - A deposit shows a 0.05 USDC note fee. A close costs 0.03 USDC when the operator submits it. Both are test USDC, not revenue.
 - A chat costs a fraction of a cent. The lease takes a bound of 0.10 USDC (or 0.50 USDC for a long job) from your note and returns what the model did not use.
-- Prompts are encrypted to the model's attested key. The operator sees your IP address (unless you use `nymirad` over Tor), request times, sizes and the model name, not the text. The model reads your prompt.
+- Prompts are encrypted to the model's attested key. The operator's entry relay sees your IP address and request times, unless you use `nymirad` over Tor. The operator sees request times, sizes and the model name, not the text. The model reads your prompt.
+- The operator has a small daily provider budget (`daily_budget` in `/v1/status`, which resets at UTC midnight). When it is used up, chat answers 429 `operator_capacity` until then.
 - The testnet anonymity set is small and made of test notes. A lease is easier to tie to a note than it would be on a busy network.
 
 ## Known limits
@@ -84,8 +100,7 @@ The stack is a sandbox vault with a mock token and a fake NEAR AI gateway, so no
 - The signed policy (version 5) pins two NVIDIA intermediate certificates taken from NVIDIA's public key set on 5 November 2026. On 5 November 2026 the 005 certificate matched the copy served by NVIDIA's own PKI host and both verify under the root published there, but no NVIDIA documentation page lists the fingerprints, so the policy marks them unverified, and the NVIDIA root is not pinned. One chat over Tor with the relay passed this check on 5 November 2026.
 - With `nymirad serve --nras-direct` the evidence goes straight to NVIDIA and NVIDIA sees your IP address. It is off by default, `nymirad status` says when it is on, and `nymirad` never switches to it by itself.
 - The web app does not check NVIDIA GPU evidence. It checks the Intel TDX quote, the policy and the key binding, and says so.
-- **The web app cannot use Tor.** The operator and the RPC provider see your IP address.
-- **Meteor transactions are not promised** (see Path 1).
+- **The web app cannot use Tor.** The operator's entry relay and the RPC provider see your IP address.
 - **Test funds only.** The circuit has had no independent review. The keys come from a setup run by the team alone, so the team could forge proofs if the setup was not sound. The team's full-access key can replace the vault code. Open deposits are capped at 100 USDC.
 - **Keep your backup.** If you lose your latest state, an exit from an older state can be defeated and you can lose the remaining balance.
 - **The operator can be offline.** If it is, you can leave with `request_exit` after the 7-day window, which needs no operator.

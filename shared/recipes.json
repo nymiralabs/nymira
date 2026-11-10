@@ -109,7 +109,7 @@
     },
     {
      "t": "p",
-     "text": "Install the server at a fixed path from the signed release (the steps are in `mcp/README.md`), keep the token in a file that only that user can read, and add this entry to `.cursor/mcp.json` in the project or to `~/.cursor/mcp.json`. It holds the path of the token file and no token. `node tools/host-config.ts --host cursor` in `mcp/` prints it for your paths."
+     "text": "Install the server at a fixed path (the steps are in `mcp/README.md`; no release exists yet, so build it from a checkout and point the entry at its `dist/index.js`), keep the token in a file that only that user can read, and add this entry to `.cursor/mcp.json` in the project or to `~/.cursor/mcp.json`. It holds the path of the token file and no token. `node tools/host-config.ts --host cursor` in `mcp/` prints it for your paths."
     },
     {
      "t": "mcp",

@@ -1,5 +1,7 @@
 # web-testkit
 
+[README](../README.md) · [Website](https://nymira.pages.dev) · [Documentation](https://nymira.pages.dev/#docs) · [Try it in 20 minutes](../JUDGES.md) · [Threat model](../THREAT_MODEL.md) · [Releases](https://github.com/nymiralabs/nymira/releases)
+
 Test doubles for the web tests: a NEAR wallet that signs without a browser extension, and the browser build of the NEAR codec. Both belong to the shared test harness (issue #86).
 
 ## Parts
