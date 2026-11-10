@@ -441,7 +441,10 @@ export function App() {
                 rel="noopener noreferrer"
                 data-testid="terms-link"
               >
-                Terms of use
+                <span>Terms of use</span>
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                  <path d="M4 12 12 4M5 4h7v7" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
               </a>
               <BundleHash />
             </div>

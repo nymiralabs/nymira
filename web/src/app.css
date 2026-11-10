@@ -485,21 +485,41 @@
 /* ---- terms link and bundle hash under the backup card ---- */
 .nc-legal {
   display: grid;
-  gap: 6px;
-  padding: 12px 8px 0;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 8px 0;
+  border-top: 1px solid var(--nm-line);
   color: var(--nm-muted);
-  font:
-    11px/16px 'IBM Plex Mono',
-    monospace;
   overflow-wrap: anywhere;
 }
 .nc-legal a {
-  color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  color: var(--nm-fg);
+  font:
+    13px/20px 'IBM Plex Sans',
+    sans-serif;
+  text-decoration: none;
+}
+.nc-legal a svg {
+  flex: none;
+  color: var(--nm-muted);
+  transition: color 150ms ease;
+}
+.nc-legal a:hover,
+.nc-legal a:hover svg {
+  color: var(--nm-accent);
+}
+.nc-legal small {
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
 }
 .nc-legal code {
-  font-size: 11px;
+  font-size: inherit;
 }
 
 /* ---- the sidebar card for a store with no note: the note card, empty ---- */
