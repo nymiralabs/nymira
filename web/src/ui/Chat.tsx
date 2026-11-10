@@ -19,6 +19,7 @@ import {
   END_ROWS,
   Facts,
   Fold,
+  InspectorShell,
   ModelPicker,
   Seal,
   Status,
@@ -116,11 +117,17 @@ export function Chat({
   const [passphrase, setPassphrase] = useState('');
   const [fileHandle, setFileHandle] = useState<FsHandle | null>(null);
   const session = useRef<ChatSession | null>(null);
+  const threadEnd = useRef<HTMLDivElement>(null);
   const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
 
   useEffect(() => {
     warmProver().then(setProver);
   }, []);
+
+  // The thread is the one part of the screen that scrolls: it follows the conversation down.
+  useEffect(() => {
+    threadEnd.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [messages.length, busy, settled, error, selected]);
 
   useEffect(() => {
     onActive(selected);
@@ -835,6 +842,7 @@ export function Chat({
             onChoose={chooseFile}
             hasFile={fileHandle !== null}
           />
+          <div ref={threadEnd} />
         </div>
         {idle && (
           <div className="nc-composer">
@@ -901,7 +909,7 @@ export function Chat({
           </div>
         )}
       </div>
-      <aside className="nc-inspector" aria-label="Note and lease">
+      <InspectorShell label="Note and lease">
         {selected ? (
           <>
             <section className="nc-sum">
@@ -1088,7 +1096,7 @@ export function Chat({
             </Button>
           </div>
         )}
-      </aside>
+      </InspectorShell>
     </section>
   );
 }

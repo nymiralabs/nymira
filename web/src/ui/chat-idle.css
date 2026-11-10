@@ -400,3 +400,95 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+@media (max-width: 700px) {
+  .nc-pick-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .nc-pick-id {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .nc-pick-act {
+    justify-content: flex-start;
+  }
+  .nc-pick-bar input {
+    width: 100% !important;
+  }
+}
+
+/* Phones: the hero starts right under the head, not a tenth of the window further down. */
+@media (max-width: 700px) {
+  .nc-chat-screen .nc-empty,
+  .nc-chat-screen .nc-empty:not(:has(+ .nc-pick)) {
+    margin-block: 8px 0;
+  }
+  .nc-chat-screen .nc-thread {
+    padding-top: 12px;
+  }
+  .nc-chat-screen .nc-empty h2 {
+    font-size: 22px;
+    line-height: 30px;
+  }
+}
+
+/* ---- Chat is a fixed frame: the head and the composer stay put, only the thread scrolls ---- */
+.nc[data-screen='chat'] {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc[data-screen='chat'] .nc-main {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+.nc[data-screen='chat'] .nc-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc[data-screen='chat'] .nc-content > div:not(.nm-legacy):not(.nc-banner),
+.nc[data-screen='chat'] .nc-content > div:not(.nm-legacy):not(.nc-banner) > div {
+  flex: 1;
+  min-height: 0;
+}
+.nc[data-screen='chat'] .nc-chat-screen {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+.nc[data-screen='chat'] .nc-chat-main {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc[data-screen='chat'] .nc-chat-head,
+.nc[data-screen='chat'] .nc-composer {
+  position: static;
+  flex: none;
+}
+.nc[data-screen='chat'] .nc-chat-screen .nc-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc[data-screen='chat'] .nc-chat-screen > .nc-inspector {
+  position: static;
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+}
+@media (max-width: 1100px) {
+  .nc[data-screen='chat'] .nc-chat-screen > .nc-inspector {
+    position: fixed;
+    height: auto;
+  }
+}
