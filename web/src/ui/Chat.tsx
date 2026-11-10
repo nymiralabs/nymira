@@ -1062,9 +1062,12 @@ export function Chat({
         <Fold title="Who sees what">
           <Facts
             rows={[
-              ['Operator', 'model, sizes, timing'],
-              ['Model', 'your prompt'],
-              ['Chain', 'nothing until you close'],
+              [
+                'Operator',
+                'proof, nullifier, lease class, model, settings, message sizes, usage, timing',
+              ],
+              ['NEAR AI', 'token counts and timing; your prompt only as the model’s enclave'],
+              ['Chain', 'the deposit, then nothing until you close or exit'],
             ]}
           />
           <p className="nc-cap" data-testid="chat-limits">

@@ -386,7 +386,7 @@ export function Fund({
           <strong>{units(d)}</strong>
           <Strip n={11} solid={Math.round((Number(d) / biggest) * 10)} reserved={1} size="sm" />
           <small>
-            You send {units(notePrice(d))}: {units(d)} stays yours, {units(fee)} is the fee.
+            You send {units(notePrice(d))}: {units(d)} is the note, {units(fee)} is the fee.
           </small>
         </label>
       ))}
@@ -402,7 +402,7 @@ export function Fund({
     <Screen
       testId="fund"
       title="Fund a note"
-      lead={`Deposit ${PROFILE.tokenSymbol} from a NEAR wallet in a fixed size. The note secret is made in this browser and never leaves it.`}
+      lead={`Deposit ${PROFILE.tokenSymbol} from a NEAR wallet in a fixed size. The note secret is made in this browser. It leaves only inside an encrypted backup you download.`}
       illustration={fundIllustration}
       side={
         <FundSide
@@ -421,17 +421,17 @@ export function Fund({
             ['You send', <strong data-testid="price-total">{units(price)}</strong>],
           ]}
           factsTestId="price"
-          caption="The fee is not refunded. The denomination is yours to spend or get back."
+          caption="The fee is not refunded. Leases are charged against the rest, and you get what is left back when you close or exit. A note not closed in time goes to the treasury."
           closes={[
-            ['Paid to', sender === '' ? 'connect a wallet' : payout || '…'],
+            ['Close or exit pays', sender === '' ? 'connect a wallet' : payout || '…'],
             ['Expires', `${pins.config.note_ttl / 86400} days after the deposit`],
           ]}
           leaves={
             <>
               <p className="nc-cap nc-cap-first" data-testid="tor-notice">
-                This web app cannot use Tor. The operator sees your IP address and the time of each
-                request. For IP protection use Tor Browser, or run <code>nymirad</code> on your own
-                machine.
+                This web app cannot use Tor. The RPC provider sees your IP address and the time of
+                each read. For IP protection use Tor Browser, or run <code>nymirad</code> on your
+                own machine.
               </p>
               <p className="nc-cap" data-testid="receipt-note">
                 After the transfer the app reads the <code>deposit</code> event from your
@@ -524,8 +524,10 @@ export function Fund({
                   faucet.circle.com
                 </a>{' '}
                 (choose Near Testnet; 20 {PROFILE.tokenSymbol} per request, one request per address
-                every 2 hours). Call <code>storage_deposit</code> on the token for your account
-                before the transfer, and for the payout account if it is another one.
+                every 2 hours). The token only accepts accounts that paid for storage: call{' '}
+                <code>storage_deposit</code> on it once for your account before the transfer (about
+                0.00125 NEAR attached; the command is in JUDGES.md), and for the payout account if
+                it is another one.
               </p>
             )}
           </li>
@@ -835,8 +837,8 @@ export function Fund({
                   <strong>Not accepted</strong>
                 </div>
                 <p data-testid="rejected">
-                  The deposit was not accepted: {acceptance.reason}. Check your wallet; a refused
-                  transfer is refunded by the token.
+                  The deposit was not accepted: {acceptance.reason}. The token should return the
+                  USDC; check your wallet.
                 </p>
               </div>
             )}

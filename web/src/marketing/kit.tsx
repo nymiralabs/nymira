@@ -343,7 +343,7 @@ export function IpChip() {
       </button>
       {open && (
         <div className="nc-ipchip-pop" role="dialog" aria-label="About your IP address">
-          <strong>The operator sees your IP address</strong>
+          <strong>Your IP address is visible</strong>
           <p>
             This web app cannot hide your IP address from the operator, NEAR AI’s gateway or an RPC
             provider, and the browser cannot use Tor. Use Tor Browser or <code>nymirad</code> for
@@ -1174,7 +1174,7 @@ export function FundSide({
         <p className="nc-cap">{caption}</p>
       </section>
       <section className="nc-sum">
-        <h2>When it closes</h2>
+        <h2>Payout and expiry</h2>
         <Facts rows={closes} />
       </section>
       <Fold title="What leaves this page">{leaves}</Fold>

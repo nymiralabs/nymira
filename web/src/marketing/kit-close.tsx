@@ -154,9 +154,9 @@ function Runway({ items, soonest }: { items: readonly ExpiryItem[]; soonest: str
           {(at.due === 'exit' || at.due === 'close') && <b data-due={at.due}>{at.due} due</b>}
           <span className="nc-runway-more">
             {at.due === 'exit'
-              ? 'The app starts an exit on this note. It waits for your wallet signature.'
+              ? 'The app starts a close, or an exit if the close fails. Each waits for your wallet signature.'
               : at.due === 'close'
-                ? 'The app no longer opens leases on it and starts a close; at 3 days it starts an exit. Each waits for your wallet signature.'
+                ? 'The app no longer opens leases on it and starts a close; at 3 days, if the close failed, it starts an exit. Each waits for your wallet signature.'
                 : 'A notice only for now. At 5 days the app stops opening leases on it and starts a close.'}
           </span>
         </p>
@@ -280,7 +280,7 @@ const GUARD_LEGEND: readonly [string, string, string][] = [
   ['watch', '14 · 7 · 2 days', 'A notice in the banner.'],
   ['close', '5 days', 'No new leases on the note; a close starts.'],
   ['exit', '3 days', 'If the close did not go through, an exit starts.'],
-  ['end', '0 days', 'The note goes to the treasury.'],
+  ['end', '0 days', 'The note expires. The treasury can take it 7 days later.'],
 ];
 
 /** The days at which the expiry guard acts, on the last 14 days: a bar of days and what each stretch does. */

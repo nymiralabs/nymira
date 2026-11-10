@@ -137,9 +137,9 @@ export function Unlock({ onReady }: { onReady: () => void }) {
     <>
       <h1>Protect your notes</h1>
       <p className="nc-lead">
-        The note secret is created in this browser and never leaves it. It is encrypted before it is
-        stored, with a key that cannot be exported from the browser. Choose how to derive that key.
-        It lives in memory while this page is open.
+        The note secret is created in this browser. It leaves only inside an encrypted backup you
+        download. It is encrypted before it is stored, with a key that cannot be exported from the
+        browser. Choose how to derive that key. It lives in memory while this page is open.
       </p>
       <label className="nc-field">
         <span>Passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)</span>

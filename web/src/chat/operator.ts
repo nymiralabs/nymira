@@ -272,7 +272,7 @@ export function describeOperatorError(e: OperatorError | OperatorUnreachable): s
     case 'replica_unreachable':
       return `The operator is not signing new leases right now (${e.code}).${wait}`;
     case 'emergency':
-      return 'The operator stopped new leases after a key problem. Close your note or request an exit.';
+      return 'The operator stopped new leases after a key problem. Request an exit from the Close screen.';
     case 'lease_open':
       return 'A lease is still open on this note at the operator. Wait for it to settle, then try again.';
     case 'note_not_active':

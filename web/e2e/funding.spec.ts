@@ -25,7 +25,7 @@ test.describe('landing', () => {
     await expect(page.getByTestId('description')).toContainText('Prepaid AI credit');
     await expect(page.getByTestId('who-sees-what')).toBeVisible();
     await expect(page.getByTestId('tor-notice')).toContainText('cannot use Tor');
-    await expect(page.getByTestId('tor-notice')).toContainText('operator sees your IP address');
+    await expect(page.getByTestId('tor-notice')).toContainText('RPC provider sees your IP address');
     await expect(page.getByTestId('tor-notice')).toContainText('Tor Browser');
     await expect(page.getByTestId('tor-notice')).toContainText('nymirad');
     await expect(page.getByTestId('testnet-notice')).toContainText('anonymity set is small');

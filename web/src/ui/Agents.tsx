@@ -353,8 +353,8 @@ export function Agents() {
       lead={
         <span data-testid="agents-intro">
           A budget note is a note you fund for one agent. Its payout account is your own account,
-          fixed at deposit, so whatever the agent leaves comes back to you. The agent gets a token
-          and can spend that one note on inference. It cannot withdraw it anywhere but back to you.
+          fixed at deposit, so a close or exit pays you. The agent gets a token and can spend that
+          one note on inference. It cannot withdraw it anywhere but back to you.
         </span>
       }
       illustration={agentsIllustration}
@@ -387,8 +387,8 @@ export function Agents() {
       <Fold title="What is guaranteed, and what is not" testId="agents-guarantees">
         <ul className="nc-list">
           <li>
-            The ceiling is cryptographic. An agent can spend at most the balance of its budget note,
-            and a close can only pay your payout account.
+            The ceiling is enforced by the vault, not by <code>nymirad</code>. An agent can spend at
+            most the balance of its budget note, and a close can only pay your payout account.
           </li>
           <li>
             The policy is not. The model list, the call, lease and daily limits, the rate limit, the
@@ -603,8 +603,9 @@ export function Agents() {
               )}
               <p className="nc-cap" data-testid="p-tee">
                 <code>require_tee: true</code> is the only value this page offers:{' '}
-                <code>nymirad</code> releases an answer only after it checked the provider&apos;s
-                signature on it.
+                <code>nymirad</code> releases an answer only after it checked a signature on it. The
+                signature may come from the gateway, not the model, and each such call waits for its
+                lease to settle.
               </p>
             </Fold>
           </div>
@@ -667,8 +668,9 @@ export function Agents() {
           </p>
           {picked && recipes.ok && !views.some((v) => v.id === picked.id) && (
             <p className="nc-msg" data-tone="warn">
-              Nymira has no {picked.name} recipe yet. Any client that takes an OpenAI base URL and
-              key can use the values in the commands above, with chat completions only.
+              Nymira has no step-by-step recipe for {picked.name}. Use the MCP entry above (stdio).
+              A client that takes an OpenAI base URL and key can use the tcp transport and its base
+              URL, with chat completions only.
             </p>
           )}
           {!recipes.ok && <Errors list={recipes.errors} id="recipe-errors" />}

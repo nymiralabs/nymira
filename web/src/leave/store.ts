@@ -3,6 +3,7 @@
 // the notices the guard showed. A plain external store (like `walletClient`), so the screens and
 // the page-wide banner see the same thing. Nothing here holds a secret: the worker reads the notes.
 import { PROFILE } from '../profile';
+import { formatUnits } from '../ui/format';
 import { isUnlocked, requireKey } from '../crypto/wrap';
 import { loadNotes } from '../funding/flow';
 import { leaveDeps } from '../chat/runtime';
@@ -49,6 +50,9 @@ export interface LeaveState {
 }
 
 const EMERGENCY_EVERY_MS = 300_000;
+
+const units = (v: bigint | string | number) =>
+  `${formatUnits(BigInt(v), PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}`;
 
 class LeaveStore {
   state: LeaveState = {
@@ -224,7 +228,7 @@ class LeaveStore {
     if (result) {
       this.backupDue(note.id);
       this.set({
-        message: `The exit request for note #${note.noteId} is filed. It concedes ${result.conceded} base units. finalize_exit works after ${new Date(result.deadline * 1000).toISOString()}.`,
+        message: `The exit request for note #${note.noteId} is filed. It concedes ${units(result.conceded)}. finalize_exit works after ${new Date(result.deadline * 1000).toISOString()}.`,
       });
     }
     return result;
@@ -263,7 +267,7 @@ class LeaveStore {
     );
     if (result) {
       this.set({
-        message: `claim_payout was sent for ${note.payout}: ${result.amount} base units.`,
+        message: `claim_payout was sent for ${note.payout}: ${units(result.amount)}.`,
         pending: { ...this.state.pending, [note.id]: '0' },
       });
     }

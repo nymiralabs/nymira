@@ -53,7 +53,7 @@ export const CLIENTS: readonly ClientInfo[] = [
     name: 'IronClaw',
     logo: ironclawLogo,
     via: 'OpenAI-compatible API',
-    status: 'recipe in the README',
+    status: 'recipe below',
     transport: 'tcp',
   },
   {

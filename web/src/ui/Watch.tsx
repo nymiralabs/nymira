@@ -75,7 +75,12 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
               onOpen={screen !== 'close' ? onClose : undefined}
             >
               <NoticeLine
-                text={noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
+                text={noticeText(
+                  view.noteId,
+                  noticeLevel(expiry, now)!,
+                  remaining(expiry, now),
+                  s.settings.enabled,
+                )}
               />
             </ExpiryBanner>
           );
@@ -97,7 +102,12 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
                   : 'expires in less than a day',
               text: (
                 <NoticeLine
-                  text={noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}
+                  text={noticeText(
+                    view.noteId,
+                    noticeLevel(expiry, now)!,
+                    remaining(expiry, now),
+                    s.settings.enabled,
+                  )}
                 />
               ),
             };

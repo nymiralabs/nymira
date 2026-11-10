@@ -723,8 +723,9 @@ export function Close({ onFund }: { onFund?: () => void }) {
         }
       >
         <p className="nc-cap nc-cap-first">
-          A note that reaches its expiry goes to the treasury. While this app is open it guards the
-          last days. Each step waits for your wallet signature.
+          A note that reaches its expiry can go to the treasury 7 days later, unless an exit is
+          pending. While this app is open it guards the last days. Each step waits for your wallet
+          signature.
         </p>
         <GuardTimeline off={!s.settings.enabled} />
         <div className="nc-guard-switches">

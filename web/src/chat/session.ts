@@ -321,7 +321,7 @@ export class ChatSession {
     if (first.emergency_notice) {
       throw new ChatError(
         'emergency',
-        `The operator posted an emergency notice: ${String(first.emergency_notice)}. No new lease; close your note or request an exit.`,
+        `The operator posted an emergency notice: ${String(first.emergency_notice)}. No new lease. Request an exit from the Close screen.`,
       );
     }
     const bound = chooseBound(pins.config.bound_classes.map(BigInt), this.longJob);

@@ -356,7 +356,7 @@ export function Notes({
                     ? ([
                         [
                           'Spent',
-                          `${(picked.row.size - picked.row.balance).toFixed(2)} ${PROFILE.tokenSymbol}`,
+                          `${formatUnits(BigInt(Math.round((picked.row.size - picked.row.balance) * 10 ** PROFILE.tokenDecimals)), PROFILE.tokenDecimals).replace(/(\.\d\d)0+$/, '$1')} ${PROFILE.tokenSymbol}`,
                         ],
                       ] as const)
                     : []),

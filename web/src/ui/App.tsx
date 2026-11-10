@@ -602,8 +602,8 @@ export function App() {
             <p className="nc-ip" role="status" data-testid="ip-banner">
               <Icon name="onion" size={14} />
               <span>
-                This web app cannot hide your IP address from the operator. Use Tor Browser or{' '}
-                <code>nymirad</code> for that.
+                This web app cannot hide your IP address from the operator, the RPC providers or
+                1Click. Use Tor Browser or <code>nymirad</code> for that.
               </span>
               <button type="button" className="nc-ip-ok" onClick={dismissIp}>
                 Got it

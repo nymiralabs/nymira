@@ -215,7 +215,7 @@ test('exit: request, see the deadline, advance the chain, finalize, claim; no re
   await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
-  await expect(page.getByTestId('leave-message')).toContainText('concedes 0 base units');
+  await expect(page.getByTestId('leave-message')).toContainText('concedes 0.00 USDC');
 
   // request_exit from the user's wallet: concession 0 (no request left the state), a valid proof,
   // the payout account fixed at deposit. No clearance was asked.
@@ -311,7 +311,7 @@ test('an exit concedes the stored bound when a request may have left the state',
   const exit = wallet.decoded('request_exit');
   expect(exit.valid).toBe(true);
   expect(exit).toMatchObject({ kind: 0, conceded: 100_000n, finalBalance: 900_000n });
-  await expect(page.getByTestId('leave-message')).toContainText('concedes 100000 base units');
+  await expect(page.getByTestId('leave-message')).toContainText('concedes 0.10 USDC');
 });
 
 test('the expiry banner, no new lease within 5 days, and a close that starts by itself and waits for the wallet', async ({

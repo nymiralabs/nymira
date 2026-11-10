@@ -1,5 +1,5 @@
 // The expiry guard, as `nymirad` runs it (`crates/nymirad/src/expiry.rs`), with the same numbers.
-// A note that reaches its expiry goes to the treasury. Counting back from the expiry:
+// A note that reaches its expiry can go to the treasury 7 days later. Counting back from the expiry:
 //   14, 7 and 2 days  a notice (once per level per note);
 //   5 days            no new lease on the note, and while the app is open a mutual close starts;
 //   3 days            if the close did not go through, `request_exit` starts.
@@ -59,10 +59,27 @@ export function noticeLevel(expiry: number, now: number): number | undefined {
   return levels.length > 0 ? Math.min(...levels) : undefined;
 }
 
-export function noticeText(noteId: number | undefined, level: number, leftSecs: number): string {
-  const left = leftSecs >= DAY ? `${Math.floor(leftSecs / DAY)} days` : 'less than a day';
+/** What the guard does at this point, in the tense that fits how many days are left. */
+function guardSentence(leftSecs: number): string {
+  if (leftSecs <= EXIT_DAYS * DAY) {
+    return 'This app has stopped opening leases on it. It starts a close, or an exit if the close fails. Each waits for your wallet signature.';
+  }
+  if (leftSecs <= CLOSE_DAYS * DAY) {
+    return 'This app has stopped opening leases on it and starts a close; at 3 days, if the close failed, it starts an exit. Each waits for your wallet signature.';
+  }
+  return 'At 5 days this app stops opening leases on it and, while it is open, starts a close; at 3 days it starts an exit. Each waits for your wallet signature.';
+}
+
+export function noticeText(
+  noteId: number | undefined,
+  level: number,
+  leftSecs: number,
+  guardOn = true,
+): string {
+  const days = Math.floor(leftSecs / DAY);
+  const left = days >= 2 ? `${days} days` : days === 1 ? '1 day' : 'less than a day';
   const which = noteId === undefined ? 'a note' : `note #${noteId}`;
-  return `${which} expires in ${left} (${level}-day notice). At 5 days this app stops opening leases on it and, while it is open, starts a close; at 3 days it starts an exit. Each waits for your wallet signature.`;
+  return `${which} expires in ${left} (${level}-day notice). ${guardOn ? guardSentence(leftSecs) : 'The expiry guard is off, so this app will not stop leases or start a close.'}`;
 }
 
 export type Action =

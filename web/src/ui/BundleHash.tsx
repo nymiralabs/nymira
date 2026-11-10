@@ -27,7 +27,11 @@ export function BundleHash() {
   }, []);
   if (state.kind === 'loading') return null;
   if (state.kind === 'none') {
-    return <small data-testid="bundle-hash">No release manifest: this is an unsigned build.</small>;
+    return (
+      <small data-testid="bundle-hash">
+        No manifest could be read. This build cannot show a bundle hash.
+      </small>
+    );
   }
   return (
     <details className="nm-bundle" data-testid="bundle-hash">
