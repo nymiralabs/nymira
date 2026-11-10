@@ -43,6 +43,8 @@ export interface LeaveState {
   backupFor: string[];
   /** The latest pending payout read for a note, base units. */
   pending: Record<string, string>;
+  /** False until the first read of the notes ends: an empty list before that is not "no notes". */
+  loaded: boolean;
   version: number;
 }
 
@@ -58,6 +60,7 @@ class LeaveStore {
     settings: { ...DEFAULT_SETTINGS },
     backupFor: [],
     pending: {},
+    loaded: false,
     version: 0,
   };
   private listeners = new Set<() => void>();
@@ -86,7 +89,7 @@ class LeaveStore {
   /** Reads the notes of this vault and what the worker says about each. */
   async refresh(): Promise<Row[]> {
     if (!isUnlocked()) {
-      this.set({ rows: [] });
+      this.set({ rows: [], loaded: true });
       return [];
     }
     this.state = { ...this.state, settings: await loadGuardSettings() };
@@ -103,7 +106,7 @@ class LeaveStore {
         }),
       })),
     );
-    this.set({ rows });
+    this.set({ rows, loaded: true });
     return rows;
   }
 

@@ -242,6 +242,7 @@ test('the sentence changes after an exit, and the reuse check then resends nothi
   await page.getByTestId('privacy-back').click();
 
   await openClose(page);
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
 

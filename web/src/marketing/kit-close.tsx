@@ -293,3 +293,54 @@ export function GuardTimeline({ off }: { off: boolean }) {
     </div>
   );
 }
+
+/**
+ * A way out drawn as a path. A close runs from the note through a signature to the payout account;
+ * an exit runs from the request through seven waiting days to the finalize. The dot travels the
+ * path once when the panel opens and keeps going while the step is under way.
+ */
+export function LeavePath({
+  kind,
+  amount,
+  payout,
+  days = 0,
+  active = false,
+}: {
+  kind: 'close' | 'exit';
+  amount: string;
+  payout: string;
+  /** Exit only: days of the wait that have passed, 0 to 7. */
+  days?: number;
+  /** The step is under way: the dot keeps travelling. */
+  active?: boolean;
+}) {
+  return (
+    <div className="nc-lv-path" data-kind={kind} data-active={active} aria-hidden="true">
+      <span className="nc-lv-node">
+        <small>{kind === 'close' ? 'note' : 'day 0'}</small>
+        <b>{kind === 'close' ? amount : 'request_exit'}</b>
+      </span>
+      <span className="nc-lv-track">
+        <i />
+      </span>
+      {kind === 'close' ? (
+        <span className="nc-lv-node" data-quiet>
+          <small>signed by</small>
+          <b>you or the operator</b>
+        </span>
+      ) : (
+        <span className="nc-lv-wait">
+          <Strip n={7} solid={days} size="md" />
+          <small>7 days</small>
+        </span>
+      )}
+      <span className="nc-lv-track">
+        <i />
+      </span>
+      <span className="nc-lv-node" data-end>
+        <small>{kind === 'close' ? 'pays' : 'then pays'}</small>
+        <b>{payout}</b>
+      </span>
+    </div>
+  );
+}

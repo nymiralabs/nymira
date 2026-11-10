@@ -207,6 +207,7 @@ test('exit: request, see the deadline, advance the chain, finalize, claim; no re
   await openClose(page);
   await expect(page.getByTestId('exit-concession')).toContainText('0.00 USDC');
 
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
   await expect(page.getByTestId('leave-message')).toContainText('concedes 0 base units');
@@ -298,6 +299,7 @@ test('an exit concedes the stored bound when a request may have left the state',
   await connectWallet(page);
   await expect(page.getByTestId('withdrawal-prover-status')).toContainText('loaded and checked');
   await expect(page.getByTestId('exit-concession')).toContainText('0.10 USDC');
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
 
@@ -431,6 +433,7 @@ test('on the operator’s emergency notice the app stops opening leases and sugg
   await page.getByTestId('close-wallet').click();
   await expect(page.getByTestId('leave-error')).toContainText('emergency');
   await expect(page.getByTestId('leave-error')).toContainText('Request an exit');
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
   expect(wallet.vaultCalls.map((c) => c.method)).toEqual(['request_exit']);
