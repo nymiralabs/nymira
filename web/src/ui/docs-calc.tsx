@@ -3,6 +3,7 @@ import { charge, costNano } from '../chat/charge';
 import { chargeParams } from '../chat/session';
 import { MODELS } from '../chat/models';
 import { PROFILE } from '../profile';
+import { vars } from '../marketing/kit';
 
 // The lease arithmetic, with the app's own functions (`chat/charge.ts`, which follows the
 // operator's `charge.rs`) and the vault parameters pinned in this build.
@@ -31,108 +32,158 @@ export function ChargeCalc() {
   }, [model, prompt, answer, held, bound, params]);
   const cellsTotal = 50;
   const filled = Math.max(1, Math.ceil(Number(out.total) / (Number(bound) / cellsTotal)));
+  const back = Number(bound) - Number(out.total);
+  const parts = [out.usage * 1.03, out.slot];
+  const top = Math.max(...parts, 1);
+  const range = (min: number, max: number, v: number) =>
+    vars({ '--p': `${((v - min) / (max - min)) * 100}%` });
+  const preset = (p: number, a: number, h: number) => {
+    setPrompt(p);
+    setAnswer(a);
+    setHeld(h);
+  };
+  const PRESETS: [string, number, number, number][] = [
+    ['Short chat', 1200, 300, 90],
+    ['Long document', 60000, 2000, 300],
+    ['Longest job', 120000, 8000, 600],
+  ];
   return (
     <div className="nd-calc" data-testid="docs-calc">
-      <div className="nd-calc-form">
-        <label>
-          <span>Model</span>
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
-            {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Prompt tokens</span>
-          <input
-            type="range"
-            min={100}
-            max={120000}
-            step={100}
-            value={prompt}
-            aria-describedby={`${id}-p`}
-            onChange={(e) => setPrompt(Number(e.target.value))}
-          />
-          <output id={`${id}-p`}>{prompt.toLocaleString('en-US')}</output>
-        </label>
-        <label>
-          <span>Answer tokens</span>
-          <input
-            type="range"
-            min={10}
-            max={8000}
-            step={10}
-            value={answer}
-            onChange={(e) => setAnswer(Number(e.target.value))}
-          />
-          <output>{answer.toLocaleString('en-US')}</output>
-        </label>
-        <label>
-          <span>Seconds the lease is held</span>
-          <input
-            type="range"
-            min={10}
-            max={600}
-            step={10}
-            value={held}
-            onChange={(e) => setHeld(Number(e.target.value))}
-          />
-          <output>{held} s</output>
-        </label>
-        <fieldset>
-          <legend>Lease class</legend>
-          {classes.map((c) => (
-            <label key={c.toString()} className="nd-calc-radio">
-              <input
-                type="radio"
-                name={`${id}-bound`}
-                checked={bound === c}
-                onChange={() => setBound(c)}
-              />
-              <span>{usd(c, 2)} USDC</span>
-            </label>
-          ))}
-        </fieldset>
+      <div className="nd-calc-presets">
+        <span>Start from</span>
+        {PRESETS.map(([name, p, a, h]) => (
+          <button
+            key={name}
+            type="button"
+            aria-pressed={prompt === p && answer === a && held === h}
+            onClick={() => preset(p, a, h)}
+          >
+            {name}
+          </button>
+        ))}
       </div>
-      <div className="nd-calc-out">
-        <dl>
-          <div>
-            <dt>Usage at the pinned prices</dt>
-            <dd>{out.usage.toFixed(1)} micro-USD</dd>
-          </div>
-          <div>
-            <dt>Plus 3%</dt>
-            <dd>{out.withMargin} micro-USD</dd>
-          </div>
-          <div>
-            <dt>Slot fee, {Number(params.slotRate) / 10_000}% of the bound per minute held</dt>
-            <dd>{out.slot.toFixed(1)} micro-USD</dd>
-          </div>
-          <div>
-            <dt>
-              Rounded up to a step of {usd(params.step)}, at least {usd(params.minCharge)}, at most
-              the bound
-            </dt>
-            <dd data-testid="docs-calc-charge">
-              <strong>{usd(out.total)} USDC</strong>
-            </dd>
-          </div>
-        </dl>
-        <div
-          className="nd-calc-cells"
-          role="img"
-          aria-label={`The charge, ${usd(out.total)} USDC, against the ${usd(bound, 2)} USDC bound`}
-        >
-          {Array.from({ length: cellsTotal }, (_, i) => (
-            <i key={i} data-on={i < filled} />
-          ))}
+      <div className="nd-calc-body">
+        <div className="nd-calc-form">
+          <label className="nd-calc-field">
+            <span>Model</span>
+            <select value={model} onChange={(e) => setModel(e.target.value)}>
+              {MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="nd-calc-field">
+            <span>
+              Prompt tokens <output id={`${id}-p`}>{prompt.toLocaleString('en-US')}</output>
+            </span>
+            <input
+              type="range"
+              min={100}
+              max={120000}
+              step={100}
+              value={prompt}
+              style={range(100, 120000, prompt)}
+              aria-describedby={`${id}-p`}
+              onChange={(e) => setPrompt(Number(e.target.value))}
+            />
+          </label>
+          <label className="nd-calc-field">
+            <span>
+              Answer tokens <output>{answer.toLocaleString('en-US')}</output>
+            </span>
+            <input
+              type="range"
+              min={10}
+              max={8000}
+              step={10}
+              value={answer}
+              style={range(10, 8000, answer)}
+              onChange={(e) => setAnswer(Number(e.target.value))}
+            />
+          </label>
+          <label className="nd-calc-field">
+            <span>
+              Seconds the lease is held <output>{held} s</output>
+            </span>
+            <input
+              type="range"
+              min={10}
+              max={600}
+              step={10}
+              value={held}
+              style={range(10, 600, held)}
+              onChange={(e) => setHeld(Number(e.target.value))}
+            />
+          </label>
+          <fieldset className="nd-calc-field">
+            <legend>Lease class (the bound)</legend>
+            <div className="nd-calc-seg" role="group" aria-label="Lease class">
+              {classes.map((c) => (
+                <button
+                  key={c.toString()}
+                  type="button"
+                  aria-pressed={bound === c}
+                  onClick={() => setBound(c)}
+                >
+                  {usd(c, 2)} USDC
+                </button>
+              ))}
+            </div>
+          </fieldset>
         </div>
-        <p className="nd-calc-cap">
-          Each cell is {usd(Number(bound) / cellsTotal, 4)} USDC. The strip is the bound; the filled
-          cells are what the lease charges. The rest goes back to the note.
-        </p>
+        <div className="nd-calc-out">
+          <div className="nd-calc-total">
+            <small>The lease charges</small>
+            <strong data-testid="docs-calc-charge">{usd(out.total)} USDC</strong>
+            <span>
+              {usd(back, 3)} USDC of the {usd(bound, 2)} USDC bound goes back to the note.
+            </span>
+          </div>
+          <div>
+            <div
+              className="nd-calc-cells"
+              role="img"
+              aria-label={`The charge, ${usd(out.total)} USDC, against the ${usd(bound, 2)} USDC bound`}
+            >
+              {Array.from({ length: cellsTotal }, (_, i) => (
+                <i key={i} data-on={i < filled} style={vars({ '--n': i })} />
+              ))}
+            </div>
+          </div>
+          <dl>
+            <div>
+              <dt>Usage at the pinned prices</dt>
+              <dd>{out.usage.toFixed(1)} micro-USD</dd>
+            </div>
+            <div>
+              <dt>Plus 3%</dt>
+              <dd>{out.withMargin} micro-USD</dd>
+              <span className="nd-calc-bar" aria-hidden="true">
+                <i style={vars({ '--w': (parts[0]! / top) * 100 })} />
+              </span>
+            </div>
+            <div>
+              <dt>Slot fee, {Number(params.slotRate) / 10_000}% of the bound per minute held</dt>
+              <dd>{out.slot.toFixed(1)} micro-USD</dd>
+              <span className="nd-calc-bar" aria-hidden="true">
+                <i style={vars({ '--w': (parts[1]! / top) * 100 })} />
+              </span>
+            </div>
+            <div>
+              <dt>
+                Rounded up to a step of {usd(params.step)}, at least {usd(params.minCharge)}, at
+                most the bound
+              </dt>
+              <dd>{usd(out.total)} USDC</dd>
+            </div>
+          </dl>
+          <p className="nd-calc-cap">
+            Each cell is {usd(Number(bound) / cellsTotal, 4)} USDC. The strip is the bound; the
+            filled cells are what the lease charges.
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -2,8 +2,7 @@ import type { ReactNode } from 'react';
 
 // The text of the documentation page. Every figure below was checked against the code:
 // contracts/vault/src/lib.rs, web/src/profiles/testnet.ts, web/src/leave/guard.ts, crates/nymirad,
-// crates/nymira-operator and mcp/src. Strings may hold `code` spans and {{new}}, which renders the
-// "not in 0.1.2" tag for what exists on main and not in the live release.
+// crates/nymira-operator and mcp/src. Strings may hold `code` spans.
 
 export type Block =
   | { t: 'p'; text: ReactNode }
@@ -13,8 +12,12 @@ export type Block =
   | { t: 'table'; label: string; head: string[]; rows: ReactNode[][] }
   | { t: 'code'; label?: string; text: string }
   | { t: 'note'; title: string; text: ReactNode }
-  | { t: 'diagram'; id: 'note-life' | 'parties' | 'exit' }
+  | { t: 'diagram'; id: 'note-life' | 'parties' | 'exit' | 'lease' }
   | { t: 'calc' }
+  | { t: 'calendar' }
+  | { t: 'vault-compare' }
+  | { t: 'ip' }
+  | { t: 'compare'; items: { name: string; rows: [string, string][] }[] }
   | { t: 'faq'; items: [string, ReactNode][] };
 
 export interface DocLink {
@@ -48,7 +51,7 @@ const to = (id: string, label: string): DocLink => ({ label, href: `#docs/${id}`
 
 export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
   title: 'How Nymira works',
-  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page matches the code on the main branch. Parts marked {{new}} are not in the live release.',
+  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.3 and the code it was built from.',
   sections: [
     {
       id: 'overview',
@@ -63,6 +66,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           text: "This deployment runs on NEAR testnet with Circle's test USDC, which has no value. The proof circuits have had no independent review, and the anonymity set is small and made of test notes. Read the limits before you trust any sentence on this page.",
         },
         { t: 'diagram', id: 'parties' },
+        { t: 'diagram', id: 'lease' },
         {
           t: 'table',
           label: 'The four parties',
@@ -140,6 +144,55 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
       ],
     },
     {
+      id: 'judges',
+      title: 'For judges',
+      lead: 'What was built, where it touches NEAR, how to check it, and what is not built. The guide in the repository is the 20-minute path.',
+      blocks: [
+        {
+          t: 'table',
+          label: 'What was built, by track',
+          head: ['Track', 'What to look at', 'Where to check it'],
+          rows: [
+            [
+              'Privacy',
+              "Prompts are encrypted to a key the model's attestation binds to a measured deployment. A zero-knowledge proof pays for a lease without naming the note. `nymirad` sends through Tor.",
+              'The sections "What is checked, and where" and "Who sees what", and the threat model.',
+            ],
+            [
+              'Agents',
+              'Budget notes cap what one agent can spend. A signed policy sets models, limits and approvals. An MCP server and an OpenAI-compatible gateway connect tools. Funding from other chains goes through NEAR Intents (quote only on testnet).',
+              'The section "Budget notes for agents" and the Agents screen.',
+            ],
+            [
+              'Security',
+              'The vault is a reproducible build whose code hash and verifying keys are pinned and checked at load. The proving keys come from our own ceremony. Releases are signed. The limits are written down.',
+              'The sections "The vault contract", "Verify it yourself" and "Limits".',
+            ],
+          ],
+        },
+        { t: 'h3', text: 'Not built' },
+        {
+          t: 'list',
+          items: [
+            'Paying sellers (x402) and a mainnet vault. No mainnet vault is pinned in this build.',
+            'An independent review of the circuits or the vault, and an outside rebuild of a release.',
+            "A trusted setup beyond the team's own: the ceremony had three contributions and a NEAR beacon, all by us.",
+          ],
+        },
+        {
+          t: 'note',
+          title: 'Testnet with test funds',
+          text: "Everything runs on NEAR testnet with Circle's test USDC. The operator runs on a home machine and can be offline. Use the status page to see what answers right now.",
+        },
+      ],
+      links: [
+        src('JUDGES.md', 'The guide for judges'),
+        src('README.md', 'README'),
+        src('THREAT_MODEL.md', 'Threat model'),
+        { label: 'Status', href: '#status' },
+      ],
+    },
+    {
       id: 'note-life',
       title: 'The life of a note',
       lead: 'A note is a balance only you can spend. On chain it shows as a commitment, a deposit amount, an expiry and a payout account.',
@@ -174,6 +227,54 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             ],
           ],
         },
+        { t: 'h3', text: 'Three ways out' },
+        {
+          t: 'compare',
+          items: [
+            {
+              name: 'Close',
+              rows: [
+                ['Needs', 'The operator online, for a clearance.'],
+                [
+                  'Time',
+                  'Minutes. `nymirad` waits 1 to 20 minutes first; the web app does not wait.',
+                ],
+                ['Cost', 'No fee from your wallet. If the operator sends it, 0.03 USDC.'],
+                ['Risk', 'None beyond the operator being offline.'],
+              ],
+            },
+            {
+              name: 'Exit',
+              rows: [
+                ['Needs', 'A proof of your latest state. No operator.'],
+                ['Time', '7 days (604800 seconds), then anyone can finalize.'],
+                ['Cost', 'Gas. The wallet account must hold about 0.02 NEAR.'],
+                [
+                  'Risk',
+                  'From an old state, the operator can answer with a later one and keep what it charged. Keep your backup.',
+                ],
+              ],
+            },
+            {
+              name: 'Expiry',
+              rows: [
+                ['Needs', 'Nothing. It happens by itself.'],
+                ['Time', '30 days after the deposit, then 7 more.'],
+                ['Cost', 'The whole remaining balance goes to the treasury.'],
+                [
+                  'Risk',
+                  'You lose the balance if you do nothing. The expiry guard tries a close at 5 days left and an exit at 3.',
+                ],
+              ],
+            },
+          ],
+        },
+        { t: 'h3', text: 'The dates of your note' },
+        {
+          t: 'p',
+          text: 'Pick the day you deposited. The dates follow the numbers above: the expiry at the end of day 30 (UTC), the expiry guard at 14, 7, 5, 3 and 2 days left, and the treasury 7 days after the expiry.',
+        },
+        { t: 'calendar' },
         { t: 'h3', text: 'The exit window' },
         {
           t: 'p',
@@ -253,6 +354,9 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
       title: 'Who sees what',
       lead: 'The design keeps deposits and calls apart. How well it does that depends on how many notes are open and on whether your address is hidden. The web app cannot use Tor.',
       blocks: [
+        { t: 'h3', text: 'Your IP address' },
+        { t: 'ip' },
+        { t: 'h3', text: 'What each party sees' },
         {
           t: 'table',
           label: 'What each party sees',
@@ -343,7 +447,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           t: 'p',
           text: 'A close sends the ownership proof for a clearance, makes the close proof and calls `mutual_close` from your wallet, or through the operator, which keeps the close fee. An exit needs no clearance. The wallet account must hold at least 0.02 NEAR. The expiry guard is on by default and runs while the app is open, unlocked and connected to a wallet. It can be switched off, and closing at the end of a session is off unless you turn it on.',
         },
-        { t: 'h3', text: 'Agents {{new}}' },
+        { t: 'h3', text: 'Agents' },
         {
           t: 'p',
           text: 'The screen builds `policy.yaml` from form fields and signs it with your wallet (NEP-413). It also signs approvals and prints the `nymirad` commands. It creates no note, shows no token and sends nothing to `nymirad`. `require_tee: true` is the only value it offers. It is hidden when no wallet can sign messages.',
@@ -353,7 +457,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           t: 'list',
           items: [
             "IndexedDB `nymira` holds each note's public record and one sealed payload. The payload is AES-256-GCM, bound to its note.",
-            'The key comes from Argon2id (64 MiB, 3 passes, 1 lane, passphrase of at least 12 characters) or from a WebAuthn PRF output. It is non-extractable and lives in memory. "Stay unlocked in this tab" {{new}} keeps it in a second IndexedDB until the tab closes.',
+            'The key comes from Argon2id (64 MiB, 3 passes, 1 lane, passphrase of at least 12 characters) or from a WebAuthn PRF output. It is non-extractable and lives in memory. "Stay unlocked in this tab" keeps it in a second IndexedDB until the tab closes.',
             'The wallet frame keeps nothing on the device. `localStorage` holds only the theme.',
             'A web backup is JSON: Argon2id and AES-256-GCM, file extension `.nymira-backup`. The app asks for one after a close or a finalized exit. It writes to a file you chose, or prompts for a download after every retire above 0.50 USDC and after every tenth lease below it.',
           ],
@@ -394,6 +498,9 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
       title: 'The vault contract',
       lead: 'The vault is `vault.nymira.testnet`. Its code hash is `71QXP9FT4eiRcaqjZtsHi7mXMCAexXjCFgQ338p8tur4`, built reproducibly from the tag `vault-testnet-1`.',
       blocks: [
+        { t: 'h3', text: 'Compare with the chain' },
+        { t: 'vault-compare' },
+        { t: 'h3', text: 'Configuration' },
         {
           t: 'table',
           label: 'Vault configuration on testnet',
@@ -498,7 +605,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             ],
             [
               '`nymirad`',
-              'The releases page of the repository. Release 0.1.2 has a Linux x86_64 binary and a macOS arm64 binary, the signed `SHA256SUMS` and `attestation-policy.json`. Agents, set size and the Debian Tor pins are on main, not in 0.1.2.',
+              'The releases page of the repository. Release 0.1.3 has a Linux x86_64 binary and a macOS arm64 binary, the signed `SHA256SUMS` and `attestation-policy.json`. It includes budget notes for agents (`nymirad agent`), the set size option and the Debian Tor pins.',
             ],
             [
               'Proving keys',
@@ -711,7 +818,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'code',
           label: 'The signed release',
-          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.2/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
+          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.3/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
         },
         {
           t: 'p',
@@ -724,7 +831,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
         {
           t: 'p',
-          text: 'The two hashes must equal the `bundle_hash` and the `header_set_hash` of release 0.1.2: `3ee5ccb57cdaf2a1fa58cd914b6806909eac98c4dd20c013f6e0af5c926e045f` and `0a09ba64fb8a576c119a313c52b3ba78fe426454083cfae085cd43b0212e2eb8`. `nymirad verify-web` runs the same check over Tor.',
+          text: 'The two hashes must equal the `bundle_hash` and the `header_set_hash` in the signed `manifest.json` of the release you loaded. The footer of the app shows its version and bundle hash, and `https://nymira.pages.dev/manifest.json` serves the same manifest. `nymirad verify-web` runs the same check over Tor.',
         },
         {
           t: 'code',
@@ -733,7 +840,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
         {
           t: 'p',
-          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.2 testnet 0.1.2` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
+          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.3 testnet 0.1.3` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
         },
       ],
     },
@@ -838,10 +945,54 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
       ],
     },
+    {
+      id: 'changes',
+      title: 'What changed in 0.1.3',
+      lead: 'Release 0.1.3 of the web app and `nymirad`, compared with 0.1.2.',
+      blocks: [
+        { t: 'h3', text: 'The web app' },
+        {
+          t: 'list',
+          items: [
+            'A documentation page and a status page. The status page reads the operator, the vault, the RPC endpoints and the release when you ask, and shows what it read.',
+            'The Agents screen: it builds and signs a budget-note policy and prints the `nymirad` commands. It creates no note and sends nothing to `nymirad`.',
+            'The privacy panel, with one lease at a time and charts of who sees what.',
+            'The Intents screen: a direct path and a two-step path for funding from another chain.',
+            'A deposit whose event does not match stays pending. It is not marked rejected, and the app does not imply a refund.',
+            'A stale tab cannot overwrite a newer sealed state of a note. The write is refused and the tab says so.',
+            'Notes: a status filter, status marks, and a list that scrolls inside itself. The expiry guard shows its last 14 days.',
+          ],
+        },
+        { t: 'h3', text: '`nymirad`' },
+        {
+          t: 'list',
+          items: [
+            "Budget notes for agents: `nymirad agent`, a signed policy, tokens that reach chat and models only, and an opt-in mode that moves the note to the agent's machine.",
+            'The set size option `--rpc-second`, which asks a second provider and shows the lower figure.',
+            'Pinned Tor packages for Debian 12 on amd64 and arm64, next to the macOS one.',
+            'Message content sent as a list of text parts is accepted, so IronClaw on Linux works. Anything that is not text is still refused.',
+          ],
+        },
+        { t: 'h3', text: 'Unchanged' },
+        {
+          t: 'p',
+          text: 'The vault, the operator and the pinned verifying keys are the ones from release 0.1.2. No redeploy was needed.',
+        },
+        {
+          t: 'note',
+          title: 'Not in this release',
+          text: 'The MCP server is not released; build it from a checkout of `mcp/`. No outside party has rebuilt a release yet.',
+        },
+      ],
+    },
   ],
 };
 
 const SECTION_LINKS: Record<string, DocLink[]> = {
+  changes: [
+    { label: 'Releases', href: `${REPO}/releases`, ext: true },
+    { label: 'Status', href: '#status' },
+  ],
   overview: [
     { label: 'Open the app', href: '#fund' },
     src('README.md', 'README'),
@@ -887,13 +1038,13 @@ const SECTION_LINKS: Record<string, DocLink[]> = {
     to('verify', 'Verify a release'),
   ],
   agents: [
-    src('README.md', 'README, budget notes'),
+    src('BUDGET_NOTES.md', 'Budget notes guide'),
     src('mcp/README.md', 'MCP server notes'),
     tree('crates/nymirad/src', 'nymirad source'),
   ],
   verify: [
     src('web/INTEGRITY.md', 'How releases are signed'),
-    tree('web/releases/testnet-0.1.2', 'Release 0.1.2'),
+    tree('web/releases/testnet-0.1.3', 'Release 0.1.3'),
     src('web/pins/release-signing.pub', 'Signing key'),
   ],
   faq: [to('limits', 'Limits'), src('THREAT_MODEL.md', 'Threat model')],

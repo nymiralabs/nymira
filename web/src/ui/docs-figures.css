@@ -1,0 +1,1001 @@
+/* Figures of the documentation page: the note's days, the parties, the exit window, the calculator, one request. */
+/* ---- the note's days ---- */
+.nd .nd-life {
+  margin: 8px 0 32px;
+  padding: 24px 0 8px;
+}
+.nd .nd-life-cells {
+  display: grid;
+  grid-template-columns: repeat(37, minmax(0, 1fr));
+  gap: 3px;
+}
+.nd .nd-life-cells i {
+  display: block;
+  height: 22px;
+  background: var(--nm-art);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transform-origin: bottom;
+  transition:
+    opacity 360ms var(--nd-ease, cubic-bezier(0.16, 1, 0.3, 1)),
+    transform 360ms var(--nd-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  transition-delay: calc(var(--n) * 16ms);
+}
+.nd .nd-life[data-seen='true'] .nd-life-cells i {
+  opacity: 1;
+  transform: none;
+}
+.nd .nd-life-cells i[data-zone='close'] {
+  background: repeating-linear-gradient(135deg, var(--nm-accent) 0 1px, transparent 1px 4px);
+  outline: 1px solid var(--nm-accent);
+  outline-offset: -1px;
+}
+.nd .nd-life-cells i[data-zone='exit'] {
+  background: repeating-linear-gradient(135deg, var(--nm-accent) 0 2px, transparent 2px 4px);
+  outline: 1px solid var(--nm-accent);
+  outline-offset: -1px;
+}
+.nd .nd-life-cells i[data-zone='tail'] {
+  background: none;
+  outline: 1px dashed var(--nm-muted);
+  outline-offset: -1px;
+}
+.nd .nd-life-marks {
+  position: relative;
+  height: 44px;
+  margin-top: 10px;
+}
+.nd .nd-life-marks span {
+  position: absolute;
+  left: calc(var(--at) * 100%);
+  display: grid;
+  gap: 2px;
+  max-width: 9em;
+  transform: translateX(-50%);
+  color: var(--nm-fg);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+}
+.nd .nd-life-marks span[data-edge='start'] {
+  transform: none;
+  text-align: left;
+}
+.nd .nd-life-marks span[data-edge='end'] {
+  transform: translateX(-100%);
+  text-align: right;
+}
+.nd .nd-life-marks b {
+  color: var(--nm-muted);
+  font:
+    400 11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-life figcaption,
+.nd .nd-life-legend {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.nd .nd-life-legend li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nd .nd-life-legend i {
+  flex: none;
+  width: 22px;
+  height: 14px;
+  background: var(--nm-art);
+}
+.nd .nd-life-legend i[data-zone='close'] {
+  background: repeating-linear-gradient(135deg, var(--nm-accent) 0 1px, transparent 1px 4px);
+  outline: 1px solid var(--nm-accent);
+  outline-offset: -1px;
+}
+.nd .nd-life-legend i[data-zone='exit'] {
+  background: repeating-linear-gradient(135deg, var(--nm-accent) 0 2px, transparent 2px 4px);
+  outline: 1px solid var(--nm-accent);
+  outline-offset: -1px;
+}
+.nd .nd-life-legend i[data-zone='tail'] {
+  background: none;
+  outline: 1px dashed var(--nm-muted);
+  outline-offset: -1px;
+}
+
+/* ---- the exit window ---- */
+.nd .nd-exit {
+  margin: 8px 0 32px;
+}
+.nd .nd-exit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 4fr) minmax(0, 1.1fr);
+  gap: 14px;
+}
+.nd .nd-exit-cells {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+.nd .nd-exit-cells i {
+  display: block;
+  height: 26px;
+  background: var(--nm-art);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transform-origin: bottom;
+  transition:
+    opacity 360ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: calc(var(--n) * 90ms);
+}
+.nd .nd-exit[data-seen='true'] .nd-exit-cells i {
+  opacity: 1;
+  transform: none;
+}
+.nd .nd-exit-seg[data-k='start'] i,
+.nd .nd-exit-seg[data-k='end'] i {
+  background: repeating-linear-gradient(135deg, var(--nm-accent) 0 2px, transparent 2px 4px);
+  outline: 1px solid var(--nm-accent);
+  outline-offset: -1px;
+}
+.nd .nd-exit-seg p {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.nd .nd-exit-seg b {
+  display: block;
+  color: var(--nm-muted);
+  font:
+    400 12px/18px 'IBM Plex Mono',
+    monospace;
+}
+
+/* ---- the charge calculator ---- */
+.nd .nd-calc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 8px 0 32px;
+  border: 1px solid var(--nm-card-line);
+  background: var(--nm-panel);
+}
+.nd .nd-calc-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    12px/1 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-presets button,
+.nd .nd-calc-seg button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--nm-line);
+  background: none;
+  color: var(--nm-muted);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    color 160ms,
+    background 160ms;
+}
+.nd .nd-calc-presets button:hover,
+.nd .nd-calc-seg button:hover {
+  border-color: var(--nm-muted);
+  color: var(--nm-fg);
+}
+.nd .nd-calc-presets button[aria-pressed='true'],
+.nd .nd-calc-seg button[aria-pressed='true'] {
+  border-color: var(--nm-accent);
+  background: var(--nd-hatch);
+  color: var(--nm-fg);
+}
+.nd .nd-calc-body {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+}
+.nd .nd-calc-form {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  padding: 22px 20px 24px;
+  border-right: 1px solid var(--nm-line);
+}
+.nd .nd-calc-field {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.nd .nd-calc-field > legend {
+  margin-bottom: 8px;
+  float: left;
+  width: 100%;
+}
+.nd .nd-calc-field > legend + * {
+  clear: both;
+}
+.nd .nd-calc-field > span,
+.nd .nd-calc-field > legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0;
+  color: var(--nm-muted);
+  font:
+    12px/1.2 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-field output {
+  color: var(--nm-fg);
+  font:
+    500 14px/1.2 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-field select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 36px 0 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23a1a1a1' stroke-width='1.3'%3E%3Cpath d='M2 4.5l4 4 4-4'/%3E%3C/svg%3E")
+      no-repeat right 12px center / 12px,
+    var(--nm-bg);
+  color: var(--nm-fg);
+  font:
+    14px/1 'IBM Plex Mono',
+    monospace;
+  appearance: none;
+  cursor: pointer;
+}
+.nd .nd-calc-field select:hover {
+  border-color: var(--nm-muted);
+}
+.nd .nd-calc-field input[type='range'] {
+  --p: 0%;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: none;
+  appearance: none;
+  cursor: pointer;
+}
+.nd .nd-calc-field input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  background: linear-gradient(to right, var(--nm-accent) var(--p), var(--nm-raised) var(--p));
+}
+.nd .nd-calc-field input[type='range']::-moz-range-track {
+  height: 6px;
+  background: var(--nm-raised);
+}
+.nd .nd-calc-field input[type='range']::-moz-range-progress {
+  height: 6px;
+  background: var(--nm-accent);
+}
+.nd .nd-calc-field input[type='range']::-webkit-slider-thumb {
+  width: 12px;
+  height: 22px;
+  margin-top: -8px;
+  border: 1px solid var(--nm-accent);
+  border-radius: 0;
+  background: var(--nm-bg);
+  appearance: none;
+}
+.nd .nd-calc-field input[type='range']::-moz-range-thumb {
+  width: 10px;
+  height: 20px;
+  border: 1px solid var(--nm-accent);
+  border-radius: 0;
+  background: var(--nm-bg);
+}
+.nd .nd-calc-seg {
+  display: flex;
+  gap: 6px;
+}
+.nd .nd-calc-seg button {
+  flex: 1;
+  padding: 0 6px;
+  white-space: nowrap;
+  font:
+    13px/1 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-out {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  padding: 22px 24px 24px;
+}
+.nd .nd-calc-total {
+  display: grid;
+  gap: 4px;
+}
+.nd .nd-calc-total small {
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+.nd .nd-calc-total strong {
+  font:
+    400 clamp(38px, 5vw, 56px) / 1.05 'IBM Plex Mono',
+    monospace;
+  letter-spacing: -0.03em;
+}
+.nd .nd-calc-total span {
+  color: var(--nm-muted);
+  font-size: 14px;
+}
+.nd .nd-calc-cells {
+  display: grid;
+  grid-template-columns: repeat(50, minmax(0, 1fr));
+  gap: 2px;
+}
+.nd .nd-calc-cells i {
+  display: block;
+  height: 26px;
+  background: none;
+  outline: 1px solid var(--nm-card-line);
+  outline-offset: -1px;
+  transition:
+    background 260ms var(--nd-ease),
+    outline-color 260ms;
+  transition-delay: calc(var(--n) * 5ms);
+}
+.nd .nd-calc-cells i[data-on='true'] {
+  background: var(--nd-hatch);
+  outline-color: var(--nm-accent);
+}
+.nd .nd-calc-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -14px;
+  color: var(--nm-muted);
+  font:
+    11px/1 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-out dl {
+  display: grid;
+  margin: 0;
+}
+.nd .nd-calc-out dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--nm-line);
+}
+.nd .nd-calc-out dt {
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.nd .nd-calc-out dd {
+  margin: 0;
+  font:
+    13.5px/1.45 'IBM Plex Mono',
+    monospace;
+  text-align: right;
+  white-space: nowrap;
+}
+.nd .nd-calc-out dd strong {
+  font-weight: 500;
+}
+.nd .nd-calc-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 3px;
+  background: var(--nm-raised);
+}
+.nd .nd-calc-bar i {
+  display: block;
+  height: 100%;
+  width: calc(var(--w) * 1%);
+  background: var(--nm-art);
+  transition: width 300ms var(--nd-ease);
+}
+.nd .nd-calc-cap {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+@media (max-width: 960px) {
+  .nd .nd-calc-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nd .nd-calc-form {
+    border-right: 0;
+    border-bottom: 1px solid var(--nm-line);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd .nd-exit-cells i {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .nd .nd-life-marks span {
+    max-width: 6.5em;
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd .nd-life-cells i {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- who talks to whom ---- */
+.nd .nd-who {
+  margin: 8px 0 32px;
+}
+.nd .nd-who-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px minmax(0, 1fr) 100px minmax(0, 1fr);
+  grid-template-rows: auto 76px auto;
+  align-items: stretch;
+}
+.nd .nd-who-card {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-width: 0;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--nm-card-line);
+  background: var(--nm-panel);
+  transition:
+    opacity 260ms var(--nd-ease),
+    border-color 260ms;
+}
+.nd .nd-who-card:hover,
+.nd .nd-who-card:focus-visible {
+  border-color: var(--nm-accent);
+}
+.nd .nd-who-card[data-dim='true'] {
+  opacity: 0.38;
+}
+.nd .nd-who-card[data-a='you'] {
+  grid-area: 1 / 1;
+}
+.nd .nd-who-card[data-a='op'] {
+  grid-area: 1 / 3;
+}
+.nd .nd-who-card[data-a='ai'] {
+  grid-area: 1 / 5;
+}
+.nd .nd-who-card[data-a='vault'] {
+  grid-area: 3 / 1 / 4 / 6;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 32px;
+  align-items: start;
+}
+.nd .nd-who-card[data-a='vault'] h4,
+.nd .nd-who-card[data-a='vault'] .nd-who-role {
+  grid-column: 1;
+}
+.nd .nd-who-card[data-a='vault'] b,
+.nd .nd-who-card[data-a='vault'] ul {
+  grid-column: 2;
+}
+.nd .nd-who-card[data-a='vault'] h4 {
+  grid-row: 1;
+}
+.nd .nd-who-card[data-a='vault'] .nd-who-role {
+  grid-row: 2;
+}
+.nd .nd-who-card h4 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.nd .nd-who-role {
+  margin: 0 0 12px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.nd .nd-who-card b {
+  margin-top: 6px;
+  color: var(--nm-muted);
+  font:
+    500 11px/1.6 'IBM Plex Mono',
+    monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.nd .nd-who-card ul {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nd .nd-who-card li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.nd .nd-who-card li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 6px;
+  height: 9px;
+  background: var(--nm-art);
+}
+.nd .nd-who-card ul[data-never='true'] li {
+  color: var(--nm-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--nm-accent);
+  text-decoration-thickness: 1px;
+}
+.nd .nd-who-card ul[data-never='true'] li::before {
+  background: none;
+  outline: 1px dashed var(--nm-muted);
+  outline-offset: -1px;
+}
+
+/* the links: a line with a packet that runs it, one link after the other */
+.nd .nd-who-link,
+.nd .nd-who-drop {
+  position: relative;
+  display: grid;
+  color: var(--nm-muted);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.nd .nd-who-link[data-a='l1'] {
+  grid-area: 1 / 2;
+}
+.nd .nd-who-link[data-a='l2'] {
+  grid-area: 1 / 4;
+}
+.nd .nd-who-link {
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.nd .nd-who-link span {
+  position: absolute;
+  inset: auto -8px calc(50% + 8px);
+  background: var(--nm-bg);
+  padding: 0 2px;
+}
+.nd .nd-who-link i {
+  position: relative;
+  width: 100%;
+  border-top: 1px dashed var(--nm-muted);
+}
+.nd .nd-who-link i::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  border-top: 1px solid var(--nm-muted);
+  border-right: 1px solid var(--nm-muted);
+  transform: translateX(1px) rotate(45deg);
+}
+.nd .nd-who-drop[data-a='d1'] {
+  grid-area: 2 / 1;
+}
+.nd .nd-who-drop[data-a='d2'] {
+  grid-area: 2 / 3;
+}
+.nd .nd-who-drop span {
+  position: absolute;
+  left: calc(50% + 14px);
+  top: 50%;
+  max-width: 17em;
+  transform: translateY(-50%);
+}
+.nd .nd-who-drop i {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--nm-muted);
+}
+.nd .nd-who-drop i::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  bottom: -1px;
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid var(--nm-muted);
+  border-bottom: 1px solid var(--nm-muted);
+  transform: rotate(45deg);
+}
+.nd .nd-who-link i::after,
+.nd .nd-who-drop i::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: var(--nm-accent);
+  opacity: 0;
+}
+.nd .nd-who-link i::after {
+  top: -4px;
+  left: 0;
+}
+.nd .nd-who-drop i::after {
+  left: -4px;
+  top: 0;
+}
+.nd .nd-who[data-seen='true'] .nd-who-link i::after {
+  animation: nd-who-hop 7s var(--nd-ease) var(--d) infinite;
+}
+.nd .nd-who[data-seen='true'] .nd-who-drop i::after {
+  animation: nd-who-fall 7s var(--nd-ease) var(--d) infinite;
+}
+@keyframes nd-who-hop {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  3% {
+    opacity: 1;
+  }
+  20% {
+    left: calc(100% - 7px);
+    opacity: 1;
+  }
+  24%,
+  100% {
+    left: calc(100% - 7px);
+    opacity: 0;
+  }
+}
+@keyframes nd-who-fall {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+  3% {
+    opacity: 1;
+  }
+  20% {
+    top: calc(100% - 7px);
+    opacity: 1;
+  }
+  24%,
+  100% {
+    top: calc(100% - 7px);
+    opacity: 0;
+  }
+}
+.nd .nd-who figcaption,
+.nd .nd-seq figcaption {
+  max-width: 44rem;
+  margin-top: 14px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* ---- one request: three lanes, six steps ---- */
+.nd .nd-seq {
+  margin: 8px 0 32px;
+}
+.nd .nd-seq-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  color: var(--nm-muted);
+  font:
+    12px/1 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-seq-bar button {
+  padding: 6px 10px;
+  border: 1px solid var(--nm-line);
+  background: none;
+  color: var(--nm-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.nd .nd-seq-bar button:hover {
+  border-color: var(--nm-muted);
+  color: var(--nm-fg);
+}
+.nd .nd-seq-stage {
+  position: relative;
+  height: var(--h);
+}
+.nd .nd-seq-lane {
+  position: absolute;
+  inset: calc(var(--l) * 64px) 0 auto 0;
+  height: 64px;
+  border-top: 1px solid var(--nm-line);
+}
+.nd .nd-seq-lane:last-of-type {
+  border-bottom: 1px solid var(--nm-line);
+}
+.nd .nd-seq-lane span {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--nm-muted);
+  font:
+    12px/1 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-seq-wires,
+.nd .nd-seq-nodes {
+  position: absolute;
+  inset: 0 20px 0 72px;
+}
+.nd .nd-seq-wires {
+  width: calc(100% - 92px);
+  height: 100%;
+  overflow: visible;
+}
+.nd .nd-seq-wires line {
+  stroke: var(--nm-muted);
+  stroke-width: 1;
+  transition: stroke 400ms;
+}
+.nd .nd-seq-wires line[data-s='todo'] {
+  stroke: var(--nm-card-line);
+  stroke-dasharray: 3 4;
+}
+.nd .nd-seq-wires line[data-s='done'] {
+  stroke: var(--nm-fg);
+}
+.nd .nd-seq-node {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  padding: 0;
+  border: 1px solid var(--nm-card-line);
+  border-radius: 50%;
+  background: var(--nm-bg);
+  color: var(--nm-muted);
+  font:
+    13px/1 'IBM Plex Mono',
+    monospace;
+  cursor: pointer;
+  transition:
+    border-color 300ms,
+    color 300ms,
+    background 300ms;
+}
+.nd .nd-seq-node[data-s='done'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-art);
+  color: var(--nm-fg);
+}
+.nd .nd-seq-node[data-s='now'] {
+  border-color: var(--nm-accent);
+  background: var(--nd-hatch);
+  color: var(--nm-fg);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nm-accent) 18%, transparent);
+}
+.nd .nd-seq-packet {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 9px;
+  height: 9px;
+  margin: -4px 0 0 -4px;
+  background: var(--nm-accent);
+  pointer-events: none;
+  transition:
+    left 900ms var(--nd-ease),
+    top 900ms var(--nd-ease);
+}
+.nd .nd-seq-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 20px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nd .nd-seq-steps button {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--nm-line);
+  background: none;
+  color: var(--nm-muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: color 300ms;
+}
+.nd .nd-seq-steps b {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 28px;
+  border: 1px solid var(--nm-card-line);
+  font:
+    12px/1 'IBM Plex Mono',
+    monospace;
+  transition:
+    border-color 300ms,
+    background 300ms;
+}
+.nd .nd-seq-steps strong {
+  display: block;
+  color: var(--nm-fg);
+  font-size: 15.5px;
+  font-weight: 500;
+}
+.nd .nd-seq-steps li[data-s='now'] button {
+  border-top-color: var(--nm-accent);
+  color: var(--nm-fg);
+}
+.nd .nd-seq-steps li[data-s='now'] b {
+  border-color: var(--nm-accent);
+  background: var(--nd-hatch);
+}
+.nd .nd-seq-steps li[data-s='done'] b {
+  border-color: var(--nm-fg);
+  background: var(--nm-art);
+}
+.nd .nd-seq-steps button:hover {
+  color: var(--nm-fg);
+}
+
+@media (max-width: 1100px) {
+  .nd .nd-who-grid {
+    grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr) 84px minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .nd .nd-who-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    gap: 0;
+  }
+  .nd .nd-who-card[data-a] {
+    grid-area: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nd .nd-who-card[data-a='vault'] h4,
+  .nd .nd-who-card[data-a='vault'] .nd-who-role,
+  .nd .nd-who-card[data-a='vault'] b,
+  .nd .nd-who-card[data-a='vault'] ul {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .nd .nd-who-link[data-a],
+  .nd .nd-who-drop[data-a] {
+    grid-area: auto;
+    height: 56px;
+  }
+  .nd .nd-who-link {
+    align-content: stretch;
+  }
+  .nd .nd-who-link i {
+    position: absolute;
+    left: 24px;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-top: 0;
+    border-left: 1px dashed var(--nm-muted);
+  }
+  .nd .nd-who-link i::before {
+    right: auto;
+    top: auto;
+    left: -4px;
+    bottom: -1px;
+    transform: rotate(135deg);
+    border: 0;
+    border-top: 1px solid var(--nm-muted);
+    border-right: 1px solid var(--nm-muted);
+  }
+  .nd .nd-who-link i::after {
+    top: 0;
+    left: -4px;
+  }
+  .nd .nd-who[data-seen='true'] .nd-who-link i::after {
+    animation-name: nd-who-fall;
+  }
+  .nd .nd-who-link span,
+  .nd .nd-who-drop span {
+    position: absolute;
+    inset: 50% auto auto 40px;
+    max-width: 15em;
+    padding: 0;
+    background: none;
+    text-align: left;
+    transform: translateY(-50%);
+  }
+  .nd .nd-who-drop i {
+    left: 24px;
+  }
+  .nd .nd-who-drop[data-a='d1'] {
+    order: 98;
+  }
+  .nd .nd-who-drop[data-a='d2'] {
+    order: 99;
+  }
+  .nd .nd-who-card[data-a='vault'] {
+    order: 100;
+  }
+  .nd .nd-seq-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .nd .nd-seq-wires,
+  .nd .nd-seq-nodes {
+    inset: 0 20px 0 56px;
+  }
+  .nd .nd-seq-wires {
+    width: calc(100% - 76px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd .nd-who-link i::after,
+  .nd .nd-who-drop i::after {
+    animation: none !important;
+  }
+  .nd .nd-seq-packet,
+  .nd .nd-seq-node,
+  .nd .nd-seq-wires line {
+    transition: none;
+  }
+}
+
+/* ---- phones ---- */
+@media (max-width: 700px) {
+  /* the third mark says what the legend already says, and the three marks cannot share a line */
+  .nd .nd-life-marks span:nth-child(3) {
+    display: none;
+  }
+  .nd .nd-exit-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .nd .nd-exit-seg {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+  }
+}
