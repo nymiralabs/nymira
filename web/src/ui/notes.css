@@ -190,3 +190,69 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---- a phone: a note is two short lines, not a card ---- */
+@media (max-width: 700px) {
+  .nc .nc-filter {
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nc .nc-filter::-webkit-scrollbar {
+    display: none;
+  }
+  .nc .nc-filter button {
+    flex: none;
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .nc .nc-ledger-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'id bal'
+      'life act';
+    align-items: center;
+    gap: 8px 12px;
+    padding: 10px 14px;
+  }
+  .nc .nc-ledger-id {
+    grid-area: id;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+  }
+  .nc .nc-ledger-id strong {
+    font-size: 17px;
+  }
+  .nc .nc-ledger-bal {
+    grid-area: bal;
+    display: block;
+    text-align: right;
+  }
+  .nc .nc-ledger-bal strong {
+    font-size: 17px;
+  }
+  .nc .nc-ledger-bal .nc-strip {
+    display: none;
+  }
+  .nc .nc-ledger-life {
+    grid-area: life;
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .nc .nc-ledger-act {
+    grid-area: act;
+    display: flex;
+    gap: 6px;
+  }
+  .nc .nc-ledger-act .nc-button {
+    min-height: 30px;
+    padding: 0 12px;
+    font-size: 13px;
+  }
+}

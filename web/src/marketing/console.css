@@ -1292,6 +1292,10 @@
   .nc-title {
     margin-right: auto;
   }
+  /* two auto margins split the free space and left the IP chip in the middle */
+  .nc-net-spacer {
+    display: none;
+  }
   .nc-top,
   .nc-ip,
   .nc-screen-main,

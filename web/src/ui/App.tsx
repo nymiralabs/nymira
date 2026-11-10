@@ -401,11 +401,7 @@ export function App() {
 
   return (
     <div className="nm-site nm-app" data-theme={theme}>
-      <div
-        className="nc"
-        data-drawer={drawer}
-        data-screen={screen === 'chat' && privacy === null ? 'chat' : screen}
-      >
+      <div className="nc" data-drawer={drawer} data-screen={privacy !== null ? 'privacy' : screen}>
         <aside className="nc-side" aria-label="Console">
           <div className="nc-brand-row" ref={brandRef}>
             <button
