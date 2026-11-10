@@ -316,7 +316,9 @@ export async function setUpPassphrase(page: Page, passphrase = WRAP_PASSPHRASE, 
   await page.getByTestId('setup-passphrase').fill(passphrase);
   await page.getByTestId('setup-confirm').fill(passphrase);
   await page.getByTestId('setup-submit').click();
-  await expect(page.getByTestId(ready)).toBeVisible();
+  // The passphrase becomes a key with Argon2id (64 MiB); WebKit on a loaded CI runner needs more than
+  // the default 30 s for it (two WebKit tests failed here on 10 Nov 2026 and passed on a rerun).
+  await expect(page.getByTestId(ready)).toBeVisible({ timeout: 90_000 });
 }
 
 /** Connects, sets the passphrase and creates the note secret; stops before the backup. */
