@@ -723,42 +723,44 @@ export function Close({ onFund }: { onFund?: () => void }) {
         }
       >
         <p className="nc-cap nc-cap-first">
-          A note that reaches its expiry goes to the treasury. While this app is open it shows
-          notices at 14, 7 and 2 days, stops opening leases on the note 5 days before, starts a
-          close at 5 days and, if the close did not go through, an exit at 3 days. Each waits for
-          your wallet signature.
+          A note that reaches its expiry goes to the treasury. While this app is open it guards the
+          last days. Each step waits for your wallet signature.
         </p>
         <GuardTimeline off={!s.settings.enabled} />
-        <label className="nc-check">
-          <input
-            type="checkbox"
-            data-testid="guard-enabled"
-            checked={s.settings.enabled}
-            onChange={(e) =>
-              void leaveStore.setSettings({ ...s.settings, enabled: e.target.checked })
-            }
-          />
-          <span>
-            Expiry guard
-            <small>On by default.</small>
-          </span>
-        </label>
-        <label className="nc-check">
-          <input
-            type="checkbox"
-            data-testid="close-at-end"
-            checked={s.settings.closeAtSessionEnd}
-            onChange={(e) =>
-              void leaveStore.setSettings({ ...s.settings, closeAtSessionEnd: e.target.checked })
-            }
-          />
-          <span>
-            Start a close when a conversation ends
-            <small>
-              Off by default: every close shows the note ID and the total spend on chain.
-            </small>
-          </span>
-        </label>
+        <div className="nc-guard-switches">
+          <label className="nc-keep">
+            <input
+              type="checkbox"
+              data-testid="guard-enabled"
+              checked={s.settings.enabled}
+              onChange={(e) =>
+                void leaveStore.setSettings({ ...s.settings, enabled: e.target.checked })
+              }
+            />
+            <span className="nc-keep-switch" aria-hidden="true" />
+            <span className="nc-keep-text">
+              <strong>Guard my notes near expiry</strong>
+              <small>On by default.</small>
+            </span>
+          </label>
+          <label className="nc-keep">
+            <input
+              type="checkbox"
+              data-testid="close-at-end"
+              checked={s.settings.closeAtSessionEnd}
+              onChange={(e) =>
+                void leaveStore.setSettings({ ...s.settings, closeAtSessionEnd: e.target.checked })
+              }
+            />
+            <span className="nc-keep-switch" aria-hidden="true" />
+            <span className="nc-keep-text">
+              <strong>Start a close when a conversation ends</strong>
+              <small>
+                Off by default: every close shows the note ID and the total spend on chain.
+              </small>
+            </span>
+          </label>
+        </div>
       </Fold>
     </Screen>
   );

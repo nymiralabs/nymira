@@ -268,28 +268,47 @@ export function FlowSteps({
   );
 }
 
-const GUARD_MARKS: readonly [number, string][] = [
-  [14, 'notice'],
-  [7, 'notice'],
-  [5, 'no new leases · close'],
-  [3, 'exit'],
-  [2, 'notice'],
-  [0, 'to the treasury'],
+/** Which phase of the guard a day-before-expiry falls in, and where a notice shows. */
+const guardPhase = (d: number) => (d >= 6 ? 'watch' : d >= 4 ? 'close' : 'exit');
+const NOTICE_DAYS = [14, 7, 2];
+
+const GUARD_LEGEND: readonly [string, string, string][] = [
+  ['watch', '14 · 7 · 2 days', 'A notice in the banner.'],
+  ['close', '5 days', 'No new leases on the note; a close starts.'],
+  ['exit', '3 days', 'If the close did not go through, an exit starts.'],
+  ['end', '0 days', 'The note goes to the treasury.'],
 ];
 
-/** The days at which the expiry guard acts, on the last 14 days. */
+/** The days at which the expiry guard acts, on the last 14 days: a bar of days and what each stretch does. */
 export function GuardTimeline({ off }: { off: boolean }) {
   return (
     <div className="nc-guard" data-off={off}>
-      <Strip n={14} solid={0} size="lg" label="The last 14 days" />
-      <ol>
-        {GUARD_MARKS.map(([d, t]) => (
-          <li key={d} style={vars({ '--d': d })}>
-            <b>{d}d</b>
-            <span>{t}</span>
-          </li>
+      <div className="nc-guard-bar" role="img" aria-label="The last 14 days before expiry">
+        {Array.from({ length: 14 }, (_, i) => {
+          const d = 14 - i;
+          return (
+            <span
+              key={d}
+              data-phase={guardPhase(d)}
+              data-notice={NOTICE_DAYS.includes(d) || undefined}
+              style={vars({ '--i': i })}
+            >
+              {(d === 14 || d === 7 || d === 5 || d === 3) && <b>{d}d</b>}
+            </span>
+          );
+        })}
+        <span data-phase="end" style={vars({ '--i': 14 })}>
+          <b>0d</b>
+        </span>
+      </div>
+      <dl className="nc-guard-legend">
+        {GUARD_LEGEND.map(([phase, when, what]) => (
+          <div key={phase} data-phase={phase}>
+            <dt>{when}</dt>
+            <dd>{what}</dd>
+          </div>
         ))}
-      </ol>
+      </dl>
     </div>
   );
 }
