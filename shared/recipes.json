@@ -10,13 +10,13 @@
     },
     {
      "t": "p",
-     "text": "Start from a budget note, a signed policy that allows the model below, and an agent token (see \"Budget notes for agents\" in the README or the Agents screen). IronClaw starts as the user who launches it, so it must not share an OS user with the `nymirad` that holds your own notes. Pick one:"
+     "text": "Start from a budget note, a signed policy that allows the model below, and an agent token (see the Budget notes guide or the Agents screen). IronClaw starts as the user who launches it, so it must not share an OS user with the `nymirad` that holds your own notes. Pick one:"
     },
     {
      "t": "ul",
      "items": [
       "a different OS user on this machine (IronClaw reaches `nymirad` over loopback TCP, so issue a `tcp` token, not a `unix` one);",
-      "a different machine, reached with the forward under \"Another machine\" in the README;",
+      "a different machine, reached with the forward under \"Another machine\" in the Budget notes guide;",
       "a dedicated `nymirad` instance with its own `--home`, port and owner token that holds only the budget note."
      ]
     },
@@ -91,7 +91,7 @@
     },
     {
      "t": "p",
-     "text": "The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under \"Another machine\" in the README. Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token."
+     "text": "The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under \"Another machine\" in the Budget notes guide. Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token."
     }
    ]
   },

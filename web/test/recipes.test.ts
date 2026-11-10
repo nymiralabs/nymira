@@ -8,7 +8,7 @@ import { IP4, LOCAL } from '../src/agents/commands';
 import { recipeViews } from '../src/agents/recipes';
 
 const ROOT = join(import.meta.dirname, '..', '..');
-const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+const readme = readFileSync(join(ROOT, 'BUDGET_NOTES.md'), 'utf8');
 
 const FIELDS: CommandFields = {
   name: 'ironclaw',

@@ -190,18 +190,139 @@ ${row(250, 'Close from the wallet', [...note.slice(0, 19), 's'], '0.998 to the p
 
 // ---------------------------------------------------------------- budget notes
 function budget(p) {
-  const layer = (y, h, title, lines, tone) => `<rect x="40" y="${y}" width="920" height="${h}" class="${tone}"/>
+  const layer = (y, h, title, lines, tone) => `<g class="layer"><rect x="40" y="${y}" width="920" height="${h}" class="${tone}"/>
 <text x="64" y="${y + 36}" font-size="19">${esc(title)}</text>
-${lines.map((t, i) => `<text x="64" y="${y + 66 + i * 24}" class="m mu" font-size="14">${esc(t)}</text>`).join('\n')}`;
+${lines.map((t, i) => `<text x="64" y="${y + 66 + i * 24}" class="m mu" font-size="14">${esc(t)}</text>`).join('\n')}</g>`;
   const body = `
 <text x="40" y="40" font-size="22">A budget note for one agent</text>
 ${layer(64, 134, 'The vault enforces the ceiling', ['An agent can spend at most the balance of its note.', 'A close can only pay your payout account, fixed at deposit.', 'This rests on the vault matching the client’s pins.'], 'ac')}
 ${layer(222, 168, 'nymirad on your machine enforces the policy', ['model list, lease, call and daily limits, rate limit', 'your approval for a call above confirm_above_usd', 'require_tee: an answer is released after its signature is checked', 'If the note moves to the agent’s machine, the policy is advisory.'], 'ln')}
 <text x="40" y="426" class="m mu" font-size="13">The agent token starts with nyma_ and reaches chat, models, balance and quote only. No remote kill switch exists.</text>`;
-  return frame({ w: 1000, h: 446, title: 'A budget note for one agent', desc: 'The vault enforces the ceiling: the note balance, and a close that pays only your payout account. Your own nymirad enforces the policy: models, limits, rate, approvals and signature checks.', css: '', body, p });
+  return frame({ w: 1000, h: 446, title: 'A budget note for one agent', desc: 'The vault enforces the ceiling: the note balance, and a close that pays only your payout account. Your own nymirad enforces the policy: models, limits, rate, approvals and signature checks.', css: `.layer{animation:cell-in .7s cubic-bezier(.16,1,.3,1) both}@keyframes cell-in{from{opacity:0;transform:translateY(8px)}}.layer:nth-of-type(2){animation-delay:.18s}`, body, p });
 }
 
-const FIGURES = { wordmark, hero, 'note-life': noteLife, parties, money, budget };
+
+// ---------------------------------------------------------------- one request, three lanes
+function lease(p) {
+  const steps = [
+    [0, 'Prove', 'The note can pay, without saying which note.'],
+    [0, 'Seal', 'The prompt is encrypted to the model’s attested key.'],
+    [1, 'Check', 'Proof and nullifier are valid; a lease opens.'],
+    [2, 'Answer', 'The model answers inside its enclave and signs.'],
+    [0, 'Verify', 'Your client checks the model’s signature, and says so only if it holds.'],
+    [1, 'Settle', 'The charge is taken; the rest of the lease is free again.'],
+  ];
+  const lanes = ['You', 'Operator', 'NEAR AI'];
+  const LANE = 60;
+  const top = 70;
+  const nx = (i) => 200 + i * 150;
+  const ny = (i) => top + steps[i][0] * LANE + LANE / 2;
+  const CYCLE = 15;
+  const unit = 100 / 6.4;
+  const pos = (i) => `transform:translate(${nx(i)}px,${ny(i)}px)`;
+  const frames = [];
+  steps.forEach((_, i) => {
+    const t = i * unit;
+    frames.push(`${t.toFixed(2)}%{${pos(i)};opacity:1}`);
+    if (i < steps.length - 1) frames.push(`${(t + unit * 0.55).toFixed(2)}%{${pos(i)}}`);
+  });
+  const end = 5 * unit + unit * 0.9;
+  frames.push(`${end.toFixed(2)}%{${pos(5)};opacity:1}`, `${(end + 3).toFixed(2)}%{${pos(5)};opacity:0}`, `100%{${pos(0)};opacity:0}`);
+  const css = `.pk{animation:pk ${CYCLE}s cubic-bezier(.45,0,.2,1) infinite;opacity:0}
+@keyframes pk{${frames.join('')}}
+.hl{opacity:0;animation:hl ${CYCLE}s linear infinite}
+@keyframes hl{0%{opacity:1}${(unit * 0.95).toFixed(2)}%{opacity:1}${(unit * 0.95 + 1).toFixed(2)}%,100%{opacity:0}}`;
+  const laneRows = lanes
+    .map((n, l) => `<line x1="40" x2="960" y1="${top + l * LANE}" y2="${top + l * LANE}" class="ln"/><text x="48" y="${top + l * LANE + LANE / 2 + 4}" class="m mu" font-size="13">${n}</text>`)
+    .join('\n') + `<line x1="40" x2="960" y1="${top + 3 * LANE}" y2="${top + 3 * LANE}" class="ln"/>`;
+  const wires = steps
+    .slice(0, -1)
+    .map((_, i) => `<line x1="${nx(i)}" y1="${ny(i)}" x2="${nx(i + 1)}" y2="${ny(i + 1)}" stroke="${p.muted}" stroke-dasharray="3 4"/>`)
+    .join('\n');
+  const nodes = steps
+    .map((_, i) => `<g transform="translate(${nx(i)} ${ny(i)})"><circle r="16" fill="none" class="ln"/><circle r="16" class="hatch hl ac" style="animation-delay:${((i * unit * CYCLE) / 100).toFixed(2)}s"/><text y="5" text-anchor="middle" class="m" font-size="14">${i + 1}</text></g>`)
+    .join('\n');
+  const wrap = (t, n) => {
+    const out = [];
+    let cur = '';
+    for (const w of t.split(' ')) {
+      if ((cur + ' ' + w).trim().length > n) { out.push(cur); cur = w; } else cur = (cur + ' ' + w).trim();
+    }
+    out.push(cur);
+    return out;
+  };
+  const caps = steps
+    .map(([, verb, text], i) => {
+      const x = 48 + (i % 3) * 310;
+      const y = 292 + Math.floor(i / 3) * 96;
+      return `<line x1="${x}" x2="${x + 280}" y1="${y - 22}" y2="${y - 22}" class="ln"/>
+<text x="${x}" y="${y}" font-size="16"><tspan class="m mu" font-size="13">${i + 1}  </tspan>${verb}</text>
+${wrap(text, 38).map((t, j) => `<text x="${x}" y="${y + 22 + j * 18}" class="mu" font-size="13.5">${esc(t)}</text>`).join('\n')}`;
+    })
+    .join('\n');
+  const body = `
+<text x="40" y="36" font-size="22">One request, start to finish</text>
+${laneRows}
+${wires}
+${nodes}
+<circle class="pk" r="5" fill="${p.accent}"/>
+${caps}
+<text x="40" y="500" class="m mu" font-size="13">The operator never holds the prompt text. Your wallet is not involved until you close or exit.</text>`;
+  return frame({ w: 1000, h: 520, title: 'One request, start to finish', desc: 'Three lanes, six steps. You prove that the note can pay and seal the prompt, the operator checks the proof and opens a lease, NEAR AI answers inside its enclave and signs, you check the signature, and the operator settles the charge.', css, body, p });
+}
+
+// ---------------------------------------------------------------- check a download
+function verify(p) {
+  const stages = [
+    ['Download', ['the binary', 'SHA256SUMS', 'SHA256SUMS.minisig']],
+    ['Check the signature', ['minisign -V', 'with the key in', 'web/pins/']],
+    ['Check the hash', ['shasum -a 256 -c', 'SHA256SUMS', '--ignore-missing']],
+    ['Run it', ['nymirad init', 'a Tor executable pinned', 'by hash is started']],
+  ];
+  const W = 200;
+  const GAP = 40;
+  const x0 = 40;
+  const y0 = 64;
+  const H = 150;
+  const CYCLE = 10;
+  const unit = 22;
+  const boxX = (i) => x0 + i * (W + GAP);
+  const kf = stages
+    .map((_, i) => {
+      const a = i * unit;
+      return `@keyframes ck${i}{0%,${a}%{stroke-dashoffset:26;opacity:0}${a + 0.1}%{stroke-dashoffset:26;opacity:1}${a + 5}%{stroke-dashoffset:0;opacity:1}88%{stroke-dashoffset:0;opacity:1}94%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes bx${i}{0%,${a}%{opacity:0}${a + 0.1}%{opacity:1}${a + unit - 2}%{opacity:1}${a + unit}%,100%{opacity:0}}`;
+    })
+    .join('\n');
+  const css = `.ck{fill:none;stroke:${p.good};stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:26;opacity:0}
+.bx{opacity:0}
+${stages.map((_, i) => `.ck${i}{animation:ck${i} ${CYCLE}s linear infinite}.bx${i}{animation:bx${i} ${CYCLE}s linear infinite}`).join('\n')}
+${kf}`;
+  const boxes = stages
+    .map(([title, lines], i) => {
+      const x = boxX(i);
+      return `<g>
+<rect x="${x}" y="${y0}" width="${W}" height="${H}" class="ln"/>
+<rect x="${x}" y="${y0}" width="${W}" height="${H}" class="ac bx bx${i}" stroke-width="1.5"/>
+<text x="${x + 16}" y="${y0 + 32}" class="m mu" font-size="13">${i + 1}</text>
+<text x="${x + 36}" y="${y0 + 32}" font-size="17">${esc(title)}</text>
+${lines.map((t, j) => `<text x="${x + 16}" y="${y0 + 66 + j * 22}" class="m mu" font-size="12.5">${esc(t)}</text>`).join('\n')}
+<path class="ck ck${i}" d="M${x + W - 36} ${y0 + H - 26}l7 7l13 -15"/>
+</g>`;
+    })
+    .join('\n');
+  const arrows = [0, 1, 2]
+    .map((i) => `<path d="M${boxX(i) + W + 6} ${y0 + H / 2}h${GAP - 12}" class="ln"/><path d="M${boxX(i) + W + GAP - 12} ${y0 + H / 2 - 4}l6 4l-6 4" class="ln"/>`)
+    .join('\n');
+  const body = `
+<text x="40" y="36" font-size="22">Check a download before you run it</text>
+${arrows}
+${boxes}
+<text x="40" y="250" class="m mu" font-size="13">If either check fails, do not run the file. The key's fingerprint is published; see web/INTEGRITY.md.</text>`;
+  return frame({ w: 1000, h: 270, title: 'Check a download before you run it', desc: 'Four steps: download the binary, SHA256SUMS and its signature; check the signature with the pinned minisign key; check the binary’s hash against SHA256SUMS; then run nymirad init.', css, body, p });
+}
+
+const FIGURES = { wordmark, hero, 'note-life': noteLife, parties, lease, verify, money, budget };
 for (const [name, make] of Object.entries(FIGURES)) {
   for (const [theme, p] of Object.entries(PALETTE)) {
     writeFileSync(join(OUT, `${name}-${theme}.svg`), make(p));

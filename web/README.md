@@ -128,7 +128,7 @@ After a reload the wallet connection is gone (the wallet frame keeps nothing on 
 - A compromised host could serve a different app, and nothing in the browser checks the bundle. The signed manifest and `nymirad verify-web` narrow that; `verify-web` catches a different app only if the user runs it and the host does not show it a clean copy (cloaking). The footer's bundle hash comes from the same host, so it proves nothing by itself.
 - Anonymity on testnet is small and made of test notes.
 - The web app cannot use Tor and cannot bind the gateway's TLS certificate. The operator, NEAR AI's gateway and the PCCS see the user's IP address and the time. It cannot verify NVIDIA's GPU evidence (see Chat).
-- The main thread never holds a plain note secret, but the worker's memory does, and a script that can run in the page can ask the worker to do what the page can do. The strict policy is what keeps such a script out; see the hosting ticket.
+- The main thread never holds a plain note secret, but the worker's memory does, and a script that can run in the page can ask the worker to do what the page can do. The strict policy is what keeps such a script out; see `INTEGRITY.md`.
 - Real Meteor and Intear wallets are not driven in the automated tests; the sandbox path is tested with a test executor. Both were tried by hand on testnet, and Meteor works there.
 
 ## Chat
@@ -229,10 +229,10 @@ The release public key is pinned in `pins/release-signing.pub` (minisign key ID 
 
 **What remains.** A compromised host could serve a different app. The signed manifest and `nymirad verify-web` let a user compare what the host serves with what the key signed, but only if the user runs it, and not if the host shows `verify-web` a clean copy. Reading the footer hash is no check.
 
-### Notes from the earlier tickets
+### Notes for contributors
 
 - No new host: the Close screen talks to the operator, the RPC endpoints and the wallet frame, all already in `headers.ts`. The withdrawal proving key is a second file next to the request key (`profile.withdrawalKey`); if its URL is not on this origin, its host goes into `connect-src` too.
 - `headers.ts` is the only place that knows the policy. Keep new hosts there.
 - The mainnet profile has no dedicated archival RPC endpoint (the archival read uses the profile's last RPC URL), and NRAS is not in `connect-src` because it refuses browser requests (see Chat).
 
-From the funding and chat tickets, still true: `walletClient.send(receiver, FunctionCallAction)` is how every vault call goes out, and the sealed payload is `{state, extra}` as JSON text read with `note/rawjson.ts`, never `JSON.parse` for numbers.
+Also true: `walletClient.send(receiver, FunctionCallAction)` is how every vault call goes out, and the sealed payload is `{state, extra}` as JSON text read with `note/rawjson.ts`, never `JSON.parse` for numbers.

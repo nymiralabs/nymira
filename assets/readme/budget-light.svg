@@ -8,7 +8,7 @@ text{font-family:'IBM Plex Sans',-apple-system,'Segoe UI',system-ui,sans-serif;f
 .ln{stroke:#d4d4d4;fill:none;stroke-width:1}
 .ac{stroke:#3b4cc0;fill:none;stroke-width:1}
 .hatch{fill:url(#hatch)}
-
+.layer{animation:cell-in .7s cubic-bezier(.16,1,.3,1) both}@keyframes cell-in{from{opacity:0;transform:translateY(8px)}}.layer:nth-of-type(2){animation-delay:.18s}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 <defs>
@@ -16,16 +16,16 @@ text{font-family:'IBM Plex Sans',-apple-system,'Segoe UI',system-ui,sans-serif;f
 </defs>
 
 <text x="40" y="40" font-size="22">A budget note for one agent</text>
-<rect x="40" y="64" width="920" height="134" class="ac"/>
+<g class="layer"><rect x="40" y="64" width="920" height="134" class="ac"/>
 <text x="64" y="100" font-size="19">The vault enforces the ceiling</text>
 <text x="64" y="130" class="m mu" font-size="14">An agent can spend at most the balance of its note.</text>
 <text x="64" y="154" class="m mu" font-size="14">A close can only pay your payout account, fixed at deposit.</text>
-<text x="64" y="178" class="m mu" font-size="14">This rests on the vault matching the client’s pins.</text>
-<rect x="40" y="222" width="920" height="168" class="ln"/>
+<text x="64" y="178" class="m mu" font-size="14">This rests on the vault matching the client’s pins.</text></g>
+<g class="layer"><rect x="40" y="222" width="920" height="168" class="ln"/>
 <text x="64" y="258" font-size="19">nymirad on your machine enforces the policy</text>
 <text x="64" y="288" class="m mu" font-size="14">model list, lease, call and daily limits, rate limit</text>
 <text x="64" y="312" class="m mu" font-size="14">your approval for a call above confirm_above_usd</text>
 <text x="64" y="336" class="m mu" font-size="14">require_tee: an answer is released after its signature is checked</text>
-<text x="64" y="360" class="m mu" font-size="14">If the note moves to the agent’s machine, the policy is advisory.</text>
+<text x="64" y="360" class="m mu" font-size="14">If the note moves to the agent’s machine, the policy is advisory.</text></g>
 <text x="40" y="426" class="m mu" font-size="13">The agent token starts with nyma_ and reaches chat, models, balance and quote only. No remote kill switch exists.</text>
 </svg>

@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { hostConfig } from "../tools/host-config.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const readme = readFileSync(join(REPO, "README.md"), "utf8");
+const readme = readFileSync(join(REPO, "BUDGET_NOTES.md"), "utf8");
 const mcpReadme = readFileSync(join(REPO, "mcp", "README.md"), "utf8");
 
 const section = (title: string) => {

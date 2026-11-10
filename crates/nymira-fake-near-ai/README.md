@@ -96,7 +96,7 @@ In process: `handle.update(|s| ...)` or `handle.patch(&json)`. Over HTTP: `GET /
 
 ## Choices
 
-- Chat, signature and attestation take the lease key; key management, balance and usage take the session token, as the gateway's guide describes. The JWT is an opaque string without an `exp` claim; refresh-token rotation is a switch, because the real behaviour is a day-1 check.
+- Chat, signature and attestation take the lease key; key management, balance and usage take the session token, as the gateway's guide describes. The JWT is an opaque string without an `exp` claim; refresh-token rotation is a switch, because the real behaviour is a behaviour we have not measured.
 - Key list bodies and the model list price fields are the simplest shapes that fit the gateway's guide. Balance and usage history follow what the live gateway returned; the real API may still differ.
 - The signature kind is fixed when the chat is answered. `bad_signature` and `unbound_key` apply when the signature is fetched.
 - No billing/costs, no tools, no `max_tokens` enforcement, no rate limits and no concurrency limit. Add them when a ticket needs them.
