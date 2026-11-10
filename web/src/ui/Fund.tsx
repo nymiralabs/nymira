@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import fundIllustration from '../marketing/assets/app-fund.webp';
-import { BackupSteps, Button, Chip, Facts, FundSide, Screen, Strip } from '../marketing/kit';
+import {
+  BackupSteps,
+  Button,
+  Chip,
+  Facts,
+  FundSide,
+  Screen,
+  Strip,
+  Waiting,
+} from '../marketing/kit';
 import { PROFILE } from '../profile';
 import { assessPayout, accountFingerprint, type PayoutAssessment } from '../chain/token';
 import type { VaultCheck } from '../chain/vault';
@@ -43,7 +52,7 @@ export function VaultBanner({
   check: VaultCheck | null;
   onRecheck: () => void;
 }) {
-  if (check === null) return <p className="nc-cap">Checking the vault against this build…</p>;
+  if (check === null) return <Waiting title="Checking the vault against this build" />;
   if (check.status === 'ok') {
     return (
       <p className="nc-cap" data-testid="vault-ok">

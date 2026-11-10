@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button, Strip } from '../marketing/kit';
+import { Button, Strip, Waiting } from '../marketing/kit';
 import './unlock.css';
 import { ARGON2, MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
 import {
@@ -82,7 +82,7 @@ export function Unlock({ onReady }: { onReady: () => void }) {
     </div>
   );
 
-  if (method === undefined) return <p className="nc-cap">Loading…</p>;
+  if (method === undefined) return <Waiting title="Opening the encrypted store" />;
 
   if (method === 'webauthn-prf') {
     return card(

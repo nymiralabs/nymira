@@ -1,7 +1,17 @@
 import './close.css';
 import { Fragment, useEffect, useState, useSyncExternalStore } from 'react';
 import closeIllustration from '../marketing/assets/app-close.webp';
-import { Button, Card, Chip, Facts, Screen, Strip, clamp } from '../marketing/kit';
+import {
+  Button,
+  Card,
+  Chip,
+  Facts,
+  Screen,
+  Strip,
+  WaitBar,
+  Waiting,
+  clamp,
+} from '../marketing/kit';
 import { ExitDays, GuardTimeline } from '../marketing/kit-close';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
@@ -476,7 +486,11 @@ export function Close({ onFund }: { onFund?: () => void }) {
       >
         <WalletConnect busy={s.busy !== null} />
         <p className="nc-cap" data-testid="withdrawal-prover-status">
-          {prover.status === 'loading' && 'Loading the withdrawal proving key (SHA-256 checked)…'}
+          {prover.status === 'loading' && (
+            <>
+              <WaitBar /> Loading the withdrawal proving key (SHA-256 checked)…
+            </>
+          )}
           {prover.status === 'ready' &&
             `Withdrawal proving key loaded and checked (${(prover.bytes / 1e6).toFixed(1)} MB, ${prover.ms} ms).`}
           {prover.status === 'off' && `${prover.reason} Close and exit are off in this build.`}
@@ -486,9 +500,9 @@ export function Close({ onFund }: { onFund?: () => void }) {
 
       {rows.length === 0 ? (
         <Card title="Notes">
-          <p className="nc-cap nc-cap-first" data-testid="no-open-notes">
-            No funded note in this browser.
-          </p>
+          <Waiting tone="none" flat testId="no-open-notes" title="No funded note in this browser.">
+            Close and exit work on a funded note. Fund one to use this screen.
+          </Waiting>
           {onFund && (
             <div className="nc-actions">
               <Button primary onClick={onFund}>
