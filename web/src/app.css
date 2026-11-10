@@ -522,6 +522,55 @@
   font-size: inherit;
 }
 
+.nm-bundle {
+  position: relative;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-bundle summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.nm-bundle summary::-webkit-details-marker {
+  display: none;
+}
+.nm-bundle summary span {
+  color: var(--nm-fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nm-bundle-detail {
+  position: absolute;
+  z-index: 5;
+  bottom: calc(100% + 12px);
+  left: 0;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-raised);
+  overflow-wrap: anywhere;
+}
+.nm-bundle-detail > code {
+  color: var(--nm-fg);
+}
+.nm-bundle-detail p {
+  margin: 8px 0 0;
+}
+.nc-legal .nm-bundle-detail a {
+  display: inline-block;
+  min-height: 0;
+  margin-top: 10px;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* ---- the sidebar card for a store with no note: the note card, empty ---- */
 .nc-notes button.nc-note-empty {
   border-style: dashed;
