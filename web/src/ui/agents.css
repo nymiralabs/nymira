@@ -411,3 +411,128 @@
   outline: 2px solid var(--nm-accent);
   outline-offset: 2px;
 }
+
+/* policy: three groups, each one idea */
+.ag-pol {
+  display: grid;
+  gap: 18px;
+}
+.ag-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ag-group > legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ag-group > legend + * {
+  clear: both;
+}
+.ag-models {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+}
+.ag-models .nc-check {
+  min-width: 0;
+}
+.ag-money-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px 12px;
+  align-items: start;
+}
+.ag-money > span:first-child {
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.ag-money-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--nm-line);
+  transition: border-color 160ms;
+}
+.ag-money-box:focus-within {
+  border-color: var(--nm-fg);
+}
+.ag-money-box b {
+  color: var(--nm-muted);
+  font-weight: 400;
+}
+.ag-money-box input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font-variant-numeric: tabular-nums;
+}
+.ag-money-box small {
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+}
+/* what is still missing: pills in a row, not a list beside the form */
+.nc-screen[data-testid='agents'] .nc-todo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  list-style: none;
+}
+.nc-screen[data-testid='agents'] .nc-todo li {
+  padding: 2px 10px;
+  border: 1px dashed var(--nm-line);
+  font-size: 12px;
+  line-height: 18px;
+}
+.ag-money-box input,
+.ag-money-box input:focus {
+  min-height: 0;
+  height: auto;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}
+.ag-pol .ag-money-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.nc-screen[data-testid='agents'] .nc-msg.nc-list.nc-todo {
+  padding-left: 0;
+}
+.nc .ag-money-box input,
+.nc .ag-money-box input:focus,
+.nc .ag-money-box input:hover {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  min-height: 0;
+}
+.nc .ag-money .ag-money-box input:not([type='checkbox']) {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  min-height: 0;
+  padding-inline: 0;
+}

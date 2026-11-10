@@ -72,6 +72,41 @@ function Field({
   );
 }
 
+function Money({
+  label,
+  value,
+  onChange,
+  id,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  id: string;
+  hint?: string;
+}) {
+  return (
+    <label className="nc-field ag-money">
+      <span>{label}</span>
+      <span className="ag-money-box">
+        <b aria-hidden="true">$</b>
+        <input
+          type="text"
+          inputMode="decimal"
+          data-testid={id}
+          value={value}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="0.00"
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <small>USD</small>
+      </span>
+      {hint && <small className="nc-hint">{hint}</small>}
+    </label>
+  );
+}
+
 function CopyBlock({ id, title, text }: { id: string; title: string; text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -424,10 +459,10 @@ export function Agents() {
 
         <li id="ag-step-2" data-s={stepOf(2)}>
           <h2>Policy</h2>
-          <div className="nc-policy">
-            <div className="nc-policy-form nc-agent-grid">
-              <fieldset className="nc-models">
-                <legend>Allowed models</legend>
+          <div className="ag-pol">
+            <fieldset className="ag-group nc-models">
+              <legend>Allowed models</legend>
+              <div className="ag-models">
                 {MODELS.map((m) => (
                   <label key={m.id} className="nc-check">
                     <input
@@ -446,59 +481,74 @@ export function Agents() {
                     <span>{m.id}</span>
                   </label>
                 ))}
-              </fieldset>
-              <Field
-                label="Per lease limit (USD)"
-                id="p-lease"
-                value={policy.maxLeaseUsd}
-                onChange={set('maxLeaseUsd')}
-                hint="At least 0.1."
-              />
-              <Field
-                label="Per call limit (USD)"
-                id="p-call"
-                value={policy.maxCallUsd}
-                onChange={set('maxCallUsd')}
-              />
-              <Field
-                label="Per day limit (USD, UTC day)"
-                id="p-daily"
-                value={policy.maxDailyUsd}
-                onChange={set('maxDailyUsd')}
-              />
-              <Field
-                label="Ask me above (USD per call)"
-                id="p-confirm"
-                value={policy.confirmAboveUsd}
-                onChange={set('confirmAboveUsd')}
-              />
-              <Field
-                label="Requests a minute"
-                id="p-rate"
-                value={policy.rateLimitPerMin}
-                onChange={set('rateLimitPerMin')}
-              />
-              <Field
-                label="Policy version"
-                id="p-version"
-                value={version}
-                onChange={setVersion}
-                hint="Must be higher than any version this agent has had."
-              />
-            </div>
-            <div className="nc-policy-out">
-              {yaml.ok && (
+              </div>
+            </fieldset>
+            <fieldset className="ag-group">
+              <legend>Limits, from the widest to the narrowest</legend>
+              <div className="ag-money-grid">
+                <Money
+                  label="Per day (UTC day)"
+                  id="p-daily"
+                  value={policy.maxDailyUsd}
+                  onChange={set('maxDailyUsd')}
+                />
+                <Money
+                  label="Per lease"
+                  id="p-lease"
+                  value={policy.maxLeaseUsd}
+                  onChange={set('maxLeaseUsd')}
+                  hint="At least 0.1."
+                />
+                <Money
+                  label="Ask me above"
+                  id="p-confirm"
+                  hint="Per call."
+                  value={policy.confirmAboveUsd}
+                  onChange={set('confirmAboveUsd')}
+                />
+                <Money
+                  label="Per call"
+                  id="p-call"
+                  value={policy.maxCallUsd}
+                  onChange={set('maxCallUsd')}
+                />
+              </div>
+            </fieldset>
+            <fieldset className="ag-group">
+              <legend>Rate and version</legend>
+              <div className="ag-money-grid">
+                <Field
+                  label="Requests a minute"
+                  id="p-rate"
+                  value={policy.rateLimitPerMin}
+                  onChange={set('rateLimitPerMin')}
+                />
+                <Field
+                  label="Policy version"
+                  id="p-version"
+                  value={version}
+                  onChange={setVersion}
+                  hint="Must be higher than any version this agent has had."
+                />
+              </div>
+            </fieldset>
+            {!yaml.ok && <Errors list={yaml.errors} id="policy-needs" />}
+            <Fold title="The policy file this signs" testId="policy-fold">
+              {yaml.ok ? (
                 <pre className="nc-code nc-yaml" data-testid="policy-yaml">
                   {yaml.value}
                 </pre>
+              ) : (
+                <p className="nc-cap nc-cap-first">
+                  It shows here when the fields above are complete.
+                </p>
               )}
-              {!yaml.ok && <Errors list={yaml.errors} id="policy-errors" />}
-              <p className="nc-cap" data-testid="p-tee">
-                <code>require_tee: true</code> is the only value this page offers:{' '}
-                <code>nymirad</code> releases an answer only after it checked the provider&apos;s
-                signature on it.
-              </p>
-            </div>
+            </Fold>
+            <p className="nc-cap" data-testid="p-tee">
+              <code>require_tee: true</code> is the only value this page offers:{' '}
+              <code>nymirad</code> releases an answer only after it checked the provider&apos;s
+              signature on it.
+            </p>
           </div>
           <SignPanel
             id="policy"
