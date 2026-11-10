@@ -23,12 +23,14 @@ import { Notes } from './Notes';
 import { Privacy } from './Privacy';
 import { originOk, useVaultCheck, useWallet } from './services';
 import { Unlock } from './Unlock';
+import { Docs } from './Docs';
 import { Watch } from './Watch';
 
-type Screen = 'landing' | 'fund' | 'chat' | 'close' | 'notes' | 'agents';
+type Screen = 'landing' | 'docs' | 'fund' | 'chat' | 'close' | 'notes' | 'agents';
 type Theme = 'dark' | 'light';
 
 const TITLES: Record<Exclude<Screen, 'landing'>, string> = {
+  docs: 'Documentation',
   chat: 'Chat',
   fund: 'Fund a note',
   notes: 'Notes and backup',
@@ -47,9 +49,9 @@ const NAV: readonly [Exclude<Screen, 'landing'>, string, IconName][] = [
 const THEME_KEY = 'nymira.theme';
 const SCREEN_KEY = 'nymira.screen';
 
-const SCREEN_IDS: readonly Screen[] = ['chat', 'fund', 'notes', 'close', 'agents'];
+const SCREEN_IDS: readonly Screen[] = ['docs', 'chat', 'fund', 'notes', 'close', 'agents'];
 function hashScreen(): Screen | null {
-  const name = location.hash.slice(1);
+  const name = location.hash.slice(1).split('/')[0];
   return SCREEN_IDS.find((id) => id === name) ?? null;
 }
 
@@ -221,7 +223,8 @@ export function App() {
   const [thumb, setThumb] = useState({ top: 0, h: 0, show: false, ft: 0, fb: 0 });
   useEffect(() => {
     try {
-      if (screen === 'landing' || screen === 'agents') sessionStorage.removeItem(SCREEN_KEY);
+      if (screen === 'landing' || screen === 'agents' || screen === 'docs')
+        sessionStorage.removeItem(SCREEN_KEY);
       else sessionStorage.setItem(SCREEN_KEY, screen);
     } catch {
       // Not remembered: a reload starts at the landing page.
@@ -230,7 +233,10 @@ export function App() {
   // The tab title and the address follow the screen, so a link and the back button work.
   useEffect(() => {
     document.title = screen === 'landing' ? 'Nymira' : `${TITLES[screen]} · Nymira`;
-    if (screen !== 'landing' && location.hash !== `#${screen}`) {
+    if (screen === 'landing' && hashScreen()) {
+      history.pushState(null, '', location.pathname + location.search);
+    }
+    if (screen !== 'landing' && hashScreen() !== screen) {
       history.pushState(null, '', `#${screen}`);
     }
   }, [screen]);
@@ -340,9 +346,26 @@ export function App() {
     );
   }
 
+  if (screen === 'docs') {
+    return (
+      <Docs
+        theme={theme}
+        onTheme={flip}
+        onHome={() => go('landing')}
+        onOpenApp={() => go('fund')}
+      />
+    );
+  }
+
   if (screen === 'landing') {
     return (
-      <Landing onOpen={() => go('fund')} theme={theme} onTheme={flip} footerStatus={<Foot />} />
+      <Landing
+        onOpen={() => go('fund')}
+        onDocs={() => go('docs')}
+        theme={theme}
+        onTheme={flip}
+        footerStatus={<Foot />}
+      />
     );
   }
 
@@ -403,11 +426,18 @@ export function App() {
                   <span>GitHub</span>
                   <Icon name="upRight" size={12} />
                 </a>
-                <span role="menuitem" aria-disabled="true" data-testid="brand-docs">
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="brand-docs"
+                  onClick={() => {
+                    setBrandMenu(false);
+                    go('docs');
+                  }}
+                >
                   <Icon name="braces" size={14} />
                   <span>Docs</span>
-                  <em>soon</em>
-                </span>
+                </button>
               </div>
             )}
             <span className="nc-network" title={PROFILE.vaultAccount} data-testid="network-label">

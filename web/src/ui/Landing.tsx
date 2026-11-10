@@ -106,14 +106,24 @@ export function WhoSeesWhat() {
 /** The landing page is the site itself; "Open web app" goes to the Fund screen. */
 export function Landing({
   onOpen,
+  onDocs,
   theme,
   onTheme,
   footerStatus,
 }: {
   onOpen: () => void;
+  onDocs: () => void;
   theme: 'dark' | 'light';
   onTheme: () => void;
   footerStatus: ReactNode;
 }) {
-  return <Site theme={theme} onTheme={onTheme} onOpenApp={onOpen} footerStatus={footerStatus} />;
+  return (
+    <Site
+      theme={theme}
+      onTheme={onTheme}
+      onOpenApp={onOpen}
+      onOpenDocs={onDocs}
+      footerStatus={footerStatus}
+    />
+  );
 }

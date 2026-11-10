@@ -31,6 +31,7 @@ const navigation = [
   ['Agents', '#agents'],
   ['CLI', '#local'],
   ['Integrity', '#integrity'],
+  ['Docs', '#docs'],
   ['Source', source],
 ] as const;
 
@@ -148,11 +149,18 @@ type SiteProps = {
   onTheme?: () => void;
   /** Set when the site is the app's landing page: "Open web app" calls this. */
   onOpenApp?: () => void;
+  onOpenDocs?: () => void;
   /** Replaces the design-preview status in the footer. */
   footerStatus?: ReactNode;
 };
 
-export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: SiteProps = {}) {
+export function Site({
+  theme: fixedTheme,
+  onTheme,
+  onOpenApp,
+  onOpenDocs,
+  footerStatus,
+}: SiteProps = {}) {
   const [ownTheme, setTheme] = useState<'dark' | 'light'>('dark');
   const theme = fixedTheme ?? ownTheme;
   const flipTheme = onTheme ?? (() => setTheme(ownTheme === 'dark' ? 'light' : 'dark'));
@@ -162,6 +170,12 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
     document.documentElement.style.colorScheme = theme;
   }, [theme]);
   const [menu, setMenu] = useState(false);
+  const openDocs = (e: React.MouseEvent) => {
+    if (!onOpenDocs) return;
+    e.preventDefault();
+    setMenu(false);
+    onOpenDocs();
+  };
   const openApp = (e: React.MouseEvent) => {
     if (!onOpenApp) return;
     e.preventDefault();
@@ -190,7 +204,7 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
           <Brand animated />
           <nav className="nm-nav" aria-label="Main navigation">
             {navigation.map(([text, href]) => (
-              <a key={text} href={href}>
+              <a key={text} href={href} onClick={text === 'Docs' ? openDocs : undefined}>
                 {text}
               </a>
             ))}
@@ -221,7 +235,14 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
         {menu && (
           <nav id="mobile-navigation" className="nm-mobile-nav" aria-label="Mobile navigation">
             {navigation.map(([text, href]) => (
-              <a key={text} href={href} onClick={() => setMenu(false)}>
+              <a
+                key={text}
+                href={href}
+                onClick={(e) => {
+                  setMenu(false);
+                  if (text === 'Docs') openDocs(e);
+                }}
+              >
                 {text}
               </a>
             ))}
@@ -554,7 +575,9 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
           </div>
           <div>
             <h3>Resources</h3>
-            <a href={`${source}#readme`}>Documentation</a>
+            <a href="#docs" onClick={openDocs}>
+              Documentation
+            </a>
             <a href={`${source}/releases`}>Releases</a>
             <a href="#local">Run locally</a>
           </div>

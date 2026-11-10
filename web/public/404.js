@@ -1,5 +1,5 @@
 // A link like /fund names a screen of the app: send it to /#fund. Anything else keeps this page.
 const screen = location.pathname.replace(/^\/+|\/+$/g, '');
-if (['chat', 'fund', 'notes', 'close'].includes(screen)) {
+if (['docs', 'chat', 'fund', 'notes', 'close'].includes(screen)) {
   location.replace('/#' + screen);
 }
