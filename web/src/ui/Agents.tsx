@@ -221,7 +221,7 @@ function Permit({
   return (
     <div className="ag-permit" data-testid="agent-permit">
       <div className="ag-permit-top">
-        <span>Budget permit</span>
+        <span>Policy draft</span>
         <span>{version.trim() ? `policy v${version.trim()}` : 'no version'}</span>
       </div>
       <strong className="ag-permit-name" data-empty={!name}>
@@ -371,10 +371,10 @@ export function Agents() {
             { key: 'call', label: 'Per call', value: policy.maxCallUsd },
           ]}
           items={[
-            { label: 'Agent named', done: nameOk, step: 0, cta: 'Create the budget note' },
+            { label: 'Agent name entered', done: nameOk, step: 0, cta: 'Prepare the command' },
             { label: 'Wallet connected', done: !!wallet.connected, step: 1, cta: 'Wallet' },
             { label: 'Note commitment set', done: commitmentOk, step: 1, cta: 'Note commitment' },
-            { label: 'Policy ready to sign', done: policyMsg.ok, step: 2, cta: 'Policy' },
+            { label: 'Policy fields valid', done: policyMsg.ok, step: 2, cta: 'Policy' },
           ]}
         />
       }
@@ -418,10 +418,10 @@ export function Agents() {
 
       <ol className="nc-steps nc-agent-steps">
         <li id="ag-step-0" data-s={stepOf(0)}>
-          <h2>Create the budget note</h2>
+          <h2>Prepare the budget note command</h2>
           <p className="nc-cap nc-cap-first">
-            Nothing here runs. Copy a block and run it yourself. No block holds a passphrase or a
-            token; the agent reads its token from the file you name.
+            Fill in the fields to prepare a command. Run it in your terminal to create the note and
+            token. This page cannot tell whether the command has run.
           </p>
           <div className="ag-grid ag-grid-wide">
             <Field
@@ -609,6 +609,7 @@ export function Agents() {
             </Fold>
           </div>
           <SignPanel
+            key={`policy:${policyMsg.ok ? policyMsg.value : 'invalid'}:${name}:${commitment}:${wallet.connected?.accountId ?? ''}`}
             id="policy"
             what="policy"
             message={policyMsg}
@@ -750,6 +751,7 @@ export function Agents() {
             />
           </div>
           <SignPanel
+            key={`approval:${approvalMsg.ok ? approvalMsg.value : 'invalid'}:${name}:${commitment}:${wallet.connected?.accountId ?? ''}`}
             id="approval"
             what="approval"
             message={approvalMsg}
