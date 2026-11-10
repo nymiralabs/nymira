@@ -7,8 +7,9 @@ export function Notices() {
   return (
     <>
       <p className="notice" data-testid="tor-notice">
-        This web app cannot use Tor. The operator sees your IP address and the time of each request.
-        For IP protection use Tor Browser, or run <code>nymirad</code> on your own machine.
+        This web app cannot use Tor. The operator sees your IP address and the time of each request,
+        and the RPC provider sees your IP address too. For IP protection use Tor Browser, or run{' '}
+        <code>nymirad</code> on your own machine.
       </p>
       {PROFILE.network === 'testnet' && (
         <p className="notice" data-testid="testnet-notice">

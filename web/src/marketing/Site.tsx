@@ -467,8 +467,8 @@ export function Site({
           <WhoSees />
           <p className="nm-inline-note" data-testid="tor-notice">
             This web app cannot use Tor. The operator sees your IP address and the time of each
-            request. For IP protection use Tor Browser, or run <code>nymirad</code> on your own
-            machine.
+            request, and the RPC provider sees your IP address too. For IP protection use Tor
+            Browser, or run <code>nymirad</code> on your own machine.
           </p>
           <p className="nm-inline-note">
             Timing and usage can link requests. Other network participants can still observe
