@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import './notes.css';
 import notesIllustration from '../marketing/assets/app-notes.webp';
-import { Button, Card, Chip, Facts, Screen, Strip, clamp, statusText } from '../marketing/kit';
-import type { RowNote } from '../marketing/kit';
+import {
+  Button,
+  Card,
+  Chip,
+  Facts,
+  Screen,
+  Status,
+  Strip,
+  clamp,
+  statusText,
+} from '../marketing/kit';
+import type { NoteStatus, RowNote } from '../marketing/kit';
 import { LookupRow, NoteLedger, NoteLedgerRow, PassField } from '../marketing/kit-notes';
 import { Count } from '../marketing/Board';
 import { PROFILE } from '../profile';
@@ -26,6 +36,23 @@ import { seedSampleNotes } from './dev-seed';
 import { download, formatDate, formatUnits, readFile } from './format';
 import { archivalRpc, rpc } from './services';
 import { ARGON2_SENTENCE, Unlock } from './Unlock';
+
+type NoteFilter = 'all' | 'open' | 'expiring' | 'leaving' | 'closed';
+const FILTERS: readonly [NoteFilter, string][] = [
+  ['all', 'All'],
+  ['open', 'Open'],
+  ['expiring', 'Expiring'],
+  ['leaving', 'Closing or exiting'],
+  ['closed', 'Closed'],
+];
+const groupOf = (status: NoteStatus | undefined): NoteFilter =>
+  status === 'expiring'
+    ? 'expiring'
+    : status === 'closing' || status === 'exiting'
+      ? 'leaving'
+      : status === 'closed'
+        ? 'closed'
+        : 'open';
 
 const PHASE_TEXT: Record<NoteRecord['phase'], string> = {
   prepared: 'created, not sent',
@@ -128,36 +155,52 @@ function FindDeposit({
 
   return (
     <div className="nc-pending" data-testid="find-deposit">
-      <p className="nc-pending-for">
-        For the note{' '}
-        <strong>{note.noteId !== undefined ? `#${note.noteId}` : 'with no ID yet'}</strong>,{' '}
-        {formatUnits(note.denomination, PROFILE.tokenDecimals)} {PROFILE.tokenSymbol}, payout{' '}
-        <code>{note.payout}</code>.
-      </p>
+      <dl className="nc-find-note">
+        <div>
+          <dt>Note</dt>
+          <dd>{note.noteId !== undefined ? `#${note.noteId}` : 'no ID yet'}</dd>
+        </div>
+        <div>
+          <dt>Amount</dt>
+          <dd>
+            {formatUnits(note.denomination, PROFILE.tokenDecimals)} {PROFILE.tokenSymbol}
+          </dd>
+        </div>
+        <div>
+          <dt>Payout</dt>
+          <dd>
+            <code>{note.payout}</code>
+          </dd>
+        </div>
+      </dl>
       {lookable && (
-        <>
-          <LookupRow
-            hash={hash}
-            onHash={setHash}
-            onLookup={lookup}
-            disabled={busy || hash === ''}
-            label="Look up the receipt"
-            inputTestId="lookup-hash"
-            buttonTestId="lookup"
-          />
-          <p className="nc-cap nc-pending-alt">
-            No hash at hand?{' '}
-            <button
-              type="button"
-              className="nc-link"
-              disabled={busy}
-              onClick={search}
-              data-testid="search-vault"
-            >
+        <div className="nc-find-routes">
+          <section>
+            <h3>With a transaction hash</h3>
+            <LookupRow
+              hash={hash}
+              onHash={setHash}
+              onLookup={lookup}
+              disabled={busy || hash === ''}
+              label="Look up the receipt"
+              inputTestId="lookup-hash"
+              buttonTestId="lookup"
+            />
+            <p className="nc-cap">
+              The lookup asks the RPC provider, which sees your IP address, account and that hash.
+            </p>
+          </section>
+          <section>
+            <h3>No hash at hand?</h3>
+            <Button disabled={busy} onClick={search} testId="search-vault">
               Search the vault for this note
-            </button>
-          </p>
-        </>
+            </Button>
+            <p className="nc-cap">
+              It reads the vault’s public note list, which names none of your notes, but the
+              provider still sees your IP address.
+            </p>
+          </section>
+        </div>
       )}
     </div>
   );
@@ -181,6 +224,7 @@ export function Notes({
 }) {
   const [activeId, setActiveId] = useState('');
   const [lookupMsg, setLookupMsg] = useState('');
+  const [filter, setFilter] = useState<NoteFilter>('all');
   const [showUnconfirmed, setShowUnconfirmed] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [unlocked, setUnlocked] = useState(isUnlocked());
@@ -252,6 +296,10 @@ export function Notes({
   }));
   const confirmed = entries.filter((e) => e.done);
   const unconfirmed = entries.filter((e) => !e.done);
+  const counts = (f: NoteFilter) =>
+    f === 'all' ? confirmed.length : confirmed.filter((e) => groupOf(e.row?.status) === f).length;
+  const shown =
+    filter === 'all' ? confirmed : confirmed.filter((e) => groupOf(e.row?.status) === filter);
   const picked = entries.find((e) => e.rec.id === activeId) ?? confirmed[0] ?? unconfirmed[0];
   // Nothing was sent for these, so dropping the record loses nothing.
   const removable = (e: (typeof entries)[number]) =>
@@ -268,6 +316,7 @@ export function Notes({
   const target = picked && lookable(picked) ? picked.rec : entries.find(lookable)?.rec;
   const enough = passphraseLength(pass) >= MIN_PASSPHRASE_LENGTH;
   const closed = picked?.row?.status === 'closed';
+  const leaving = closed || picked?.row?.status === 'closing' || picked?.row?.status === 'exiting';
   const size = (rec: NoteRecord) => Number(BigInt(rec.denomination)) / 10 ** PROFILE.tokenDecimals;
 
   return (
@@ -295,7 +344,7 @@ export function Notes({
               />
               <Facts
                 rows={[
-                  ['Status', picked.row ? statusText(picked.row) : PHASE_TEXT[picked.rec.phase]],
+                  ['Status', picked.row ? <Status n={picked.row} /> : PHASE_TEXT[picked.rec.phase]],
                   ...(picked.rec.depositedAt !== undefined
                     ? ([['Deposited', formatDate(picked.rec.depositedAt / 1000 + 1)]] as const)
                     : []),
@@ -323,7 +372,7 @@ export function Notes({
               )}
               {picked.done && (
                 <div className="nc-actions">
-                  <Button primary disabled={closed} onClick={onChat}>
+                  <Button primary disabled={leaving} onClick={onChat}>
                     Chat
                   </Button>
                   <Button disabled={closed} onClick={onClose}>
@@ -384,9 +433,38 @@ export function Notes({
         </NoteLedger>
       ) : (
         <>
-          {confirmed.length > 0 && (
+          {confirmed.length > 1 && (
+            <div
+              className="nc-filter"
+              role="group"
+              aria-label="Filter notes"
+              data-testid="note-filter"
+            >
+              {FILTERS.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={filter === id}
+                  disabled={id !== 'all' && counts(id) === 0 && filter !== id}
+                  onClick={() => setFilter(id)}
+                >
+                  {label}
+                  <span>{counts(id)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {confirmed.length > 0 && shown.length === 0 && (
+            <p className="nc-cap" data-testid="note-filter-empty">
+              No note matches this filter.{' '}
+              <button type="button" className="nc-link" onClick={() => setFilter('all')}>
+                Show all
+              </button>
+            </p>
+          )}
+          {shown.length > 0 && (
             <NoteLedger columns={['Note', 'Balance', 'Its 30 days']}>
-              {confirmed.map((e, i) => {
+              {shown.map((e, i) => {
                 const n = e.row;
                 return (
                   <div key={e.rec.id} data-testid="note-row" data-phase={e.rec.phase}>
@@ -421,7 +499,7 @@ export function Notes({
                         n ? (
                           <>
                             <Strip n={30} solid={n.day} size="sm" />
-                            <small>{statusText(n)}</small>
+                            <Status n={n} />
                           </>
                         ) : (
                           <small data-testid="note-phase">{PHASE_TEXT[e.rec.phase]}</small>
@@ -430,7 +508,11 @@ export function Notes({
                       actions={
                         <>
                           <Button
-                            disabled={n?.status === 'closed'}
+                            disabled={
+                              n?.status === 'closed' ||
+                              n?.status === 'closing' ||
+                              n?.status === 'exiting'
+                            }
                             onClick={() => {
                               setActiveId(e.rec.id);
                               onChat();
@@ -458,7 +540,7 @@ export function Notes({
           {unconfirmed.length > 0 && (
             <details
               className="nc-unconfirmed"
-              open={showUnconfirmed || confirmed.length === 0}
+              open={showUnconfirmed}
               onToggle={(ev) => setShowUnconfirmed(ev.currentTarget.open)}
               data-testid="unconfirmed"
             >
@@ -527,6 +609,10 @@ export function Notes({
       )}
 
       <Card title="Backup and restore">
+        <p className="nc-cap nc-cap-first">
+          One backup file holds every note of this vault that this browser keeps, not only the
+          selected one. Restoring brings all of them back.
+        </p>
         <PassField
           label={`Backup passphrase (at least ${MIN_PASSPHRASE_LENGTH} characters)`}
           value={pass}
@@ -584,14 +670,17 @@ export function Notes({
       </Card>
       {(target || lookupMsg) && (
         <Card title="Find a deposit" aside={<Chip>asks the RPC provider</Chip>}>
-          <p className="nc-cap nc-cap-first" data-testid="lookup-help">
-            If the page closed during the transfer, the note is found again from its deposit
-            receipt. Enter the transaction hash from your wallet’s history or the explorer (for a
-            note funded from another chain, the NEAR transaction 1Click or the Intents explorer
-            shows for your order). The lookup asks the RPC provider, which sees your IP address,
-            account and that hash. Searching the vault needs no hash: it reads the vault’s public
-            note list, which names none of your notes, but the provider still sees your IP address.
-          </p>
+          <div className="nc-find-help" data-testid="lookup-help">
+            <p>
+              If the page closed during the transfer, the note is found again from its deposit
+              receipt.
+            </p>
+            <p>
+              Enter the transaction hash from your wallet’s history or the explorer. For a note
+              funded from another chain, use the NEAR transaction that 1Click or the Intents
+              explorer shows for your order.
+            </p>
+          </div>
           {target && (
             <FindDeposit
               setMsg={setLookupMsg}
