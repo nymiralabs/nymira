@@ -6313,3 +6313,12 @@
     display: none;
   }
 }
+
+/* many notes: the list scrolls inside a fixed height, so the page does not grow with the count */
+.nc-ledger-body[data-many='true'] {
+  max-height: min(56vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}

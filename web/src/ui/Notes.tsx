@@ -463,7 +463,7 @@ export function Notes({
             </p>
           )}
           {shown.length > 0 && (
-            <NoteLedger columns={['Note', 'Balance', 'Its 30 days']}>
+            <NoteLedger columns={['Note', 'Balance', 'Its 30 days']} many={shown.length > 5}>
               {shown.map((e, i) => {
                 const n = e.row;
                 return (

@@ -6,9 +6,12 @@ import { Button, Strip, vars } from './kit';
 
 export function NoteLedger({
   columns,
+  many = false,
   children,
 }: {
   columns: readonly [string, string, string];
+  /** Many rows: the list gets a fixed height and scrolls inside, the header stays. */
+  many?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -19,7 +22,9 @@ export function NoteLedger({
         ))}
         <span />
       </div>
-      {children}
+      <div className="nc-ledger-body" role="rowgroup" data-many={many}>
+        {children}
+      </div>
     </div>
   );
 }
