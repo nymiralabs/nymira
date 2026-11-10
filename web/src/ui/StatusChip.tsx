@@ -8,9 +8,12 @@ import './statuschip.css';
 export function StatusChip({
   check,
   onStatus,
+  dot = false,
 }: {
   check: VaultCheck | null;
   onStatus: () => void;
+  /** Only the mark, for a narrow place: the words stay in its label. */
+  dot?: boolean;
 }) {
   const [level, text] = !check
     ? (['idle', 'Checking…'] as const)
@@ -23,7 +26,9 @@ export function StatusChip({
           : (['warn', 'Chain unreachable'] as const);
   return (
     <a
-      className="nm-statuschip"
+      className={dot ? 'nm-statuschip nm-statuschip-dot' : 'nm-statuschip'}
+      title={`${text}. Open the status page.`}
+      aria-label={`${text}. Open the status page.`}
       data-level={level}
       data-testid="status-chip"
       href="#status"
@@ -33,8 +38,8 @@ export function StatusChip({
       }}
     >
       <i aria-hidden="true" />
-      <span>{text}</span>
-      <b>Status</b>
+      {!dot && <span>{text}</span>}
+      {!dot && <b>Status</b>}
     </a>
   );
 }

@@ -583,7 +583,7 @@ export function App() {
               )}
             </div>
             <div className="nc-legal">
-              <StatusChip check={check} onStatus={() => go('status')} />
+              <StatusChip dot check={check} onStatus={() => go('status')} />
               <a
                 href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
                 target="_blank"
