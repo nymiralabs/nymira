@@ -21,7 +21,7 @@ Nymira is private, prepaid API credits on NEAR. You put test USDC into a note, s
 
 | What | Where |
 |---|---|
-| Web app | <https://nymira.pages.dev> (mirror: <https://nymiralabs.github.io/nymira/>) |
+| Web app | <https://nymira.pages.dev> (the copy at <https://nymiralabs.github.io/nymira/> is only for `nymirad verify-web`; the app does not run there) |
 | Vault | `vault.nymira.testnet` |
 | Token | Circle's testnet USDC, account `3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af` |
 | Operator status | <https://nymira-operator.tail0484c4.ts.net/v1/status> |
