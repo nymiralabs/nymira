@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { Cipher, Count } from './Board';
 import { Icon } from './Icon';
 import qwenLogo from './assets/brands/model-qwen.png';
@@ -157,6 +166,90 @@ export function Button({
   );
 }
 
+/**
+ * The panel beside a screen. Wide windows keep it as a column; narrow ones fold it into a sheet
+ * that slides in from the right, opened by a tab on the right edge, closed by its own button, the
+ * scrim or Escape.
+ */
+const NARROW = '(max-width: 1100px)';
+const narrow = {
+  subscribe: (cb: () => void) => {
+    const q = window.matchMedia(NARROW);
+    q.addEventListener('change', cb);
+    return () => q.removeEventListener('change', cb);
+  },
+  get: () => window.matchMedia(NARROW).matches,
+};
+
+export function InspectorShell({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const sheet = useRef<HTMLElement>(null);
+  const tab = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  const small = useSyncExternalStore(narrow.subscribe, narrow.get);
+  useEffect(() => {
+    if (!open) return;
+    sheet.current?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      tab.current?.focus();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [open]);
+  const parts = (
+    <>
+      <button
+        ref={tab}
+        type="button"
+        className="nc-insp-tab"
+        aria-expanded={open}
+        aria-controls={id}
+        title={label}
+        onClick={() => setOpen(true)}
+      >
+        <Icon name="chevron" size={12} />
+        <span className="nc-sr">{label}</span>
+      </button>
+      <aside
+        id={id}
+        ref={sheet}
+        tabIndex={-1}
+        className="nc-inspector"
+        data-open={open}
+        aria-label={label}
+      >
+        <div className="nc-insp-head">
+          <strong>{label}</strong>
+          <button
+            type="button"
+            className="nc-insp-close"
+            onClick={() => {
+              setOpen(false);
+              tab.current?.focus();
+            }}
+          >
+            Close
+          </button>
+        </div>
+        {children}
+      </aside>
+      {open && <div className="nc-insp-scrim" onClick={() => setOpen(false)} aria-hidden="true" />}
+    </>
+  );
+  // Some ancestor of a screen makes its own frame for fixed boxes, so on a narrow window the sheet
+  // goes to the end of <body>, inside a box that only carries the theme and the `nc` styles.
+  if (!small) return parts;
+  const theme = document.querySelector('.nm-site')?.getAttribute('data-theme') ?? 'dark';
+  return createPortal(
+    <div className="nm-site nc" data-theme={theme} style={{ display: 'contents' }}>
+      {parts}
+    </div>,
+    document.body,
+  );
+}
+
 export function Screen({
   title,
   lead,
@@ -186,11 +279,7 @@ export function Screen({
         </div>
         {children}
       </div>
-      {side && (
-        <aside className="nc-inspector" aria-label="Details">
-          {side}
-        </aside>
-      )}
+      {side && <InspectorShell label="Details">{side}</InspectorShell>}
     </div>
   );
 }
@@ -404,7 +493,7 @@ export function WalletMenu({
         {wallet ? (
           <>
             <WalletMark name={wallet.name} size={20} />
-            <span>{wallet.account}</span>
+            <span className="nc-wl-account">{wallet.account}</span>
             <i className="nc-dot" aria-hidden="true" />
           </>
         ) : again ? (
@@ -413,11 +502,15 @@ export function WalletMenu({
           ) : (
             <>
               <WalletMark name={again.name} size={20} />
-              <span>Reconnect {again.name}</span>
+              <span>
+                Reconnect<span className="nc-wl-extra"> {again.name}</span>
+              </span>
             </>
           )
         ) : (
-          'Connect wallet'
+          <>
+            Connect<span className="nc-wl-extra"> wallet</span>
+          </>
         )}
       </button>
       {open && (

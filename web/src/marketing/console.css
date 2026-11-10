@@ -6047,3 +6047,269 @@
   font-size: 12px;
   line-height: 18px;
 }
+.nc-mk[data-due='exit'] {
+  color: var(--nm-bg);
+}
+
+/* ---- the side panel on narrow screens: a sheet from the right, opened by a tab on the edge ---- */
+.nc-insp-tab,
+.nc-insp-head,
+.nc-insp-scrim {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .nc-chat-screen {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 26;
+    align-self: stretch;
+    width: min(88vw, 380px);
+    max-height: none;
+    padding: 0 20px 32px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-top: 0;
+    border-left: 1px solid var(--nm-line);
+    background: var(--nm-bg);
+    outline: 0;
+    clip-path: inset(0 0 0 100%);
+    visibility: hidden;
+    transition:
+      clip-path 260ms var(--nc-ease),
+      visibility 0s linear 260ms;
+  }
+  .nc-inspector[data-open='true'] {
+    clip-path: inset(0);
+    visibility: visible;
+    transition:
+      clip-path 260ms var(--nc-ease),
+      visibility 0s;
+  }
+  .nc-insp-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 -20px 20px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--nm-soft-line);
+    background: var(--nm-bg);
+    font:
+      12px/18px 'IBM Plex Mono',
+      monospace;
+  }
+  .nc-insp-close {
+    padding: 4px 10px;
+    border: 1px solid var(--nm-line);
+    background: none;
+    color: var(--nm-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .nc-insp-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    z-index: 18;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 7px;
+    border: 1px solid var(--nm-line);
+    border-right: 0;
+    background: var(--nm-bg);
+    color: var(--nm-fg);
+    font:
+      11px/16px 'IBM Plex Mono',
+      monospace;
+    writing-mode: vertical-rl;
+    transform: translateY(-50%);
+    cursor: pointer;
+    transition:
+      border-color 160ms,
+      background-color 160ms;
+  }
+  .nc-insp-tab .nm-icon {
+    transform: rotate(180deg);
+  }
+  .nc-insp-tab:hover {
+    border-color: var(--nm-fg);
+    background: var(--nm-raised);
+  }
+  .nc-insp-tab[aria-expanded='true'] {
+    display: none;
+  }
+  .nc-insp-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    display: block;
+    background: #0009;
+    animation: nc-scrim-in 200ms ease-out;
+  }
+  .nc-inspector .nc-sum:first-of-type {
+    margin-top: 0;
+  }
+}
+@keyframes nc-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-inspector,
+  .nc-inspector[data-open='true'],
+  .nc-insp-tab,
+  .nc-insp-scrim {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ---- the top bar on a phone: a small wallet button, a title that stays on one line ---- */
+@media (max-width: 600px) {
+  .nc-top {
+    gap: 8px;
+  }
+  .nc-title {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nc-wallet-button {
+    min-height: 32px;
+    max-width: 44vw;
+    padding: 3px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .nc-wallet-button .nc-wl-extra {
+    display: none;
+  }
+  .nc-wallet-button .nc-wl-account {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 700px) {
+  .nc-row {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+}
+
+/* Phones: banners take less of the first screen. */
+@media (max-width: 700px) {
+  .nc-ip {
+    padding-block: 8px;
+    font-size: 12px;
+    line-height: 18px;
+  }
+  .nc-banner-row {
+    gap: 6px;
+    padding: 8px 16px;
+  }
+  .nc-banner-act {
+    gap: 10px;
+  }
+  .nc-banner-row p {
+    font-size: 12px;
+    line-height: 17px;
+  }
+}
+
+/* The panel's tab is a slim handle on the edge: it never sits on top of the text beside it. */
+@media (max-width: 1100px) {
+  .nc-insp-tab {
+    width: 16px;
+    padding: 26px 0;
+    justify-content: center;
+    border-color: var(--nm-muted);
+    writing-mode: horizontal-tb;
+  }
+  .nc-insp-tab::before {
+    content: '';
+    position: absolute;
+    inset: -8px -8px -8px -14px;
+  }
+}
+
+/* Phones: screen heads sit closer to their lead and to the banner above. */
+@media (max-width: 600px) {
+  .nc-screen-main {
+    padding-top: 16px;
+  }
+  .nc-screen-intro-art h1 {
+    min-height: 0;
+    margin-bottom: 4px;
+  }
+  .nc-screen-intro .nc-lead {
+    margin-top: 6px;
+    font-size: 16px;
+    line-height: 24px;
+  }
+  .nc-screen-intro-art img {
+    top: -2px;
+    width: 88px;
+  }
+}
+
+/* ---- phones: an expiry banner is one thin line until you ask for more ---- */
+.nc-notice-rest {
+  margin-left: 0;
+}
+@media (max-width: 700px) {
+  .nc-banner-row,
+  .nc-banner:not(.nc-banner-stack) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 8px 16px;
+  }
+  .nc-banner-row > .nc-strip,
+  .nc-banner:not(.nc-banner-stack) > .nc-strip {
+    grid-column: 1 / -1;
+    height: 4px;
+  }
+  .nc-banner-row .nc-strip span,
+  .nc-banner:not(.nc-banner-stack) .nc-strip span {
+    height: 4px;
+  }
+  .nc-banner-row > p,
+  .nc-banner:not(.nc-banner-stack) > p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* the long consequence text stays for screen readers and for tests, off the screen */
+  .nc-notice-rest {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .nc-banner-act {
+    gap: 8px;
+  }
+  .nc-banner .nc-button {
+    min-height: 30px;
+    padding: 2px 10px;
+    font-size: 12px;
+  }
+  .nc-m-hide {
+    display: none;
+  }
+}
