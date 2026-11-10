@@ -160,7 +160,7 @@ export class ChatSession {
   constructor(
     private readonly deps: Deps,
     note: NoteRecord,
-    private readonly longJob = false,
+    readonly longJob = false,
   ) {
     this.note = note;
     this.http = deps.fetchImpl ?? ((...a) => fetch(...a));

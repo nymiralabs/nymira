@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import './chat-idle.css';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
@@ -21,19 +21,24 @@ import {
   Fold,
   ModelPicker,
   Seal,
+  Status,
   Strip,
+  WaitBar,
+  Waiting,
   VerifyList,
   clamp,
   modelInfo,
+  type NoteStatus,
 } from '../marketing/kit';
 import { chatDeps, warmProver, type ProverState } from '../chat/runtime';
 import { ChatError, ChatSession, type Answer, type Message, type Settled } from '../chat/session';
 import { badgeLabel } from '../chat/attest/signature';
 import type { NoteView } from '../note/lease';
 import { download, formatDate, formatUnits } from './format';
-import { leaseBlocked } from '../leave/guard';
+import { CLOSE_DAYS, leaseBlocked } from '../leave/guard';
 import { leaveStore } from '../leave/store';
 import { Unlock } from './Unlock';
+import { ChatDemo, SUGGESTIONS } from './ChatDemo';
 import type { VaultCheck } from '../chain/vault';
 
 const units = (v: bigint | string) =>
@@ -45,12 +50,6 @@ interface FsHandle {
 type PickerWindow = Window & {
   showSaveFilePicker?: (o: unknown) => Promise<FsHandle>;
 };
-
-const SUGGESTIONS = [
-  'Explain how a prepaid note works.',
-  'What does the operator see?',
-  'How do I get my balance back?',
-] as const;
 
 const MODEL_INFOS = MODELS.map((m) => modelInfo(m.id, Number(m.inputNano), Number(m.outputNano)));
 
@@ -100,6 +99,9 @@ export function Chat({
   const [selected, setSelected] = useState<string | null>(null);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [idleDraft, setIdleDraft] = useState('');
+  const [pickFilter, setPickFilter] = useState<'all' | 'ready' | 'attention'>('all');
+  const [pickQuery, setPickQuery] = useState('');
+  const [demo, setDemo] = useState<(typeof SUGGESTIONS)[number] | null>(null);
   const [longJob, setLongJob] = useState(false);
   const [stream, setStream] = useState(false);
   const [input, setInput] = useState('');
@@ -176,21 +178,6 @@ export function Chat({
   const fail = (e: unknown) =>
     setError(e instanceof ChatError ? e.message : e instanceof Error ? e.message : String(e));
 
-  if (!unlocked) return <Unlock onReady={() => setUnlocked(true)} />;
-
-  if (prover.status === 'off') {
-    return (
-      <section data-testid="chat-off" className="nc-screen">
-        <div className="nc-screen-main">
-          <h1>Chat</h1>
-          <p className="nc-notice" role="alert">
-            {prover.reason} Chat is off in this build.
-          </p>
-        </div>
-      </section>
-    );
-  }
-
   const start = async (record: NoteRecord) => {
     setError('');
     setSettled(null);
@@ -206,6 +193,63 @@ export function Chat({
       fail(e);
     }
   };
+
+  // With a note picked (the first one by default) there is nothing to choose: the conversation
+  // opens on it. The list stays for what needs a decision: an open lease to settle, a note too
+  // close to its expiry, an emergency notice.
+  useEffect(() => {
+    if (selected || busy || settled || error || !unlocked) return;
+    if (prover.status !== 'ready' || leave.emergency !== null) return;
+    const target = notes.find((n) => n.record.id === preferred) ?? notes[0];
+    if (!target || target.view.pending) return;
+    if (leave.settings.enabled && leaseBlocked(target.view.expiry, nowSecs())) return;
+    void start(target.record);
+    // `start` only reads state that the guards above already cover.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, preferred, selected, busy, settled, error, unlocked, prover.status, leave.emergency]);
+
+  // A note picked in the sidebar while a conversation is open: with no lease open nothing is lost,
+  // so the conversation moves to that note. With a lease open it stays, and says why.
+  useEffect(() => {
+    if (!selected || !preferred || preferred === selected || busy) return;
+    if (session.current?.lease?.token) {
+      setError('This conversation has a lease open. End it before you switch to another note.');
+      return;
+    }
+    void session.current?.abandon();
+    session.current = null;
+    setError('');
+    setSettled(null);
+    setMessages([]);
+    setAnswers([]);
+    setSelected(null);
+  }, [preferred, selected, busy]);
+
+  // Long job changed with no lease open: the proof made ahead was for the old class, so it is set
+  // aside and a new one starts on the same note.
+  useEffect(() => {
+    const s = session.current;
+    if (!selected || !s || busy || s.lease?.token || s.longJob === longJob) return;
+    void s.abandon();
+    void start(s.record);
+    // `start` only reads state that the guards above already cover.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [longJob, selected, busy]);
+
+  if (!unlocked) return <Unlock onReady={() => setUnlocked(true)} />;
+
+  if (prover.status === 'off') {
+    return (
+      <section data-testid="chat-off" className="nc-screen">
+        <div className="nc-screen-main">
+          <h1>Chat</h1>
+          <p className="nc-notice" role="alert">
+            {prover.reason} Chat is off in this build.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   const send = async () => {
     const s = session.current;
@@ -299,20 +343,6 @@ export function Chat({
     }
   };
 
-  // With a note picked (the first one by default) there is nothing to choose: the conversation
-  // opens on it. The list stays for what needs a decision: an open lease to settle, a note too
-  // close to its expiry, an emergency notice.
-  useEffect(() => {
-    if (selected || busy || settled || error || !unlocked) return;
-    if (prover.status !== 'ready' || leave.emergency !== null) return;
-    const target = notes.find((n) => n.record.id === preferred) ?? notes[0];
-    if (!target || target.view.pending) return;
-    if (leave.settings.enabled && leaseBlocked(target.view.expiry, nowSecs())) return;
-    void start(target.record);
-    // `start` only reads state that the guards above already cover.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, preferred, selected, busy, settled, error, unlocked, prover.status, leave.emergency]);
-
   const settleOpen = async (record: NoteRecord) => {
     setError('');
     setBusyKind('end');
@@ -346,6 +376,11 @@ export function Chat({
   const boundBase = longJob ? LONG_JOB_BOUND : DEFAULT_BOUND;
   const bound = units(boundBase);
   const current = selected ? notes.find((n) => n.record.id === selected) : undefined;
+  const daysLeft = current ? Math.ceil((current.view.expiry - nowSecs()) / 86_400) : 30;
+  const noteMark: { status: NoteStatus; day: number } = {
+    status: leaseOpen ? 'leased' : daysLeft <= CLOSE_DAYS ? 'expiring' : 'open',
+    day: 30 - daysLeft,
+  };
   // The share of the deposit still on the note, 0 to 1, for the cells.
   const shareOf = (n?: { record: NoteRecord; view: NoteView }) => {
     if (!n) return 0;
@@ -369,6 +404,7 @@ export function Chat({
   const picker = (
     <ModelPicker models={MODEL_INFOS} value={model} onChange={setModel} testId="model-select" />
   );
+  const demoView = demo ? <ChatDemo question={demo} model={model} onAsk={setDemo} /> : null;
   const seal = busy && (
     <Seal
       title={busy}
@@ -380,6 +416,35 @@ export function Chat({
       auto
     />
   );
+
+  // The note picker: the notes that can start a chat first (the fullest one suggested), then the ones
+  // with a lease to settle, then the ones too close to their expiry.
+  const pickRows = notes
+    .map(({ record, view }) => {
+      const near = leave.settings.enabled && leaseBlocked(view.expiry, nowSecs());
+      const days = Math.max(0, Math.ceil((view.expiry - nowSecs()) / 86_400));
+      const rank = view.pending ? 1 : near ? 2 : 0;
+      return { record, view, near, days, rank };
+    })
+    .sort((a, b) =>
+      a.rank !== b.rank
+        ? a.rank - b.rank
+        : a.rank === 2
+          ? a.days - b.days
+          : BigInt(b.view.balance) > BigInt(a.view.balance)
+            ? 1
+            : BigInt(b.view.balance) < BigInt(a.view.balance)
+              ? -1
+              : 0,
+    );
+  const bestId = pickRows.length >= 3 && pickRows[0]?.rank === 0 ? pickRows[0].record.id : null;
+  const pickShown = pickRows.filter(
+    (r) =>
+      (pickFilter === 'all' || (pickFilter === 'ready') === (r.rank === 0)) &&
+      (pickQuery.trim() === '' ||
+        String(r.view.noteId).includes(pickQuery.trim().replace('#', ''))),
+  );
+  const pickReady = pickRows.filter((r) => r.rank === 0).length;
 
   return (
     <section
@@ -397,12 +462,11 @@ export function Chat({
               </div>
             )}
             {selected && !settled && (
-              <div className="nc-chat-head-end">
-                {leaseOpen ? (
-                  <Chip tone="live">lease open · {bound} reserved</Chip>
-                ) : (
-                  <Chip>no lease yet</Chip>
-                )}
+              <div className="nc-chat-head-end nc-lease-bar" data-open={leaseOpen}>
+                <span className="nc-state" data-s={leaseOpen ? 'leased' : 'open'}>
+                  <i aria-hidden="true" />
+                  {leaseOpen ? <>Lease open · {bound} reserved</> : 'No lease yet'}
+                </span>
                 <Button testId="chat-end" disabled={Boolean(busy) || !leaseOpen} onClick={end}>
                   End conversation
                 </Button>
@@ -424,27 +488,29 @@ export function Chat({
           )}
           {idle && (
             <div data-testid="chat-notes" style={{ display: 'contents' }}>
-              <div className="nc-empty">
-                <h2>Ask an attested model.</h2>
-                <p>
-                  Your prompt is encrypted to the model’s key before it leaves this page. The first
-                  message opens a lease that reserves {bound}.
-                </p>
-                <div className="nc-chat-fund">
-                  <p>Need a new note? Connect a wallet and fund one first.</p>
-                  <div>
-                    <Button onClick={onFund}>Fund a note</Button>
+              {demoView ?? (
+                <div className="nc-empty">
+                  <h2>Ask an attested model.</h2>
+                  <p>
+                    Your prompt is encrypted to the model’s key before it leaves this page. The
+                    first message opens a lease that reserves {bound}.
+                  </p>
+                  <div className="nc-chat-fund">
+                    <p>Need a new note? Connect a wallet and fund one first.</p>
+                    <div>
+                      <Button onClick={onFund}>Fund a note</Button>
+                    </div>
+                  </div>
+                  <div className="nc-suggest">
+                    {SUGGESTIONS.map((q) => (
+                      <button key={q} type="button" onClick={() => setDemo(q)}>
+                        {q}
+                        <Icon name="right" size={14} />
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <div className="nc-suggest">
-                  {SUGGESTIONS.map((q) => (
-                    <button key={q} type="button" onClick={() => setIdleDraft(q)}>
-                      {q}
-                      <Icon name="right" size={14} />
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
           )}
           {!selected && !idle && (
@@ -458,75 +524,173 @@ export function Chat({
                 </p>
               </div>
               <div data-testid="chat-notes" className="nc-pick">
-                <ul className="nc-pick-list">
-                  {notes.map(({ record, view }) => {
-                    const near = leave.settings.enabled && leaseBlocked(view.expiry, nowSecs());
+                {prover.status === 'loading' && (
+                  <Waiting title="Please wait a moment" testId="chat-blocked">
+                    Loading the proving key (SHA-256 checked). Chat opens as soon as it is ready.
+                  </Waiting>
+                )}
+                {pickRows.length >= 5 && (
+                  <div className="nc-pick-bar" data-testid="pick-filter">
+                    <div role="group" aria-label="Filter notes">
+                      {(
+                        [
+                          ['all', `All ${pickRows.length}`],
+                          ['ready', `Ready ${pickReady}`],
+                          ['attention', `Needs attention ${pickRows.length - pickReady}`],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          aria-pressed={pickFilter === id}
+                          onClick={() => setPickFilter(id)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="search"
+                      value={pickQuery}
+                      placeholder="Find #"
+                      aria-label="Find a note by its number"
+                      onChange={(e) => setPickQuery(e.target.value)}
+                    />
+                  </div>
+                )}
+                {pickShown.length === 0 && (
+                  <p className="nc-cap" data-testid="pick-empty">
+                    No note matches.{' '}
+                    <button
+                      type="button"
+                      className="nc-link"
+                      onClick={() => {
+                        setPickFilter('all');
+                        setPickQuery('');
+                      }}
+                    >
+                      Show all
+                    </button>
+                  </p>
+                )}
+                <ul className="nc-pick-list" data-many={pickRows.length >= 5}>
+                  {pickShown.map(({ record, view, near, days, rank }, idx) => {
                     const why =
-                      prover.status === 'loading'
-                        ? 'Loading the proving key (SHA-256 checked)…'
-                        : prover.status === 'failed'
-                          ? `Chat is off: the proving key was refused (${prover.reason}).`
-                          : leave.emergency !== null
-                            ? 'The operator’s emergency notice stops new leases.'
-                            : null;
+                      prover.status === 'failed'
+                        ? `Chat is off: the proving key was refused (${prover.reason}).`
+                        : leave.emergency !== null
+                          ? 'The operator’s emergency notice stops new leases.'
+                          : null;
+                    const first = idx === 0 || pickShown[idx - 1]!.rank !== rank;
+                    const mixed = pickShown.some((r) => r.rank !== pickShown[0]!.rank);
                     return (
-                      <li key={record.id} data-testid="chat-note" className="nc-pick-row">
-                        <span className="nc-pick-id">
-                          <strong>#{view.noteId}</strong>
-                          <small>{units(view.balance)}</small>
-                        </span>
-                        <span className="nc-pick-life">
-                          <Strip
-                            n={10}
-                            solid={shareOf({ record, view }) * 10}
-                            size="sm"
-                            label={`${units(view.balance)} of ${units(record.denomination)} left`}
-                          />
-                          <small>
-                            Expires {formatDate(view.expiry)}{' '}
-                            {view.pending && (
-                              <Chip tone="warn">
-                                <span data-testid="note-pending">(a lease is not settled)</span>
-                              </Chip>
-                            )}
-                          </small>
-                        </span>
-                        <span className="nc-pick-act">
-                          {view.pending ? (
-                            <Button primary testId="chat-settle" onClick={() => settleOpen(record)}>
-                              Settle the open lease
-                            </Button>
-                          ) : (
-                            <Button
-                              primary
-                              testId="chat-use-note"
-                              disabled={
-                                prover.status !== 'ready' || leave.emergency !== null || near
-                              }
-                              onClick={() => start(record)}
+                      <Fragment key={record.id}>
+                        {first && mixed && (
+                          <li className="nc-pick-head" aria-hidden="true">
+                            {rank === 0 ? 'Ready to chat' : 'Needs attention'}
+                          </li>
+                        )}
+                        <li
+                          data-testid="chat-note"
+                          className="nc-pick-row"
+                          data-rank={rank}
+                          data-best={record.id === bestId || undefined}
+                        >
+                          <span className="nc-pick-id">
+                            <strong>#{view.noteId}</strong>
+                            <small>{units(view.balance)}</small>
+                          </span>
+                          <span className="nc-pick-life">
+                            <Strip
+                              n={10}
+                              solid={shareOf({ record, view }) * 10}
+                              size="sm"
+                              label={`${units(view.balance)} of ${units(record.denomination)} left`}
+                            />
+                            <small
+                              className="nc-state"
+                              data-s={view.pending ? 'leased' : near ? 'expiring' : 'open'}
                             >
-                              Chat with this note
+                              <i aria-hidden="true" />
+                              {view.pending ? (
+                                'lease open'
+                              ) : near ? (
+                                <>
+                                  <span>
+                                    expires in {days} {days === 1 ? 'day' : 'days'}
+                                  </span>
+                                  <span className="nc-pick-near" data-testid="note-near-expiry">
+                                    no new lease: close it or request an exit
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>open</span>
+                                  <span>expires {formatDate(view.expiry)}</span>
+                                </>
+                              )}
+                              {view.pending && (
+                                <Chip tone="warn">
+                                  <span data-testid="note-pending">(a lease is not settled)</span>
+                                </Chip>
+                              )}
+                              {record.id === bestId && <em className="nc-pick-best">suggested</em>}
+                            </small>
+                          </span>
+                          <span className="nc-pick-act">
+                            {view.pending ? (
+                              <Button
+                                primary
+                                testId="chat-settle"
+                                onClick={() => settleOpen(record)}
+                              >
+                                Settle the open lease
+                              </Button>
+                            ) : (
+                              <Button
+                                primary
+                                testId="chat-use-note"
+                                disabled={
+                                  prover.status !== 'ready' || leave.emergency !== null || near
+                                }
+                                onClick={() => start(record)}
+                              >
+                                {prover.status === 'loading'
+                                  ? 'Please wait…'
+                                  : 'Chat with this note'}
+                              </Button>
+                            )}
+                            <Button testId="chat-privacy" onClick={() => onPrivacy(record.id)}>
+                              Privacy panel
                             </Button>
+                          </span>
+                          {!near && why && (
+                            <small
+                              className="nc-pick-why"
+                              data-tone={
+                                prover.status === 'failed'
+                                  ? 'err'
+                                  : prover.status === 'loading'
+                                    ? 'wait'
+                                    : 'warn'
+                              }
+                              data-testid="chat-blocked"
+                            >
+                              {prover.status === 'loading' && (
+                                <i className="nc-wait" aria-hidden="true">
+                                  <b />
+                                  <b />
+                                  <b />
+                                  <b />
+                                  <b />
+                                  <b />
+                                </i>
+                              )}
+                              {why}
+                            </small>
                           )}
-                          <Button testId="chat-privacy" onClick={() => onPrivacy(record.id)}>
-                            Privacy panel
-                          </Button>
-                        </span>
-                        {near && (
-                          <small className="nc-pick-why" data-testid="note-near-expiry">
-                            (expires within 5 days: no new lease; close it or request an exit)
-                          </small>
-                        )}
-                        {!near && why && (
-                          <small
-                            className="nc-pick-why"
-                            data-tone={prover.status === 'failed' ? 'err' : undefined}
-                            data-testid="chat-blocked"
-                          >
-                            {why}
-                          </small>
-                        )}
-                      </li>
+                        </li>
+                      </Fragment>
                     );
                   })}
                 </ul>
@@ -551,24 +715,27 @@ export function Chat({
           )}
           {selected && (
             <>
-              {messages.length === 0 && !busy && !settled && (
-                <div className="nc-empty">
-                  <h2>Ask an attested model.</h2>
-                  <p>
-                    Your prompt is encrypted to its key before it leaves this page. The first
-                    message opens a lease that reserves {bound}. The proof for it is made while you
-                    type.
-                  </p>
-                  <div className="nc-suggest">
-                    {SUGGESTIONS.map((q) => (
-                      <button key={q} type="button" onClick={() => setInput(q)}>
-                        {q}
-                        <Icon name="right" size={14} />
-                      </button>
-                    ))}
+              {messages.length === 0 &&
+                !busy &&
+                !settled &&
+                (demoView ?? (
+                  <div className="nc-empty">
+                    <h2>Ask an attested model.</h2>
+                    <p>
+                      Your prompt is encrypted to its key before it leaves this page. The first
+                      message opens a lease that reserves {bound}. The proof for it is made while
+                      you type.
+                    </p>
+                    <div className="nc-suggest">
+                      {SUGGESTIONS.map((q) => (
+                        <button key={q} type="button" onClick={() => setDemo(q)}>
+                          {q}
+                          <Icon name="right" size={14} />
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                ))}
               {leaseOpen && (
                 <p className="nc-divider">
                   <span>Lease opened · reserves {bound}</span>
@@ -612,7 +779,21 @@ export function Chat({
                   </p>
                   <div data-testid="settled" className="nc-settled">
                     <Badge settled={settled} />
-                    <p data-testid="cost-line">
+                    <dl className="nc-receipt">
+                      <div>
+                        <dt>Charged</dt>
+                        <dd>{units(settled.charge)}</dd>
+                      </div>
+                      <div>
+                        <dt>Reserved, released</dt>
+                        <dd>{bound}</dd>
+                      </div>
+                      <div>
+                        <dt>Balance now</dt>
+                        <dd>{units(settled.balance)}</dd>
+                      </div>
+                    </dl>
+                    <p data-testid="cost-line" className="nc-cap">
                       Lease cost: {units(settled.charge)} (recomputed from the signed usage and the
                       vault’s rules: {units(settled.expected)}). Balance now{' '}
                       {units(settled.balance)}.
@@ -724,7 +905,10 @@ export function Chat({
         {selected ? (
           <>
             <section className="nc-sum">
-              <h2>Note #{current?.view.noteId ?? ''}</h2>
+              <div className="nc-sum-head">
+                <h2>Note #{current?.view.noteId ?? ''}</h2>
+                {current && <Status n={noteMark} />}
+              </div>
               <p className="nc-big">
                 <Count value={current ? Number(BigInt(current.view.balance)) / decimals : 0} />{' '}
                 <small>{PROFILE.tokenSymbol}</small>
@@ -752,6 +936,7 @@ export function Chat({
                 reserved={leaseOpen ? 10 : 0}
                 drain={leaseOpen ? clamp(used / boundNum) : 0}
                 size="lg"
+                mode={leaseOpen ? undefined : busy ? 'busy' : 'idle'}
                 label="Lease bound"
               />
               <p className="nc-sum-line">
@@ -764,18 +949,37 @@ export function Chat({
                 <span>used {units(String(used))}</span>
               </p>
             </section>
-            <section className="nc-sum">
-              <label className="nc-check">
+            <section className="nc-sum nc-toggles">
+              <label className="nc-toggle">
                 <input
                   type="checkbox"
                   data-testid="stream"
                   checked={stream}
                   onChange={(e) => setStream(e.target.checked)}
                 />
-                <span>
-                  Stream the answer
+                <span className="nc-toggle-text">
+                  <strong>Stream the answer</strong>
                   <small>Expected to come back gateway-signed, not model-signed</small>
                 </span>
+                <span className="nc-toggle-switch" aria-hidden="true" />
+              </label>
+              <label className="nc-toggle">
+                <input
+                  type="checkbox"
+                  data-testid="long-job-side"
+                  checked={longJob}
+                  disabled={leaseOpen || Boolean(busy)}
+                  onChange={(e) => setLongJob(e.target.checked)}
+                />
+                <span className="nc-toggle-text">
+                  <strong>Long job</strong>
+                  <small>
+                    {leaseOpen
+                      ? 'Applies to the next lease: end this conversation first'
+                      : `${units(String(LONG_JOB_BOUND))} lease class; fewer notes share it, so it is easier to tell apart`}
+                  </small>
+                </span>
+                <span className="nc-toggle-switch" aria-hidden="true" />
               </label>
             </section>
             <Fold
@@ -867,7 +1071,11 @@ export function Chat({
             note. The proof for the first lease is made while you type.
           </p>
           <p data-testid="prover-status" className="nc-cap" data-status={prover.status}>
-            {prover.status === 'loading' && 'Loading the proving key (SHA-256 checked)…'}
+            {prover.status === 'loading' && (
+              <>
+                <WaitBar /> Loading the proving key (SHA-256 checked)…
+              </>
+            )}
             {prover.status === 'ready' &&
               `Proving key loaded and checked (${(prover.bytes / 1e6).toFixed(1)} MB, ${prover.ms} ms).`}
             {prover.status === 'failed' && `The proving key was refused: ${prover.reason}`}
