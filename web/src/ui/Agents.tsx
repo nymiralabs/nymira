@@ -72,24 +72,30 @@ function Field({
   );
 }
 
-function Money({
+/** One line of the policy: what it is on the left, a short input on the right. */
+function Row({
   label,
   value,
   onChange,
   id,
   hint,
+  usd = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   id: string;
   hint?: string;
+  usd?: boolean;
 }) {
   return (
-    <label className="nc-field ag-money">
-      <span>{label}</span>
-      <span className="ag-money-box">
-        <b aria-hidden="true">$</b>
+    <label className="ag-row">
+      <span>
+        {label}
+        {hint && <small>{hint}</small>}
+      </span>
+      <span className="ag-row-box">
+        {usd && <b aria-hidden="true">$</b>}
         <input
           type="text"
           inputMode="decimal"
@@ -97,12 +103,9 @@ function Money({
           value={value}
           autoComplete="off"
           spellCheck={false}
-          placeholder="0.00"
           onChange={(e) => onChange(e.target.value)}
         />
-        <small>USD</small>
       </span>
-      {hint && <small className="nc-hint">{hint}</small>}
     </label>
   );
 }
@@ -344,6 +347,10 @@ export function Agents() {
     agentErrors.length > 0 ? { ok: false, errors: agentErrors } : approvalMessage(approval);
   const blocks = buildBlocks({ ...cmd, name });
   const recipes = recipeViews({ ...cmd, name });
+  const touched =
+    policy.models.length > 0 ||
+    version !== '' ||
+    Object.entries(policy).some(([k, v]) => k !== 'models' && v !== '');
   const stepOf = (i: number) => {
     const done = [
       !!wallet.connected,
@@ -483,56 +490,53 @@ export function Agents() {
                 ))}
               </div>
             </fieldset>
-            <fieldset className="ag-group">
-              <legend>Limits, from the widest to the narrowest</legend>
-              <div className="ag-money-grid">
-                <Money
-                  label="Per day (UTC day)"
-                  id="p-daily"
-                  value={policy.maxDailyUsd}
-                  onChange={set('maxDailyUsd')}
-                />
-                <Money
-                  label="Per lease"
-                  id="p-lease"
-                  value={policy.maxLeaseUsd}
-                  onChange={set('maxLeaseUsd')}
-                  hint="At least 0.1."
-                />
-                <Money
-                  label="Ask me above"
-                  id="p-confirm"
-                  hint="Per call."
-                  value={policy.confirmAboveUsd}
-                  onChange={set('confirmAboveUsd')}
-                />
-                <Money
-                  label="Per call"
-                  id="p-call"
-                  value={policy.maxCallUsd}
-                  onChange={set('maxCallUsd')}
-                />
-              </div>
-            </fieldset>
-            <fieldset className="ag-group">
-              <legend>Rate and version</legend>
-              <div className="ag-money-grid">
-                <Field
-                  label="Requests a minute"
-                  id="p-rate"
-                  value={policy.rateLimitPerMin}
-                  onChange={set('rateLimitPerMin')}
-                />
-                <Field
-                  label="Policy version"
-                  id="p-version"
-                  value={version}
-                  onChange={setVersion}
-                  hint="Must be higher than any version this agent has had."
-                />
-              </div>
-            </fieldset>
-            {!yaml.ok && <Errors list={yaml.errors} id="policy-needs" />}
+            <div className="ag-rows">
+              <Row
+                usd
+                label="Per day"
+                hint="UTC day"
+                id="p-daily"
+                value={policy.maxDailyUsd}
+                onChange={set('maxDailyUsd')}
+              />
+              <Row
+                usd
+                label="Per lease"
+                hint="at least 0.1"
+                id="p-lease"
+                value={policy.maxLeaseUsd}
+                onChange={set('maxLeaseUsd')}
+              />
+              <Row
+                usd
+                label="Ask me above"
+                hint="per call"
+                id="p-confirm"
+                value={policy.confirmAboveUsd}
+                onChange={set('confirmAboveUsd')}
+              />
+              <Row
+                usd
+                label="Per call"
+                id="p-call"
+                value={policy.maxCallUsd}
+                onChange={set('maxCallUsd')}
+              />
+              <Row
+                label="Requests a minute"
+                id="p-rate"
+                value={policy.rateLimitPerMin}
+                onChange={set('rateLimitPerMin')}
+              />
+              <Row
+                label="Policy version"
+                hint="higher than any this agent has had"
+                id="p-version"
+                value={version}
+                onChange={setVersion}
+              />
+            </div>
+            {!yaml.ok && touched && <Errors list={yaml.errors} id="policy-needs" />}
             <Fold title="The policy file this signs" testId="policy-fold">
               {yaml.ok ? (
                 <pre className="nc-code nc-yaml" data-testid="policy-yaml">
