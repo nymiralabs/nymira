@@ -79,7 +79,7 @@ The proof circuits and the off-chain wallet logic come from [zkapi](https://gith
 | Part | State |
 |---|---|
 | Web app | Release 0.1.3 is live at <https://nymira.pages.dev>. It adds the Agents screen, the privacy panel, the Intents screen, a documentation page and a [status page](https://nymira.pages.dev/#status). |
-| `nymirad` | Release [0.1.2](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.2) has Linux x86_64 and macOS arm64 binaries with signed checksums ([how to download and check them](#download-nymirad)). Budget notes (`nymirad agent`), set size (`--rpc-second`) and the Debian Tor pins are on main, not in 0.1.2. |
+| `nymirad` | Release [0.1.3](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.3) has Linux x86_64 and macOS arm64 binaries with signed checksums ([how to download and check them](#download-nymirad)). It adds budget notes (`nymirad agent`), the set size option (`--rpc-second`) and the Debian Tor pins. |
 | Vault | [`vault.nymira.testnet`](https://testnet.nearblocks.io/address/vault.nymira.testnet) on NEAR testnet, built reproducibly from the tag [`vault-testnet-1`](https://github.com/nymiralabs/nymira/tree/vault-testnet-1) ([values and checks](#live-deployment)). |
 | MCP server | Not released. Build it from a checkout of [`mcp/`](mcp/README.md). |
 | Paying sellers (x402) | Not built. |
@@ -148,7 +148,7 @@ Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum
 
 ## Download `nymirad`
 
-Get the binary from the [releases page](https://github.com/nymiralabs/nymira/releases) (the newest is [nymirad-v0.1.2](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.2)). Each `nymirad-vX.Y.Z` release has the two binaries, `attestation-policy.json` and a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in [`web/pins/release-signing.pub`](web/pins/release-signing.pub)) that lists every file. The steps are the same on both platforms:
+Get the binary from the [releases page](https://github.com/nymiralabs/nymira/releases) (the newest is [nymirad-v0.1.3](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.3)). Each `nymirad-vX.Y.Z` release has the two binaries, `attestation-policy.json` and a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in [`web/pins/release-signing.pub`](web/pins/release-signing.pub)) that lists every file. The steps are the same on both platforms:
 
 <p align="center">
   <picture>
@@ -158,7 +158,7 @@ Get the binary from the [releases page](https://github.com/nymiralabs/nymira/rel
 </p>
 
 ```bash
-V=0.1.2                      # the release you want
+V=0.1.3                      # the release you want
 B=https://github.com/nymiralabs/nymira/releases/download/nymirad-v$V
 curl -LO $B/SHA256SUMS -LO $B/SHA256SUMS.minisig -LO $B/nymirad-$V-aarch64-macos   # or ...-x86_64-linux
 minisign -V -p web/pins/release-signing.pub -m SHA256SUMS      # the signature must verify
@@ -185,7 +185,7 @@ On a Mac with Apple silicon:
 2. Copy that file to `~/.nymira/tor/package/tor` (or set `tor_package` in `config.json` to its path). Without a pinned Tor package or your own SOCKS proxy, chat and `close` do not start.
 3. Or run a Tor you trust yourself and give `nymirad` its loopback SOCKS port: `nymirad init ... --socks 127.0.0.1:9050`. Then `nymirad` does not check the Tor executable; you do.
 
-On Debian 12 (amd64 or arm64): `apt install tor`, then check `sha256sum /usr/bin/tor` prints the hash above for your architecture, and continue with step 2. Debian ships newer builds as security updates; a build other than 0.4.9.11-0+deb12u1 has a different hash and `nymirad` refuses it, so use option 3 then. The Debian pins are on main and not in the 0.1.2 binary, which pins only the macOS package. Other Linux distributions have no pinned package, so use option 3.
+On Debian 12 (amd64 or arm64): `apt install tor`, then check `sha256sum /usr/bin/tor` prints the hash above for your architecture, and continue with step 2. Debian ships newer builds as security updates; a build other than 0.4.9.11-0+deb12u1 has a different hash and `nymirad` refuses it, so use option 3 then. The 0.1.2 binary pins only the macOS package; 0.1.3 and later pin the Debian ones too. Other Linux distributions have no pinned package, so use option 3.
 
 ## Set size in `nymirad status`
 
