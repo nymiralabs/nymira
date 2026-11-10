@@ -1,8 +1,22 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { due, noticeLevel, noticeText, remaining, watched } from '../leave/guard';
+import { Button } from '../marketing/kit';
+import { ExpiryBanner, ExpiryStack } from '../marketing/kit-close';
+import { DAY, due, noticeLevel, noticeText, remaining, watched } from '../leave/guard';
 import { leaveStore } from '../leave/store';
 import { isUnlocked } from '../crypto/wrap';
 import { useWallet } from './services';
+
+/** The notice with its first clause in bold, as the console shows it. */
+function NoticeLine({ text }: { text: string }) {
+  const cut = text.indexOf(' (');
+  const head = cut < 0 ? text : text.slice(0, cut);
+  return (
+    <>
+      <strong>{head.charAt(0).toUpperCase() + head.slice(1)}</strong>
+      {cut < 0 ? '' : <span className="nc-notice-rest">{text.slice(cut)}</span>}
+    </>
+  );
+}
 
 /**
  * Page-wide banners and the expiry guard's clock. The banners show the operator's emergency
@@ -39,29 +53,67 @@ export function Watch({ screen, onClose }: { screen: string; onClose: () => void
   return (
     <>
       {advice && (
-        <div className="warning" role="alert" data-testid="emergency-banner">
+        <div className="nc-banner" role="alert" data-testid="emergency-banner">
+          <span aria-hidden="true" />
           <p>{advice}</p>
           {screen !== 'close' && (
-            <button type="button" data-testid="emergency-go" onClick={onClose}>
+            <Button testId="emergency-go" onClick={onClose}>
               Open the Close screen
-            </button>
+            </Button>
           )}
         </div>
       )}
-      {near.map(({ record, view }) => {
-        const expiry = record.expiry!;
-        const what = due(expiry, now);
-        return (
-          <div className="notice" key={record.id} data-testid="expiry-banner" data-due={what}>
-            <p>{noticeText(view.noteId, noticeLevel(expiry, now)!, remaining(expiry, now))}</p>
-            {screen !== 'close' && (
-              <button type="button" onClick={onClose}>
-                Open the Close screen
-              </button>
-            )}
-          </div>
-        );
-      })}
+      {near.length === 1 &&
+        near.map(({ record, view }) => {
+          const expiry = record.expiry!;
+          return (
+            <ExpiryBanner
+              key={record.id}
+              testId="expiry-banner"
+              due={due(expiry, now)}
+              left={Math.min(14, Math.floor(remaining(expiry, now) / DAY))}
+              onOpen={screen !== 'close' ? onClose : undefined}
+            >
+              <NoticeLine
+                text={noticeText(
+                  view.noteId,
+                  noticeLevel(expiry, now)!,
+                  remaining(expiry, now),
+                  s.settings.enabled,
+                )}
+              />
+            </ExpiryBanner>
+          );
+        })}
+      {near.length > 1 && (
+        <ExpiryStack
+          onOpen={screen !== 'close' ? onClose : undefined}
+          items={near.map(({ record, view }) => {
+            const expiry = record.expiry!;
+            return {
+              id: record.id,
+              noteId: view.noteId,
+              due: due(expiry, now),
+              left: Math.min(14, Math.floor(remaining(expiry, now) / DAY)),
+              level: noticeLevel(expiry, now),
+              when:
+                remaining(expiry, now) >= DAY
+                  ? `expires in ${Math.floor(remaining(expiry, now) / DAY)} ${Math.floor(remaining(expiry, now) / DAY) === 1 ? 'day' : 'days'}`
+                  : 'expires in less than a day',
+              text: (
+                <NoticeLine
+                  text={noticeText(
+                    view.noteId,
+                    noticeLevel(expiry, now)!,
+                    remaining(expiry, now),
+                    s.settings.enabled,
+                  )}
+                />
+              ),
+            };
+          })}
+        />
+      )}
     </>
   );
 }

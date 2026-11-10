@@ -120,10 +120,14 @@ export function buildBlocks(
   const mcp = ['node', 'dist/index.js', '--token-file', f.tokenFile, '--transport', f.transport];
   if (f.endpoint !== '') mcp.push(f.transport === 'unix' ? '--socket' : '--url', f.endpoint);
   blocks.push(
-    { id: 'mcp-command', title: 'MCP server (balance and quote)', text: mcp.map(shq).join(' ') },
+    {
+      id: 'mcp-command',
+      title: 'MCP server: balance, quote and ask (ask spends from the note)',
+      text: mcp.map(shq).join(' '),
+    },
     {
       id: 'mcp-json',
-      title: 'MCP configuration for a tool that reads JSON',
+      title: 'MCP entry for a tool that reads JSON (use absolute paths, see mcp/README.md)',
       text: JSON.stringify(
         { mcpServers: { nymira: { command: 'node', args: mcp.slice(1) } } },
         null,

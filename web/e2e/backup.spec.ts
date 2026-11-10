@@ -15,6 +15,8 @@ import {
   readBackup,
   watch,
   workdir,
+  enterApp,
+  lockAfterDevReload,
 } from './support';
 
 test('no transfer without a downloaded and test-restored backup; a wrong file does not count', async ({
@@ -78,7 +80,7 @@ test('after a crash the note is found again from its deposit receipt', async ({
 
   // The page is reloaded: the sealed note is still there, marked as interrupted.
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await openNotes(page, true);
   const row = page.getByTestId('note-row');
   await expect(row).toHaveAttribute('data-phase', 'sending');
@@ -87,7 +89,7 @@ test('after a crash the note is found again from its deposit receipt', async ({
   await page.getByTestId('lookup').click();
   await expect(page.getByTestId('lookup-result')).toContainText('Found');
   await expect(row).toHaveAttribute('data-phase', 'accepted');
-  await expect(row).toContainText('note #0');
+  await expect(row).toContainText('#0');
 });
 
 test('@webkit restore from a backup file after the site data was purged', async ({
@@ -144,12 +146,13 @@ test('@webkit restore from a backup file after the site data was purged', async 
   await expect(page2.getByTestId('notes-message')).toContainText('Restored 1 note');
   const row = page2.getByTestId('note-row');
   await expect(row).toHaveAttribute('data-phase', 'accepted');
-  await expect(row).toContainText('note #0');
+  await expect(row).toContainText('#0');
 
   // The restored note is sealed under the new key: reload, unlock with the new passphrase, see it.
   await page2.reload();
-  await page2.getByTestId('open-app').click();
+  await enterApp(page2);
   await page2.getByTestId('nav-notes').click();
+  await lockAfterDevReload(page2);
   await page2.getByTestId('unlock-passphrase').fill('a wrong guess at the passphrase');
   await page2.getByTestId('unlock-submit').click();
   await expect(page2.getByText('Wrong passphrase.')).toBeVisible();

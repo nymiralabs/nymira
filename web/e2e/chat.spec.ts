@@ -18,6 +18,7 @@ import {
   rpcRequests,
   watch,
   workdir,
+  enterApp,
 } from './support';
 import type { Page } from '@playwright/test';
 
@@ -308,10 +309,14 @@ test('a lease left open by a closed or reloaded page is settled on the next visi
   await page.reload();
   await expect.poll(() => lease.retired).toBe(true);
 
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await page.getByTestId('nav-chat').click();
-  await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
-  await page.getByTestId('unlock-submit').click();
+  // A dev build with the mock profile keeps the tab unlocked across a reload: then no prompt shows.
+  const field = page.getByTestId('unlock-passphrase');
+  if (await field.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await field.fill(WRAP_PASSPHRASE);
+    await page.getByTestId('unlock-submit').click();
+  }
   await expect(page.getByTestId('note-pending')).toBeVisible();
   await expect(page.getByTestId('chat-use-note')).toHaveCount(0);
   await page.getByTestId('chat-settle').click();

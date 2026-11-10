@@ -18,7 +18,7 @@ import {
   type DepositEvent,
 } from '../chain/receipt';
 import { checkVault } from '../chain/vault';
-import { getNote, listNotes, putNote } from '../store/db';
+import { getNote, listNotes, patchNote, putNote } from '../store/db';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { requireKey } from '../crypto/wrap';
@@ -96,9 +96,7 @@ export async function prepareNote(plan: DepositPlan): Promise<NoteRecord> {
 }
 
 export async function update(record: NoteRecord, patch: Partial<NoteRecord>): Promise<NoteRecord> {
-  const next = { ...record, ...patch, updatedAt: Date.now() };
-  await putNote(next);
-  return next;
+  return patchNote(record, patch, Date.now());
 }
 
 /** Notes of this build's vault, newest first. */
@@ -309,9 +307,8 @@ export async function confirmDeposit(
     if (fromWallet.ok) return finalize(record, fromWallet.event, 'wallet');
     if (fromWallet.reason.startsWith('the event does not match')) {
       return {
-        status: 'rejected',
-        record: await update(record, { phase: 'rejected' }),
-        reason: fromWallet.reason,
+        status: 'pending',
+        reason: `${fromWallet.reason}. The transfer may have been accepted; do not assume a refund`,
       };
     }
   }
@@ -347,9 +344,8 @@ export async function confirmDeposit(
         found.reason.startsWith('the transaction was signed')
       ) {
         return {
-          status: 'rejected',
-          record: await update(record, { phase: 'rejected', txHash: hash }),
-          reason: found.reason,
+          status: 'pending',
+          reason: `${found.reason}. The transfer may have been accepted; do not assume a refund`,
         };
       }
       // A complete outcome with no deposit event: the vault refused and the token refunded.

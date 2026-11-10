@@ -147,32 +147,51 @@ async function main() {
    */
   function askForClick(walletName: string): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
+      // Dark by default, light when the system is: the app's own two palettes, square corners.
+      const light = matchMedia('(prefers-color-scheme: light)').matches;
+      const ink = light ? '#111' : '#fafafa';
+      const paper = light ? '#fff' : '#0a0a0a';
+      const line = light ? '#d4d4d4' : '#262626';
       const box = document.createElement('div');
       box.style.cssText =
-        'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);font:16px system-ui,sans-serif';
+        'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);font:15px/22px system-ui,sans-serif';
       const card = document.createElement('div');
-      card.style.cssText =
-        'background:#fff;color:#111;padding:20px;border-radius:8px;max-width:360px;text-align:center';
+      card.style.cssText = `background:${paper};color:${ink};border:1px solid ${line};padding:24px;max-width:380px;width:calc(100vw - 32px)`;
+      const heading = document.createElement('p');
+      heading.style.cssText = 'margin:0 0 6px;font-size:17px';
+      heading.textContent = `Approve in ${walletName}`;
       const text = document.createElement('p');
-      text.textContent = `${walletName} needs one more click to open its approval window.`;
+      text.style.cssText = `margin:0 0 20px;color:${light ? '#525252' : '#a1a1a1'}`;
+      text.textContent = 'Your request is ready. Continue to open the wallet and confirm it.';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:flex-end;gap:8px';
       const open = document.createElement('button');
       open.type = 'button';
       open.dataset.testid = 'approve';
-      open.textContent = `Open ${walletName}`;
+      open.textContent = 'Continue';
       const cancel = document.createElement('button');
       cancel.type = 'button';
       cancel.dataset.testid = 'cancel';
       cancel.textContent = 'Cancel';
-      for (const b of [open, cancel]) b.style.cssText = 'margin:8px;padding:8px 14px;font:inherit';
+      const base = 'padding:9px 16px;font:inherit;border-radius:0;cursor:pointer';
+      open.style.cssText = `${base};background:${ink};color:${paper};border:1px solid ${ink}`;
+      cancel.style.cssText = `${base};background:transparent;color:${ink};border:1px solid ${line}`;
       const done = (answer: boolean) => {
         box.remove();
         asking = false;
         syncUi();
+        // The app keeps the frame on top only while this says so: say it again after the dust
+        // settles, so a state that drifted cannot leave an invisible layer over the page.
+        setTimeout(() => {
+          visible = popupVisible() || asking;
+          send({ type: 'ui', visible });
+        }, 250);
         resolve(answer);
       };
       open.addEventListener('click', () => done(true));
       cancel.addEventListener('click', () => done(false));
-      card.append(text, open, cancel);
+      row.append(cancel, open);
+      card.append(heading, text, row);
       box.append(card);
       document.body.append(box);
       asking = true;

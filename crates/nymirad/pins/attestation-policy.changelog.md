@@ -25,4 +25,15 @@ When NEAR AI deploys a new image or compose file, the new values are not in the 
 - The gateway entry lists a second compose hash, `c579aade...`, seen in NEAR AI's live gateway attestation on 4 November 2026. The OS image hash and the Intel TDX measurements (`mr_td`, `rtmr0`, `rtmr1`, `rtmr2`) are the same as for the first gateway hash (`f571e5da...`). The model entry is unchanged.
 - Without it every chat is refused with `provenance.verification_failed`, because the gateway now runs this compose file.
 - As in version 1, the hash is read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use.
-- Clients refuse a policy under version 3 only when `MIN_POLICY_VERSION` is raised; version 2 stays accepted.
+- Clients refuse a policy under version 5 (`MIN_POLICY_VERSION`), so this version is no longer accepted.
+
+
+## Version 4
+
+- The policy pins the two NVIDIA intermediate certificates that sign the GPU attestation keys, so a client checks that a signing key's certificate chain reaches a pinned certificate.
+- The pins are marked unverified: no NVIDIA documentation page lists their fingerprints.
+
+## Version 5
+
+- The gateway entry accepts any compose hash. The OS image hash and the Intel TDX measurements stay pinned, so a change of the gateway's compose file no longer refuses every chat.
+- `MIN_POLICY_VERSION` is 5: clients refuse an older policy.

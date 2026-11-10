@@ -19,7 +19,7 @@ import type { Profile } from '../profiles/types';
 import type { LeaseConfigInput } from '../worker/protocol';
 import { callWorker } from '../worker/client';
 import { noteAad, type NoteRecord } from '../store/types';
-import { putNote } from '../store/db';
+import { patchNote } from '../store/db';
 import type { ActiveLease, LeaseRecord, NoteView, PreparedLease } from '../note/lease';
 import { ClientKeys, E2eeError, openResponse, openSseLine, sealRequest } from './e2ee';
 import { fromHex, toHex } from '../crypto/bytes';
@@ -160,7 +160,7 @@ export class ChatSession {
   constructor(
     private readonly deps: Deps,
     note: NoteRecord,
-    private readonly longJob = false,
+    readonly longJob = false,
   ) {
     this.note = note;
     this.http = deps.fetchImpl ?? ((...a) => fetch(...a));
@@ -178,8 +178,7 @@ export class ChatSession {
   }
 
   private async store(sealed: NoteRecord['sealed']): Promise<void> {
-    this.note = { ...this.note, sealed, updatedAt: this.now() };
-    await putNote(this.note);
+    this.note = await patchNote(this.note, { sealed }, this.now());
   }
 
   private config(): LeaseConfigInput {
@@ -322,7 +321,7 @@ export class ChatSession {
     if (first.emergency_notice) {
       throw new ChatError(
         'emergency',
-        `The operator posted an emergency notice: ${String(first.emergency_notice)}. No new lease; close your note or request an exit.`,
+        `The operator posted an emergency notice: ${String(first.emergency_notice)}. No new lease. Request an exit from the Close screen.`,
       );
     }
     const bound = chooseBound(pins.config.bound_classes.map(BigInt), this.longJob);

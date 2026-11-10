@@ -100,6 +100,9 @@ test.describe('Agents screen', () => {
     expect((await download).suggestedFilename()).toBe('cursor-policy.signed.json');
     expect(readFileSync(saved, 'utf8')).toBe(text.endsWith('\n') ? text : text + '\n');
     nymiradReads('policy', saved);
+    await page.getByTestId('p-version').fill('2');
+    await expect(page.getByTestId('policy-file')).toHaveCount(0);
+    await expect(page.getByTestId('policy-download')).toHaveCount(0);
   });
 
   test('an approval signed in the browser carries the values copied from nymirad', async ({
@@ -151,6 +154,9 @@ test.describe('Agents screen', () => {
     const path = join(workdir(), 'approval.signed.json');
     writeFileSync(path, text);
     nymiradReads('approval', path, file.message);
+    await page.getByTestId('a-amount').fill('43000');
+    await expect(page.getByTestId('approval-file')).toHaveCount(0);
+    await expect(page.getByTestId('approval-download')).toHaveCount(0);
   });
 
   test('the page makes no request to nymirad, creates no note and shows no token', async ({
@@ -276,6 +282,7 @@ test.describe('Agents screen', () => {
     await expect(ironclaw.locator('pre').last()).toContainText('agent.example');
     await expect(cursor.locator('pre').first()).toContainText('/srv/agent/worker.token');
     for (const recipe of [ironclaw, cursor]) {
+      await recipe.locator('summary').first().click();
       await expect(recipe.getByRole('button', { name: 'Copy' }).first()).toBeVisible();
       expect(await recipe.innerText()).not.toMatch(/ny(?:ma|mo)_[A-Za-z0-9]/);
     }

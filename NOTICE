@@ -3,6 +3,18 @@ Copyright (c) Nymira Labs
 
 This product includes software from the following projects.
 
+Brand assets
+  Technology and source-repository marks are in web/src/marketing/assets/brands/.
+  sources.json records their upstream URLs and hashes. credits.txt records attribution.
+  The Rust logo is Rust Project artwork, used unchanged under CC BY 4.0:
+  https://github.com/rust-lang/rust-artwork/tree/main/logo
+  https://creativecommons.org/licenses/by/4.0/
+  All trademarks belong to their respective owners; no endorsement is implied.
+
+IBM Plex (https://github.com/IBM/plex)
+  IBM Plex Sans and IBM Plex Mono fonts in web/src/marketing/fonts/ and web/public/fonts/.
+  Licensed under the SIL Open Font License 1.1; see the OFL.txt in each directory.
+
 zkapi (https://github.com/ethereum/zkapi)
   Vendored in vendor/zkapi/ at commit 4ac25c811318d96a873b8b232c7be2252e16c0bd:
   protocol/rust and protocol/setup/v2-concession-dev.
@@ -11,7 +23,7 @@ zkapi (https://github.com/ethereum/zkapi)
 
   Patches applied after the upstream snapshot. Commits: 1 = 57a0915, 2 = 1e4517b,
   3 = 0bea0cb and 995bf31, 4 = 090ee59, 5 = 117f25f, 6 = 3992a98 (the wallet.rs
-  hunk only; the commit also holds nymirad changes), 7 = 7687574.
+  hunk only; the commit also holds nymirad changes), 7 = 7687574, 8 = 721a87f.
   1. zkapi PR #22 (head 8a96d2aa0bd983eba1f226e5dff827aab38d88d0):
      zkapi-types/src/felt.rs rejects non-hex characters in Felt252::from_hex.
   2. Poseidon parameters exported as constants from zkapi-core

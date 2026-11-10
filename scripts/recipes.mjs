@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Writes the IronClaw and Cursor recipe sections of README.md from shared/recipes.json, or checks
+// Writes the IronClaw and Cursor recipe sections of BUDGET_NOTES.md from shared/recipes.json, or checks
 // that the README matches it:
 //
 //   node scripts/recipes.mjs --write
@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { markdown, renderBlocks } from '../shared/recipes.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const README = join(ROOT, 'README.md');
+export const README = join(ROOT, 'BUDGET_NOTES.md');
 export const SOURCE = JSON.parse(readFileSync(join(ROOT, 'shared', 'recipes.json'), 'utf8'));
 
 /** The example values the README shows. */
@@ -67,7 +67,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     writeFileSync(README, next);
   } else if (process.argv.includes('--check')) {
     if (next !== current) {
-      console.error('README.md differs from shared/recipes.json: run node scripts/recipes.mjs --write');
+      console.error('BUDGET_NOTES.md differs from shared/recipes.json: run node scripts/recipes.mjs --write');
       process.exit(1);
     }
   } else {

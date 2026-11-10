@@ -25,7 +25,7 @@ const tree = (logs: string[], executor = 'vault.test') => ({
   transaction: { hash: 'H'.repeat(44), signer_id: 'alice.test' },
   receipts_outcome: [
     { outcome: { executor_id: 'usdc.test', logs: [] } },
-    { outcome: { executor_id: executor, logs } },
+    { outcome: { executor_id: executor, logs, status: { SuccessValue: '' } as unknown } },
   ],
 });
 
@@ -43,6 +43,14 @@ describe('deposit events', () => {
     // The same line emitted by another contract is not the vault's event.
     expect(depositEvents(tree([event()], 'evil.test'), 'vault.test')).toEqual([]);
     expect(depositEvents(tree(['EVENT_JSON:{not json', 'plain log']), 'vault.test')).toEqual([]);
+  });
+
+  it('does not accept a deposit log from a failed vault receipt', () => {
+    const failed = tree([event()]);
+    failed.receipts_outcome[1]!.outcome.status = { Failure: { error: 'failed' } };
+    expect(depositEvents(failed, 'vault.test')).toEqual([]);
+    failed.receipts_outcome[1]!.outcome.status = undefined;
+    expect(depositEvents(failed, 'vault.test')).toEqual([]);
   });
 
   it('compares commitment, amount and payout account', () => {

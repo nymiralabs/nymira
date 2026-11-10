@@ -1,5 +1,7 @@
 # Web integrity
 
+[README](../README.md) · [Website](https://nymira.pages.dev) · [Documentation](https://nymira.pages.dev/#docs) · [Try it in 20 minutes](../JUDGES.md) · [Threat model](../THREAT_MODEL.md) · [Releases](https://github.com/nymiralabs/nymira/releases)
+
 How a web release is built, hashed, signed, published and checked. This file is the contract that
 `nymirad verify-web` reads. Everything here is exact on purpose: another program has to reproduce
 it byte for byte.
@@ -224,7 +226,7 @@ control (the rebuilder's own repository, a gist, a signed post).
    pull request, and merge it (commit B). The bundle hash does not cover `web/releases/`, so B
    builds to the same manifest as A. Tag B (`web-v<version>`). The deploy workflow refuses to run
    without the signature files, so the tag must sit on B, not A.
-5. Run the `web-deploy` workflow with `ref` = the tag on B. It rebuilds, compares the manifest with
+5. Run the `web-deploy` workflow with `ref` = the tag on B, `profile` and `version`. It rebuilds, compares the manifest with
    the committed one, verifies the signature with `web/pins/release-signing.pub`, deploys, and runs
    `check-live.mjs` against the live site. A dry run first: the same workflow on a throwaway
    `ref` stops at "unsigned build" and shows that the build step itself passes.
@@ -281,11 +283,11 @@ only `sign` needs the key, and it only calls `minisign`, which asks for the pass
 3. Offline machine, in a clone that has `dist/`: `scripts/release-nymirad.sh sign nymirad-vX.Y.Z`
    writes `SHA256SUMS.minisig`.
 4. `scripts/release-nymirad.sh publish nymirad-vX.Y.Z` verifies the signature with
-   `pins/release-signing.pub`, checks the hashes, then creates the GitHub release with the five files.
+   `pins/release-signing.pub`, checks the hashes, then creates the GitHub release with the Linux binary, the macOS binary if it was added, `attestation-policy.json`, `TERMS.md`, `SHA256SUMS` and `SHA256SUMS.minisig`.
 
 A user checks a download with `minisign -V -p release-signing.pub -m SHA256SUMS` and
 `shasum -a 256 -c SHA256SUMS`. Only the linux x86_64 binary is built this way. The macOS arm64
-binary is built by hand on the maintainer's Mac and is not reproducible.
+binary is built by the `nymirad-macos` workflow, added with `release-nymirad.sh add-macos` and signed again. It is not reproducible.
 
 ## Dependencies
 

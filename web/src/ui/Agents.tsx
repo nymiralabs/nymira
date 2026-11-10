@@ -1,4 +1,14 @@
 import { useState } from 'react';
+import agentsIllustration from '../marketing/assets/app-agents.webp';
+import { Button, Card, Chip, Fold, Screen } from '../marketing/kit';
+import {
+  BudgetLadder,
+  ClientGrid,
+  ClientMark,
+  CLIENTS,
+  type ClientId,
+  type ClientInfo,
+} from '../marketing/kit-agents';
 import { buildBlocks, type CommandFields } from '../agents/commands';
 import { recipeViews } from '../agents/recipes';
 import { plainText } from '../../../shared/recipes.mjs';
@@ -16,6 +26,7 @@ import { MODELS } from '../chat/models';
 import { download } from './format';
 import { useWallet } from './services';
 import { WalletConnect } from './WalletConnect';
+import './agents.css';
 
 // This screen builds files and commands from what the owner types. It creates no budget note,
 // asks for and shows no token, reads nothing from the URL and makes no request to `nymirad`:
@@ -24,7 +35,7 @@ import { WalletConnect } from './WalletConnect';
 function Errors({ list, id }: { list: string[]; id: string }) {
   if (list.length === 0) return null;
   return (
-    <ul className="error" data-testid={id}>
+    <ul className="nc-msg nc-list nc-todo" data-tone="err" data-testid={id}>
       {list.map((e) => (
         <li key={e}>{e}</li>
       ))}
@@ -38,25 +49,28 @@ function Field({
   onChange,
   id,
   hint,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   id: string;
   hint?: string;
+  placeholder?: string;
 }) {
   return (
-    <label>
-      {label}
+    <label className="nc-field">
+      <span>{label}</span>
       <input
         type="text"
         data-testid={id}
         value={value}
+        placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
         onChange={(e) => onChange(e.target.value)}
       />
-      {hint && <small className="hint"> {hint}</small>}
+      {hint && <small className="nc-hint">{hint}</small>}
     </label>
   );
 }
@@ -64,22 +78,25 @@ function Field({
 function CopyBlock({ id, title, text }: { id: string; title: string; text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div>
-      <h4>{title}</h4>
-      <pre data-testid={`block-${id}`}>{text}</pre>
-      <button
-        type="button"
-        data-testid={`copy-${id}`}
-        onClick={() => {
-          navigator.clipboard
-            .writeText(text)
-            .then(() => setCopied(true))
-            .catch(() => setCopied(false));
-        }}
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </button>
-    </div>
+    <li>
+      <strong>{title}</strong>
+      <pre className="nc-code" data-testid={`block-${id}`}>
+        {text}
+      </pre>
+      <div className="nc-actions">
+        <Button
+          testId={`copy-${id}`}
+          onClick={() => {
+            navigator.clipboard
+              .writeText(text)
+              .then(() => setCopied(true))
+              .catch(() => setCopied(false));
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+    </li>
   );
 }
 
@@ -105,52 +122,153 @@ function SignPanel({
   const account = wallet.connected?.accountId;
   if (!message.ok) return <Errors list={message.errors} id={`${id}-errors`} />;
   return (
-    <div>
-      <p>
-        You are about to sign this {what} as <strong>{account ?? 'your account'}</strong>, for the
-        recipient <code data-testid={`${id}-recipient`}>{recipient}</code>:
-      </p>
-      <pre data-testid={`${id}-message`}>{message.value}</pre>
-      <button
-        type="button"
-        data-testid={`${id}-sign`}
-        disabled={!wallet.connected || busy}
-        onClick={async () => {
-          setBusy(true);
-          setError('');
-          setFile('');
-          try {
-            const signed = await wallet.signMessage(message.value, recipient);
-            setSignature(signed.signature);
-            setFile(signedFile(signed));
-          } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Sign with {wallet.connected ? 'your wallet' : 'a wallet (connect one first)'}
-      </button>
+    <div className="nc-sign">
+      <Fold title="What the wallet will show" testId={`${id}-fold`}>
+        <p className="nc-cap">
+          You are about to sign this {what} as <strong>{account ?? 'your account'}</strong>, for the
+          recipient <code data-testid={`${id}-recipient`}>{recipient}</code>:
+        </p>
+        <pre className="nc-code" data-testid={`${id}-message`}>
+          {message.value}
+        </pre>
+      </Fold>
+      <div className="nc-actions">
+        <Button
+          primary
+          testId={`${id}-sign`}
+          disabled={!wallet.connected || busy}
+          onClick={async () => {
+            setBusy(true);
+            setError('');
+            setFile('');
+            try {
+              const signed = await wallet.signMessage(message.value, recipient);
+              setSignature(signed.signature);
+              setFile(signedFile(signed));
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy
+            ? 'Waiting for the wallet…'
+            : `Sign with ${wallet.connected ? 'your wallet' : 'a wallet (connect one first)'}`}
+        </Button>
+      </div>
       {error && (
-        <p className="error" data-testid={`${id}-error`}>
+        <p className="nc-msg" data-tone="err" data-testid={`${id}-error`}>
           {error}
         </p>
       )}
       {file && (
-        <div>
-          <p>
+        <div className="nc-signed">
+          <p className="nc-cap">
             Signature: <code data-testid={`${id}-signature`}>{signature}</code>
           </p>
-          <pre data-testid={`${id}-file`}>{file}</pre>
-          <button
-            type="button"
-            data-testid={`${id}-download`}
-            onClick={() => download(file, fileName, 'application/json')}
-          >
-            Download {fileName}
-          </button>
+          <pre className="nc-code" data-testid={`${id}-file`}>
+            {file}
+          </pre>
+          <div className="nc-actions">
+            <Button
+              testId={`${id}-download`}
+              onClick={() => download(file, fileName, 'application/json')}
+            >
+              Download {fileName}
+            </Button>
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+const HEX64 = /^0x[0-9a-fA-F]{64}$/;
+
+/** A fingerprint of the note commitment: one cell per byte, four levels of ink. */
+function Fingerprint({ commitment }: { commitment: string }) {
+  const ok = HEX64.test(commitment);
+  return (
+    <div className="ag-print" data-ok={ok} role="img" aria-label="Fingerprint of the commitment">
+      {Array.from({ length: 32 }, (_, i) => {
+        const byte = ok ? parseInt(commitment.slice(2 + i * 2, 4 + i * 2), 16) : 0;
+        return <i key={i} data-l={ok ? 1 + Math.floor(byte / 65) : 0} />;
+      })}
+    </div>
+  );
+}
+
+/** The side card: what this page has so far, as a permit that fills while you type. */
+function Permit({
+  name,
+  commitment,
+  models,
+  version,
+  rows,
+  items,
+}: {
+  name: string;
+  commitment: string;
+  models: string[];
+  version: string;
+  rows: { key: string; label: string; value: string }[];
+  items: { label: string; done: boolean; step: number; cta: string }[];
+}) {
+  const next = items.findIndex((c) => !c.done);
+  const short =
+    commitment.length > 18 ? `${commitment.slice(0, 10)}…${commitment.slice(-6)}` : commitment;
+  return (
+    <div className="ag-permit" data-testid="agent-permit">
+      <div className="ag-permit-top">
+        <span>Policy draft</span>
+        <span>{version.trim() ? `policy v${version.trim()}` : 'no version'}</span>
+      </div>
+      <strong className="ag-permit-name" data-empty={!name}>
+        {name || 'unnamed agent'}
+      </strong>
+      <code className="ag-permit-note" data-empty={!commitment}>
+        {short || 'no note commitment'}
+      </code>
+      <Fingerprint commitment={commitment} />
+      <div className="ag-perf" aria-hidden="true" />
+      <div className="ag-permit-block">
+        <small>Models</small>
+        {models.length > 0 ? (
+          <div className="ag-chips">
+            {models.map((m) => (
+              <span key={m}>{m}</span>
+            ))}
+          </div>
+        ) : (
+          <p>none picked</p>
+        )}
+      </div>
+      <div className="ag-permit-block">
+        <small>Limits</small>
+        <BudgetLadder rows={rows} />
+      </div>
+      <div className="ag-perf" aria-hidden="true" />
+      <ol className="ag-checks">
+        {items.map((it) => (
+          <li key={it.label} data-done={it.done}>
+            <i />
+            {it.label}
+          </li>
+        ))}
+      </ol>
+      {next >= 0 && (
+        <Button
+          primary
+          testId="agent-next"
+          onClick={() =>
+            document
+              .getElementById(`ag-step-${items[next]?.step ?? 0}`)
+              ?.scrollIntoView({ behavior: 'smooth' })
+          }
+        >
+          Next: {items[next]?.cta}
+        </Button>
       )}
     </div>
   );
@@ -172,6 +290,7 @@ export function Agents() {
   const [policy, setPolicy] = useState(EMPTY_POLICY);
   const [version, setVersion] = useState('');
   const [approval, setApproval] = useState({ id: '', requestHash: '', amountMicro: '', nonce: '' });
+  const [pick, setPick] = useState<ClientId | null>(null);
   const [cmd, setCmd] = useState<CommandFields>({
     name: '',
     transport: 'tcp',
@@ -196,27 +315,80 @@ export function Agents() {
     agentErrors.length > 0 ? { ok: false, errors: agentErrors } : approvalMessage(approval);
   const blocks = buildBlocks({ ...cmd, name });
   const recipes = recipeViews({ ...cmd, name });
+  const OTHER = /^(Socket or address|Address|Agent host)/;
+  const allErrors = blocks.ok ? [] : blocks.errors;
+  const ownErrors = allErrors.filter((e) => !OTHER.test(e));
+  const otherErrors = allErrors.filter((e) => OTHER.test(e));
+  const touched =
+    policy.models.length > 0 ||
+    version !== '' ||
+    Object.entries(policy).some(([k, v]) => k !== 'models' && v !== '');
+  const nameOk = checkAgent(name, '0x' + '0'.repeat(64)).length === 0;
+  const commitmentOk = checkAgent('x', commitment).length === 0;
+  const stepOf = (i: number) => {
+    const done = [
+      nameOk && blocks.ok,
+      !!wallet.connected && commitmentOk,
+      policyMsg.ok,
+      false,
+      false,
+    ];
+    const firstOpen = done.findIndex((d, j) => !d && j < 3);
+    return done[i] ? 'done' : i === (firstOpen < 0 ? 3 : firstOpen) ? 'now' : 'next';
+  };
   const set = (k: keyof typeof policy) => (v: string) => setPolicy({ ...policy, [k]: v });
+  const choose = (c: ClientInfo) => {
+    setPick(c.id);
+    setCmd({ ...cmd, transport: c.transport });
+  };
+  const picked = pick ? CLIENTS.find((c) => c.id === pick) : undefined;
+  const views = recipes.ok
+    ? [...recipes.views].sort((a, b) => Number(b.id === pick) - Number(a.id === pick))
+    : [];
 
   return (
-    <section data-testid="agents">
-      <h1>Agents</h1>
-      <p data-testid="agents-intro">
-        A budget note is a note you fund for one agent. Its payout account is your own account,
-        fixed at deposit, so whatever the agent leaves comes back to you. The agent gets a token and
-        can spend that one note on inference. It cannot withdraw it anywhere but back to you.
-      </p>
-      <p className="notice" data-testid="agents-scope">
+    <Screen
+      testId="agents"
+      title="Agents"
+      lead={
+        <span data-testid="agents-intro">
+          A budget note is a note you fund for one agent. Its payout account is your own account,
+          fixed at deposit, so a close or exit pays you. The agent gets a token and can spend that
+          one note on inference. It cannot withdraw it anywhere but back to you.
+        </span>
+      }
+      illustration={agentsIllustration}
+      side={
+        <Permit
+          name={name}
+          commitment={commitment}
+          models={policy.models}
+          version={version}
+          rows={[
+            { key: 'day', label: 'Per day', value: policy.maxDailyUsd },
+            { key: 'lease', label: 'Per lease', value: policy.maxLeaseUsd },
+            { key: 'ask', label: 'Ask above', value: policy.confirmAboveUsd },
+            { key: 'call', label: 'Per call', value: policy.maxCallUsd },
+          ]}
+          items={[
+            { label: 'Agent name entered', done: nameOk, step: 0, cta: 'Prepare the command' },
+            { label: 'Wallet connected', done: !!wallet.connected, step: 1, cta: 'Wallet' },
+            { label: 'Note commitment set', done: commitmentOk, step: 1, cta: 'Note commitment' },
+            { label: 'Policy fields valid', done: policyMsg.ok, step: 2, cta: 'Policy' },
+          ]}
+        />
+      }
+    >
+      <p className="nc-notice" data-testid="agents-scope">
         This page creates no budget note, never asks for or shows a token, and makes no request to{' '}
         <code>nymirad</code>. It writes the policy file, signs it and your approvals with your
         wallet, and prints commands for you to run yourself.
       </p>
-      <div data-testid="agents-guarantees">
-        <h2>What is guaranteed, and what is not</h2>
-        <ul>
+      <Fold title="What is guaranteed, and what is not" testId="agents-guarantees">
+        <ul className="nc-list">
           <li>
-            The ceiling is cryptographic. An agent can spend at most the balance of its budget note,
-            and a close can only pay your payout account.
+            The ceiling is enforced by the vault, not by <code>nymirad</code>. An agent can spend at
+            most the balance of its budget note, and a close can only pay your payout account.
           </li>
           <li>
             The policy is not. The model list, the call, lease and daily limits, the rate limit, the
@@ -242,228 +414,363 @@ export function Agents() {
             account you named. The agent&apos;s total becomes public at the end.
           </li>
         </ul>
-      </div>
+      </Fold>
 
-      <h2>1. Wallet</h2>
-      <p>
-        The policy and each approval are signed as NEP-413 messages with your NEAR wallet. The
-        account must be the one that funded the budget note. <code>nymirad</code> checks that the
-        signing key is a full-access key of that account when you load the policy.
-      </p>
-      <WalletConnect />
-      {wallet.connected && wallet.connected.signature === 'unsupported' && (
-        <p className="hint">This browser cannot check the sign-in signature.</p>
-      )}
-
-      <h2>2. The agent</h2>
-      <Field label="Agent name" id="agent-name" value={name} onChange={setName} />
-      <Field
-        label="Budget note commitment"
-        id="agent-commitment"
-        value={commitment}
-        onChange={setCommitment}
-        hint="The note field of the agent in agents.json in the nymirad state directory."
-      />
-
-      <h2>3. Policy</h2>
-      <fieldset>
-        <legend>Allowed models</legend>
-        {MODELS.map((m) => (
-          <label key={m.id}>
-            <input
-              type="checkbox"
-              data-testid={`model-${m.id}`}
-              checked={policy.models.includes(m.id)}
-              onChange={(e) =>
-                setPolicy({
-                  ...policy,
-                  models: e.target.checked
-                    ? [...policy.models, m.id]
-                    : policy.models.filter((x) => x !== m.id),
-                })
-              }
-            />{' '}
-            {m.id}
-          </label>
-        ))}
-      </fieldset>
-      <Field
-        label="Per lease limit (USD)"
-        id="p-lease"
-        value={policy.maxLeaseUsd}
-        onChange={set('maxLeaseUsd')}
-        hint="At least 0.1."
-      />
-      <Field
-        label="Per call limit (USD)"
-        id="p-call"
-        value={policy.maxCallUsd}
-        onChange={set('maxCallUsd')}
-      />
-      <Field
-        label="Per day limit (USD, UTC day)"
-        id="p-daily"
-        value={policy.maxDailyUsd}
-        onChange={set('maxDailyUsd')}
-      />
-      <Field
-        label="Ask me above (USD per call)"
-        id="p-confirm"
-        value={policy.confirmAboveUsd}
-        onChange={set('confirmAboveUsd')}
-      />
-      <Field
-        label="Requests a minute"
-        id="p-rate"
-        value={policy.rateLimitPerMin}
-        onChange={set('rateLimitPerMin')}
-      />
-      <p data-testid="p-tee">
-        <code>require_tee: true</code> is the only value this page offers: <code>nymirad</code>{' '}
-        releases an answer only after it checked the provider&apos;s signature on it.
-      </p>
-      <Field
-        label="Policy version"
-        id="p-version"
-        value={version}
-        onChange={setVersion}
-        hint="Must be higher than any version this agent has had."
-      />
-      {yaml.ok && <pre data-testid="policy-yaml">{yaml.value}</pre>}
-      {!yaml.ok && <Errors list={yaml.errors} id="policy-errors" />}
-      <SignPanel
-        id="policy"
-        what="policy"
-        message={policyMsg}
-        recipient={policyRecipient(name, commitment)}
-        fileName={`${name || 'agent'}-policy.signed.json`}
-      />
-
-      <h2>4. Approve a held call</h2>
-      <p>
-        Copy the four values from <code>nymirad agent approvals</code>. The approval is good for ten
-        minutes and for that one request.
-      </p>
-      <Field
-        label="Approval ID"
-        id="a-id"
-        value={approval.id}
-        onChange={(v) => setApproval({ ...approval, id: v })}
-      />
-      <Field
-        label="Request hash"
-        id="a-hash"
-        value={approval.requestHash}
-        onChange={(v) => setApproval({ ...approval, requestHash: v })}
-      />
-      <Field
-        label="Amount (micro-USD)"
-        id="a-amount"
-        value={approval.amountMicro}
-        onChange={(v) => setApproval({ ...approval, amountMicro: v })}
-      />
-      <Field
-        label="Nonce"
-        id="a-nonce"
-        value={approval.nonce}
-        onChange={(v) => setApproval({ ...approval, nonce: v })}
-      />
-      <SignPanel
-        id="approval"
-        what="approval"
-        message={approvalMsg}
-        recipient={approvalRecipient(name, commitment)}
-        fileName={`${name || 'agent'}-approval.signed.json`}
-      />
-
-      <h2>5. Commands and tool settings</h2>
-      <p>
-        Nothing here runs. Copy a block and run it yourself. No block holds a passphrase or a token;
-        the agent reads its token from the file you name.
-      </p>
-      <label>
-        Transport
-        <select
-          data-testid="c-transport"
-          value={cmd.transport}
-          onChange={(e) => setCmd({ ...cmd, transport: e.target.value as 'tcp' | 'unix' })}
-        >
-          <option value="tcp">tcp (loopback port 8788)</option>
-          <option value="unix">unix (another user on this machine)</option>
-        </select>
-      </label>
-      {cmd.transport === 'unix' && (
-        <Field
-          label="Agent user"
-          id="c-user"
-          value={cmd.agentUser}
-          onChange={(v) => setCmd({ ...cmd, agentUser: v })}
-        />
-      )}
-      <Field
-        label="Token file path"
-        id="c-token"
-        value={cmd.tokenFile}
-        onChange={(v) => setCmd({ ...cmd, tokenFile: v })}
-      />
-      <Field
-        label="Funding key file path"
-        id="c-key"
-        value={cmd.keyFile}
-        onChange={(v) => setCmd({ ...cmd, keyFile: v })}
-      />
-      <Field
-        label="Amount (base units, 1 USDC is 1000000)"
-        id="c-amount"
-        value={cmd.amount}
-        onChange={(v) => setCmd({ ...cmd, amount: v })}
-      />
-      <Field
-        label={cmd.transport === 'unix' ? 'Agent socket path' : 'Loopback address (optional)'}
-        id="c-endpoint"
-        value={cmd.endpoint}
-        onChange={(v) => setCmd({ ...cmd, endpoint: v })}
-      />
-      <Field
-        label="Agent host for an SSH forward (optional)"
-        id="c-host"
-        value={cmd.agentHost}
-        onChange={(v) => setCmd({ ...cmd, agentHost: v })}
-      />
-      {!blocks.ok && <Errors list={blocks.errors} id="command-errors" />}
-      {blocks.ok && blocks.blocks.map((b) => <CopyBlock key={b.id} {...b} />)}
-
-      <h2>6. Recipes</h2>
-      <p>
-        The IronClaw and Cursor recipes, filled from the fields above. They are the same text as the
-        README sections. Every recipe names the token file and holds no token.
-      </p>
-      {!recipes.ok && <Errors list={recipes.errors} id="recipe-errors" />}
-      {recipes.ok &&
-        recipes.views.map((v) => (
-          <div key={v.id} data-testid={`recipe-${v.id}`}>
-            <h3>{v.title}</h3>
-            {v.blocks.map((b, i) => {
-              if (b.t === 'p') return <p key={i}>{plainText(b.text)}</p>;
-              if (b.t === 'ul')
-                return (
-                  <ul key={i}>
-                    {b.items.map((item) => (
-                      <li key={item}>{plainText(item)}</li>
-                    ))}
-                  </ul>
-                );
-              return (
-                <CopyBlock
-                  key={i}
-                  id={`recipe-${v.id}-${i}`}
-                  title={b.title ?? v.title}
-                  text={b.text}
-                />
-              );
-            })}
+      <ol className="nc-steps nc-agent-steps">
+        <li id="ag-step-0" data-s={stepOf(0)}>
+          <h2>Prepare the budget note command</h2>
+          <p className="nc-cap nc-cap-first">
+            Fill in the fields to prepare a command. Run it in your terminal to create the note and
+            token. This page cannot tell whether the command has run.
+          </p>
+          <div className="ag-grid ag-grid-wide">
+            <Field
+              label="Agent name"
+              id="agent-name"
+              placeholder="cursor"
+              value={name}
+              onChange={setName}
+            />
+            <div className="nc-field ag-seg-field">
+              <span>Transport</span>
+              <div
+                className="ag-seg"
+                role="radiogroup"
+                aria-label="Transport"
+                data-testid="c-transport"
+              >
+                {(
+                  [
+                    ['tcp', 'tcp', 'loopback port 8788'],
+                    ['unix', 'unix', 'another user on this machine'],
+                  ] as const
+                ).map(([value, name, note]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={cmd.transport === value}
+                    data-testid={`c-transport-${value}`}
+                    onClick={() => setCmd({ ...cmd, transport: value })}
+                  >
+                    <strong>{name}</strong>
+                    <small>{note}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {cmd.transport === 'unix' && (
+              <Field
+                label="Agent user"
+                id="c-user"
+                placeholder="agent user"
+                value={cmd.agentUser}
+                onChange={(v) => setCmd({ ...cmd, agentUser: v })}
+              />
+            )}
+            <Field
+              label="Token file path"
+              id="c-token"
+              placeholder="/srv/agent/cursor.token"
+              value={cmd.tokenFile}
+              onChange={(v) => setCmd({ ...cmd, tokenFile: v })}
+            />
+            <Field
+              label="Funding key file path"
+              id="c-key"
+              placeholder="/home/me/key.json"
+              value={cmd.keyFile}
+              onChange={(v) => setCmd({ ...cmd, keyFile: v })}
+            />
+            <Field
+              label="Amount (base units, 1 USDC is 1000000)"
+              id="c-amount"
+              placeholder="1000000"
+              value={cmd.amount}
+              onChange={(v) => setCmd({ ...cmd, amount: v })}
+            />
           </div>
-        ))}
-    </section>
+          {!blocks.ok && ownErrors.length > 0 && <Errors list={ownErrors} id="command-errors" />}
+          {blocks.ok && (
+            <ol className="nc-cmds">
+              {blocks.blocks
+                .filter((b) => ['create'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
+            </ol>
+          )}
+        </li>
+        <li id="ag-step-1" data-s={stepOf(1)}>
+          <h2>Wallet and note</h2>
+          <p className="nc-cap nc-cap-first">
+            The policy and each approval are signed as NEP-413 messages with your NEAR wallet. The
+            account must be the one that funded the budget note. <code>nymirad</code> checks that
+            the signing key is a full-access key of that account when you load the policy.
+          </p>
+          <WalletConnect />
+          {wallet.connected && wallet.connected.signature === 'unsupported' && (
+            <p className="nc-cap">This browser cannot check the sign-in signature.</p>
+          )}
+          <Field
+            label="Budget note commitment"
+            id="agent-commitment"
+            value={commitment}
+            onChange={setCommitment}
+            placeholder="0x…"
+            hint="The note field of the agent in agents.json in the nymirad state directory."
+          />
+        </li>
+        <li id="ag-step-2" data-s={stepOf(2)}>
+          <h2>Policy</h2>
+          <div className="ag-pol">
+            <fieldset className="ag-group nc-models">
+              <legend>Allowed models</legend>
+              <div className="ag-models">
+                {MODELS.map((m) => (
+                  <label key={m.id} className="nc-check">
+                    <input
+                      type="checkbox"
+                      data-testid={`model-${m.id}`}
+                      checked={policy.models.includes(m.id)}
+                      onChange={(e) =>
+                        setPolicy({
+                          ...policy,
+                          models: e.target.checked
+                            ? [...policy.models, m.id]
+                            : policy.models.filter((x) => x !== m.id),
+                        })
+                      }
+                    />
+                    <span>{m.id}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="ag-grid">
+              <Field
+                label="Per day (USD, UTC day)"
+                id="p-daily"
+                value={policy.maxDailyUsd}
+                onChange={set('maxDailyUsd')}
+                placeholder="5"
+              />
+              <Field
+                label="Per lease (USD)"
+                id="p-lease"
+                value={policy.maxLeaseUsd}
+                onChange={set('maxLeaseUsd')}
+                placeholder="at least 0.1"
+              />
+              <Field
+                label="Per call (USD)"
+                id="p-call"
+                value={policy.maxCallUsd}
+                onChange={set('maxCallUsd')}
+                placeholder="0.25"
+              />
+              <Field
+                label="Ask me above (USD)"
+                id="p-confirm"
+                value={policy.confirmAboveUsd}
+                onChange={set('confirmAboveUsd')}
+                placeholder="0.1"
+              />
+              <Field
+                label="Requests a minute"
+                id="p-rate"
+                value={policy.rateLimitPerMin}
+                onChange={set('rateLimitPerMin')}
+                placeholder="30"
+              />
+              <Field
+                label="Policy version"
+                id="p-version"
+                value={version}
+                onChange={setVersion}
+                placeholder="higher than the last"
+              />
+            </div>
+            <Fold title="The policy file this signs" testId="policy-fold">
+              {yaml.ok ? (
+                <pre className="nc-code nc-yaml" data-testid="policy-yaml">
+                  {yaml.value}
+                </pre>
+              ) : (
+                <p className="nc-cap nc-cap-first">
+                  It shows here when the fields above are complete.
+                </p>
+              )}
+              <p className="nc-cap" data-testid="p-tee">
+                <code>require_tee: true</code> is the only value this page offers:{' '}
+                <code>nymirad</code> releases an answer only after it checked a signature on it. The
+                signature may come from the gateway, not the model, and each such call waits for its
+                lease to settle.
+              </p>
+            </Fold>
+          </div>
+          <SignPanel
+            key={`policy:${policyMsg.ok ? policyMsg.value : 'invalid'}:${name}:${commitment}:${wallet.connected?.accountId ?? ''}`}
+            id="policy"
+            what="policy"
+            message={policyMsg}
+            recipient={policyRecipient(name, commitment)}
+            fileName={`${name || 'agent'}-policy.signed.json`}
+          />
+          {blocks.ok && (
+            <ol className="nc-cmds">
+              {blocks.blocks
+                .filter((b) => ['policy'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
+            </ol>
+          )}
+        </li>
+        <li id="ag-step-3" data-s={stepOf(3)}>
+          <h2>Connect a client</h2>
+          <ClientGrid pick={pick} onPick={choose} />
+          <div className="ag-grid ag-grid-wide">
+            <Field
+              label={cmd.transport === 'unix' ? 'Agent socket path' : 'Loopback address (optional)'}
+              id="c-endpoint"
+              placeholder="optional"
+              value={cmd.endpoint}
+              onChange={(v) => setCmd({ ...cmd, endpoint: v })}
+            />
+            <Field
+              label="Agent host for an SSH forward (optional)"
+              id="c-host"
+              placeholder="optional"
+              value={cmd.agentHost}
+              onChange={(v) => setCmd({ ...cmd, agentHost: v })}
+            />
+          </div>
+          {!blocks.ok && ownErrors.length === 0 && otherErrors.length > 0 && (
+            <Errors list={otherErrors} id="command-errors" />
+          )}
+          {!blocks.ok && ownErrors.length > 0 && otherErrors.length > 0 && (
+            <Errors list={otherErrors} id="client-errors" />
+          )}
+          {blocks.ok && (
+            <ol className="nc-cmds">
+              {blocks.blocks
+                .filter((b) => ['forward', 'mcp-command', 'mcp-json', 'base-url'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
+            </ol>
+          )}
+          <p className="nc-cap">
+            The IronClaw and Cursor recipes, filled from the fields above. They are the same text as
+            the README sections. Every recipe names the token file and holds no token. Pick a client
+            above to move its recipe to the top.
+          </p>
+          {picked && recipes.ok && !views.some((v) => v.id === picked.id) && (
+            <p className="nc-msg" data-tone="warn">
+              Nymira has no step-by-step recipe for {picked.name}. Use the MCP entry above (stdio).
+              A client that takes an OpenAI base URL and key can use the tcp transport and its base
+              URL, with chat completions only.
+            </p>
+          )}
+          {!recipes.ok && <Errors list={recipes.errors} id="recipe-errors" />}
+          {views.map((v) => {
+            const client = CLIENTS.find((c) => c.id === v.id);
+            return (
+              <Fold
+                key={v.id}
+                title={v.title}
+                testId={`recipe-${v.id}`}
+                open={v.id === pick}
+                badge={
+                  <>
+                    {client && <ClientMark client={client} size={20} />}
+                    {v.id === pick && <Chip tone="live">picked</Chip>}
+                  </>
+                }
+              >
+                <div className="nc-recipe">
+                  {v.blocks.map((b, i) => {
+                    if (b.t === 'p') return <p key={i}>{plainText(b.text)}</p>;
+                    if (b.t === 'ul')
+                      return (
+                        <ul key={i} className="nc-list">
+                          {b.items.map((item) => (
+                            <li key={item}>{plainText(item)}</li>
+                          ))}
+                        </ul>
+                      );
+                    return (
+                      <ol key={i} className="nc-cmds">
+                        <CopyBlock
+                          id={`recipe-${v.id}-${i}`}
+                          title={b.title ?? v.title}
+                          text={b.text}
+                        />
+                      </ol>
+                    );
+                  })}
+                </div>
+              </Fold>
+            );
+          })}
+        </li>
+        <li id="ag-step-4" data-s={stepOf(4)}>
+          <h2>Day to day</h2>
+          <p className="nc-cap nc-cap-first">
+            When the agent hits your ask-me limit, a call is held. Copy the four values from{' '}
+            <code>nymirad agent approvals</code>. The approval is good for ten minutes and for that
+            one request.
+          </p>
+          <div className="ag-grid ag-grid-wide">
+            <Field
+              label="Approval ID"
+              id="a-id"
+              placeholder="apv_ and 32 hex digits"
+              value={approval.id}
+              onChange={(v) => setApproval({ ...approval, id: v })}
+            />
+            <Field
+              label="Request hash"
+              id="a-hash"
+              placeholder="64 hex digits"
+              value={approval.requestHash}
+              onChange={(v) => setApproval({ ...approval, requestHash: v })}
+            />
+            <Field
+              label="Amount (micro-USD)"
+              id="a-amount"
+              placeholder="micro-USD"
+              value={approval.amountMicro}
+              onChange={(v) => setApproval({ ...approval, amountMicro: v })}
+            />
+            <Field
+              label="Nonce"
+              id="a-nonce"
+              placeholder="64 hex digits"
+              value={approval.nonce}
+              onChange={(v) => setApproval({ ...approval, nonce: v })}
+            />
+          </div>
+          <SignPanel
+            key={`approval:${approvalMsg.ok ? approvalMsg.value : 'invalid'}:${name}:${commitment}:${wallet.connected?.accountId ?? ''}`}
+            id="approval"
+            what="approval"
+            message={approvalMsg}
+            recipient={approvalRecipient(name, commitment)}
+            fileName={`${name || 'agent'}-approval.signed.json`}
+          />
+          {blocks.ok && (
+            <ol className="nc-cmds">
+              {blocks.blocks
+                .filter((b) => ['approvals', 'disable'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
+            </ol>
+          )}
+        </li>{' '}
+      </ol>
+    </Screen>
   );
 }

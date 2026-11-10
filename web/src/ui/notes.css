@@ -1,0 +1,258 @@
+/* Real-app additions to the console Notes screen; they only add what the preview has no markup for. */
+.nc-screen .nc-ledger-item + .nc-ledger-item {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-screen .nc-ledger-item .nc-ledger-row + .nc-ledger-row {
+  border-top: 0;
+}
+.nc-screen .nc-ledger-item[data-phase='rejected'] .nc-ledger-id strong {
+  color: var(--nm-muted);
+}
+.nc-screen .nc-ledger-more {
+  padding: 0 20px 16px;
+}
+.nc-screen .nc-ledger-bal small {
+  overflow-wrap: anywhere;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.nc-screen .nc-ledger-life {
+  justify-items: start;
+}
+.nc-screen .nc-ledger-act {
+  flex-wrap: wrap;
+}
+.nc-screen label.nc-file {
+  position: relative;
+  cursor: pointer;
+}
+.nc-screen label.nc-file input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.nc-screen label.nc-file:focus-within {
+  outline: 2px solid var(--nm-fg);
+  outline-offset: 2px;
+}
+.nc-screen label.nc-file[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nc-screen label.nc-file input:disabled {
+  cursor: not-allowed;
+}
+
+/* One explanation above the list instead of one under every unconfirmed note. */
+.nc-screen .nc-ledger-help {
+  max-width: 72ch;
+  margin: 0 0 12px;
+}
+.nc-screen .nc-ledger-more {
+  padding: 0 20px 14px;
+}
+.nc-screen .nc-ledger-more .nc-lookup {
+  max-width: 560px;
+}
+
+.nc-pending {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-pending:first-of-type {
+  border-top: 0;
+}
+.nc-pending-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nc-pending-head > span {
+  display: grid;
+  gap: 2px;
+}
+.nc-pending-head small {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  overflow-wrap: anywhere;
+}
+.nc-pending-alt {
+  margin: 0;
+}
+.nc-pending-for {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc-pending-for strong,
+.nc-pending-for code {
+  color: var(--nm-fg);
+}
+
+/* Notes that were made here but never confirmed on chain: folded away from the real ones. */
+.nc-unconfirmed {
+  margin-top: 16px;
+  border: 1px solid var(--nm-line);
+}
+.nc-unconfirmed > summary {
+  display: grid;
+  gap: 2px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+.nc-unconfirmed > summary::-webkit-details-marker {
+  display: none;
+}
+.nc-unconfirmed > summary small {
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+.nc-unconfirmed-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--nm-soft-line);
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc-unconfirmed ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-unconfirmed li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-unconfirmed li[data-active='true'] {
+  background: var(--nm-raised);
+}
+.nc-unconfirmed li > span:first-of-type {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.nc-unconfirmed li small {
+  overflow-wrap: anywhere;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-unconfirmed-pick {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.nc-unconfirmed li .nc-button {
+  position: relative;
+}
+
+/* No notes yet: the empty ledger says so in its own rows. */
+.nc-ledger-empty {
+  display: grid;
+  grid-template-columns: minmax(120px, 240px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px 24px;
+  padding: 24px 20px;
+}
+.nc-ledger-empty p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.nc-ledger-empty strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+.nc-ledger-empty small {
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+@media (max-width: 700px) {
+  .nc-ledger-empty {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- a phone: a note is two short lines, not a card ---- */
+@media (max-width: 700px) {
+  .nc .nc-filter {
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nc .nc-filter::-webkit-scrollbar {
+    display: none;
+  }
+  .nc .nc-filter button {
+    flex: none;
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .nc .nc-ledger-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'id bal'
+      'life act';
+    align-items: center;
+    gap: 8px 12px;
+    padding: 10px 14px;
+  }
+  .nc .nc-ledger-id {
+    grid-area: id;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+  }
+  .nc .nc-ledger-id strong {
+    font-size: 17px;
+  }
+  .nc .nc-ledger-bal {
+    grid-area: bal;
+    display: block;
+    text-align: right;
+  }
+  .nc .nc-ledger-bal strong {
+    font-size: 17px;
+  }
+  .nc .nc-ledger-bal .nc-strip {
+    display: none;
+  }
+  .nc .nc-ledger-life {
+    grid-area: life;
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .nc .nc-ledger-act {
+    grid-area: act;
+    display: flex;
+    gap: 6px;
+  }
+  .nc .nc-ledger-act .nc-button {
+    min-height: 30px;
+    padding: 0 12px;
+    font-size: 13px;
+  }
+}

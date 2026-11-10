@@ -27,12 +27,31 @@ export function BundleHash() {
   }, []);
   if (state.kind === 'loading') return null;
   if (state.kind === 'none') {
-    return <small data-testid="bundle-hash">No release manifest: this is an unsigned build.</small>;
+    return (
+      <small data-testid="bundle-hash">
+        No manifest could be read. This build cannot show a bundle hash.
+      </small>
+    );
   }
   return (
-    <small data-testid="bundle-hash">
-      Bundle {state.version} <code>{state.hash}</code>. The host reports this hash; it does not
-      prove it. Check it with <code>nymirad verify-web</code>.
-    </small>
+    <details className="nm-bundle" data-testid="bundle-hash">
+      <summary>
+        Build {state.version} <span>Details</span>
+      </summary>
+      <div className="nm-bundle-detail">
+        <code>{state.hash}</code>
+        <p>
+          The host reports this hash; it does not prove it. Check it with{' '}
+          <code>nymirad verify-web</code>.
+        </p>
+        <a
+          href="https://github.com/nymiralabs/nymira/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          GitHub releases
+        </a>
+      </div>
+    </details>
   );
 }

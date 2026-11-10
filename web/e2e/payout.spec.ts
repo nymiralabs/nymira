@@ -72,20 +72,18 @@ test('another payout account: fingerprint step, registration and freshness warni
   expect(views).toContain('storage_balance_of');
 });
 
-test('a tampered event (another payout account) is refused, not accepted', async ({
-  context,
-  page,
-}) => {
+test('a mismatched payout remains pending and its note is retained', async ({ context, page }) => {
   const wallet = await newFundingWallet(context);
   wallet.eventOverride = { withdraw_to: 'mallory.test' };
   await openFund(page);
   await prepare(page);
   await backUpAndTest(page, join(workdir(), 'tamper.nymira-backup'));
   await page.getByTestId('send').click();
-  await expect(page.getByTestId('rejected')).toContainText('payout account');
+  await expect(page.getByTestId('pending')).toContainText('payout account');
+  await expect(page.getByTestId('pending')).toContainText('do not assume a refund');
   await expect(page.getByTestId('accepted')).toHaveCount(0);
   await openNotes(page);
-  await expect(page.getByTestId('note-row')).toHaveAttribute('data-phase', 'rejected');
+  await expect(page.getByTestId('note-row')).toHaveAttribute('data-phase', 'sent');
 });
 
 test('a refused transfer (no deposit event) shows as not accepted', async ({ context, page }) => {

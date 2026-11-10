@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 270" width="1000" height="270" role="img" aria-labelledby="t d">
+<title id="t">Check a download before you run it</title>
+<desc id="d">Four steps: download the binary, SHA256SUMS and its signature; check the signature with the pinned minisign key; check the binary’s hash against SHA256SUMS; then run nymirad init.</desc>
+<style>
+text{font-family:'IBM Plex Sans',-apple-system,'Segoe UI',system-ui,sans-serif;fill:#161616}
+.m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.mu{fill:#626262}
+.ln{stroke:#d4d4d4;fill:none;stroke-width:1}
+.ac{stroke:#3b4cc0;fill:none;stroke-width:1}
+.hatch{fill:url(#hatch)}
+.ck{fill:none;stroke:#2f6b3b;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:26;opacity:0}
+.bx{opacity:0}
+.ck0{animation:ck0 10s linear infinite}.bx0{animation:bx0 10s linear infinite}
+.ck1{animation:ck1 10s linear infinite}.bx1{animation:bx1 10s linear infinite}
+.ck2{animation:ck2 10s linear infinite}.bx2{animation:bx2 10s linear infinite}
+.ck3{animation:ck3 10s linear infinite}.bx3{animation:bx3 10s linear infinite}
+@keyframes ck0{0%,0%{stroke-dashoffset:26;opacity:0}0.1%{stroke-dashoffset:26;opacity:1}5%{stroke-dashoffset:0;opacity:1}88%{stroke-dashoffset:0;opacity:1}94%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes bx0{0%,0%{opacity:0}0.1%{opacity:1}20%{opacity:1}22%,100%{opacity:0}}
+@keyframes ck1{0%,22%{stroke-dashoffset:26;opacity:0}22.1%{stroke-dashoffset:26;opacity:1}27%{stroke-dashoffset:0;opacity:1}88%{stroke-dashoffset:0;opacity:1}94%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes bx1{0%,22%{opacity:0}22.1%{opacity:1}42%{opacity:1}44%,100%{opacity:0}}
+@keyframes ck2{0%,44%{stroke-dashoffset:26;opacity:0}44.1%{stroke-dashoffset:26;opacity:1}49%{stroke-dashoffset:0;opacity:1}88%{stroke-dashoffset:0;opacity:1}94%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes bx2{0%,44%{opacity:0}44.1%{opacity:1}64%{opacity:1}66%,100%{opacity:0}}
+@keyframes ck3{0%,66%{stroke-dashoffset:26;opacity:0}66.1%{stroke-dashoffset:26;opacity:1}71%{stroke-dashoffset:0;opacity:1}88%{stroke-dashoffset:0;opacity:1}94%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes bx3{0%,66%{opacity:0}66.1%{opacity:1}86%{opacity:1}88%,100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+<pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" stroke="#3b4cc0" stroke-width="1.2"/></pattern>
+</defs>
+
+<text x="40" y="36" font-size="22">Check a download before you run it</text>
+<path d="M246 139h28" class="ln"/><path d="M268 135l6 4l-6 4" class="ln"/>
+<path d="M486 139h28" class="ln"/><path d="M508 135l6 4l-6 4" class="ln"/>
+<path d="M726 139h28" class="ln"/><path d="M748 135l6 4l-6 4" class="ln"/>
+<g>
+<rect x="40" y="64" width="200" height="150" class="ln"/>
+<rect x="40" y="64" width="200" height="150" class="ac bx bx0" stroke-width="1.5"/>
+<text x="56" y="96" class="m mu" font-size="13">1</text>
+<text x="76" y="96" font-size="17">Download</text>
+<text x="56" y="130" class="m mu" font-size="12.5">the binary</text>
+<text x="56" y="152" class="m mu" font-size="12.5">SHA256SUMS</text>
+<text x="56" y="174" class="m mu" font-size="12.5">SHA256SUMS.minisig</text>
+<path class="ck ck0" d="M204 188l7 7l13 -15"/>
+</g>
+<g>
+<rect x="280" y="64" width="200" height="150" class="ln"/>
+<rect x="280" y="64" width="200" height="150" class="ac bx bx1" stroke-width="1.5"/>
+<text x="296" y="96" class="m mu" font-size="13">2</text>
+<text x="316" y="96" font-size="17">Check the signature</text>
+<text x="296" y="130" class="m mu" font-size="12.5">minisign -V</text>
+<text x="296" y="152" class="m mu" font-size="12.5">with the key in</text>
+<text x="296" y="174" class="m mu" font-size="12.5">web/pins/</text>
+<path class="ck ck1" d="M444 188l7 7l13 -15"/>
+</g>
+<g>
+<rect x="520" y="64" width="200" height="150" class="ln"/>
+<rect x="520" y="64" width="200" height="150" class="ac bx bx2" stroke-width="1.5"/>
+<text x="536" y="96" class="m mu" font-size="13">3</text>
+<text x="556" y="96" font-size="17">Check the hash</text>
+<text x="536" y="130" class="m mu" font-size="12.5">shasum -a 256 -c</text>
+<text x="536" y="152" class="m mu" font-size="12.5">SHA256SUMS</text>
+<text x="536" y="174" class="m mu" font-size="12.5">--ignore-missing</text>
+<path class="ck ck2" d="M684 188l7 7l13 -15"/>
+</g>
+<g>
+<rect x="760" y="64" width="200" height="150" class="ln"/>
+<rect x="760" y="64" width="200" height="150" class="ac bx bx3" stroke-width="1.5"/>
+<text x="776" y="96" class="m mu" font-size="13">4</text>
+<text x="796" y="96" font-size="17">Run it</text>
+<text x="776" y="130" class="m mu" font-size="12.5">nymirad init</text>
+<text x="776" y="152" class="m mu" font-size="12.5">a Tor executable pinned</text>
+<text x="776" y="174" class="m mu" font-size="12.5">by hash is started</text>
+<path class="ck ck3" d="M924 188l7 7l13 -15"/>
+</g>
+<text x="40" y="250" class="m mu" font-size="13">If either check fails, do not run the file. The key's fingerprint is published; see web/INTEGRITY.md.</text>
+</svg>

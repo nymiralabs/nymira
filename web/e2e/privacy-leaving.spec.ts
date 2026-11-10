@@ -39,7 +39,7 @@ async function lease(page: Page, text: string) {
 /** The panel from the notes screen, which works whatever state the note is in. */
 async function openFromNotes(page: Page) {
   await page.getByTestId('nav-notes').click();
-  await page.getByTestId('notes-privacy').click();
+  await page.getByRole('button', { name: 'Open the privacy panel' }).click();
   await expect(page.getByTestId('privacy-screen')).toBeVisible();
 }
 
@@ -90,6 +90,7 @@ test('reuse check: finalized as spent, a resent request refused with the reason 
 
   stack.set({ refusal: MARKUP });
   const posts = leasePosts(stack);
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   // The evidence: what the operator's route reports, shown as spent.
   await expect(page.getByTestId('reuse-status')).toHaveText(shared.reuse_finalized!);
@@ -117,6 +118,7 @@ test('reuse check: finalized as spent, a resent request refused with the reason 
 
   // After 300 seconds the proof is too old to say anything: only the status is shown.
   await page.clock.setFixedTime(Date.now() + 301_000);
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   await expect(page.getByTestId('reuse-not-sent')).toHaveText(shared.reuse_too_old!);
   await expect(page.getByTestId('reuse-status')).toHaveText(shared.reuse_finalized!);
@@ -169,7 +171,8 @@ test('leaving and observer lists, a long refusal is cut, no Intents line for a n
   await expect(observers).not.toContainText('1Click');
   // The landing drawing says the same words.
   await page.getByTestId('privacy-back').click();
-  await page.getByRole('button', { name: 'Nymira', exact: true }).click();
+  await page.getByTestId('brand-menu').click();
+  await page.getByTestId('brand-home').click();
   const desc = await page.getByTestId('who-desc').innerHTML();
   for (const key of ['who_operator', 'who_model', 'who_chain']) {
     expect(desc.replaceAll('&amp;', '&').replaceAll('&#39;', "'")).toContain(
@@ -179,8 +182,11 @@ test('leaving and observer lists, a long refusal is cut, no Intents line for a n
 
   // A long refusal is cut to 300 characters.
   stack.set({ refusal: 'x'.repeat(2000) });
+  // The landing has no screen nav: the app opens from its button.
+  await page.getByTestId('open-app').click();
   await openChat(page);
   await page.getByTestId('chat-privacy').click();
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   const text = await page.getByTestId('operator-says-text').innerText();
   expect(text.length).toBeLessThanOrEqual(301);
@@ -237,12 +243,14 @@ test('the sentence changes after an exit, and the reuse check then resends nothi
   await page.getByTestId('privacy-back').click();
 
   await openClose(page);
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
 
   await openFromNotes(page);
   await expectLeftSentence(page);
   const posts = leasePosts(stack);
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   await expect(page.getByTestId('reuse-status')).toHaveText(shared.reuse_finalized!);
   await expect(page.getByTestId('reuse-not-sent')).toHaveText(shared.reuse_left!);

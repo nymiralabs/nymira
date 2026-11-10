@@ -115,7 +115,7 @@ describe('guard plan', () => {
 describe('close screen wording', () => {
   it('has the guarantee sentence of the web spec, word for word', () => {
     expect(plain(PUBLIC_SENTENCE)).toBe(
-      'The operator cannot send your money to another account or block your exit: with request_exit you leave to your payout account after 7 days, and the operator can deduct at most the bound of the one lease in flight. If you neither close the note nor ask to exit within 30 days, the deposit goes to the treasury. The team can still update the vault code, and open user deposits in the vault are capped at 100 USDC.',
+      'The operator cannot send your money to another account or block your exit: with request_exit you leave to your payout account after 7 days, and if you hold your latest state, the operator can deduct at most the bound of the one lease in flight. A note expires 30 days after the deposit. Seven days later the treasury can take it, unless an exit is pending; until then you can still exit. The team can still update the vault code, and open user deposits in the vault are capped at 100 USDC.',
     );
   });
 

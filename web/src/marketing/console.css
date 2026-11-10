@@ -1,0 +1,6474 @@
+/* The console: the web app on the landing site's material. Cells carry money and time, mono
+   carries data, and the accent marks only what is reserved, running or waiting for you. */
+.nc {
+  --nc-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --nc-warn: #f0c674;
+  --nc-err: #ff9b9b;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+}
+.nm-site[data-theme='light'] .nc {
+  --nc-warn: #7a4a00;
+  --nc-err: #a31919;
+}
+.nc code,
+.nc pre,
+.nc small,
+.nc .nc-group,
+.nc dt {
+  font-family: 'IBM Plex Mono', monospace;
+}
+.nc h1,
+.nc h2,
+.nc h3 {
+  margin: 0;
+  font-weight: 400;
+}
+.nc p {
+  margin: 0;
+}
+.nc :focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+
+/* ---- cells ---- */
+.nc-strip {
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  gap: 3px;
+  height: 12px;
+}
+.nc-strip-sm {
+  height: 8px;
+  gap: 2px;
+}
+.nc-strip-lg {
+  height: 22px;
+  gap: 4px;
+}
+.nc-strip span {
+  border: 1px solid var(--nm-line);
+  transition:
+    background-color 500ms var(--nc-ease),
+    border-color 500ms var(--nc-ease);
+}
+.nc-strip span[data-k='f'] {
+  background: var(--nm-muted);
+  border-color: var(--nm-muted);
+}
+.nc-strip span[data-k='p'] {
+  border-color: var(--nm-muted);
+  background: linear-gradient(var(--nm-muted), var(--nm-muted)) left / calc(var(--p) * 100%) 100%
+    no-repeat;
+}
+.nc-strip span[data-k='r'] {
+  border-color: var(--nm-accent);
+  background:
+    linear-gradient(var(--nm-accent), var(--nm-accent)) bottom / 100% calc(var(--drain) * 100%)
+      no-repeat,
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 3px,
+      color-mix(in srgb, var(--nm-accent) 45%, transparent) 3px 4px
+    );
+}
+
+/* ---- parts ---- */
+.nc-chip {
+  display: inline-block;
+  padding: 0 8px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    11px/18px 'IBM Plex Mono',
+    monospace;
+  white-space: nowrap;
+}
+.nc-chip-good {
+  border-color: var(--nm-good);
+  color: var(--nm-good);
+}
+.nc-chip-live {
+  border-color: var(--nm-accent);
+  color: var(--nm-accent);
+}
+.nc-chip-warn {
+  border-color: var(--nc-warn);
+  color: var(--nc-warn);
+}
+.nc-facts {
+  margin: 12px 0 0;
+}
+.nc-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-top: 1px solid var(--nm-soft-line);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-facts dt {
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+.nc-facts dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.nc-cap {
+  margin: 8px 0 0;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-wrap: pretty;
+}
+.nc-big {
+  margin: 4px 0 12px;
+  font-size: 32px;
+  line-height: 40px;
+  font-variant-numeric: tabular-nums;
+}
+.nc-big small {
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1px solid var(--nm-muted);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nm-fg);
+  font:
+    14px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  transition:
+    background-color 160ms,
+    opacity 160ms;
+}
+.nc-button:hover:not(:disabled) {
+  background: var(--nm-raised);
+}
+.nc-primary {
+  border-color: var(--nm-button);
+  background: var(--nm-button);
+  color: var(--nm-button-text);
+}
+.nc-primary:hover:not(:disabled) {
+  background: var(--nm-button);
+  opacity: 0.88;
+}
+.nc-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.nc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.nc-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+}
+.nc-field > span {
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc input:not([type='checkbox']),
+.nc textarea,
+.nc select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  font:
+    14px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nc input:disabled,
+.nc textarea:disabled,
+.nc select:disabled {
+  opacity: 0.5;
+}
+.nc select {
+  appearance: none;
+  padding-right: 32px;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--nm-muted) 50%) right 16px center / 5px 5px
+      no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--nm-muted) 50%) right 11px center / 5px 5px
+      no-repeat,
+    var(--nm-bg);
+}
+.nc-card {
+  margin-top: 24px;
+  border: 1px solid var(--nm-line);
+}
+.nc-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--nm-line);
+}
+.nc-card h2 {
+  font-size: 15px;
+}
+.nc-card-body {
+  padding: 16px 20px 20px;
+}
+.nc-notice {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border: 1px solid var(--nc-warn);
+  color: var(--nm-fg);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-done {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 1px solid var(--nm-good);
+}
+.nc-done p {
+  color: var(--nm-muted);
+  line-height: 22px;
+}
+
+/* ---- shell ---- */
+.nc-side {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  height: 100vh;
+  padding: 20px 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--nm-soft-line);
+  background: var(--nm-bg);
+}
+.nc-brand {
+  display: block;
+  padding: 0 4px;
+}
+.nc-group {
+  display: block;
+  padding: 0 4px 8px;
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+.nc-notes ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-notes button {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 160ms,
+    border-color 160ms;
+}
+.nc-notes button:hover {
+  background: var(--nm-panel);
+}
+.nc-notes button[aria-selected='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-notes button[data-status='closed'] {
+  opacity: 0.5;
+}
+.nc-note-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+.nc-note-line span {
+  color: var(--nm-muted);
+  font:
+    12px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nc-notes small {
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 14px;
+}
+.nc-notes button[data-status='expiring'] small {
+  color: var(--nc-warn);
+}
+.nc-nav {
+  display: grid;
+  gap: 2px;
+}
+.nc-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 20px;
+  transition:
+    color 160ms,
+    background-color 160ms;
+}
+.nc-nav a:hover {
+  color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-nav a[aria-current='page'] {
+  color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-nav a[aria-current='page']::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  background: var(--nm-fg);
+}
+.nc-foot {
+  display: grid;
+  gap: 12px;
+  margin-top: auto;
+}
+.nc-backup {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--nm-line);
+  font-size: 13px;
+  line-height: 18px;
+}
+.nc-backup strong {
+  display: block;
+  font-weight: 400;
+  color: var(--nm-good);
+}
+.nc-backup[data-saved='false'] {
+  border-color: var(--nc-warn);
+}
+.nc-backup[data-saved='false'] strong {
+  color: var(--nc-warn);
+}
+.nc-backup small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-backup button {
+  grid-column: 1 / -1;
+  min-height: 32px;
+  border: 1px solid var(--nm-muted);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.nc-backup .nc-strip {
+  grid-template-columns: repeat(2, 1fr);
+}
+.nc-account {
+  padding: 0 4px;
+}
+.nc-account strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+}
+.nc-account small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nc-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  background: var(--nm-bg);
+}
+.nc-title {
+  font-size: 15px;
+}
+.nc-net {
+  margin-left: auto;
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-menu {
+  display: none !important;
+}
+.nc-ip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-ip code {
+  color: var(--nm-fg);
+  font-size: 12px;
+}
+.nc-ip em {
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px dashed var(--nm-card-line);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+  white-space: nowrap;
+}
+.nc-content {
+  flex: 1;
+  min-width: 0;
+}
+.nc-scrim {
+  display: none;
+}
+
+/* ---- a screen: the work, and the inspector beside it ---- */
+.nc-screen {
+  min-height: 100%;
+}
+.nc-screen-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+.nc-screen-main {
+  min-width: 0;
+  max-width: 800px;
+  width: 100%;
+  margin-inline: auto;
+  padding: 32px 32px 80px;
+}
+.nc-screen-main h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  line-height: 36px;
+}
+.nc-lead {
+  max-width: 62ch;
+  margin-bottom: 28px;
+  color: var(--nm-muted);
+  line-height: 26px;
+  text-wrap: pretty;
+}
+.nc-screen-intro-art {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 32%);
+  align-items: center;
+  gap: 16px;
+}
+.nc-screen-intro-art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  mix-blend-mode: screen;
+  user-select: none;
+  pointer-events: none;
+}
+.nm-site[data-theme='light'] .nc-screen-intro-art img {
+  filter: invert(1);
+  mix-blend-mode: multiply;
+}
+@media (max-width: 600px) {
+  .nc-screen-intro-art {
+    position: relative;
+    display: block;
+  }
+  .nc-screen-intro-art h1 {
+    min-height: 60px;
+    padding-right: 110px;
+  }
+  .nc-screen-intro-art img {
+    position: absolute;
+    top: -10px;
+    right: 0;
+    width: 105px;
+  }
+}
+.nc-inspector {
+  position: sticky;
+  top: 56px;
+  align-self: start;
+  max-height: calc(100vh - 56px);
+  overflow-y: auto;
+  padding: 32px 24px;
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc-inspector section + section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-inspector h2 {
+  margin-bottom: 8px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+
+/* ---- chat ---- */
+.nc-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 56px - 38px - 190px);
+}
+.nc-chat-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nc-select {
+  display: grid;
+  gap: 4px;
+  min-width: 260px;
+}
+.nc-select span {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-thread {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  flex: 1;
+  padding: 24px 0;
+}
+.nc-empty {
+  display: grid;
+  gap: 14px;
+  max-width: 460px;
+  padding: 24px 0;
+}
+.nc-empty p {
+  color: var(--nm-muted);
+  line-height: 24px;
+}
+.nc-turn {
+  max-width: 100%;
+  font-size: 15px;
+  line-height: 26px;
+}
+.nc-turn p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.nc-who {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-turn[data-role='you'] {
+  justify-self: end;
+  max-width: 86%;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-raised);
+}
+.nc-turn[data-role='model'] {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.nc-caret {
+  display: inline-block;
+  width: 7px;
+  height: 16px;
+  margin-left: 2px;
+  background: var(--nm-fg);
+  vertical-align: -3px;
+  animation: nc-blink 1s step-end infinite;
+}
+@keyframes nc-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.nc-run {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nc-run p {
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc-run ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font:
+    12px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nc-run li {
+  color: var(--nm-muted);
+  opacity: 0.5;
+  transition:
+    opacity 300ms,
+    color 300ms;
+}
+.nc-run li[data-on='true'] {
+  opacity: 1;
+  color: var(--nm-good);
+}
+.nc-run li[data-on='true']::before {
+  content: '✓ ';
+}
+.nc-settled {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--nm-good);
+}
+.nc-settled p {
+  color: var(--nm-muted);
+  line-height: 22px;
+}
+.nc-composer {
+  position: sticky;
+  bottom: 0;
+  padding: 14px 0 24px;
+  background: var(--nm-bg);
+}
+.nc-composer textarea {
+  min-height: 84px;
+  resize: vertical;
+  font:
+    15px/24px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-composer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.nc-composer-bar > span {
+  display: flex;
+  gap: 8px;
+}
+.nc-worst {
+  display: grid;
+  gap: 6px;
+  width: 260px;
+  max-width: 100%;
+}
+.nc-worst small {
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+.nc-lease-key {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-lease-key i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border: 1px solid var(--nm-line);
+  vertical-align: -1px;
+}
+.nc-lease-key i[data-k='r'] {
+  border-color: var(--nm-accent);
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 2px,
+    color-mix(in srgb, var(--nm-accent) 45%, transparent) 2px 3px
+  );
+}
+.nc-lease-key i[data-k='f'] {
+  background: var(--nm-muted);
+  border-color: var(--nm-muted);
+}
+.nc-checks {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-checks li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  color: var(--nm-muted);
+  transition: color 300ms;
+}
+.nc-checks li span {
+  color: var(--nm-good);
+}
+.nc-checks li[data-state='pass'] {
+  color: var(--nm-fg);
+}
+.nc-checks li[data-state='run'] {
+  color: var(--nm-accent);
+}
+.nc-checks li[data-state='run'] span::before {
+  content: '…';
+  color: var(--nm-accent);
+}
+
+/* ---- fund ---- */
+.nc-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: s;
+}
+.nc-steps > li {
+  position: relative;
+  counter-increment: s;
+  padding: 0 0 28px 44px;
+}
+.nc-steps > li::before {
+  content: counter(s);
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--nm-muted);
+  font:
+    12px/1 'IBM Plex Mono',
+    monospace;
+  transition:
+    background-color 350ms var(--nc-ease),
+    border-color 350ms var(--nc-ease),
+    color 350ms var(--nc-ease);
+}
+.nc-steps > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: 32px;
+  bottom: 6px;
+  border-left: 1px dashed var(--nm-line);
+}
+.nc-steps > li[data-s='done']::before {
+  border-color: var(--nm-good);
+  background: var(--nm-good);
+  color: var(--nm-bg);
+}
+.nc-steps > li[data-s='now']::before {
+  border-color: var(--nm-accent);
+  color: var(--nm-accent);
+  animation: nc-pulse 1.4s ease-in-out infinite;
+}
+@keyframes nc-pulse {
+  50% {
+    background: color-mix(in srgb, var(--nm-accent) 30%, transparent);
+  }
+}
+.nc-steps > li[data-s='next'] > h2 {
+  color: var(--nm-muted);
+}
+.nc-steps h2 {
+  margin-bottom: 8px;
+  font-size: 17px;
+  line-height: 26px;
+}
+.nc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  font-size: 14px;
+}
+.nc-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.nc-choices button,
+.nc-choices label,
+.nc-radios label {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-choices button:hover:not(:disabled),
+.nc-choices label:hover:not(:has(input:disabled)) {
+  border-color: var(--nm-muted);
+}
+.nc-choices button[aria-checked='true'],
+.nc-choices label:has(input:checked) {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-choices button:disabled,
+.nc-choices label:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+/* A real radio inside a tile: it covers the tile, so a click or a keyboard check lands on it. */
+.nc .nc-choices input[type='radio'],
+.nc .nc-radios input[type='radio'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.nc-choices label:has(input:focus-visible),
+.nc-radios label:has(input:focus-visible) {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nc-choices strong {
+  font-size: 20px;
+  font-weight: 400;
+}
+.nc-choices small {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-quotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.nc-quotes span {
+  padding: 6px 12px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+
+/* ---- notes ---- */
+.nc-ledger {
+  border: 1px solid var(--nm-line);
+}
+.nc-ledger-head,
+.nc-ledger-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 20px;
+}
+.nc-ledger-head {
+  min-height: 40px;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-ledger-row + .nc-ledger-row {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-ledger-row[data-active='true'] {
+  background: var(--nm-panel);
+}
+.nc-ledger-id strong,
+.nc-ledger-bal strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.nc-ledger small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-ledger-bal,
+.nc-ledger-life {
+  display: grid;
+  gap: 8px;
+}
+.nc-ledger-act {
+  display: flex;
+  gap: 8px;
+}
+.nc-ledger-act .nc-button {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.nc-backup-grid,
+.nc-card .nc-backup {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  padding: 0;
+  border: 0;
+}
+.nc-card .nc-backup .nc-strip {
+  grid-template-columns: repeat(2, 1fr);
+}
+.nc-card .nc-backup > div {
+  display: block;
+}
+.nc-card .nc-backup .nc-field {
+  margin-top: 0;
+}
+
+/* ---- close ---- */
+.nc-choices-wide button {
+  align-content: start;
+}
+.nc-choices-wide strong {
+  font-size: 16px;
+}
+.nc-exit {
+  margin-top: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--nm-line);
+}
+.nc-exit-key {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-exit-key span {
+  transition: color 300ms;
+}
+.nc-exit-key span[data-on='true'] {
+  color: var(--nm-accent);
+}
+.nc-flow {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-flow li {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  align-items: center;
+  gap: 12px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  transition: color 300ms;
+}
+.nc-flow li span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--nm-line);
+  font:
+    12px/1 'IBM Plex Mono',
+    monospace;
+  transition:
+    background-color 350ms var(--nc-ease),
+    border-color 350ms var(--nc-ease);
+}
+.nc-flow li[data-s='now'] {
+  color: var(--nm-fg);
+}
+.nc-flow li[data-s='now'] span {
+  border-color: var(--nm-accent);
+  color: var(--nm-accent);
+  animation: nc-pulse 1.1s ease-in-out infinite;
+}
+.nc-flow li[data-s='done'] {
+  color: var(--nm-fg);
+}
+.nc-flow li[data-s='done'] span {
+  border-color: var(--nm-good);
+  background: var(--nm-good);
+  color: var(--nm-bg);
+}
+.nc-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.nc-check input {
+  width: 18px !important;
+  height: 18px;
+  margin: 3px 0 0;
+  padding: 0 !important;
+  accent-color: var(--nm-accent);
+  flex: none;
+}
+.nc-check small {
+  display: block;
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* ---- agents ---- */
+.nc-agents {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.nc-agent {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--nm-line);
+  transition: opacity 300ms;
+}
+.nc-agent[data-on='false'] {
+  opacity: 0.55;
+}
+.nc-agent header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nc-agent h2 {
+  font-size: 18px;
+}
+.nc-agent header span {
+  display: flex;
+  gap: 6px;
+}
+.nc-agent-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nc-agent-foot small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nm-fg);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  cursor: pointer;
+}
+.nc-switch::before {
+  content: '';
+  width: 34px;
+  height: 18px;
+  border: 1px solid var(--nm-muted);
+  background: linear-gradient(var(--nm-fg), var(--nm-fg)) 3px center / 12px 10px no-repeat;
+  transition: background-position 220ms var(--nc-ease);
+}
+.nc-switch[aria-checked='true']::before {
+  background-position: 17px center;
+}
+.nc-held {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.nc-held > div:first-child {
+  flex: 1 1 320px;
+}
+.nc-held p {
+  line-height: 24px;
+  color: var(--nm-muted);
+}
+.nc-held p strong {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+.nc-held .nc-actions {
+  margin-top: 0;
+}
+.nc-newagent {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: end;
+}
+.nc-newagent .nc-field {
+  margin-top: 0;
+}
+.nc-seg {
+  display: flex;
+}
+.nc-seg button {
+  min-height: 42px;
+  padding: 8px 20px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+  cursor: pointer;
+}
+.nc-seg button + button {
+  border-left: 0;
+}
+.nc-seg button[aria-checked='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+  color: var(--nm-fg);
+}
+.nc-code {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-code-bg);
+  color: var(--nm-code-fg);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-code i {
+  color: var(--nm-muted);
+  font-style: normal;
+}
+
+/* ---- narrow screens ---- */
+@media (max-width: 1100px) {
+  .nc-screen-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-inspector {
+    position: static;
+    max-height: none;
+    border-left: 0;
+    border-top: 1px solid var(--nm-soft-line);
+  }
+  .nc-chat {
+    min-height: 0;
+  }
+}
+@media (max-width: 900px) {
+  .nc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-side {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 30;
+    width: 288px;
+    transform: translateX(-100%);
+    transition: transform 240ms var(--nc-ease);
+  }
+  .nc[data-drawer='true'] .nc-side {
+    transform: none;
+  }
+  .nc-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: #0009;
+  }
+  .nc-menu {
+    display: grid !important;
+  }
+  .nc-net {
+    display: none;
+  }
+  .nc-title {
+    margin-right: auto;
+  }
+  /* two auto margins split the free space and left the IP chip in the middle */
+  .nc-net-spacer {
+    display: none;
+  }
+  .nc-top > .nm-icon-button:not(.nc-menu) {
+    margin-left: 0;
+  }
+  .nc-top,
+  .nc-ip,
+  .nc-screen-main,
+  .nc-inspector {
+    padding-inline: 16px;
+  }
+  .nc-ip em {
+    display: none;
+  }
+  .nc-screen-main {
+    padding-block: 24px 48px;
+  }
+  .nc-agents,
+  .nc-choices,
+  .nc-newagent {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-ledger-head {
+    display: none;
+  }
+  .nc-ledger-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+  }
+  .nc-ledger-life,
+  .nc-ledger-act {
+    grid-column: 1 / -1;
+  }
+  .nc-card .nc-backup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-turn[data-role='you'] {
+    max-width: 100%;
+  }
+  .nc-select {
+    min-width: 0;
+    width: 100%;
+  }
+  .nc-composer {
+    position: static;
+  }
+  .nc-composer textarea {
+    min-height: 72px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-caret,
+  .nc-steps > li[data-s='now']::before,
+  .nc-flow li[data-s='now'] span {
+    animation: none;
+  }
+  .nc-side {
+    transition: none;
+  }
+}
+
+.nc-suggest {
+  display: grid;
+  gap: 6px;
+}
+.nc-suggest button {
+  padding: 10px 14px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background-color 160ms,
+    border-color 160ms;
+}
+.nc-suggest button:hover {
+  border-color: var(--nm-muted);
+  background: var(--nm-panel);
+}
+
+/* ---- the note list folds down to the active note ---- */
+.nc-notes .nc-notes-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  text-align: left;
+  cursor: pointer;
+}
+.nc-notes .nc-notes-toggle:hover {
+  color: var(--nm-fg);
+}
+.nc-notes-count {
+  padding: 0 6px;
+  border: 1px solid var(--nm-line);
+}
+.nc-notes .nc-notes-toggle .nm-icon {
+  margin-left: auto;
+  transform: rotate(90deg);
+  transition: transform 240ms var(--nc-ease);
+}
+.nc-notes[data-open='false'] .nc-notes-toggle .nm-icon {
+  transform: rotate(0deg);
+}
+.nc-notes li {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 280ms var(--nc-ease),
+    opacity 220ms ease,
+    margin 280ms var(--nc-ease);
+}
+.nc-notes li > button {
+  min-height: 0;
+  overflow: hidden;
+}
+.nc-notes li[data-show='false'] {
+  grid-template-rows: 0fr;
+  margin-top: -6px;
+  opacity: 0;
+  pointer-events: none;
+}
+.nc-notes li[data-show='false'] > button {
+  padding-block: 0;
+  border-width: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-notes li,
+  .nc-notes .nc-notes-toggle .nm-icon {
+    transition: none;
+  }
+}
+
+/* ---- the wallet, top right ---- */
+.nc-wallet {
+  position: relative;
+}
+.nc-wallet-button {
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.nc-wallet-button small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--nm-good);
+}
+.nc-wallet-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  width: 280px;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+  animation: nc-menu-in 180ms var(--nc-ease) both;
+}
+@keyframes nc-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.nc-wallet-menu p {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nc-wallet-menu p strong {
+  font-size: 14px;
+  font-weight: 400;
+}
+.nc-wallet-menu p small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-wallet-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.nc-wallet-menu button:hover:not(:disabled) {
+  background: var(--nm-raised);
+}
+.nc-wallet-menu button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.nc-wallet-menu em {
+  color: var(--nm-accent);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-wallet-menu {
+    animation: none;
+  }
+}
+.nc .nc-button.nc-primary {
+  color: var(--nm-button-text);
+}
+
+/* ---- brand row: the animated wordmark and the network it runs on ---- */
+.nc-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 4px;
+}
+.nc-brand-row .nc-brand {
+  padding: 0;
+}
+.nc-brand-row .nm-wordmark {
+  width: 96px;
+}
+.nc-network {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    11px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-network i {
+  width: 6px;
+  height: 6px;
+  background: var(--nm-good);
+  animation: nc-live 2.4s ease-in-out infinite;
+}
+@keyframes nc-live {
+  50% {
+    opacity: 0.25;
+  }
+}
+.nc-net-spacer {
+  margin-left: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-network i {
+    animation: none;
+  }
+}
+
+.nc-wallet-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--s);
+  height: var(--s);
+}
+.nc-wallet-mark img {
+  display: block;
+  width: var(--s);
+  height: var(--s);
+  object-fit: contain;
+}
+.nc-wallet-item,
+.nc-wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.nc-wallet-chip {
+  color: var(--nm-muted);
+  font:
+    12px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nc-wallet-button .nc-dot {
+  margin-left: 2px;
+}
+
+/* ---- chat, tidied: a slim head, a centred column, a composer that sits inside the thread's width ---- */
+.nc-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nc-chat-screen {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.nc-chat-main {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-width: 820px;
+  min-height: 0;
+  margin-inline: auto;
+  padding: 0 32px;
+}
+.nc-chat-head {
+  position: sticky;
+  top: 56px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--nm-soft-line);
+  background: var(--nm-bg);
+}
+.nc-model {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.nc-model span {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-model select {
+  width: auto;
+  min-width: 230px;
+  padding-block: 7px;
+  font-size: 13px;
+}
+.nc-chat-head-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nc-chat-head-end .nc-button {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.nc-chat-screen .nc-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 28px 0 24px;
+}
+.nc-empty {
+  display: grid;
+  gap: 14px;
+  max-width: 520px;
+  margin-block: auto;
+  padding: 0;
+}
+.nc-empty h2 {
+  font-size: 26px;
+  line-height: 34px;
+}
+.nc-empty p {
+  color: var(--nm-muted);
+  line-height: 24px;
+  text-wrap: pretty;
+}
+.nc-suggest {
+  margin-top: 8px;
+}
+.nc-suggest button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nc-suggest .nm-icon {
+  color: var(--nm-muted);
+  transition:
+    transform 200ms var(--nc-ease),
+    color 160ms;
+}
+.nc-suggest button:hover .nm-icon {
+  color: var(--nm-fg);
+  transform: translateX(3px);
+}
+.nc-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-divider::before,
+.nc-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-chat-screen .nc-turn {
+  font-size: 16px;
+  line-height: 28px;
+}
+.nc-chat-screen .nc-turn[data-role='model'] {
+  max-width: 68ch;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.nc-chat-screen .nc-turn[data-role='you'] {
+  max-width: min(86%, 60ch);
+}
+.nc-settled-note {
+  padding: 10px 12px;
+  border: 1px solid var(--nc-warn);
+  color: var(--nm-fg) !important;
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-chat-screen .nc-composer {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0 20px;
+  border-top: 1px solid var(--nm-soft-line);
+  background: var(--nm-bg);
+}
+.nc-chat-fund {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nc-chat-fund p {
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-compose-box {
+  position: relative;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-bg);
+  transition: border-color 160ms;
+}
+.nc-compose-box:focus-within {
+  border-color: var(--nm-muted);
+}
+.nc-compose-box textarea {
+  display: block;
+  min-height: 0;
+  padding: 14px 60px 14px 16px;
+  border: 0;
+  background: transparent;
+  resize: none;
+  font:
+    15px/24px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-compose-box textarea:focus-visible {
+  outline: none;
+}
+.nc-send {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--nm-button);
+  border-radius: 0;
+  background: var(--nm-button);
+  color: var(--nm-button-text);
+  cursor: pointer;
+  transition: opacity 160ms;
+}
+.nc-send:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.nc-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.nc-composer-foot .nc-worst {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+}
+.nc-composer-foot .nc-worst .nc-strip {
+  width: 120px;
+}
+.nc-hint {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-sum h2 {
+  margin-bottom: 4px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-inspector .nc-sum + .nc-sum {
+  margin-top: 22px;
+  padding-top: 0;
+  border-top: 0;
+}
+.nc-sum .nc-big {
+  margin: 0 0 10px;
+  font-size: 30px;
+  line-height: 38px;
+}
+.nc-sum-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-inspector .nc-fold {
+  margin-top: 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-inspector .nc-sum + .nc-fold {
+  margin-top: 24px;
+}
+.nc-fold summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+.nc-fold summary::-webkit-details-marker {
+  display: none;
+}
+.nc-fold summary > span:first-child {
+  flex: 1;
+}
+.nc-fold summary .nm-icon {
+  color: var(--nm-muted);
+  transition: transform 220ms var(--nc-ease);
+}
+.nc-fold[open] summary .nm-icon {
+  transform: rotate(90deg);
+}
+.nc-fold-body {
+  padding: 0 0 14px;
+}
+.nc-fold-body .nc-facts {
+  margin-top: 0;
+}
+@media (max-width: 1100px) {
+  .nc-chat-screen {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-chat-main {
+    min-height: 0;
+  }
+}
+@media (max-width: 900px) {
+  .nc-chat-main {
+    padding: 0 16px;
+  }
+  .nc-chat-head {
+    top: 56px;
+  }
+  .nc-model {
+    width: 100%;
+  }
+  .nc-model select {
+    flex: 1;
+    min-width: 0;
+  }
+  .nc-chat-screen .nc-composer {
+    position: static;
+  }
+  .nc-hint {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-suggest .nm-icon,
+  .nc-fold summary .nm-icon {
+    transition: none;
+  }
+}
+.nc-chat-screen .nc-turn[data-role='you'] {
+  align-self: flex-end;
+}
+.nc-chat-screen .nc-turn[data-role='model'],
+.nc-chat-screen .nc-run,
+.nc-chat-screen .nc-settled {
+  align-self: stretch;
+}
+.nc .nc-send {
+  color: var(--nm-button-text);
+}
+.nc .nc-send:disabled {
+  color: var(--nm-button-text);
+}
+
+.nc-chat-screen .nc-turn[data-role='you'] {
+  padding: 10px 16px;
+}
+
+/* ---- verification: a column of cells that fill as each check passes ---- */
+.nc-vlist {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-vlist li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 0 14px;
+}
+.nc-vlist li:last-child {
+  padding-bottom: 0;
+}
+.nc-vlist li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 22px;
+  bottom: 2px;
+  border-left: 1px dashed var(--nm-line);
+}
+.nc-vlist strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.nc-vlist small {
+  display: block;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-vmark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px dashed var(--nm-muted);
+  color: transparent;
+  transition:
+    background-color 350ms var(--nc-ease),
+    border-color 350ms var(--nc-ease),
+    color 350ms var(--nc-ease);
+}
+.nc-vlist li[data-state='idle'] strong {
+  color: var(--nm-muted);
+}
+.nc-vlist li[data-state='run'] .nc-vmark {
+  border: 1px solid var(--nm-accent);
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--nm-accent) 45%, transparent) 3px 4px
+  );
+  animation: nc-pulse 1.1s ease-in-out infinite;
+}
+.nc-vlist li[data-state='pass'] .nc-vmark {
+  border: 1px solid var(--nm-good);
+  background: var(--nm-good);
+  color: var(--nm-bg);
+}
+.nc-vlist li[data-state='partial'] .nc-vmark {
+  border: 1px solid var(--nm-muted);
+  background: linear-gradient(var(--nm-muted), var(--nm-muted)) left / 50% 100% no-repeat;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-vlist li[data-state='run'] .nc-vmark {
+    animation: none;
+  }
+}
+
+/* ---- sealing card: the ciphertext on the left, the checks that guard it on the right ---- */
+.nc-chat-screen .nc-seal {
+  align-self: stretch;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nc-seal > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nc-seal h3 {
+  font-size: 14px;
+}
+.nc-seal-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+  padding: 18px 16px 16px;
+}
+.nc-cipher {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px dashed var(--nm-card-line);
+  background: var(--nm-bg);
+}
+.nc-cipher > span {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-cipher code {
+  display: block;
+  overflow: hidden;
+  color: var(--nm-accent);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  letter-spacing: 0.04em;
+  white-space: pre;
+}
+.nc-seal-bar {
+  padding: 0 16px 16px;
+}
+.nc-seal-bar .nc-strip {
+  height: 6px;
+}
+.nc-seal .nc-vlist li {
+  padding-bottom: 16px;
+}
+.nc-seal .nc-vlist li:last-child {
+  padding-bottom: 0;
+}
+/* Steps that pass on their own: each turns green after the one before it. */
+.nc-vlist li[data-state='auto'] strong {
+  animation: nc-auto-text 300ms ease forwards;
+  animation-delay: calc(var(--i) * 480ms);
+  color: var(--nm-muted);
+}
+.nc-vlist li[data-state='auto'] .nc-vmark {
+  animation: nc-auto-mark 300ms ease forwards;
+  animation-delay: calc(var(--i) * 480ms);
+}
+@keyframes nc-auto-mark {
+  to {
+    border: 1px solid var(--nm-good);
+    background: var(--nm-good);
+    color: var(--nm-bg);
+  }
+}
+@keyframes nc-auto-text {
+  to {
+    color: var(--nm-fg);
+  }
+}
+@media (max-width: 900px) {
+  .nc-seal-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-vlist li[data-state='auto'] strong,
+  .nc-vlist li[data-state='auto'] .nc-vmark {
+    animation-duration: 1ms;
+    animation-delay: 0s;
+  }
+}
+.nc-seal[data-auto='true'] .nc-seal-bar {
+  display: none;
+}
+
+/* ---- small motions: cells assemble, rows settle, live things breathe ---- */
+.nc-strip span {
+  animation: nc-cell-in 420ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 18ms);
+}
+@keyframes nc-cell-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+}
+.nc-notes button:hover .nc-strip span {
+  animation: nc-cell-wave 650ms var(--nc-ease);
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+@keyframes nc-cell-wave {
+  40% {
+    transform: translateY(-2px);
+    border-color: var(--nm-fg);
+  }
+}
+.nc-content {
+  animation: nc-screen-in 280ms var(--nc-ease) both;
+}
+@keyframes nc-screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.nc-notes button[data-flash='true'] {
+  animation: nc-flash 1300ms ease-out;
+}
+@keyframes nc-flash {
+  0% {
+    background: color-mix(in srgb, var(--nm-accent) 28%, transparent);
+    border-color: var(--nm-accent);
+  }
+}
+.nc-backup[data-saved='false'] {
+  animation: nc-attn 1.8s ease-in-out 2;
+}
+@keyframes nc-attn {
+  50% {
+    border-color: var(--nm-fg);
+    background: color-mix(in srgb, var(--nc-warn) 14%, transparent);
+  }
+}
+.nc-chip-live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  background: var(--nm-accent);
+  animation: nc-live 1.6s ease-in-out infinite;
+}
+.nc-wallet-button .nc-dot {
+  animation: nc-live 2.4s ease-in-out infinite;
+}
+.nc-nav a .nm-icon {
+  transition: transform 200ms var(--nc-ease);
+}
+.nc-nav a:hover .nm-icon {
+  transform: translateX(2px);
+}
+.nc-nav a[aria-current='page']::after {
+  animation: nc-pop 320ms var(--nc-ease);
+}
+@keyframes nc-pop {
+  from {
+    transform: scale(0);
+  }
+}
+.nc-send .nm-icon {
+  transition: transform 200ms var(--nc-ease);
+}
+.nc-send:not(:disabled):hover .nm-icon {
+  transform: translateX(3px);
+}
+.nc-send:not(:disabled):active {
+  transform: scale(0.94);
+}
+.nc-suggest button {
+  animation: nc-row-in 380ms var(--nc-ease) backwards;
+}
+.nc-suggest button:nth-child(2) {
+  animation-delay: 70ms;
+}
+.nc-suggest button:nth-child(3) {
+  animation-delay: 140ms;
+}
+@keyframes nc-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.nc-chat-screen .nc-turn[data-role='you'] {
+  animation: nc-turn-you 320ms var(--nc-ease) both;
+}
+@keyframes nc-turn-you {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+.nc-divider::before {
+  transform-origin: right;
+  animation: nc-line 600ms var(--nc-ease) both;
+}
+.nc-divider::after {
+  transform-origin: left;
+  animation: nc-line 600ms var(--nc-ease) both;
+}
+@keyframes nc-line {
+  from {
+    transform: scaleX(0);
+  }
+}
+.nc-meta .nc-chip {
+  animation: nc-chip-in 360ms var(--nc-ease) backwards;
+  animation-delay: 160ms;
+}
+.nc-meta .nc-chip:nth-child(2) {
+  animation-delay: 240ms;
+}
+.nc-meta .nc-chip:nth-child(3) {
+  animation-delay: 320ms;
+}
+@keyframes nc-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.nc-chat-screen .nc-seal,
+.nc-chat-screen .nc-settled {
+  animation: nc-row-in 360ms var(--nc-ease) both;
+}
+.nc-fold[open] .nc-fold-body {
+  animation: nc-row-in 260ms var(--nc-ease) both;
+}
+.nc-ledger-row {
+  animation: nc-row-in 380ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--r, 0) * 60ms);
+}
+.nc-steps > li[data-s='done']:not(:last-child)::after {
+  border-left-color: var(--nm-good);
+  transform-origin: top;
+  animation: nc-draw 520ms var(--nc-ease) both;
+}
+@keyframes nc-draw {
+  from {
+    transform: scaleY(0);
+  }
+}
+.nc-done {
+  animation: nc-done-in 700ms var(--nc-ease) both;
+}
+@keyframes nc-done-in {
+  from {
+    background: color-mix(in srgb, var(--nm-good) 22%, transparent);
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-strip span,
+  .nc-notes button:hover .nc-strip span,
+  .nc-content,
+  .nc-notes button[data-flash='true'],
+  .nc-backup[data-saved='false'],
+  .nc-chip-live::before,
+  .nc-wallet-button .nc-dot,
+  .nc-nav a[aria-current='page']::after,
+  .nc-suggest button,
+  .nc-chat-screen .nc-turn[data-role='you'],
+  .nc-divider::before,
+  .nc-divider::after,
+  .nc-meta .nc-chip,
+  .nc-chat-screen .nc-seal,
+  .nc-chat-screen .nc-settled,
+  .nc-fold[open] .nc-fold-body,
+  .nc-ledger-row,
+  .nc-steps > li[data-s='done']:not(:last-child)::after,
+  .nc-done {
+    animation: none;
+  }
+  .nc-nav a .nm-icon,
+  .nc-send .nm-icon {
+    transition: none;
+  }
+}
+
+/* ---- fund, tightened: locked steps, payout choice, backup sub-steps, the accepted note ---- */
+.nc .nc-terms {
+  margin: 12px 0 24px;
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc-terms a,
+.nc-cap a,
+.nc-accepted a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nc-cap-first,
+.nc-actions-first {
+  margin-top: 0;
+}
+.nc-steps > li[data-locked='true'] > :not(h2) {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.nc-steps > li > h2 + .nc-cap-first {
+  margin-bottom: 12px;
+}
+.nc .nc-steps > li > .nc-cap:not(.nc-cap-first) {
+  margin-top: 8px;
+}
+.nc-radios {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.nc-radios button,
+.nc-radios label {
+  gap: 6px;
+  padding: 12px 16px;
+}
+.nc-radios button {
+  display: grid;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-radios button:hover:not(:disabled),
+.nc-radios label:hover:not(:has(input:disabled)) {
+  border-color: var(--nm-muted);
+}
+.nc-radios button[aria-checked='true'],
+.nc-radios label:has(input:checked) {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-radios button:disabled,
+.nc-radios label:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+.nc-radios span {
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+.nc-radios code {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.nc-other {
+  display: grid;
+  gap: 4px;
+  animation: nc-row-in 260ms var(--nc-ease) both;
+}
+.nc-fp {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px 16px;
+  border: 1px dashed var(--nm-card-line);
+}
+.nc-fp small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-fp code {
+  font-size: 17px;
+  letter-spacing: 0.08em;
+}
+.nc-fp p {
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-msg {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--nm-muted);
+}
+.nc-msg[data-tone='ok'] {
+  color: var(--nm-good);
+}
+.nc-msg[data-tone='warn'] {
+  color: var(--nc-warn);
+}
+.nc-msg[data-tone='err'] {
+  color: var(--nc-err);
+}
+.nc-other .nc-check {
+  margin-top: 14px;
+}
+.nc-sub {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--nm-line);
+}
+.nc-sub > li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  transition: opacity 250ms ease;
+}
+.nc-sub > li + li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-sub > li[data-locked='true'] {
+  opacity: 0.45;
+}
+.nc-sub strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nc-sub small {
+  display: block;
+  margin-top: 4px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-sub > li[data-on='true'] strong::after {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  background: var(--nm-good);
+}
+.nc-sub-main {
+  flex: 1;
+  min-width: 0;
+}
+.nc-sub .nc-field {
+  margin-top: 10px;
+}
+.nc-sub > li > .nc-button {
+  flex: none;
+  white-space: nowrap;
+}
+.nc-pass {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.nc-pass .nc-strip {
+  width: 140px;
+}
+.nc-pass small {
+  margin: 0;
+}
+.nc-accepted ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-accepted li {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.nc-accepted li > span {
+  font-size: 14px;
+}
+.nc-accepted small {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-accepted .nc-actions {
+  margin-top: 4px;
+}
+@media (max-width: 900px) {
+  .nc-radios {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-sub > li {
+    flex-direction: column;
+  }
+  .nc-sub > li > .nc-button {
+    align-self: stretch;
+  }
+}
+
+/* ---- notes: the ledger row is selectable, backup places read like a list of files ---- */
+.nc-ledger-row {
+  position: relative;
+}
+.nc-ledger-pick {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.nc-ledger-pick:hover {
+  background: color-mix(in srgb, var(--nm-fg) 4%, transparent);
+}
+.nc-ledger-row > span {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+.nc-ledger-row > .nc-ledger-act {
+  pointer-events: auto;
+}
+.nc-ledger-row[data-active='true'] {
+  background: var(--nm-panel);
+  box-shadow: inset 0 0 0 1px var(--nm-fg);
+}
+.nc-ledger-life[data-late='true'] small {
+  color: var(--nc-warn);
+}
+.nc-places {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+.nc-places li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.nc-places li[data-ok='false'] .nc-vmark {
+  border: 1px dashed var(--nm-muted);
+  color: transparent;
+}
+.nc-places li[data-ok='true'] .nc-vmark {
+  border: 1px solid var(--nm-good);
+  background: var(--nm-good);
+  color: var(--nm-bg);
+}
+.nc-places code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.nc-places small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-lookup {
+  display: flex;
+  gap: 8px;
+}
+.nc-lookup input {
+  flex: 1;
+}
+.nc-lookup .nc-button {
+  flex: none;
+}
+
+/* ---- close: the money, drawn as it moves ---- */
+.nc-payout {
+  margin-top: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--nm-line);
+}
+.nc-payout-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+.nc-payout-flow > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.nc-payout-flow small {
+  color: var(--nm-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.nc-payout-flow strong {
+  font-size: 22px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.nc-payout-minus,
+.nc-payout-arrow {
+  color: var(--nm-muted);
+  font-size: 18px;
+}
+.nc-payout-flow [data-to] {
+  padding: 10px 12px;
+  border: 1px solid var(--nm-good);
+}
+.nc-from {
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+}
+.nc-from legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-from:disabled .nc-radios button {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- agents: each client with its own mark ---- */
+.nc-client-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--s);
+  height: var(--s);
+}
+.nc-client-mark img {
+  display: block;
+  width: var(--s);
+  height: var(--s);
+  object-fit: contain;
+}
+.nc-agent-id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nc-agent-id h2 {
+  font-size: 17px;
+}
+.nc-agent-id small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-clients {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.nc-clients button {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 6px;
+  padding: 14px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-clients button:hover {
+  border-color: var(--nm-muted);
+}
+.nc-clients button[aria-checked='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-clients strong {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nc-clients small {
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+.nc-clients em {
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+.nc-cmds {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-cmds strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.nc-cmds .nc-code {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-cmds small {
+  display: block;
+  margin-top: 6px;
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+.nc-newagent {
+  margin-top: 20px;
+}
+.nc-policy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 20px;
+  align-items: start;
+}
+.nc-policy-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+.nc-policy-form .nc-check {
+  grid-column: 1 / -1;
+  margin-top: 16px;
+}
+.nc-yaml {
+  margin: 16px 0 0;
+  font-size: 12px;
+}
+.nc-actions .nc-button svg,
+.nc-actions .nc-wallet-mark {
+  margin-right: 8px;
+}
+@media (max-width: 1100px) {
+  .nc-clients {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .nc-policy {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .nc-clients {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .nc-payout-flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-payout-minus,
+  .nc-payout-arrow {
+    transform: rotate(90deg);
+    justify-self: start;
+  }
+  .nc-policy-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-lookup {
+    flex-direction: column;
+  }
+}
+.nc-agent-id > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+/* ---- the agent switch, rebuilt: a real track and knob, one short label ---- */
+.nc .nc-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nm-fg);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nc .nc-switch::before {
+  content: none;
+}
+.nc-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border: 1px solid var(--nm-muted);
+  transition:
+    background-color 250ms var(--nc-ease),
+    border-color 250ms var(--nc-ease);
+}
+.nc-track i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  background: var(--nm-muted);
+  transition:
+    transform 250ms var(--nc-ease),
+    background-color 250ms var(--nc-ease);
+}
+.nc-switch[aria-checked='true'] .nc-track {
+  border-color: var(--nm-good);
+  background: color-mix(in srgb, var(--nm-good) 18%, transparent);
+}
+.nc-switch[aria-checked='true'] .nc-track i {
+  background: var(--nm-good);
+  transform: translateX(16px);
+}
+.nc-agent-off {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-agent[data-on='false'] {
+  opacity: 1;
+}
+.nc-agent[data-on='false'] .nc-agent-id,
+.nc-agent[data-on='false'] .nc-strip {
+  opacity: 0.5;
+}
+.nc-agent-foot {
+  flex-wrap: wrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-track,
+  .nc-track i {
+    transition: none;
+  }
+}
+
+/* ---- model picker: names with their prices, in the same cell language ---- */
+.nc-picker {
+  position: relative;
+  min-width: 0;
+}
+.nc .nc-picker-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 160ms;
+}
+.nc-picker-button:hover,
+.nc-picker-button[aria-expanded='true'] {
+  border-color: var(--nm-muted);
+}
+.nc-picker-label {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-picker-name {
+  display: grid;
+  min-width: 0;
+}
+.nc-picker-name strong {
+  overflow: hidden;
+  font:
+    13px/18px 'IBM Plex Mono',
+    monospace;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nc-picker-name small,
+.nc-picker-info small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-picker-button .nm-icon {
+  color: var(--nm-muted);
+  transform: rotate(90deg);
+  transition: transform 220ms var(--nc-ease);
+}
+.nc-picker-button[aria-expanded='true'] .nm-icon {
+  transform: rotate(-90deg);
+}
+.nc-picker-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: min(520px, calc(100vw - 32px));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+  animation: nc-menu-in 180ms var(--nc-ease) both;
+}
+.nc-picker-list li + li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc .nc-picker-list button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.nc-picker-list button[data-hot='true'] {
+  background: var(--nm-raised);
+}
+.nc-picker-check {
+  color: transparent;
+}
+.nc-picker-list button[aria-selected='true'] .nc-picker-check {
+  color: var(--nm-good);
+}
+.nc-picker-info {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.nc-picker-info strong {
+  overflow-wrap: anywhere;
+  font:
+    13px/18px 'IBM Plex Mono',
+    monospace;
+  font-weight: 400;
+}
+.nc-picker-side {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+.nc-picker-side .nc-strip {
+  width: 72px;
+}
+.nc-picker-side em {
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+.nc-picker-foot {
+  padding: 10px 14px;
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+@media (max-width: 900px) {
+  .nc-picker {
+    width: 100%;
+  }
+  .nc .nc-picker-button {
+    width: 100%;
+  }
+  .nc-picker-label {
+    display: none;
+  }
+  .nc-picker-button .nm-icon {
+    margin-left: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-picker-list {
+    animation: none;
+  }
+  .nc-picker-button .nm-icon {
+    transition: none;
+  }
+}
+
+/* ---- privacy panel: the two views, and the thin line between them ---- */
+.nc-privacy {
+  max-width: 1120px;
+  margin-inline: auto;
+  padding: 24px 32px 80px;
+}
+.nc-privacy-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.nc-privacy-bar h1 {
+  font-size: 26px;
+  line-height: 34px;
+}
+.nc-privacy-bar .nc-button {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.nc-privacy-bar .nm-icon {
+  transform: rotate(180deg);
+  margin-right: 6px;
+}
+.nc-address {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 21px;
+  text-wrap: pretty;
+}
+.nc-address .nm-icon {
+  margin-top: 2px;
+  color: var(--nm-fg);
+}
+.nc-views {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1.25fr);
+  gap: 0;
+  margin-top: 24px;
+  align-items: stretch;
+}
+.nc-view {
+  padding: 18px 20px;
+  border: 1px solid var(--nm-line);
+}
+.nc-view > h2,
+.nc-spine > h2 {
+  font-size: 15px;
+}
+.nc-spine {
+  position: relative;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px 16px;
+  text-align: center;
+}
+.nc-spine p {
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 17px;
+  text-wrap: pretty;
+}
+.nc-spine-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--nm-muted);
+}
+.nc-spine > h2,
+.nc-spine > p {
+  position: relative;
+  background: var(--nm-bg);
+  padding: 4px 6px;
+}
+.nc-lease-list {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-lease-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  animation: nc-row-in 380ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--r, 0) * 90ms);
+}
+.nc-lease-card > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.nc-lease-card > header strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.nc-lease-card > header code {
+  margin-left: auto;
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-lease-card .nc-facts {
+  margin: 0;
+}
+.nc-lease-card .nc-facts div:first-child {
+  border-top: 0;
+}
+.nc-flag {
+  padding: 8px 12px;
+  border: 1px solid var(--nc-warn);
+  color: var(--nm-fg);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-set {
+  display: grid;
+  gap: 8px;
+}
+.nc-set-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.nc-set-head strong {
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.nc-set-head span {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-setcells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 14px);
+  gap: 4px;
+}
+.nc-setcells span,
+.nc-setlegend i {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--nm-muted);
+}
+.nc-setcells span {
+  animation: nc-cell-in 420ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+.nc-setcells span[data-k='ext'],
+.nc-setlegend i[data-k='ext'] {
+  background: var(--nm-muted);
+}
+.nc-setcells span[data-k='own'],
+.nc-setlegend i[data-k='own'] {
+  border-color: var(--nm-accent);
+  background: var(--nm-accent);
+}
+.nc-setcells span[data-k='team'],
+.nc-setlegend i[data-k='team'] {
+  border-style: dashed;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--nm-muted) 55%, transparent) 3px 4px
+  );
+}
+.nc-setlegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 14px 0 0;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-setlegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nc-setlegend i {
+  width: 10px;
+  height: 10px;
+}
+.nc-cover {
+  display: grid;
+  gap: 2px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-cover span:first-child {
+  color: var(--nm-fg);
+}
+.nc-empty-line {
+  padding: 16px 0;
+  color: var(--nm-muted);
+  font-size: 14px;
+}
+.nc-reuse {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--nm-line);
+  animation: nc-row-in 300ms var(--nc-ease) both;
+}
+.nc-reuse p {
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-says {
+  display: grid;
+  gap: 4px;
+}
+.nc-says small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-says pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-code-bg);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  white-space: pre-wrap;
+}
+.nc-leaving {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-leaving li {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-leaving .nc-vmark {
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border: 1px solid var(--nc-warn);
+}
+.nc-callout {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-fg);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-matrix {
+  border: 1px solid var(--nm-line);
+}
+.nc-matrix-head,
+.nc-matrix-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(4, 64px);
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+}
+.nc-matrix-head {
+  min-height: 36px;
+  border-bottom: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-matrix-head span {
+  text-align: center;
+}
+.nc-matrix-row {
+  position: relative;
+}
+.nc-matrix-row + .nc-matrix-row {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc .nc-matrix-row > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.nc-matrix-row > button .nm-icon {
+  color: var(--nm-muted);
+  transition: transform 220ms var(--nc-ease);
+}
+.nc-matrix-row[data-open='true'] > button .nm-icon {
+  transform: rotate(90deg);
+}
+.nc-matrix-row > i {
+  justify-self: center;
+  width: 18px;
+  height: 12px;
+  border: 1px solid var(--nm-line);
+}
+.nc-matrix-row > i[data-s='yes'] {
+  border-color: var(--nm-muted);
+  background: var(--nm-muted);
+}
+.nc-matrix-row > i[data-s='part'] {
+  border-color: var(--nm-muted);
+  background: linear-gradient(var(--nm-muted), var(--nm-muted)) left / 50% 100% no-repeat;
+}
+.nc-matrix-row > p {
+  grid-column: 1 / -1;
+  padding: 0 0 14px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+  animation: nc-row-in 240ms var(--nc-ease) both;
+}
+.nc-honest {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0 0 0 18px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* ---- unlock ---- */
+.nc-unlock {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 56px - 38px);
+  padding: 32px 16px;
+}
+.nc-unlock-card {
+  width: min(480px, 100%);
+  padding: 28px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nc-unlock-card h1 {
+  margin-top: 18px;
+  font-size: 26px;
+  line-height: 34px;
+}
+.nc-unlock-card .nc-lead {
+  margin: 8px 0 16px;
+  font-size: 14px;
+  line-height: 22px;
+}
+/* The unlock card inside a step of the fund screen: no full-height frame, a step-sized heading. */
+.nc-steps .nc-unlock {
+  min-height: 0;
+  padding: 0;
+  place-items: start;
+}
+.nc-steps .nc-unlock-card {
+  width: 100%;
+}
+.nc-steps .nc-unlock-card h1 {
+  margin-top: 16px;
+  font-size: 18px;
+  line-height: 26px;
+}
+.nc .nc-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nm-fg);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.nc .nc-lock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    border-color 160ms;
+}
+.nc .nc-lock:hover {
+  color: var(--nm-fg);
+  border-color: var(--nm-muted);
+}
+
+/* ---- expiry banner and guard ---- */
+.nc-banner {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  background: var(--nm-panel);
+  animation: nc-row-in 320ms var(--nc-ease) both;
+}
+.nc-banner p {
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-wrap: pretty;
+}
+.nc-banner p strong {
+  color: var(--nc-warn);
+  font-weight: 500;
+}
+.nc-banner .nc-button {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.nc-guard {
+  display: grid;
+  gap: 18px;
+  margin: 18px 0 14px;
+  transition: opacity 200ms;
+}
+.nc-guard[data-off='true'] {
+  opacity: 0.45;
+}
+.nc-guard-bar {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr)) 1.6fr;
+  gap: 4px;
+}
+.nc-guard-bar > span {
+  position: relative;
+  height: 34px;
+  border: 1px solid var(--nm-line);
+  animation: nc-guard-in 360ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--i) * 22ms);
+}
+@keyframes nc-guard-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.3);
+  }
+}
+.nc-guard-bar > span[data-phase='watch'] {
+  border-color: var(--nm-muted);
+}
+.nc-guard-bar > span[data-phase='close'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-guard-bar > span[data-phase='exit'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+}
+.nc-guard-bar > span[data-phase='end'] {
+  border-style: dashed;
+  border-color: var(--nm-muted);
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--nm-soft-line) 4px 5px);
+}
+.nc-guard-bar > span[data-notice]::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  background: var(--nc-warn);
+}
+.nc-guard-bar > span[data-phase='exit'][data-notice]::before {
+  background: var(--nc-warn);
+}
+.nc-guard-bar b {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 5px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-weight: 400;
+}
+.nc-guard-legend {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 0;
+}
+.nc-guard-legend > div {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  padding-top: 8px;
+  border-top: 2px solid var(--nm-line);
+}
+.nc-guard-legend > div[data-phase='watch'] {
+  border-color: var(--nm-muted);
+}
+.nc-guard-legend > div[data-phase='close'],
+.nc-guard-legend > div[data-phase='exit'] {
+  border-color: var(--nm-fg);
+}
+.nc-guard-legend > div[data-phase='end'] {
+  border-top-style: dashed;
+  border-color: var(--nm-muted);
+}
+.nc-guard-legend dt {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-guard-legend dd {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-wrap: pretty;
+}
+.nc-guard-switches {
+  display: grid;
+  gap: 8px;
+}
+.nc-guard-switches .nc-keep {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .nc-guard-legend {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-guard-bar > span {
+    animation: none;
+  }
+}
+.nc-privacy-link {
+  margin-top: 20px;
+}
+@media (max-width: 1100px) {
+  .nc-views {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-spine {
+    padding: 20px 8px;
+  }
+  .nc-spine-line {
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    right: auto;
+    border-top: 0;
+    border-left: 1px dashed var(--nm-muted);
+  }
+}
+@media (max-width: 900px) {
+  .nc-privacy {
+    padding: 16px 16px 48px;
+  }
+  .nc-matrix-head,
+  .nc-matrix-row {
+    grid-template-columns: minmax(0, 1fr) repeat(4, 40px);
+    padding: 0 12px;
+  }
+  .nc-banner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-lease-card,
+  .nc-setcells span,
+  .nc-reuse,
+  .nc-banner,
+  .nc-matrix-row > p {
+    animation: none;
+  }
+  .nc-matrix-row > button .nm-icon {
+    transition: none;
+  }
+}
+
+.nc-spine {
+  align-content: start;
+}
+.nc-spine-line {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  right: auto;
+  border-top: 0;
+  border-left: 1px dashed var(--nm-muted);
+}
+.nc-spine-body {
+  position: sticky;
+  top: 140px;
+  display: grid;
+  gap: 10px;
+  padding: 14px 8px;
+  background: var(--nm-bg);
+}
+.nc-spine > h2,
+.nc-spine > p {
+  position: static;
+  padding: 0;
+  background: none;
+}
+@media (max-width: 1100px) {
+  .nc-spine-body {
+    position: static;
+  }
+}
+
+.nc-model-logo {
+  display: block;
+  flex: none;
+  object-fit: contain;
+}
+.nc-picker-list button {
+  grid-template-columns: 16px 28px minmax(0, 1fr) auto !important;
+}
+.nc-picker-side .nc-chip {
+  border: 0;
+  padding: 0;
+}
+
+/* ---- privacy panel, reorganised: a summary first, then one section at a time ---- */
+.nc-privacy {
+  max-width: 960px;
+}
+.nc-address {
+  align-items: start;
+  background: none;
+}
+.nc-address p {
+  font-size: 13px;
+  line-height: 21px;
+  color: var(--nm-muted);
+}
+.nc-address p strong {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+.nc-ptabs {
+  position: sticky;
+  top: 56px;
+  z-index: 6;
+  display: flex;
+  gap: 0;
+  margin: 20px 0 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--nm-line);
+  background: var(--nm-bg);
+  scrollbar-width: none;
+}
+.nc-ptabs::-webkit-scrollbar {
+  display: none;
+}
+.nc .nc-ptabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms;
+}
+.nc-ptabs button:hover {
+  color: var(--nm-fg);
+}
+.nc-ptabs button[aria-selected='true'] {
+  color: var(--nm-fg);
+}
+.nc-ptabs button[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--nm-fg);
+}
+.nc-ptabs em {
+  padding: 0 6px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+.nc-ppanel {
+  display: grid;
+  gap: 28px;
+  padding-top: 24px;
+  animation: nc-row-in 260ms var(--nc-ease) both;
+}
+.nc-ppanel h2 {
+  font-size: 16px;
+  line-height: 24px;
+}
+.nc-ppanel h2 .nc-chip {
+  margin-left: 8px;
+  vertical-align: 2px;
+}
+.nc-glance ul {
+  display: grid;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--nm-line);
+}
+.nc-glance li {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 4px 20px;
+  padding: 16px 20px;
+}
+.nc-glance li + li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-glance-k {
+  color: var(--nm-muted);
+  font:
+    12px/22px 'IBM Plex Mono',
+    monospace;
+}
+.nc-glance-v {
+  display: grid;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 22px;
+}
+.nc-glance-v strong {
+  font-size: 22px;
+  font-weight: 400;
+}
+.nc-glance-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nc-glance li > small {
+  grid-column: 2;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-flags ul {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--nm-line);
+}
+.nc-flags li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-flags li + li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-flags li .nc-chip {
+  margin-top: 1px;
+}
+.nc-flags li .nc-link {
+  color: var(--nm-muted);
+  font:
+    11px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nc-join p {
+  max-width: 68ch;
+  margin-top: 12px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+  text-wrap: pretty;
+}
+.nc-join-diagram {
+  display: grid;
+  grid-template-columns: auto minmax(40px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  max-width: 460px;
+}
+.nc-join-diagram span {
+  display: grid;
+  gap: 2px;
+  padding: 10px 16px;
+  border: 1px solid var(--nm-line);
+}
+.nc-join-diagram b {
+  font-size: 13px;
+  font-weight: 500;
+}
+.nc-join-diagram small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-join-diagram i {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--nm-muted) 0 6px, transparent 6px 12px);
+}
+.nc-master {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.nc-lease-pick {
+  position: sticky;
+  top: 120px;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc .nc-lease-pick button {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-lease-pick button:hover {
+  border-color: var(--nm-muted);
+}
+.nc-lease-pick button[aria-selected='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-lp-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.nc-lp-top strong {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  font-weight: 400;
+}
+.nc-lp-set {
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc-lp-set b {
+  color: var(--nm-fg);
+  font-size: 18px;
+  font-weight: 400;
+}
+.nc-lp-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.nc-lp-flags small {
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-detail {
+  display: grid;
+  gap: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--nm-line);
+  animation: nc-row-in 260ms var(--nc-ease) both;
+}
+.nc-detail > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.nc-detail > header h3 {
+  font:
+    14px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nc-detail > header code {
+  margin-left: auto;
+  color: var(--nm-muted);
+  font-size: 11px;
+}
+.nc-detail .nc-facts {
+  margin: 0;
+}
+.nc-detail .nc-facts div:first-child {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-flaglist {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-flaglist li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--nc-warn);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-onchain,
+.nc-observers,
+.nc-leave,
+.nc-limits {
+  max-width: 760px;
+}
+.nc-policy-text {
+  font-size: 14px;
+  line-height: 22px;
+  text-wrap: pretty;
+}
+@media (max-width: 900px) {
+  .nc-glance li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-glance li > small {
+    grid-column: 1;
+  }
+  .nc-master {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-lease-pick {
+    position: static;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(180px, 1fr);
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .nc-flags li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-ppanel,
+  .nc-detail {
+    animation: none;
+  }
+}
+.nc-glance-v {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.nc-glance-v .nc-setcells {
+  flex-basis: 100%;
+  margin-top: 6px;
+}
+
+/* ---- model picker, second pass: logo first, the chosen row is clearly the chosen one ---- */
+.nc .nc-picker-button {
+  gap: 12px;
+  padding: 8px 14px 8px 10px;
+}
+.nc-picker-list button {
+  grid-template-columns: 28px minmax(0, 1fr) auto !important;
+  gap: 14px !important;
+  padding: 14px 16px !important;
+}
+.nc-picker-logo {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+.nc-picker-tick {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  background: var(--nm-good);
+  color: var(--nm-bg);
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    opacity 200ms ease,
+    transform 260ms var(--nc-ease);
+}
+.nc-picker-list button[aria-selected='true'] .nc-picker-tick {
+  opacity: 1;
+  transform: none;
+}
+.nc-picker-list li:has(button[aria-selected='true']) {
+  position: relative;
+  z-index: 1;
+  outline: 1px solid var(--nm-fg);
+  outline-offset: -1px;
+  background: var(--nm-raised);
+}
+.nc-picker-list button[aria-selected='true'] .nc-picker-info strong::after {
+  content: 'selected';
+  margin-left: 10px;
+  padding: 0 6px;
+  border: 1px solid var(--nm-good);
+  color: var(--nm-good);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+}
+.nc-picker-list button[aria-selected='false'][data-hot='true'] {
+  background: color-mix(in srgb, var(--nm-fg) 6%, transparent);
+}
+.nc-picker-list li:has(button[aria-selected='true']) button {
+  background: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-picker-tick {
+    transition: none;
+  }
+}
+
+/* ---- the IP notice: once as a banner, then one click away in the top bar ---- */
+.nc-ip-ok {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.nc-ip-ok:hover {
+  background: var(--nm-raised);
+}
+.nc-preview {
+  margin-left: 6px;
+  padding: 0 8px;
+  border: 1px dashed var(--nm-card-line);
+  color: var(--nm-muted);
+  font:
+    11px/18px 'IBM Plex Mono',
+    monospace;
+  white-space: nowrap;
+}
+.nc-ipchip {
+  position: relative;
+}
+.nc .nc-ipchip > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    border-color 160ms;
+}
+.nc-ipchip > button:hover,
+.nc-ipchip > button[aria-expanded='true'] {
+  color: var(--nm-fg);
+  border-color: var(--nm-muted);
+}
+.nc-ipchip-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  gap: 6px;
+  width: 300px;
+  padding: 14px 16px;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+  animation: nc-menu-in 180ms var(--nc-ease) both;
+}
+.nc-ipchip-pop strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.nc-ipchip-pop p {
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+@media (max-width: 900px) {
+  .nc-preview {
+    display: none;
+  }
+  .nc-ipchip > button span {
+    display: none;
+  }
+  .nc-ipchip-pop {
+    right: -80px;
+    width: min(300px, calc(100vw - 32px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-ipchip-pop {
+    animation: none;
+  }
+}
+
+/* ---- the backup steps and the payout check: quiet rows, no inner numbers ---- */
+.nc-sub {
+  border: 0;
+}
+.nc-sub > li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 18px 0;
+}
+.nc-sub > li + li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-sub > li[data-on='true'] strong::after {
+  content: none;
+}
+.nc-sub-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 8px;
+  border: 1px solid var(--nm-muted);
+}
+.nc-sub > li[data-on='true'] .nc-sub-dot {
+  border-color: var(--nm-good);
+  background: var(--nm-good);
+}
+.nc-sub-why {
+  margin: 2px 0 0;
+  max-width: 56ch;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-sub > li > .nc-button {
+  margin-top: 0;
+}
+@media (max-width: 640px) {
+  .nc-sub > li {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+  .nc-sub > li > .nc-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+.nc-pay {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+.nc-pay .nc-fp {
+  margin: 0;
+}
+.nc-pay .nc-fp code {
+  font-size: 20px;
+}
+.nc-pay .nc-keep {
+  margin: 0;
+}
+.nc-pay .nc-msg {
+  margin: 0;
+}
+
+/* ---- where the money comes from: one quiet switch above the funding steps ---- */
+.nc-route {
+  min-width: 0;
+  margin: 0 0 28px;
+  padding: 0;
+  border: 0;
+}
+.nc-seg {
+  display: inline-grid;
+  grid-auto-flow: column;
+  border: 1px solid var(--nm-line);
+}
+.nc-seg label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 20px;
+  min-height: 44px;
+  color: var(--nm-muted);
+  font-size: 15px;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    background-color 160ms;
+}
+.nc-seg label + label {
+  border-left: 1px solid var(--nm-line);
+}
+.nc-seg input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.nc-seg label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.nc-seg label:hover {
+  color: var(--nm-fg);
+}
+.nc-seg label:has(input:checked) {
+  background: var(--nm-raised);
+  color: var(--nm-fg);
+}
+.nc-seg label:has(input:focus-visible) {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+/* The marks are masks, so they take the brand colour in both themes. */
+.nc-logo {
+  display: inline-block;
+  opacity: 0.6;
+  background: var(--logo);
+  mask: var(--mark) center / contain no-repeat;
+  transition: opacity 160ms;
+}
+.nc-logo-near {
+  --mark: url('./assets/brands/near-dark.svg');
+  --logo: #00ec97;
+  width: 53px;
+  height: 13px;
+}
+.nc-logo-eth {
+  --mark: url('./assets/brands/ethereum-dark.svg');
+  --logo: #627eea;
+  width: 16px;
+  height: 16px;
+}
+.nm-site[data-theme='light'] .nc-logo-near {
+  --logo: #00a36c;
+}
+.nc-seg label:has(input:checked) .nc-logo,
+.nc-seg label:hover .nc-logo {
+  opacity: 1;
+}
+
+/* The terms line on the left, the money source switch on the right. */
+.nc-fund-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin: 0 0 28px;
+}
+.nc-fund-top .nc-terms {
+  margin: 0;
+  padding-top: 12px;
+}
+.nc-fund-top .nc-route {
+  margin: 0;
+  display: grid;
+  justify-items: end;
+}
+@media (max-width: 640px) {
+  .nc-fund-top .nc-route {
+    justify-items: start;
+  }
+}
+
+/* ---- from another chain: the same steps as the NEAR route, without a box around them ---- */
+.nc-intents {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+.nc-intents-way {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.nc-intents-way .nc-seg label {
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+.nc-intents-way p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-intents-line {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-intents > .nc-fold {
+  margin: 0;
+}
+.nc-intents .nc-steps {
+  margin-top: 8px;
+}
+
+/* A backup row that is not its turn yet: title, one line and the button, nothing to fill in.
+   It stays readable (muted, not faded twice), and its fields wait out of the way. */
+.nc .nc-sub > li[data-locked='true'] {
+  opacity: 1;
+}
+.nc .nc-sub > li[data-locked='true'] strong {
+  color: var(--nm-muted);
+}
+.nc .nc-sub > li[data-locked='true'] .nc-field,
+.nc .nc-sub > li[data-locked='true'] .nc-pass,
+.nc .nc-sub > li[data-locked='true'] .nc-sub-main > small {
+  display: none;
+}
+.nc .nc-sub > li[data-locked='true'] > .nc-button {
+  border-style: dashed;
+  border-color: var(--nm-line);
+  color: var(--nm-muted);
+  opacity: 1;
+}
+.nc .nc-sub > li[data-locked='true'] .nc-dot,
+.nc .nc-sub > li[data-locked='true'] .nc-sub-dot {
+  border-color: var(--nm-line);
+}
+
+/* The terms of the other-chain route: the console's own rows (as .nc-facts), with prose in them. */
+.nc-terms-list {
+  margin: 0;
+}
+.nc-terms-list > div {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 4px 24px;
+  padding: 12px 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-terms-list dt {
+  color: var(--nm-muted);
+  font:
+    12px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-terms-list dd {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+@media (max-width: 720px) {
+  .nc-terms-list > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- where you pay from: one quiet row per chain ---- */
+.nc-src-list {
+  display: grid;
+  gap: 6px;
+}
+.nc-src {
+  position: relative;
+  display: grid;
+  grid-template-columns: 8px 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  margin: 0;
+  padding: 0 18px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-src:hover:not(:has(input:disabled)) {
+  border-color: var(--nm-muted);
+}
+.nc-src:has(input:checked) {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-src:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+.nc-src:has(input:focus-visible) {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nc-src input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.nc-src-dot {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--nm-muted);
+  transition:
+    background-color 160ms,
+    border-color 160ms;
+}
+.nc-src:has(input:checked) .nc-src-dot {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+}
+.nc-src-name {
+  font-size: 15px;
+  line-height: 24px;
+}
+.nc-src-price {
+  color: var(--nm-muted);
+  font:
+    13px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.nc-src-price b {
+  color: var(--nm-fg);
+  font-size: 15px;
+  font-weight: 500;
+}
+/* The marks are masks in one 18px box, so a tall mark and a wide one weigh the same. */
+.nc-chain {
+  width: 24px;
+  height: 24px;
+  background: var(--chain, var(--nm-muted));
+  mask: var(--mark, none) center / 18px 18px no-repeat;
+}
+.nc-chain[data-chain='ethereum'] {
+  --mark: url('./assets/brands/ethereum-dark.svg');
+  --chain: #627eea;
+}
+.nc-chain[data-chain='solana'] {
+  --mark: url('./assets/chains/solana.svg');
+  --chain: #9945ff;
+}
+.nc-chain[data-chain='base'] {
+  --mark: url('./assets/chains/base.svg');
+  --chain: #3c8aff;
+}
+.nc-chain[data-chain='arbitrum'] {
+  --mark: url('./assets/chains/arbitrum.svg');
+  --chain: #28a0f0;
+}
+
+/* The line above the chain rows: where the prices come from, and a round-arrow refresh. */
+.nc-src-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 10px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-src-refresh {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--nm-line);
+  background: transparent;
+  color: var(--nm-muted);
+  cursor: pointer;
+  transition:
+    color 160ms,
+    border-color 160ms;
+}
+.nc-src-refresh:hover:not(:disabled) {
+  border-color: var(--nm-muted);
+  color: var(--nm-fg);
+}
+.nc-src-refresh:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.nc-src-refresh[data-busy='true'] .nm-icon {
+  animation: nc-spin 900ms linear infinite;
+}
+@keyframes nc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-src-refresh[data-busy='true'] .nm-icon {
+    animation: none;
+  }
+}
+
+/* A row that only shows a price (the testnet quotes): no selection dot. */
+.nc-src-static {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  cursor: default;
+}
+.nc-src-price i {
+  margin-left: 8px;
+  color: var(--nm-muted);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* The note on the switch: this route shows prices only on this network. */
+.nc-seg-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 16px;
+}
+
+/* The deposit address: the one thing to copy. */
+.nc-deposit code {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.nc-deposit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* A waiting line with a slow pulse; still when motion is reduced. */
+.nc-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-status i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--nm-accent);
+  animation: nc-pulse 1600ms ease-in-out infinite;
+}
+@keyframes nc-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-status i {
+    animation: none;
+  }
+}
+
+.nc-actions[hidden] {
+  display: none;
+}
+
+/* A disabled choice keeps its real input out of sight: the browser's disabled look must not show it. */
+.nc .nc-seg input,
+.nc .nc-src input,
+.nc .nc-keep input,
+.nc .nc-seg input:disabled,
+.nc .nc-src input:disabled,
+.nc .nc-keep input:disabled {
+  opacity: 0;
+  border: 0;
+  background: transparent;
+  appearance: none;
+}
+
+/* A choice that can no longer change looks switched off. */
+.nc .nc-seg label:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nc .nc-seg label:has(input:disabled):hover {
+  color: var(--nm-muted);
+}
+.nc .nc-seg label:has(input:disabled:checked) {
+  color: var(--nm-fg);
+}
+.nc .nc-seg input:disabled {
+  cursor: not-allowed;
+}
+/* The way out of a funding in progress: quiet, at the foot of the steps. */
+.nc-intents-cancel {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--nm-soft-line);
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-intents-cancel p {
+  margin: 0;
+  max-width: 68ch;
+}
+.nc-intents-cancel > .nc-button {
+  justify-self: start;
+}
+
+/* A button that cannot be undone: the error colour, outlined; filled only to confirm. */
+.nc-danger {
+  border-color: var(--nc-err);
+  color: var(--nc-err);
+}
+.nc-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--nc-err) 14%, transparent);
+}
+.nc-danger:focus-visible {
+  outline: 2px solid var(--nc-err);
+  outline-offset: 2px;
+}
+.nc-danger-solid {
+  background: var(--nc-err);
+  color: var(--nm-bg);
+}
+.nc-danger-solid:hover:not(:disabled) {
+  background: var(--nc-err);
+  opacity: 0.88;
+}
+
+/* The one opt-in for asking 1Click: the button, and in plain words what it sends. */
+.nc-src-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 4px;
+}
+.nc-src-ask p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* A short stop before connecting a wallet with a known problem. */
+.nc-dialog {
+  width: min(480px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  color: var(--nm-fg);
+}
+.nc-dialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+.nc-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 26px;
+}
+.nc-dialog-body p {
+  margin: 0 0 10px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-dialog-body a {
+  color: var(--nm-fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nc-dialog .nc-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* A result in the Send step: a calm block with a state dot, a short line and one next action. */
+.nc-result {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nc-result[data-tone='err'] {
+  border-color: var(--nc-err);
+}
+.nc-result[data-tone='warn'] {
+  border-color: var(--nc-warn);
+}
+.nc-result[data-tone='good'] {
+  border-color: var(--nm-good);
+}
+.nc-result p {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc-result-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nc-result-head strong {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+}
+.nc-result-head i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--nm-muted);
+}
+.nc-result[data-tone='err'] .nc-result-head i {
+  background: var(--nc-err);
+}
+.nc-result[data-tone='warn'] .nc-result-head i {
+  background: var(--nc-warn);
+}
+.nc-result[data-tone='good'] .nc-result-head i {
+  background: var(--nm-good);
+}
+.nc-result[data-tone='err'] > p {
+  color: var(--nc-err);
+}
+.nc-result .nc-facts {
+  margin: 0;
+}
+.nc-result-sub {
+  margin: 8px 0 0;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-result .nc-actions {
+  margin-top: 4px;
+}
+.nc-accepted ul {
+  gap: 0;
+}
+.nc-accepted li {
+  padding: 12px 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+
+/* The accepted card keeps its facts and list at full width inside the left-aligned grid. */
+.nc-result.nc-done .nc-facts,
+.nc-result.nc-done ul {
+  justify-self: stretch;
+}
+
+/* Accepted deposit: one summary line, then a quiet table of checks, then the actions. */
+.nc-result.nc-done {
+  gap: 8px;
+  padding: 12px 16px;
+}
+.nc-done-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-done-line strong {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+.nc-result.nc-done .nc-done-list {
+  gap: 0;
+}
+.nc-done-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 20px;
+  padding: 8px 0;
+}
+.nc-done-list > li > small {
+  margin: 0;
+}
+.nc-done-list .nc-button {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 14px;
+}
+.nc-result.nc-done .nc-actions {
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-result.nc-done .nc-actions small {
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .nc-done-list > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.nc-done-list a {
+  font-size: 14px;
+  line-height: 20px;
+}
+.nc-result.nc-done .nc-actions {
+  align-self: stretch;
+}
+
+/* The fund inspector's cells: a slow scan while the note waits, a quicker one while the wallet
+   answers, brighter outlines as the setup steps finish, and a sweep when the deposit lands. */
+.nc-strip[data-mode] span[data-k='e'],
+.nc-strip[data-mode] span[data-k='r'] {
+  animation:
+    nc-cell-in 420ms var(--nc-ease) backwards,
+    nc-scan 4200ms ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 18ms), calc(var(--i, 0) * 110ms + 700ms);
+}
+.nc-strip[data-mode='busy'] span[data-k='e'],
+.nc-strip[data-mode='busy'] span[data-k='r'] {
+  animation-duration: 420ms, 1200ms;
+  animation-delay: 0ms, calc(var(--i, 0) * 50ms);
+}
+@keyframes nc-scan {
+  0%,
+  26%,
+  100% {
+    background-color: transparent;
+  }
+  10% {
+    background-color: color-mix(in srgb, var(--nm-fg) 16%, transparent);
+    border-color: var(--nm-muted);
+  }
+}
+.nc-strip span[data-ready]:not([data-k='f']) {
+  border-color: var(--nm-muted);
+}
+.nc-strip-lg span[data-k='f'] {
+  animation:
+    nc-cell-in 420ms var(--nc-ease) backwards,
+    nc-cell-land 900ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 18ms), calc(var(--i, 0) * 38ms);
+}
+@keyframes nc-cell-land {
+  30% {
+    background-color: var(--nm-good);
+    border-color: var(--nm-good);
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-strip[data-mode] span,
+  .nc-strip-lg span[data-k='f'] {
+    animation: none;
+  }
+}
+
+/* A picture of steps that cannot run here: dimmed, and nothing in it takes a click. */
+.nc-picture {
+  margin-top: 8px;
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+.nc-picture + .nc-intents {
+  margin-top: 32px;
+}
+
+/* Space between a caption and the button after it, and between a button row and the text after it. */
+.nc-cap + .nc-button {
+  margin-top: 16px;
+}
+.nc-actions + .nc-cap,
+.nc-actions + .nc-msg {
+  margin-top: 16px;
+}
+
+/* ---- find a deposit: what it needs, then two routes, each with what the provider sees ---- */
+.nc-find-help {
+  max-width: 68ch;
+  display: grid;
+  gap: 8px;
+}
+.nc-find-help p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+.nc-find-help p:first-child {
+  color: var(--nm-fg);
+}
+.nc-find-note {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, auto));
+  justify-content: start;
+  gap: 8px 40px;
+  margin: 20px 0 0;
+  padding: 14px 0;
+  border-block: 1px solid var(--nm-soft-line);
+}
+.nc-find-note dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-find-note dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.nc-find-routes {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 32px;
+  margin-top: 20px;
+}
+.nc-find-routes section {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.nc-find-routes h3 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.nc-find-routes .nc-cap {
+  margin: 0;
+}
+.nc-find-routes .nc-button {
+  justify-self: start;
+}
+@media (max-width: 760px) {
+  .nc-find-routes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+}
+
+/* Unconfirmed notes fold: a chevron at the right says it opens. */
+.nc-unconfirmed > summary {
+  position: relative;
+  padding-right: 48px;
+}
+.nc-unconfirmed > summary::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  width: 7px;
+  height: 7px;
+  border: solid var(--nm-muted);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nc-unconfirmed[open] > summary::after {
+  transform: translateY(-30%) rotate(225deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-unconfirmed > summary::after {
+    transition: none;
+  }
+}
+
+/* Find a deposit: the old pending-row divider and padding go; the note strip carries the lines. */
+.nc-find-help + .nc-pending {
+  margin-top: 16px;
+  padding: 0;
+  border-top: 0;
+  gap: 0;
+}
+.nc-find-help + .nc-pending .nc-find-note {
+  margin-top: 0;
+}
+
+.nc-privacy-link .nc-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- chat inspector: two settings as switches, one row each ---- */
+.nc-toggles {
+  display: grid;
+  gap: 4px;
+}
+.nc-toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.nc-toggle + .nc-toggle {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.nc-toggle-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.nc-toggle-text strong {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+.nc-toggle-text small {
+  color: var(--nm-muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-wrap: pretty;
+}
+.nc-toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border: 1px solid var(--nm-muted);
+  transition:
+    background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nc-toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: var(--nm-muted);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 200ms;
+}
+.nc-toggle:hover .nc-toggle-switch {
+  border-color: var(--nm-fg);
+}
+.nc-toggle input:checked ~ .nc-toggle-switch {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+}
+.nc-toggle input:checked ~ .nc-toggle-switch::after {
+  background: var(--nm-bg);
+  transform: translateX(16px);
+}
+.nc-toggle input:active ~ .nc-toggle-switch::after {
+  width: 18px;
+}
+.nc-toggle input:checked:active ~ .nc-toggle-switch::after {
+  transform: translateX(12px);
+}
+.nc-toggle input:focus-visible ~ .nc-toggle-switch {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nc-toggle:has(input:disabled) {
+  cursor: not-allowed;
+}
+.nc-toggle:has(input:disabled) .nc-toggle-switch {
+  opacity: 0.4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-toggle-switch,
+  .nc-toggle-switch::after {
+    transition: none;
+  }
+}
+
+/* ---- note status: a small mark and the words, the same everywhere a note is named ---- */
+.nc-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--nm-muted);
+}
+.nc-state > i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentColor;
+  background: currentColor;
+}
+.nc-state[data-s='open'] > i {
+  color: var(--nm-good);
+}
+.nc-state[data-s='leased'] {
+  color: var(--nm-accent);
+}
+.nc-state[data-s='leased'] > i {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 2px,
+    color-mix(in srgb, var(--nm-accent) 70%, transparent) 2px 3px
+  );
+}
+.nc-state[data-s='expiring'],
+.nc-state[data-s='closing'],
+.nc-state[data-s='exiting'] {
+  color: var(--nc-warn);
+}
+.nc-state[data-s='closing'] > i {
+  animation: nc-state-blink 1.4s steps(2, jump-none) infinite;
+}
+.nc-state[data-s='exiting'] > i {
+  background: linear-gradient(currentColor, currentColor) center / 100% 1px no-repeat;
+}
+.nc-state[data-s='closed'] > i {
+  background: linear-gradient(
+    to top right,
+    transparent calc(50% - 0.5px),
+    currentColor calc(50% - 0.5px) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px)
+  );
+}
+@keyframes nc-state-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-state[data-s='closing'] > i {
+    animation: none;
+  }
+}
+.nc-notes button[data-status='closed'] .nc-note-line strong {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.nc-notes button[data-status='closing'],
+.nc-notes button[data-status='exiting'] {
+  border-style: dashed;
+}
+.nc-notes button .nc-state {
+  color: var(--nm-muted);
+}
+.nc-notes button .nc-state[data-s='expiring'],
+.nc-notes button .nc-state[data-s='closing'],
+.nc-notes button .nc-state[data-s='exiting'] {
+  color: var(--nc-warn);
+}
+.nc-notes button .nc-state[data-s='leased'] {
+  color: var(--nm-accent);
+}
+
+/* ---- the lease bar above a conversation, and the receipt after it ends ---- */
+.nc-lease-bar {
+  gap: 16px;
+}
+.nc-lease-bar > .nc-state {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-lease-bar[data-open='true'] .nc-button {
+  border-color: var(--nm-fg);
+}
+.nc-receipt {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 16px 0 0;
+  border: 1px solid var(--nm-line);
+}
+.nc-receipt > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.nc-receipt > div + div {
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc-receipt dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-receipt dd {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.nc-receipt > div:last-child dd {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+@media (max-width: 700px) {
+  .nc-receipt {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-receipt > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--nm-soft-line);
+  }
+}
+.nc-chat-head-end.nc-lease-bar {
+  margin-left: auto;
+}
+.nc-settled .nc-receipt {
+  width: 100%;
+  max-width: none;
+}
+
+/* Narrow screens: the lease bar takes its own full row, the button keeps one line. */
+.nc-chat-head-end .nc-button {
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .nc-chat-head-end.nc-lease-bar {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .nc-lease-bar > .nc-state {
+    min-width: 0;
+    flex: 1 1 12ch;
+  }
+}
+
+.nc-sum-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nc-sum-head h2 {
+  margin: 0;
+}
+.nc-sum-head .nc-state {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+
+/* Notes table: every cell has the same two lines, so the rows read straight across. */
+.nc-ledger-id strong,
+.nc-ledger-bal strong {
+  line-height: 18px;
+}
+.nc-ledger-id small,
+.nc-ledger-bal small,
+.nc-ledger-life small {
+  line-height: 18px;
+}
+.nc-ledger-bal .nc-strip,
+.nc-ledger-life .nc-strip {
+  margin-block: 5px;
+}
+.nc-facts dd .nc-state {
+  justify-content: flex-end;
+}
+
+/* Notes table: the 30-day strip sits right over its status line; cells share one top line. */
+.nc-ledger-id,
+.nc-ledger-bal,
+.nc-ledger-life {
+  align-self: start;
+}
+.nc-ledger-life {
+  gap: 0;
+}
+.nc-ledger-life .nc-strip {
+  margin-bottom: 0;
+}
+
+/* Notes table: each cell sits in the middle of its row; strip and status stay close together. */
+.nc-ledger-id,
+.nc-ledger-bal,
+.nc-ledger-life {
+  align-self: center;
+}
+.nc-ledger-life {
+  gap: 4px;
+}
+.nc-ledger-life .nc-strip {
+  margin-block: 0;
+}
+
+/* ---- notes filter: one row of toggles with a count each ---- */
+.nc-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 12px;
+}
+.nc-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    12px/20px 'IBM Plex Mono',
+    monospace;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    color 160ms,
+    background-color 160ms;
+}
+.nc-filter button:hover:not(:disabled) {
+  border-color: var(--nm-muted);
+  color: var(--nm-fg);
+}
+.nc-filter button[aria-pressed='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+  color: var(--nm-fg);
+}
+.nc-filter button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.nc-filter button span {
+  color: var(--nm-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The screen art fades out toward its edges, so the picture never ends in a hard line. */
+.nc-screen-intro-art img {
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, #000 14%, #000 86%, transparent),
+    linear-gradient(to bottom, transparent, #000 14%, #000 80%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent, #000 14%, #000 86%, transparent),
+    linear-gradient(to bottom, transparent, #000 14%, #000 80%, transparent);
+  mask-composite: intersect;
+}
+
+/* Sidebar: only the note list scrolls. The brand, the screens and the foot stay where they are. */
+.nc-side {
+  overflow: hidden;
+}
+.nc-side > .nc-brand,
+.nc-side > .nc-nav,
+.nc-side > .nc-foot,
+.nc-side .nc-nav,
+.nc-side .nc-foot {
+  flex: none;
+}
+.nc-side .nc-notes {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.nc-side .nc-notes > ul {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc-side .nc-notes > ul::-webkit-scrollbar {
+  width: 3px;
+}
+.nc-side .nc-notes > ul::-webkit-scrollbar-thumb {
+  background: var(--nm-line);
+}
+.nc-side .nc-notes > ul::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nc-side > .nc-brand-row {
+  flex: none;
+}
+
+/* ---- nothing to show yet: a short statement with a moving bar, or a plain "none" ---- */
+.nc-hold {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+  margin: 24px 0;
+  padding: 20px 24px;
+  border: 1px solid var(--nm-line);
+}
+.nc-hold strong {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+.nc-hold p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+.nc-hold[data-tone='none'] {
+  border-style: dashed;
+}
+.nc-hold[data-tone='err'] {
+  border-color: var(--nc-err);
+}
+.nc-hold[data-tone='err'] strong {
+  color: var(--nc-err);
+}
+.nc-hold .nc-wait {
+  margin-bottom: 4px;
+}
+.nc-hold .nc-wait b {
+  width: 18px;
+  height: 8px;
+}
+.nc-hold-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--nm-muted);
+}
+[data-testid='prover-status'] .nc-wait,
+[data-testid='withdrawal-prover-status'] .nc-wait {
+  margin-right: 10px;
+  vertical-align: 1px;
+}
+.nc-hold .nc-wait {
+  justify-self: start;
+}
+.nc-hold[data-flat] {
+  max-width: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+.nc-screen-intro + .nc-notice {
+  margin-top: 20px;
+}
+[data-testid='public-sentence'] ~ .nc-cap {
+  margin-top: 14px;
+}
+.nc .nc-hold p {
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nc .nc-hold[data-flat] strong {
+  font-size: 15px;
+}
+
+/* Note list: no native bar, so the cards keep their width. A 2px thumb shows where you are. */
+.nc-side .nc-notes > .nc-notes-scroll {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.nc-side .nc-notes .nc-notes-scroll > ul {
+  min-height: 0;
+  padding-right: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ft, 0px),
+    #000 calc(100% - var(--fb, 0px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ft, 0px),
+    #000 calc(100% - var(--fb, 0px)),
+    transparent
+  );
+}
+.nc-side .nc-notes .nc-notes-scroll > ul::-webkit-scrollbar {
+  display: none;
+}
+.nc-notes-scroll[data-scroll='false'] > ul {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.nc-thumb {
+  position: absolute;
+  top: 0;
+  right: -9px;
+  width: 2px;
+  background: var(--nm-muted);
+  opacity: 0;
+  transition: opacity 200ms;
+  pointer-events: none;
+}
+.nc-notes-scroll[data-scroll='true']:hover .nc-thumb,
+.nc-notes-scroll[data-scroll='true']:focus-within .nc-thumb {
+  opacity: 0.7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-thumb {
+    transition: none;
+  }
+}
+
+/* Several expiring notes in one banner: the soonest as a normal banner, the rest folded under it. */
+.nc-banner-stack {
+  display: block;
+  padding: 0;
+}
+.nc-banner-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+}
+.nc-banner-row p {
+  margin: 0;
+}
+.nc-banner-act {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.nc-banner-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nc-banner-more:hover {
+  color: var(--nm-fg);
+}
+.nc-banner-more .nm-icon {
+  transition: transform 220ms var(--nc-ease);
+  transform: rotate(90deg);
+}
+.nc-banner-stack[data-open='true'] .nc-banner-more .nm-icon {
+  transform: rotate(-90deg);
+}
+.nc-banner-rest {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 260ms var(--nc-ease);
+}
+.nc-banner-rest[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+.nc-banner-rest > ul {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+.nc-banner-rest li {
+  border-top: 1px solid var(--nm-soft-line);
+}
+@media (max-width: 900px) {
+  .nc-banner-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .nc-banner-act {
+    justify-content: space-between;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-banner-rest,
+  .nc-banner-more .nm-icon {
+    transition: none;
+  }
+}
+
+/* The folded notes: a 14-day rail, each note in the column of the days it has left. */
+.nc-banner-rest > .nc-banner-fold {
+  min-height: 0;
+  overflow: hidden;
+}
+.nc-runway {
+  display: grid;
+  gap: 14px;
+  padding: 16px 24px 18px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-runway-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-runway-sum b {
+  margin-right: 6px;
+  color: var(--nm-fg);
+  font-weight: 400;
+}
+.nc-runway-sum span[data-due] b {
+  color: var(--nc-warn);
+}
+.nc-runway-rail {
+  display: grid;
+  grid-template-columns: repeat(15, minmax(0, 1fr));
+  border: 1px solid var(--nm-line);
+}
+.nc-day {
+  display: grid;
+  grid-template-rows: minmax(76px, auto) auto;
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc-day:first-child {
+  border-left: 0;
+}
+.nc-day[data-zone='close'] {
+  background: color-mix(in srgb, var(--nc-warn) 7%, transparent);
+}
+.nc-day[data-zone='exit'] {
+  background: color-mix(in srgb, var(--nc-warn) 15%, transparent);
+}
+.nc-day[data-notice] small {
+  color: var(--nm-fg);
+}
+.nc-day small {
+  padding: 4px 0;
+  border-top: 1px solid var(--nm-soft-line);
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  text-align: center;
+}
+.nc-day-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 6px 4px;
+}
+.nc-mk {
+  min-height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  font:
+    10px/20px 'IBM Plex Mono',
+    monospace;
+  text-align: center;
+  cursor: pointer;
+  animation: nc-mk-in 320ms var(--nc-ease) backwards;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-mk[data-due='close'],
+.nc-mk[data-due='exit'] {
+  border-color: var(--nc-warn);
+}
+.nc-mk[data-due='exit'] {
+  background: var(--nc-warn);
+  color: #000;
+}
+.nc-mk:hover,
+.nc-mk[aria-pressed='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+  color: var(--nm-bg);
+}
+.nc-mk:focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+@keyframes nc-mk-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.nc-runway-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 0;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-runway-key i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border: 1px solid var(--nc-warn);
+  vertical-align: -1px;
+}
+.nc-runway-key i[data-zone='close'] {
+  background: color-mix(in srgb, var(--nc-warn) 14%, transparent);
+}
+.nc-runway-key i[data-zone='exit'] {
+  background: color-mix(in srgb, var(--nc-warn) 45%, transparent);
+}
+.nc-runway-unit {
+  margin-left: auto;
+}
+.nc-runway-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  min-height: 22px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-runway-info strong {
+  color: var(--nm-fg);
+  font-weight: 500;
+}
+.nc-runway-info span {
+  color: var(--nc-warn);
+}
+.nc-runway-info em,
+.nc-runway-info b {
+  color: var(--nm-muted);
+  font:
+    11px/18px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+  font-weight: 400;
+}
+.nc-runway-info b[data-due] {
+  color: var(--nc-warn);
+}
+@media (max-width: 700px) {
+  .nc-runway {
+    padding: 14px 16px 16px;
+  }
+  .nc-day {
+    grid-template-rows: minmax(64px, auto) auto;
+  }
+  .nc-day-stack {
+    padding: 6px 2px;
+  }
+  .nc-mk {
+    min-height: 14px;
+    padding: 0;
+  }
+  .nc-mk span {
+    display: none;
+  }
+  .nc-day small {
+    font-size: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-mk {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ---- the rail, alive: it plays when the banner opens ---- */
+.nc-runway-rail {
+  position: relative;
+  overflow: hidden;
+}
+/* a scan line crosses the rail once, left to right, and lights the days it passes */
+.nc-runway-rail::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--nm-fg);
+  box-shadow: 0 0 14px 2px color-mix(in srgb, var(--nm-fg) 40%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.nc-banner-rest[data-open='true'] .nc-runway-rail::after {
+  animation: nc-sweep 1100ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+@keyframes nc-sweep {
+  0% {
+    left: 0;
+    opacity: 0.9;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+.nc-banner-rest[data-open='true'] .nc-day small {
+  animation: nc-day-lit 700ms ease-out backwards;
+  animation-delay: calc(var(--c, 0) * 62ms);
+}
+@keyframes nc-day-lit {
+  from {
+    color: var(--nm-fg);
+    background: color-mix(in srgb, var(--nm-fg) 16%, transparent);
+  }
+}
+/* the markers drop in behind the scan line, column by column */
+.nc-banner-rest[data-open='true'] .nc-mk {
+  animation: nc-mk-drop 420ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--c, 0) * 62ms + 160ms);
+}
+.nc-day-stack {
+  --c: inherit;
+}
+.nc-day .nc-mk {
+  animation-delay: calc(var(--c, 0) * 62ms + 160ms);
+}
+@keyframes nc-mk-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+/* the exit days breathe: a slow warm wash, so the urgent end of the rail is felt before it is read */
+.nc-day[data-zone='exit'] {
+  position: relative;
+}
+.nc-day[data-zone='exit']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--nc-warn) 10%, transparent);
+  opacity: 0;
+  animation: nc-breathe 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes nc-breathe {
+  50% {
+    opacity: 1;
+  }
+}
+.nc-mk-more {
+  border-style: dashed;
+  color: var(--nm-muted);
+}
+.nc-runway-info {
+  animation: nc-info-in 220ms var(--nc-ease) backwards;
+}
+@keyframes nc-info-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+.nc-mk:active {
+  transform: scale(0.94);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-runway-rail::after,
+  .nc-day[data-zone='exit']::before {
+    display: none;
+  }
+  .nc-banner-rest[data-open='true'] .nc-day small,
+  .nc-banner-rest[data-open='true'] .nc-mk,
+  .nc-runway-info {
+    animation: none;
+  }
+}
+
+/* ---- the rail, calmer: the urgent end speaks first, and everything is done in about 0.3 s ---- */
+.nc-runway-rail::after,
+.nc-day[data-zone='exit']::before {
+  display: none;
+}
+.nc-banner-rest[data-open='true'] .nc-day small {
+  animation: none;
+}
+.nc-banner-rest[data-open='true'] .nc-mk,
+.nc-day .nc-mk {
+  animation: nc-mk-pop 220ms var(--nc-ease) backwards;
+  animation-delay: calc(var(--u, 2) * 60ms + 40ms);
+}
+@keyframes nc-mk-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+}
+.nc-banner-rest:not([data-open='true']) .nc-mk {
+  animation: none;
+}
+/* the exit markers get one soft pulse when the rail opens, not a loop */
+.nc-banner-rest[data-open='true'] .nc-mk[data-due='exit'] {
+  animation:
+    nc-mk-pop 220ms var(--nc-ease) 40ms backwards,
+    nc-mk-ping 700ms ease-out 300ms 1;
+}
+@keyframes nc-mk-ping {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--nc-warn) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+.nc-runway-info {
+  animation-duration: 140ms;
+}
+.nc-banner-rest {
+  transition-duration: 200ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-banner-rest[data-open='true'] .nc-mk,
+  .nc-day .nc-mk,
+  .nc-banner-rest[data-open='true'] .nc-mk[data-due='exit'] {
+    animation: none;
+  }
+}
+
+/* Foot of the rail: the chosen note on the left, the two zones on the right, one thin line. */
+.nc-runway-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 20px;
+}
+.nc-runway-foot .nc-runway-info {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-runway-foot .nc-runway-key {
+  gap: 4px 16px;
+  font-size: 10px;
+  line-height: 14px;
+}
+.nc-runway-foot .nc-runway-key i {
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+}
+.nc-runway {
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+/* Folded notes take no room at all, however many there are. */
+.nc-notes li[data-show='false'] {
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc-notes ul {
+  gap: 0;
+}
+.nc-notes li[data-show='false'] {
+  margin-top: 0;
+}
+.nc-notes li[data-show='true'] ~ li[data-show='true'] {
+  margin-top: 6px;
+}
+
+.nc-runway-info .nc-runway-more {
+  flex-basis: 100%;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-mk[data-due='exit'] {
+  color: var(--nm-bg);
+}
+
+/* ---- the side panel on narrow screens: a sheet from the right, opened by a tab on the edge ---- */
+.nc-insp-tab,
+.nc-insp-head,
+.nc-insp-scrim {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .nc-chat-screen {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 26;
+    align-self: stretch;
+    width: min(88vw, 380px);
+    max-height: none;
+    padding: 0 20px 32px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-top: 0;
+    border-left: 1px solid var(--nm-line);
+    background: var(--nm-bg);
+    outline: 0;
+    clip-path: inset(0 0 0 100%);
+    visibility: hidden;
+    transition:
+      clip-path 260ms var(--nc-ease),
+      visibility 0s linear 260ms;
+  }
+  .nc-inspector[data-open='true'] {
+    clip-path: inset(0);
+    visibility: visible;
+    transition:
+      clip-path 260ms var(--nc-ease),
+      visibility 0s;
+  }
+  .nc-insp-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 -20px 20px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--nm-soft-line);
+    background: var(--nm-bg);
+    font:
+      12px/18px 'IBM Plex Mono',
+      monospace;
+  }
+  .nc-insp-close {
+    padding: 4px 10px;
+    border: 1px solid var(--nm-line);
+    background: none;
+    color: var(--nm-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .nc-insp-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    z-index: 18;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 7px;
+    border: 1px solid var(--nm-line);
+    border-right: 0;
+    background: var(--nm-bg);
+    color: var(--nm-fg);
+    font:
+      11px/16px 'IBM Plex Mono',
+      monospace;
+    writing-mode: vertical-rl;
+    transform: translateY(-50%);
+    cursor: pointer;
+    transition:
+      border-color 160ms,
+      background-color 160ms;
+  }
+  .nc-insp-tab .nm-icon {
+    transform: rotate(180deg);
+  }
+  .nc-insp-tab:hover {
+    border-color: var(--nm-fg);
+    background: var(--nm-raised);
+  }
+  .nc-insp-tab[aria-expanded='true'] {
+    display: none;
+  }
+  .nc-insp-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    display: block;
+    background: #0009;
+    animation: nc-scrim-in 200ms ease-out;
+  }
+  .nc-inspector .nc-sum:first-of-type {
+    margin-top: 0;
+  }
+}
+@keyframes nc-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-inspector,
+  .nc-inspector[data-open='true'],
+  .nc-insp-tab,
+  .nc-insp-scrim {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ---- the top bar on a phone: a small wallet button, a title that stays on one line ---- */
+@media (max-width: 600px) {
+  .nc-top {
+    gap: 8px;
+  }
+  .nc-title {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nc-wallet-button {
+    min-height: 32px;
+    max-width: 44vw;
+    padding: 3px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .nc-wallet-button .nc-wl-extra {
+    display: none;
+  }
+  .nc-wallet-button .nc-wl-account {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 700px) {
+  .nc-row {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+}
+
+/* Phones: banners take less of the first screen. */
+@media (max-width: 700px) {
+  .nc-ip {
+    padding-block: 8px;
+    font-size: 12px;
+    line-height: 18px;
+  }
+  .nc-banner-row {
+    gap: 6px;
+    padding: 8px 16px;
+  }
+  .nc-banner-act {
+    gap: 10px;
+  }
+  .nc-banner-row p {
+    font-size: 12px;
+    line-height: 17px;
+  }
+}
+
+/* The panel's tab is a slim handle on the edge: it never sits on top of the text beside it. */
+@media (max-width: 1100px) {
+  .nc-insp-tab {
+    width: 16px;
+    padding: 26px 0;
+    justify-content: center;
+    border-color: var(--nm-muted);
+    writing-mode: horizontal-tb;
+  }
+  .nc-insp-tab::before {
+    content: '';
+    position: absolute;
+    inset: -8px -8px -8px -14px;
+  }
+}
+
+/* Phones: screen heads sit closer to their lead and to the banner above. */
+@media (max-width: 600px) {
+  .nc-screen-main {
+    padding-top: 16px;
+  }
+  .nc-screen-intro-art h1 {
+    min-height: 0;
+    margin-bottom: 4px;
+  }
+  .nc-screen-intro .nc-lead {
+    margin-top: 6px;
+    font-size: 16px;
+    line-height: 24px;
+  }
+  .nc-screen-intro-art img {
+    top: -2px;
+    width: 88px;
+  }
+}
+
+/* ---- phones: an expiry banner is one thin line until you ask for more ---- */
+.nc-notice-rest {
+  margin-left: 0;
+}
+@media (max-width: 700px) {
+  .nc-banner-row,
+  .nc-banner:not(.nc-banner-stack) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 8px 16px;
+  }
+  .nc-banner-row > .nc-strip,
+  .nc-banner:not(.nc-banner-stack) > .nc-strip {
+    grid-column: 1 / -1;
+    height: 4px;
+  }
+  .nc-banner-row .nc-strip span,
+  .nc-banner:not(.nc-banner-stack) .nc-strip span {
+    height: 4px;
+  }
+  .nc-banner-row > p,
+  .nc-banner:not(.nc-banner-stack) > p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* the long consequence text stays for screen readers and for tests, off the screen */
+  .nc-notice-rest {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .nc-banner-act {
+    gap: 8px;
+  }
+  .nc-banner .nc-button {
+    min-height: 30px;
+    padding: 2px 10px;
+    font-size: 12px;
+  }
+  .nc-m-hide {
+    display: none;
+  }
+}
+
+/* many notes: the list scrolls inside a fixed height, so the page does not grow with the count */
+.nc-ledger-body[data-many='true'] {
+  max-height: min(56vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+
+/* The page's own scrollbar: thin, no track, the two palettes' line colour. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: light-dark(#c8c8c8, #333) transparent;
+}
+
+/* ---- the Nymira menu: home page, GitHub, docs ---- */
+.nc-brand-row {
+  position: relative;
+}
+.nc .nc-brand-row button.nc-brand {
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.nc-brand-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 40;
+  display: grid;
+  width: 220px;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+  animation: nc-menu-in 180ms var(--nc-ease) both;
+}
+.nc-brand-menu > * {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  background: none;
+  color: var(--nm-fg);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.nc-brand-menu > * + * {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-brand-menu > button:hover,
+.nc-brand-menu > a:hover,
+.nc-brand-menu > *:focus-visible {
+  background: var(--nm-raised);
+}
+.nc-brand-menu > [aria-disabled='true'] {
+  color: var(--nm-muted);
+  cursor: default;
+}
+.nc-brand-menu em {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}

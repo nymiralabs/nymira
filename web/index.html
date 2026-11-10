@@ -3,11 +3,58 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Nymira</title>
+    <title>Nymira: private, prepaid API credits on NEAR</title>
+    <meta
+      name="description"
+      content="Nymira sells prepaid API credits on NEAR. Deposit USDC once, spend it in short leases on attested models, and take the rest back. Testnet only, with test funds."
+    />
+    <link rel="canonical" href="https://nymira.pages.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Nymira" />
+    <meta property="og:title" content="Nymira: private, prepaid API credits on NEAR" />
+    <meta
+      property="og:description"
+      content="Deposit USDC once, spend it in short leases on attested models, and take the rest back. Testnet only, with test funds."
+    />
+    <meta property="og:url" content="https://nymira.pages.dev/" />
+    <meta property="og:image" content="https://nymira.pages.dev/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Nymira",
+        "description": "Prepaid API credits on NEAR: deposit USDC once, spend it in short leases on attested models, and take the rest back. Testnet only, with test funds.",
+        "url": "https://nymira.pages.dev/",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Web",
+        "license": "https://github.com/nymiralabs/nymira/blob/main/LICENSE-MIT",
+        "codeRepository": "https://github.com/nymiralabs/nymira"
+      }
+    </script>
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="referrer" content="no-referrer" />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <h1>Nymira</h1>
+      <p>
+        Private, prepaid API credits on NEAR. This is a testnet deployment with test funds. The app
+        needs JavaScript.
+      </p>
+      <ul>
+        <li><a href="https://github.com/nymiralabs/nymira#readme">README</a></li>
+        <li>
+          <a href="https://github.com/nymiralabs/nymira/blob/main/JUDGES.md">Guide for judges</a>
+        </li>
+        <li>
+          <a href="https://github.com/nymiralabs/nymira/blob/main/THREAT_MODEL.md">Threat model</a>
+        </li>
+        <li><a href="https://github.com/nymiralabs/nymira/releases">Releases</a></li>
+      </ul>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

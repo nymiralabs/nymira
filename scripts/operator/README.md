@@ -1,5 +1,7 @@
 # Operator scripts
 
+[README](../../README.md) · [Website](https://nymira.pages.dev) · [Documentation](https://nymira.pages.dev/#docs) · [Try it in 20 minutes](../../JUDGES.md) · [Threat model](../../THREAT_MODEL.md) · [Releases](https://github.com/nymiralabs/nymira/releases)
+
 Two machines run the operator. The laptop runs five processes (`scripts/operator/start.sh`). A second machine, on the same tailnet, keeps a copy of the signed state log and watches the vault on its own. The operator signs nothing until the second machine holds the entry (see `THREAT_MODEL.md`).
 
 | File | For |

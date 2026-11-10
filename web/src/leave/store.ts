@@ -3,12 +3,13 @@
 // the notices the guard showed. A plain external store (like `walletClient`), so the screens and
 // the page-wide banner see the same thing. Nothing here holds a secret: the worker reads the notes.
 import { PROFILE } from '../profile';
+import { formatUnits } from '../ui/format';
 import { isUnlocked, requireKey } from '../crypto/wrap';
 import { loadNotes } from '../funding/flow';
 import { leaveDeps } from '../chat/runtime';
 import { OperatorClient } from '../chat/operator';
 import type { NoteView } from '../note/lease';
-import { getNote, putNote } from '../store/db';
+import { getNote, patchNote } from '../store/db';
 import { noteAad, type NoteRecord } from '../store/types';
 import { walletClient } from '../wallet/client';
 import { callWorker } from '../worker/client';
@@ -43,10 +44,15 @@ export interface LeaveState {
   backupFor: string[];
   /** The latest pending payout read for a note, base units. */
   pending: Record<string, string>;
+  /** False until the first read of the notes ends: an empty list before that is not "no notes". */
+  loaded: boolean;
   version: number;
 }
 
 const EMERGENCY_EVERY_MS = 300_000;
+
+const units = (v: bigint | string | number) =>
+  `${formatUnits(BigInt(v), PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}`;
 
 class LeaveStore {
   state: LeaveState = {
@@ -58,6 +64,7 @@ class LeaveStore {
     settings: { ...DEFAULT_SETTINGS },
     backupFor: [],
     pending: {},
+    loaded: false,
     version: 0,
   };
   private listeners = new Set<() => void>();
@@ -86,7 +93,7 @@ class LeaveStore {
   /** Reads the notes of this vault and what the worker says about each. */
   async refresh(): Promise<Row[]> {
     if (!isUnlocked()) {
-      this.set({ rows: [] });
+      this.set({ rows: [], loaded: true });
       return [];
     }
     this.state = { ...this.state, settings: await loadGuardSettings() };
@@ -103,7 +110,7 @@ class LeaveStore {
         }),
       })),
     );
-    this.set({ rows });
+    this.set({ rows, loaded: true });
     return rows;
   }
 
@@ -221,7 +228,7 @@ class LeaveStore {
     if (result) {
       this.backupDue(note.id);
       this.set({
-        message: `The exit request for note #${note.noteId} is filed. It concedes ${result.conceded} base units. finalize_exit works after ${new Date(result.deadline * 1000).toISOString()}.`,
+        message: `The exit request for note #${note.noteId} is filed. It concedes ${units(result.conceded)}. finalize_exit works after ${new Date(result.deadline * 1000).toISOString()}.`,
       });
     }
     return result;
@@ -260,7 +267,7 @@ class LeaveStore {
     );
     if (result) {
       this.set({
-        message: `claim_payout was sent for ${note.payout}: ${result.amount} base units.`,
+        message: `claim_payout was sent for ${note.payout}: ${units(result.amount)}.`,
         pending: { ...this.state.pending, [note.id]: '0' },
       });
     }
@@ -270,9 +277,7 @@ class LeaveStore {
   // ---- the expiry guard ----
 
   private async patchGuard(note: NoteRecord, patch: NonNullable<NoteRecord['guard']>) {
-    const next = { ...note, guard: { ...note.guard, ...patch }, updatedAt: this.now() };
-    await putNote(next);
-    return next;
+    return patchNote(note, { guard: { ...note.guard, ...patch } }, this.now());
   }
 
   /**

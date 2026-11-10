@@ -1,0 +1,1240 @@
+/* The privacy panel in the app: every section is on one page, the tab row scrolls to them. */
+.nc .nc-privacy .nc-ptabs button[aria-current='true'] {
+  color: var(--nm-fg);
+}
+.nc .nc-privacy .nc-ptabs button[aria-current='true']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--nm-fg);
+}
+.nc .nc-privacy .nc-psec {
+  margin-top: 32px;
+  scroll-margin-top: 112px;
+}
+.nc .nc-privacy .nc-leases {
+  display: grid;
+  gap: 16px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nc .nc-privacy .nc-observers .nc-matrix-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+.nc .nc-privacy .nc-matrix-row > p[hidden] {
+  display: none;
+}
+.nc .nc-privacy .nc-address span[hidden] {
+  display: none;
+}
+
+/* ---- the privacy panel, laid out as a reader: an index on the left, the sections to its right ---- */
+.nc .nc-privacy {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  column-gap: 56px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 32px 96px;
+}
+.nc .nc-privacy > * {
+  grid-column: 2;
+  min-width: 0;
+  max-width: 780px;
+}
+.nc .nc-privacy-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  margin: 0;
+}
+.nc .nc-privacy-bar h1 {
+  margin: 0 4px 0 2px;
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 400;
+}
+.nc .nc-privacy-bar .nc-state {
+  margin-left: auto;
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-address {
+  margin: 20px 0 0;
+}
+
+/* the index */
+.nc .nc-privacy > .nc-ptabs {
+  grid-column: 1;
+  grid-row: 1 / span 12;
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+}
+.nc .nc-privacy .nc-ptabs button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--nm-muted);
+  text-align: left;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    background-color 160ms,
+    border-color 160ms;
+}
+.nc .nc-privacy .nc-ptabs button:hover {
+  color: var(--nm-fg);
+  background: var(--nm-panel);
+}
+.nc .nc-privacy .nc-ptabs button[aria-current='true'] {
+  color: var(--nm-fg);
+  background: var(--nm-raised);
+  border-color: var(--nm-line);
+}
+.nc .nc-privacy .nc-ptabs button[aria-current='true']::after {
+  content: none;
+}
+.nc .nc-privacy .nc-ptabs em {
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+.nc .nc-privacy .nc-pdot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  background: var(--nc-warn);
+}
+
+/* the sections */
+.nc .nc-privacy .nc-psec {
+  margin-top: 0;
+  padding-top: 40px;
+  scroll-margin-top: 72px;
+}
+.nc .nc-privacy .nc-psec + .nc-psec {
+  margin-top: 40px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc .nc-privacy #priv-overview {
+  padding-top: 32px;
+}
+.nc .nc-privacy .nc-psec h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 400;
+}
+.nc .nc-privacy .nc-psec > h2 + .nc-cap,
+.nc .nc-privacy .nc-psec .nc-cap-first {
+  max-width: 64ch;
+  margin-bottom: 16px;
+}
+.nc .nc-privacy .nc-psec section + section {
+  margin-top: 40px;
+}
+
+/* at a glance: two tiles */
+.nc .nc-privacy .nc-glance ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--nm-line);
+}
+.nc .nc-privacy .nc-glance li {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 16px 20px;
+}
+.nc .nc-privacy .nc-glance li + li {
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc .nc-privacy .nc-glance-k {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-glance-v {
+  display: grid;
+  gap: 10px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+/* the sections that were laid out for a plain list now sit in cards of equal weight */
+.nc .nc-privacy .nc-onchain .nc-facts div {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+  justify-content: start;
+}
+.nc .nc-privacy .nc-onchain .nc-facts dd {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.nc .nc-privacy .nc-honest {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 24px;
+  padding-left: 18px;
+}
+
+@media (max-width: 1000px) {
+  .nc .nc-privacy {
+    display: block;
+    padding: 20px 16px 80px;
+  }
+  .nc .nc-privacy > * {
+    max-width: none;
+  }
+  .nc .nc-privacy > .nc-ptabs {
+    position: sticky;
+    top: 56px;
+    z-index: 4;
+    display: flex;
+    gap: 4px;
+    margin: 16px -16px 0;
+    padding: 8px 16px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--nm-soft-line);
+    background: var(--nm-bg);
+  }
+  .nc .nc-privacy .nc-ptabs button {
+    width: auto;
+    flex: none;
+    white-space: nowrap;
+  }
+  .nc .nc-privacy .nc-glance ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc .nc-privacy .nc-glance li + li {
+    border-left: 0;
+    border-top: 1px solid var(--nm-soft-line);
+  }
+  .nc .nc-privacy .nc-onchain .nc-facts div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc .nc-privacy .nc-ptabs button {
+    transition: none;
+  }
+}
+
+.nc .nc-privacy .nc-glance li {
+  grid-template-columns: minmax(0, 1fr);
+}
+.nc .nc-privacy .nc-matrix,
+.nc .nc-privacy .nc-observers,
+.nc .nc-privacy .nc-leave,
+.nc .nc-privacy .nc-limits,
+.nc .nc-privacy .nc-onchain {
+  max-width: none;
+}
+.nc .nc-privacy .nc-callout {
+  margin-top: 16px;
+}
+.nc .nc-privacy .nc-leave + .nc-card,
+.nc .nc-privacy .nc-card {
+  margin-top: 24px;
+}
+
+.nc .nc-privacy {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* ======================= tabs on top, one panel at a time ======================= */
+.nc .nc-privacy {
+  display: block;
+  max-width: 960px;
+  padding: 28px 32px 96px;
+}
+.nc .nc-privacy > * {
+  max-width: none;
+}
+.nc .nc-privacy > .nc-ptabs {
+  position: sticky;
+  top: 56px;
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+  margin: 24px 0 0;
+  padding: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--nm-line);
+  background: var(--nm-bg);
+  scrollbar-width: none;
+}
+.nc .nc-privacy > .nc-ptabs::-webkit-scrollbar {
+  display: none;
+}
+.nc .nc-privacy .nc-ptabs button {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  min-height: 46px;
+  padding: 8px 16px;
+  border: 0;
+  background: none;
+  color: var(--nm-muted);
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms;
+}
+.nc .nc-privacy .nc-ptabs button::after {
+  content: '';
+  position: absolute;
+  right: 16px;
+  bottom: -1px;
+  left: 16px;
+  height: 2px;
+  background: var(--nm-fg);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nc .nc-privacy .nc-ptabs button:hover {
+  background: none;
+  color: var(--nm-fg);
+}
+.nc .nc-privacy .nc-ptabs button[aria-selected='true'] {
+  background: none;
+  border: 0;
+  color: var(--nm-fg);
+}
+.nc .nc-privacy .nc-ptabs button[aria-selected='true']::after {
+  content: '';
+  transform: scaleX(1);
+}
+.nc .nc-privacy .nc-ptabs button:focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: -2px;
+}
+.nc .nc-privacy .nc-ppanel {
+  padding-top: 32px;
+  animation: nc-panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nc .nc-privacy .nc-ppanel[hidden] {
+  display: none;
+}
+@keyframes nc-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.nc .nc-privacy .nc-ppanel > section + section,
+.nc .nc-privacy .nc-ppanel > .nc-card,
+.nc .nc-privacy .nc-ppanel > section + .nc-card {
+  margin-top: 40px;
+}
+
+/* overview: the figure first */
+.nc .nc-privacy .nc-glance ul {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+.nc .nc-privacy .nc-glance .nc-glance-main .nc-glance-v {
+  gap: 14px;
+}
+.nc .nc-privacy .nc-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 56px;
+  line-height: 60px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+.nc .nc-privacy .nc-figure small {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+
+/* the join diagram, with a moving dash between the two views */
+.nc .nc-privacy .nc-join-diagram i {
+  background: repeating-linear-gradient(90deg, var(--nm-muted) 0 6px, transparent 6px 12px);
+  background-size: 12px 1px;
+  animation: nc-dash 1.2s linear infinite;
+}
+@keyframes nc-dash {
+  to {
+    background-position-x: 12px;
+  }
+}
+
+/* lease set sizes as bars */
+.nc-bars {
+  margin: 24px 0 8px;
+}
+.nc-bars-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  height: 180px;
+  padding: 24px 0 36px;
+  border-bottom: 1px solid var(--nm-line);
+}
+.nc-bars-line {
+  position: absolute;
+  right: 0;
+  left: 0;
+  margin-bottom: 36px;
+  border-top: 1px dashed var(--nc-warn);
+  pointer-events: none;
+}
+.nc-bars-line small {
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  color: var(--nc-warn);
+  font:
+    11px/14px 'IBM Plex Mono',
+    monospace;
+}
+.nc-bar {
+  position: relative;
+  display: flex;
+  flex: 0 1 56px;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nm-muted);
+  cursor: pointer;
+}
+.nc-bar b {
+  align-self: center;
+  margin-bottom: 4px;
+  color: var(--nm-fg);
+  font:
+    13px/16px 'IBM Plex Mono',
+    monospace;
+  font-weight: 400;
+}
+.nc-bar-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border: 1px dashed var(--nm-muted);
+  transform-origin: bottom;
+  animation: nc-bar-up 520ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+.nc-bar-ext {
+  display: block;
+  background: var(--nm-muted);
+}
+.nc-bar[data-small='true'] .nc-bar-ext {
+  background: var(--nc-warn);
+}
+.nc-bar[data-open='true'] .nc-bar-total {
+  border-color: var(--nm-accent);
+}
+.nc-bar small {
+  position: absolute;
+  right: -8px;
+  bottom: -30px;
+  left: -8px;
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  text-align: center;
+  white-space: nowrap;
+}
+.nc-bar:hover .nc-bar-total {
+  border-color: var(--nm-fg);
+}
+@keyframes nc-bar-up {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* a time axis with events on it */
+.nc-timeline {
+  margin: 24px 0 0;
+}
+.nc-timeline-axis {
+  position: relative;
+  height: 28px;
+}
+.nc-timeline-axis::before {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--nm-line);
+}
+.nc-timeline-axis i {
+  position: absolute;
+  top: 13px;
+  left: 0;
+  height: 2px;
+  background: var(--nm-muted);
+  transform-origin: left;
+  animation: nc-axis 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes nc-axis {
+  from {
+    transform: scaleX(0);
+  }
+}
+.nc-timeline-axis button {
+  position: absolute;
+  top: 6px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin-left: -7px;
+  border: 1px solid var(--nm-fg);
+  background: var(--nm-bg);
+  cursor: pointer;
+}
+.nc-timeline-axis button[data-tone='open'] {
+  border-color: var(--nm-accent);
+  background: var(--nm-accent);
+}
+.nc-timeline-axis button[data-tone='warn'] {
+  border-color: var(--nc-warn);
+  background: var(--nc-warn);
+}
+.nc-timeline-axis button:hover {
+  transform: scale(1.25);
+}
+.nc-timeline p {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0 0;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+
+/* who sees what: a tree from your browser out to each party */
+.nc .nc-privacy .nc-matrix {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  margin: 20px 0 0 18px;
+  padding-left: 28px;
+  border: 0;
+}
+.nc .nc-privacy .nc-matrix::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: 22px;
+  left: 0;
+  width: 1px;
+  background: var(--nm-line);
+}
+.nc .nc-privacy .nc-matrix::after {
+  content: 'your browser';
+  position: absolute;
+  top: -34px;
+  left: -18px;
+  padding: 3px 10px;
+  border: 1px solid var(--nm-fg);
+  background: var(--nm-bg);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-matrix-row {
+  position: relative;
+  border: 1px solid var(--nm-line);
+  transition: border-color 160ms;
+}
+.nc .nc-privacy .nc-matrix-row::before {
+  content: '';
+  position: absolute;
+  top: 20px;
+  left: -28px;
+  width: 28px;
+  height: 1px;
+  background: var(--nm-line);
+}
+.nc .nc-privacy .nc-matrix-row[data-open='true'] {
+  border-color: var(--nm-fg);
+}
+.nc .nc-privacy .nc-matrix-row[data-open='true']::before {
+  background: var(--nm-fg);
+}
+.nc .nc-privacy .nc-matrix-row[data-open='true'] > p {
+  animation: nc-panel-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* what leaving reveals: a path with a node for each step */
+.nc .nc-privacy .nc-leaving {
+  position: relative;
+  display: grid;
+  gap: 18px;
+  margin: 20px 0 0;
+  padding: 0 0 0 30px;
+  list-style: none;
+}
+.nc .nc-privacy .nc-leaving::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 5px;
+  width: 1px;
+  background: var(--nm-line);
+}
+.nc .nc-privacy .nc-leaving li {
+  position: relative;
+  padding-left: 0;
+}
+.nc .nc-privacy .nc-leaving .nc-vmark {
+  position: absolute;
+  top: 7px;
+  left: -30px;
+  width: 11px;
+  height: 11px;
+  background: var(--nm-bg);
+}
+
+/* limits: each statement on its own plate */
+.nc .nc-privacy .nc-honest {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 28px;
+  padding: 0;
+  list-style: none;
+}
+.nc .nc-privacy .nc-honest li {
+  padding: 12px 16px;
+  border: 1px solid var(--nm-soft-line);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.nc .nc-privacy .nc-life {
+  margin: 0 0 24px;
+}
+
+@media (max-width: 1000px) {
+  .nc .nc-privacy {
+    padding: 20px 16px 80px;
+  }
+  .nc .nc-privacy > .nc-ptabs {
+    margin: 16px -16px 0;
+    padding: 0 8px;
+  }
+  .nc .nc-privacy .nc-glance ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-bars-plot {
+    gap: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc .nc-privacy .nc-ppanel,
+  .nc .nc-privacy .nc-join-diagram i,
+  .nc-bar-total,
+  .nc-timeline-axis i,
+  .nc .nc-privacy .nc-ptabs button::after {
+    animation: none;
+    transition: none;
+  }
+}
+
+.nc .nc-privacy .nc-leaving li {
+  display: block;
+}
+.nc .nc-privacy .nc-matrix {
+  margin-top: 64px;
+}
+.nc .nc-privacy .nc-observers > h2 {
+  margin-bottom: 0;
+}
+
+/* bars, laid out on one plot so the dashed line and the bars share a scale */
+.nc-bars-plot {
+  height: 150px;
+  margin: 36px 0 44px;
+  padding: 0;
+}
+.nc-bars-line {
+  margin: 0;
+}
+.nc-bar {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+.nc-bar-total {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--h);
+}
+.nc-bar b {
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--h) + 4px);
+  left: 0;
+  margin: 0;
+  text-align: center;
+}
+.nc-bar small {
+  bottom: -26px;
+}
+
+/* where the note is: four steps, who can see each, the finished ones joined */
+.nc-journey {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-journey li {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 0 12px 0 0;
+  animation: nc-panel-in 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+.nc-journey li::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  left: 20px;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--nm-line) 0 5px, transparent 5px 10px);
+}
+.nc-journey li:last-child::before {
+  content: none;
+}
+.nc-journey li[data-state='done']::before {
+  background: var(--nm-muted);
+}
+.nc-journey-node {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  margin-bottom: 10px;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+}
+.nc-journey li[data-state='done'] .nc-journey-node {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+}
+.nc-journey li[data-state='now'] .nc-journey-node {
+  border-color: var(--nm-accent);
+  background: var(--nm-accent);
+  animation: nc-pulse 1600ms ease-in-out infinite;
+}
+.nc-journey strong {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 22px;
+}
+.nc-journey li[data-state='todo'] strong {
+  color: var(--nm-muted);
+}
+.nc-journey small {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-journey em {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    10px/18px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+.nc-journey em[data-lane='operator'] {
+  border-color: var(--nm-accent);
+  color: var(--nm-accent);
+}
+
+/* the set against the line for a small set */
+.nc-gauge {
+  max-width: 420px;
+}
+.nc-gauge-track {
+  position: relative;
+  height: 10px;
+  background: var(--nm-soft-line);
+}
+.nc-gauge-track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  transform-origin: left;
+  animation: nc-axis 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.nc-gauge-all {
+  border: 1px dashed var(--nm-muted);
+}
+.nc-gauge-ext {
+  background: var(--nm-muted);
+}
+.nc-gauge-ext[data-small='true'] {
+  background: var(--nc-warn);
+}
+.nc-gauge-track b {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 1px;
+  background: var(--nm-fg);
+}
+.nc-gauge-track b small {
+  position: absolute;
+  top: -16px;
+  left: -4px;
+  color: var(--nm-fg);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+}
+.nc-gauge p {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 0;
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+}
+@media (max-width: 700px) {
+  .nc-journey {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  .nc-journey li::before {
+    top: 24px;
+    right: auto;
+    bottom: -20px;
+    left: 7px;
+    width: 1px;
+    height: auto;
+    background: var(--nm-line);
+  }
+  .nc-journey li {
+    padding-left: 32px;
+  }
+  .nc-journey-node {
+    position: absolute;
+    top: 3px;
+    left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-journey li,
+  .nc-journey-node,
+  .nc-gauge-track i {
+    animation: none;
+  }
+}
+
+/* ---- tighter overview: the sections sit closer together ---- */
+.nc .nc-privacy .nc-ppanel {
+  padding-top: 24px;
+}
+.nc .nc-privacy .nc-ppanel > section + section,
+.nc .nc-privacy .nc-ppanel > section + .nc-card,
+.nc .nc-privacy .nc-ppanel > .nc-card {
+  margin-top: 28px;
+}
+.nc .nc-privacy .nc-where .nc-journey {
+  margin-top: 14px;
+}
+.nc .nc-privacy .nc-glance ul {
+  margin-top: 10px;
+}
+.nc .nc-privacy .nc-flags .nc-cap-first {
+  margin-bottom: 0;
+}
+
+/* ---- what joins the two views: two nodes, a gap in the proof, three channels across it ---- */
+.nc-linkmap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 20px;
+  margin: 14px 0 12px;
+}
+.nc-link-node {
+  display: grid;
+  gap: 4px;
+  padding: 14px 18px;
+  border: 1px solid var(--nm-fg);
+  background: var(--nm-bg);
+}
+.nc-link-node b {
+  font-size: 15px;
+  font-weight: 500;
+}
+.nc-link-node small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-link-mid {
+  display: grid;
+  gap: 10px;
+}
+.nc-link-gap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.nc-link-gap i {
+  height: 1px;
+  background: var(--nm-fg);
+}
+.nc-link-gap em {
+  padding: 2px 10px;
+  border: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+.nc-link-mid ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nc-link-mid li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+.nc-link-mid li i {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--nm-muted) 0 5px, transparent 5px 10px);
+  background-size: 10px 1px;
+  animation: nc-dash 1.4s linear infinite;
+}
+.nc-link-mid li span {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  text-align: center;
+}
+.nc-link-solid {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  text-align: center;
+}
+.nc-link-solid i {
+  height: 2px;
+  background: var(--nc-warn);
+  transform-origin: left;
+  animation: nc-axis 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.nc-link-solid em {
+  color: var(--nc-warn);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
+@media (max-width: 700px) {
+  .nc-linkmap {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .nc-link-node {
+    justify-items: start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-link-mid li i,
+  .nc-link-solid i {
+    animation: none;
+  }
+}
+
+.nc .nc-privacy .nc-ppanel {
+  gap: 0;
+}
+.nc .nc-privacy .nc-link-gap {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.nc-link-mid p {
+  max-width: none;
+}
+.nc .nc-privacy .nc-join [data-testid='link-sentence'] {
+  max-width: none;
+  margin: 0;
+  padding: 14px 18px;
+  border: 1px solid var(--nm-soft-line);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc .nc-privacy .nc-join [data-testid='link-sentence'] strong {
+  color: var(--nm-fg);
+  font-weight: 400;
+}
+.nc .nc-privacy .nc-join [data-testid='link-sentence'] span {
+  color: var(--nm-muted);
+}
+
+.nc .nc-privacy .nc-link-mid p {
+  max-width: none;
+}
+
+/* ---- at a glance: the figure on the left, three facts on the right ---- */
+.nc .nc-privacy .nc-glance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  margin-top: 10px;
+  border: 1px solid var(--nm-line);
+}
+.nc .nc-privacy .nc-glance-main {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px 22px 20px;
+}
+.nc .nc-privacy .nc-glance-k,
+.nc .nc-privacy .nc-glance-side dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-figure-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+.nc .nc-privacy .nc-figure-of {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-figure-row .nc-chip {
+  align-self: center;
+  margin-left: auto;
+}
+.nc .nc-privacy .nc-glance-cap {
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc .nc-privacy .nc-glance-fail {
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc .nc-privacy .nc-glance-side {
+  display: grid;
+  align-content: stretch;
+  margin: 0;
+  border-left: 1px solid var(--nm-soft-line);
+}
+.nc .nc-privacy .nc-glance-side > div {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 14px 20px;
+}
+.nc .nc-privacy .nc-glance-side > div + div {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc .nc-privacy .nc-glance-side dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+.nc .nc-privacy .nc-glance-side dd b {
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+.nc .nc-privacy .nc-glance-side dd small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc .nc-privacy .nc-spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 22px;
+  margin-left: auto;
+}
+.nc .nc-privacy .nc-spark i {
+  width: 5px;
+  background: var(--nm-muted);
+  transform-origin: bottom;
+  animation: nc-bar-up 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.nc .nc-privacy .nc-spark i[data-small='true'] {
+  background: var(--nc-warn);
+}
+@media (max-width: 1000px) {
+  .nc .nc-privacy .nc-glance-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc .nc-privacy .nc-glance-side {
+    border-left: 0;
+    border-top: 1px solid var(--nm-soft-line);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc .nc-privacy .nc-spark i {
+    animation: none;
+  }
+}
+
+/* the dashes move by exactly one period, so the loop has no seam */
+.nc-link-mid li i {
+  animation-name: nc-dash-10;
+}
+@keyframes nc-dash-10 {
+  to {
+    background-position-x: 10px;
+  }
+}
+
+/* One lease at a time: the picker chooses it, the others stay folded away. */
+.nc .nc-privacy .nc-leases > li[hidden] {
+  display: none;
+}
+.nc .nc-privacy .nc-lease-pick button[aria-pressed='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+
+/* the lease picker is one strip you scroll sideways, however many leases there are */
+.nc .nc-privacy .nc-lease-pick {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0 0;
+  padding: 0 0 6px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc .nc-privacy .nc-lease-pick li {
+  flex: none;
+}
+.nc .nc-privacy .nc-lease-pick button {
+  min-width: 132px;
+  height: 100%;
+}
+.nc .nc-privacy .nc-flags-more {
+  margin-top: 10px;
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+
+/* many bars share the width instead of squeezing the later ones away */
+.nc-bar {
+  flex: 1 1 0;
+  min-width: 14px;
+  max-width: 56px;
+}
+.nc-bar small {
+  font-size: 9px;
+}
+@media (max-width: 700px) {
+  .nc .nc-privacy .nc-flags li {
+    align-items: flex-start;
+  }
+  .nc .nc-privacy .nc-flags li .nc-chip {
+    align-self: flex-start;
+  }
+}
+@media (max-width: 700px) {
+  .nc-bars-plot {
+    gap: 3px;
+  }
+  .nc-bar {
+    min-width: 6px;
+  }
+  .nc-bar small {
+    display: none;
+  }
+}
+
+/* with many bars the stagger stops at the ninth, so the chart is whole in well under a second */
+.nc-bar-total {
+  animation-delay: calc(min(var(--i, 0), 8) * 60ms);
+}
+@media (max-width: 700px) {
+  .nc-bars-line small {
+    display: none;
+  }
+}

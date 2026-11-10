@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 520" width="1080" height="520" role="img" aria-labelledby="t d">
+<title id="t">Who does what, and who sees what</title>
+<desc id="d">You send a lease proof and an encrypted prompt to the operator, which forwards the encrypted prompt to NEAR AI. You deposit, close and exit through the vault on NEAR. The operator syncs the vault root and sends heartbeats.</desc>
+<style>
+text{font-family:'IBM Plex Sans',-apple-system,'Segoe UI',system-ui,sans-serif;fill:#fafafa}
+.m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.mu{fill:#a1a1a1}
+.ln{stroke:#3a3a3a;fill:none;stroke-width:1}
+.ac{stroke:#9aa8ff;fill:none;stroke-width:1}
+.hatch{fill:url(#hatch)}
+.flow{animation:flow 1.4s linear infinite}@keyframes flow{to{stroke-dashoffset:-20}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+<pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" stroke="#9aa8ff" stroke-width="1.2"/></pattern>
+</defs>
+
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="#a1a1a1"/></marker></defs>
+<rect x="30" y="40" width="250" height="190" class="ln"/>
+<text x="50" y="74" font-size="19">You</text>
+<text x="50" y="102" class="m mu" font-size="13">note secret</text>
+<text x="50" y="124" class="m mu" font-size="13">prompts and answers</text>
+<text x="50" y="146" class="m mu" font-size="13">proofs are made here</text>
+<text x="50" y="168" class="m mu" font-size="13">web app or nymirad</text>
+<rect x="415" y="40" width="250" height="190" class="ln"/>
+<text x="435" y="74" font-size="19">Operator</text>
+<text x="435" y="102" class="m mu" font-size="13">sees: lease proof,</text>
+<text x="435" y="124" class="m mu" font-size="13">nullifier, bound class,</text>
+<text x="435" y="146" class="m mu" font-size="13">model, sizes, timing,</text>
+<text x="435" y="168" class="m mu" font-size="13">usage, charge</text>
+<text x="435" y="190" class="m mu" font-size="13">not your prompt text</text>
+<rect x="800" y="40" width="250" height="190" class="ln"/>
+<text x="820" y="74" font-size="19">NEAR AI (TEE)</text>
+<text x="820" y="102" class="m mu" font-size="13">sees: your prompt (as</text>
+<text x="820" y="124" class="m mu" font-size="13">the model’s enclave),</text>
+<text x="820" y="146" class="m mu" font-size="13">token counts, timing</text>
+<text x="820" y="168" class="m mu" font-size="13">not which note</text>
+<rect x="415" y="310" width="250" height="150" class="ln"/>
+<text x="435" y="344" font-size="19">Vault (NEAR)</text>
+<text x="435" y="372" class="m mu" font-size="13">holds the USDC</text>
+<text x="435" y="394" class="m mu" font-size="13">deposit, then on a close:</text>
+<text x="435" y="416" class="m mu" font-size="13">note ID, total spend,</text>
+<text x="435" y="438" class="m mu" font-size="13">payout account</text>
+<path d="M280 130H415" class="ln flow" stroke-dasharray="5 5" marker-end="url(#ah)"/>
+<text x="347" y="90" text-anchor="middle" font-size="13.5">lease proof,</text>
+<text x="347" y="107" text-anchor="middle" font-size="13.5">encrypted prompt</text>
+<path d="M665 130H800" class="ln flow" stroke-dasharray="5 5" marker-end="url(#ah)"/>
+<text x="732" y="90" text-anchor="middle" font-size="13.5">encrypted</text>
+<text x="732" y="107" text-anchor="middle" font-size="13.5">prompt</text>
+<path d="M155 230V385H415" class="ln flow" stroke-dasharray="5 5" marker-end="url(#ah)"/>
+<text x="175" y="372" text-anchor="start" font-size="13.5">deposit, close, exit (wallet)</text>
+<path d="M540 230V310" class="ln flow" stroke-dasharray="5 5" marker-end="url(#ah)"/>
+<text x="552" y="262" text-anchor="start" font-size="13.5">sync_root,</text>
+<text x="552" y="279" text-anchor="start" font-size="13.5">heartbeat</text>
+<text x="30" y="496" class="m mu" font-size="13">The web app cannot use Tor, so the operator and the RPC provider also see your IP address.</text>
+</svg>

@@ -1,4 +1,20 @@
+import './close.css';
 import { Fragment, useEffect, useState, useSyncExternalStore } from 'react';
+import closeIllustration from '../marketing/assets/app-close.webp';
+import {
+  Button,
+  Card,
+  Chip,
+  Fold,
+  Screen,
+  Status,
+  type NoteStatus,
+  Strip,
+  WaitBar,
+  Waiting,
+  clamp,
+} from '../marketing/kit';
+import { ExitDays, GuardTimeline, LeavePath } from '../marketing/kit-close';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
@@ -14,6 +30,7 @@ import {
   OPERATOR_CLOSE_NOTE,
   PUBLIC_SENTENCE,
 } from '../leave/text';
+import { CLOSE_DAYS } from '../leave/guard';
 import { leaveStore, type Row } from '../leave/store';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
@@ -110,32 +127,29 @@ function BackupAfterClose({ ids }: { ids: string[] }) {
   };
 
   return (
-    <div className="notice" data-testid="close-backup">
-      <p>
+    <Card title="Back up the final state" testId="close-backup">
+      <p className="nc-cap nc-cap-first">
         Download an encrypted backup of this note’s final state now, then choose the file again so
         the app can test it. A backup you cannot open is no backup. Do not keep it in a synced
         folder.
       </p>
-      <label>
-        Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters){' '}
+      <label className="nc-field">
+        <span>Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)</span>
         <input
           type="password"
           data-testid="close-backup-passphrase"
           value={pass}
           onChange={(e) => setPass(e.target.value)}
         />
-      </label>{' '}
-      <button
-        type="button"
-        data-testid="close-backup-download"
-        disabled={!ok || busy}
-        onClick={downloadIt}
-      >
-        Download backup
-      </button>
+      </label>
+      <div className="nc-actions">
+        <Button primary testId="close-backup-download" disabled={!ok || busy} onClick={downloadIt}>
+          Download backup
+        </Button>
+      </div>
       {bytes && (
-        <label>
-          Choose the downloaded file to test it{' '}
+        <label className="nc-field">
+          <span>Choose the downloaded file to test it</span>
           <input
             type="file"
             data-testid="close-backup-file"
@@ -149,37 +163,114 @@ function BackupAfterClose({ ids }: { ids: string[] }) {
         </label>
       )}
       {tested && (
-        <p className="ok" data-testid="close-backup-tested">
-          The backup opened and holds this note’s state.{' '}
-          <button
-            type="button"
-            data-testid="close-backup-done"
+        <div className="nc-done" data-testid="close-backup-tested">
+          <Chip tone="good">tested</Chip>
+          <p>The backup opened and holds this note’s state.</p>
+          <Button
+            testId="close-backup-done"
             onClick={() => ids.forEach((id) => leaveStore.dismissBackup(id))}
           >
             Done
-          </button>
-        </p>
+          </Button>
+        </div>
       )}
       {error && (
-        <p className="error" role="alert" data-testid="close-backup-error">
+        <p className="nc-msg" data-tone="err" role="alert" data-testid="close-backup-error">
           {error}
         </p>
       )}
-    </div>
+    </Card>
   );
 }
 
-function NoteCard({
+/** Share of the deposit still on the note, 0 to 1. */
+function shareOf(row: Row): number {
+  try {
+    return clamp(Number(BigInt(row.view.balance)) / Number(BigInt(row.record.denomination)));
+  } catch {
+    return 0;
+  }
+}
+
+/** What the chosen note is: its balance, its life and where it pays out. */
+function NoteSummary({ row, selected }: { row: Row; selected: boolean }) {
+  const { record, view } = row;
+  const leave = record.leave;
+  const paid = leave?.state === 'closed' || leave?.state === 'exited';
+  const daysLeft = Math.max(0, Math.ceil((view.expiry - Math.floor(Date.now() / 1000)) / 86_400));
+  const mark: { status: NoteStatus; day: number } = {
+    status: paid
+      ? 'closed'
+      : leave
+        ? leave.state === 'closing'
+          ? 'closing'
+          : 'exiting'
+        : daysLeft <= CLOSE_DAYS
+          ? 'expiring'
+          : 'open',
+    day: 30 - daysLeft,
+  };
+  return (
+    <li
+      data-testid="leave-note"
+      data-state={leave?.state ?? 'open'}
+      className="nc-lv-sum"
+      hidden={!selected}
+    >
+      <header className="nc-lv-head">
+        <h3>Note #{view.noteId}</h3>
+        <Chip tone={paid ? 'good' : 'plain'}>{leave ? STATE_TEXT[leave.state] : 'open'}</Chip>
+        <p className="nc-lv-amount">
+          <strong>{units(view.balance)}</strong>
+          <small>of {units(record.denomination)}</small>
+        </p>
+      </header>
+      <Strip
+        n={20}
+        solid={shareOf(row) * 20}
+        size="md"
+        label={`${units(view.balance)} of ${units(record.denomination)} left`}
+      />
+      <dl className="nc-lv-facts">
+        <div>
+          <dt>Expires</dt>
+          <dd>
+            {formatDate(view.expiry)}
+            {!leave && <Status n={mark} />}
+          </dd>
+        </div>
+        <div>
+          <dt>Payout account</dt>
+          <dd>
+            <strong data-testid="leave-payout">{record.payout}</strong>
+          </dd>
+        </div>
+        <div>
+          <dt>State</dt>
+          <dd>
+            <span data-testid="leave-state">{leave ? STATE_TEXT[leave.state] : 'open'}</span>
+          </dd>
+        </div>
+      </dl>
+    </li>
+  );
+}
+
+/** The way out of the chosen note: one choice at a time, one main action in it. */
+function NoteWays({
   row,
   chainNow,
   prover,
+  selected,
 }: {
   row: Row;
   chainNow: number | null;
   prover: boolean;
+  selected: boolean;
 }) {
   const s = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
   const wallet = useWallet();
+  const [way, setWay] = useState<'close' | 'exit'>('close');
   const { record, view } = row;
   const leave = record.leave;
   const busy = s.busy !== null;
@@ -187,6 +278,22 @@ function NoteCard({
   const pending = s.pending[record.id];
   const connected = wallet.connected !== null;
   const canAct = prover && !busy;
+  const leaving = !leave || leave.state === 'closing';
+  const paid = leave?.state === 'closed' || leave?.state === 'exited';
+  const hint = !connected
+    ? 'Connect a wallet in the step above to sign.'
+    : !prover
+      ? 'Waiting for the proving key…'
+      : busy
+        ? 'Another step is running.'
+        : '';
+  // The exit waits 7 days (PUBLIC_SENTENCE): the cells count the days that have passed.
+  const days =
+    leave?.state === 'exiting' && leave.deadline !== undefined && chainNow !== null
+      ? clamp(7 - Math.ceil((leave.deadline - chainNow) / 86_400), 0, 7)
+      : 0;
+  const left =
+    leave?.deadline !== undefined && chainNow !== null ? leave.deadline - chainNow : null;
 
   const settle = async () => {
     // Best effort, like `nymirad`: an unsettled lease is finished if the operator can.
@@ -196,111 +303,157 @@ function NoteCard({
   };
 
   return (
-    <li data-testid="leave-note" data-state={leave?.state ?? 'open'}>
-      <p>
-        <strong>{units(view.balance)}</strong> · note #{view.noteId} · expires{' '}
-        {formatDate(view.expiry)} · payout{' '}
-        <strong data-testid="leave-payout">{record.payout}</strong>
-        {' · '}
-        <span data-testid="leave-state">{leave ? STATE_TEXT[leave.state] : 'open'}</span>
-      </p>
+    <div className="nc-lv-ways" hidden={!selected} data-state={leave?.state ?? 'open'}>
       {view.active?.token !== undefined && (
-        <p className="hint" data-testid="leave-lease-open">
+        <p className="nc-lv-note-text" data-testid="leave-lease-open">
           A lease is open on this note. End the conversation on the Chat screen before closing.
         </p>
       )}
       {view.pending && view.active?.token === undefined && !leave && (
-        <p className="hint" data-testid="leave-pending">
+        <p className="nc-lv-note-text" data-testid="leave-pending">
           An earlier lease is not settled yet. A close needs it settled first (Chat screen, “Settle
           the open lease”). An exit goes ahead and concedes the lease’s bound.
         </p>
       )}
 
-      {(!leave || leave.state === 'closing') && (
-        <div>
-          <p>
+      {leaving && (
+        <>
+          <div className="nc-lv-tabs" role="tablist" aria-label="Way out">
             <button
               type="button"
-              data-testid="close-wallet"
-              disabled={!canAct || !connected}
-              onClick={() => void leaveStore.close(record, 'wallet')}
+              role="tab"
+              data-testid="way-close"
+              aria-selected={way === 'close'}
+              onClick={() => setWay('close')}
             >
-              {leave?.state === 'closing' ? 'Continue the close' : 'Close note'} (sign with your
-              wallet, no close fee)
-            </button>{' '}
-            <button
-              type="button"
-              data-testid="close-operator"
-              disabled={!canAct}
-              onClick={() => void leaveStore.close(record, 'operator')}
-            >
-              Close through the operator (it pays the gas and takes the close fee)
+              <strong>Close with the operator</strong>
+              <small>now</small>
             </button>
-          </p>
-          <p className="hint" data-testid="operator-close-note">
-            {OPERATOR_CLOSE_NOTE}
-          </p>
-          {leave?.state === 'closing' && (
-            <p>
-              <button
-                type="button"
-                data-testid="close-recheck"
-                disabled={!canAct}
-                onClick={() => void leaveStore.recheckClosed(record)}
-              >
-                Ask the vault whether the close landed
-              </button>
+            <button
+              type="button"
+              role="tab"
+              data-testid="way-exit"
+              aria-selected={way === 'exit'}
+              onClick={() => setWay('exit')}
+            >
+              <strong>Exit without the operator</strong>
+              <small>7 days</small>
+            </button>
+          </div>
+
+          <div className="nc-lv-panel" role="tabpanel" hidden={way !== 'close'} data-way="close">
+            <LeavePath
+              kind="close"
+              amount={units(view.balance)}
+              payout={record.payout}
+              active={leave?.state === 'closing'}
+            />
+            <p className="nc-lv-note-text" data-testid="operator-close-note">
+              {OPERATOR_CLOSE_NOTE}
             </p>
-          )}
-          <p>
-            <button
-              type="button"
-              data-testid="exit-request"
-              disabled={!canAct || !connected}
-              onClick={() => void leaveStore.exit(record, view.pending ? settle : undefined)}
-            >
-              Request exit (the operator is not cooperating)
-            </button>
-          </p>
-          <p className="hint" data-testid="exit-note">
-            An exit sends <code>request_exit</code>. It concedes{' '}
-            <strong data-testid="exit-concession">{units(view.boundAtState)}</strong> to the
-            operator: 0 when no request left this note’s latest state, the stored bound of that
-            state otherwise. After the exit proof is made, this note makes no new request.
-          </p>
-        </div>
+            <div className="nc-lv-actions">
+              <Button
+                primary
+                testId="close-wallet"
+                disabled={!canAct || !connected}
+                onClick={() => void leaveStore.close(record, 'wallet')}
+              >
+                <span>{leave?.state === 'closing' ? 'Continue the close' : 'Close note'}</span>
+                <small>sign with your wallet, no close fee</small>
+              </Button>
+              <Button
+                testId="close-operator"
+                disabled={!canAct}
+                onClick={() => void leaveStore.close(record, 'operator')}
+              >
+                <span>Close through the operator</span>
+                <small>it pays the gas and takes the close fee</small>
+              </Button>
+              {leave?.state === 'closing' && (
+                <Button
+                  testId="close-recheck"
+                  disabled={!canAct}
+                  onClick={() => void leaveStore.recheckClosed(record)}
+                >
+                  Ask the vault whether the close landed
+                </Button>
+              )}
+            </div>
+            {hint && <p className="nc-lv-hint">{hint}</p>}
+          </div>
+
+          <div className="nc-lv-panel" role="tabpanel" hidden={way !== 'exit'} data-way="exit">
+            <LeavePath kind="exit" amount={units(view.balance)} payout={record.payout} />
+            <p className="nc-lv-note-text" data-testid="exit-note">
+              An exit sends <code>request_exit</code>. It concedes{' '}
+              <strong data-testid="exit-concession">{units(view.boundAtState)}</strong> to the
+              operator: 0 when no request left this note’s latest state, the stored bound of that
+              state otherwise. After the exit proof is made, this note makes no new request.
+            </p>
+            <div className="nc-lv-actions">
+              <Button
+                primary
+                testId="exit-request"
+                disabled={!canAct || !connected}
+                onClick={() => void leaveStore.exit(record, view.pending ? settle : undefined)}
+              >
+                <span>Request exit</span>
+                <small>the operator is not cooperating</small>
+              </Button>
+            </div>
+            {hint && <p className="nc-lv-hint">{hint}</p>}
+          </div>
+        </>
       )}
 
       {leave?.state === 'exiting' && (
-        <div data-testid="exit-panel">
-          {leave.deadline !== undefined ? (
-            <p>
-              Exit deadline: <strong data-testid="exit-deadline">{when(leave.deadline)}</strong>
-              {chainNow !== null && (
-                <>
-                  {' '}
-                  (<Countdown seconds={leave.deadline - chainNow} /> by the chain’s clock)
-                </>
-              )}
-              . After it, <code>finalize_exit</code> pays your payout account.
-            </p>
-          ) : (
-            <p data-testid="exit-unconfirmed">
-              The exit request was sent, but the vault does not list it yet.{' '}
-              <button
-                type="button"
-                data-testid="exit-recheck"
+        <div className="nc-lv-panel nc-lv-exiting" data-testid="exit-panel">
+          <div className="nc-lv-count" aria-live="polite">
+            {left !== null && left > 0 ? (
+              <strong>
+                {Math.floor(left / 86_400)}
+                <small>d</small> {Math.floor((left % 86_400) / 3600)}
+                <small>h</small> {Math.floor((left % 3600) / 60)}
+                <small>min</small>
+              </strong>
+            ) : (
+              <strong>{left === null ? '…' : 'ready'}</strong>
+            )}
+            <span>
+              {left !== null && left > 0 ? 'until finalize_exit works' : 'finalize_exit works now'}
+            </span>
+          </div>
+          <ExitDays days={days} requested>
+            {leave.deadline !== undefined ? (
+              <p className="nc-lv-note-text">
+                Exit deadline: <strong data-testid="exit-deadline">{when(leave.deadline)}</strong>
+                {chainNow !== null && (
+                  <>
+                    {' '}
+                    (<Countdown seconds={leave.deadline - chainNow} /> by the chain’s clock)
+                  </>
+                )}
+                . After it, <code>finalize_exit</code> pays your payout account.
+              </p>
+            ) : (
+              <p className="nc-lv-note-text" data-testid="exit-unconfirmed">
+                The exit request was sent, but the vault does not list it yet.
+              </p>
+            )}
+          </ExitDays>
+          <div className="nc-lv-actions">
+            {leave.deadline === undefined && (
+              <Button
+                testId="exit-recheck"
                 disabled={busy}
                 onClick={() => void leaveStore.refreshExitState(record)}
               >
                 Ask the vault again
-              </button>
-            </p>
-          )}
-          <p>
-            <button
-              type="button"
-              data-testid="exit-finalize"
+              </Button>
+            )}
+            <Button
+              primary
+              testId="exit-finalize"
               disabled={
                 !canAct ||
                 !connected ||
@@ -310,36 +463,43 @@ function NoteCard({
               }
               onClick={() => void leaveStore.finalize(record)}
             >
-              Finalize exit
-            </button>
-          </p>
+              <span>Finalize exit</span>
+              <small>
+                {leave.deadline !== undefined && chainNow !== null && chainNow < leave.deadline
+                  ? `available ${when(leave.deadline)}`
+                  : 'pays your payout account'}
+              </small>
+            </Button>
+          </div>
+          {hint && <p className="nc-lv-hint">{hint}</p>}
         </div>
       )}
 
-      {(leave?.state === 'closed' || leave?.state === 'exited') && (
-        <div data-testid="paid-panel">
+      {paid && (
+        <div className="nc-lv-panel nc-lv-paid nc-done" data-testid="paid-panel">
+          <div className="nc-lv-check" aria-hidden="true">
+            <i />
+          </div>
           <p>
             The vault pays <strong>{record.payout}</strong>. If that transfer could not be sent, the
             money waits in the vault until <code>claim_payout</code>.
           </p>
-          <p>
-            <button
-              type="button"
-              data-testid="claim-check"
+          <div className="nc-lv-actions nc-lv-actions-row">
+            <Button
+              testId="claim-check"
               disabled={busy}
               onClick={() => void leaveStore.readPending(record)}
             >
               Check for a pending payout
-            </button>{' '}
-            <button
-              type="button"
-              data-testid="claim-payout"
+            </Button>
+            <Button
+              testId="claim-payout"
               disabled={!canAct || !connected}
               onClick={() => void leaveStore.claim(record)}
             >
               Claim payout
-            </button>
-          </p>
+            </Button>
+          </div>
           {pending !== undefined && (
             <p data-testid="claim-pending">
               {pending === '0'
@@ -347,26 +507,27 @@ function NoteCard({
                 : `${units(pending)} is pending for ${record.payout}.`}
             </p>
           )}
-          <p className="hint" data-testid="claim-note">
+          <p className="nc-lv-note-text" data-testid="claim-note">
             <Ticks text={CLAIM_NOTE} />
           </p>
         </div>
       )}
       {mine && s.busy && (
-        <p data-testid="leave-busy" aria-live="polite">
+        <p className="nc-msg" data-tone="warn" data-testid="leave-busy" aria-live="polite">
           {s.busy.text}
         </p>
       )}
-    </li>
+    </div>
   );
 }
 
-export function Close() {
+export function Close({ onFund }: { onFund?: () => void }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const s = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
   const wallet = useWallet();
   const [prover, setProver] = useState<ProverState>({ status: 'loading' });
   const [chainNow, setChainNow] = useState<number | null>(null);
+  const [pick, setPick] = useState('');
 
   useEffect(() => {
     warmWithdrawalProver().then(setProver);
@@ -400,91 +561,208 @@ export function Close() {
 
   const advice = leaveStore.emergencyAdvice();
   const rows = s.rows;
+  const current = rows.find((r) => r.record.id === pick) ?? rows[0];
+  const stepOf = (i: number): 'done' | 'now' | 'next' =>
+    rows.length === 0
+      ? i === 0
+        ? 'now'
+        : 'next'
+      : i === 0
+        ? 'done'
+        : i === 1
+          ? wallet.connected
+            ? 'done'
+            : 'now'
+          : 'now';
 
   return (
-    <section data-testid="close-screen">
-      <h2>Close or exit a note</h2>
-      <blockquote data-testid="public-sentence">
-        <Ticks text={PUBLIC_SENTENCE} />
-      </blockquote>
-      <p data-testid="old-state-limit">{OLD_STATE_LIMIT}</p>
-      <p data-testid="close-reveals">{CLOSE_REVEALS}</p>
-      <p className="hint" data-testid="gas-note">
-        <Ticks text={GAS_NOTE} />
-      </p>
+    <Screen
+      testId="close-screen"
+      title="Close or exit a note"
+      lead="Closing returns the balance to the note’s payout account. If the operator will not sign, you can leave without it."
+      illustration={closeIllustration}
+    >
       {advice && (
-        <p className="warning" role="alert" data-testid="emergency-advice">
+        <p className="nc-notice" role="alert" data-testid="emergency-advice">
           {advice}
         </p>
       )}
-      <h3>Wallet</h3>
-      <WalletConnect busy={s.busy !== null} />
-      <p className="hint" data-testid="withdrawal-prover-status">
-        {prover.status === 'loading' && 'Loading the withdrawal proving key (SHA-256 checked)…'}
-        {prover.status === 'ready' &&
-          `Withdrawal proving key loaded and checked (${(prover.bytes / 1e6).toFixed(1)} MB, ${prover.ms} ms).`}
-        {prover.status === 'off' && `${prover.reason} Close and exit are off in this build.`}
-        {prover.status === 'failed' && `The withdrawal proving key was refused: ${prover.reason}`}
-      </p>
 
-      <h3>Notes</h3>
-      {rows.length === 0 ? (
-        <p data-testid="no-open-notes">No funded note in this browser.</p>
+      {rows.length === 0 && !s.loaded ? (
+        <Card title="Notes">
+          <Waiting flat testId="notes-loading" title="Reading your notes…">
+            Opening the notes stored in this browser.
+          </Waiting>
+        </Card>
+      ) : rows.length === 0 ? (
+        <Card title="Notes">
+          <Waiting tone="none" flat testId="no-open-notes" title="No funded note in this browser.">
+            Close and exit work on a funded note. Fund one to use this screen.
+          </Waiting>
+          {onFund && (
+            <div className="nc-actions">
+              <Button primary onClick={onFund}>
+                Fund a note
+              </Button>
+            </div>
+          )}
+        </Card>
       ) : (
-        <ul className="notes">
-          {rows.map((row) => (
-            <NoteCard
-              key={row.record.id}
-              row={row}
-              chainNow={chainNow}
-              prover={prover.status === 'ready'}
-            />
-          ))}
-        </ul>
+        <ol className="nc-steps nc-lv-page">
+          <li data-s={stepOf(0)}>
+            <h2>Note</h2>
+            {rows.length > 1 && (
+              <div className="nc-lv-pick" role="group" aria-label="Choose a note">
+                {rows.map((row) => {
+                  const l = row.record.leave;
+                  const done = l?.state === 'closed' || l?.state === 'exited';
+                  return (
+                    <button
+                      key={row.record.id}
+                      type="button"
+                      aria-pressed={row.record.id === current?.record.id}
+                      data-state={l?.state ?? 'open'}
+                      onClick={() => setPick(row.record.id)}
+                    >
+                      <strong>#{row.view.noteId}</strong>
+                      <span>{units(row.view.balance)}</span>
+                      <small>{done ? 'paid out' : l ? STATE_TEXT[l.state] : 'open'}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <ul className="nc-leave-notes">
+              {rows.map((row) => (
+                <NoteSummary
+                  key={row.record.id}
+                  row={row}
+                  selected={row.record.id === current?.record.id}
+                />
+              ))}
+            </ul>
+          </li>
+          <li data-s={stepOf(1)}>
+            <h2>
+              Wallet
+              <Chip tone={prover.status === 'ready' ? 'good' : 'warn'}>
+                {prover.status === 'ready' ? 'proving key ready' : 'proving key'}
+              </Chip>
+            </h2>
+            <WalletConnect busy={s.busy !== null} />
+            <p className="nc-lv-note-text" data-testid="withdrawal-prover-status">
+              {prover.status === 'loading' && (
+                <>
+                  <WaitBar /> Loading the withdrawal proving key (SHA-256 checked)…
+                </>
+              )}
+              {prover.status === 'ready' &&
+                `Withdrawal proving key loaded and checked (${(prover.bytes / 1e6).toFixed(1)} MB, ${prover.ms} ms).`}
+              {prover.status === 'off' && `${prover.reason} Close and exit are off in this build.`}
+              {prover.status === 'failed' &&
+                `The withdrawal proving key was refused: ${prover.reason}`}
+            </p>
+          </li>
+          <li data-s={stepOf(2)}>
+            <h2>Way out</h2>
+            {rows.map((row) => (
+              <NoteWays
+                key={row.record.id}
+                row={row}
+                chainNow={chainNow}
+                prover={prover.status === 'ready'}
+                selected={row.record.id === current?.record.id}
+              />
+            ))}
+            {s.message && (
+              <p className="nc-msg" data-tone="ok" role="status" data-testid="leave-message">
+                {s.message}
+              </p>
+            )}
+            {s.error && (
+              <p className="nc-msg" data-tone="err" role="alert" data-testid="leave-error">
+                {s.error}
+              </p>
+            )}
+          </li>
+        </ol>
       )}
-      {s.message && (
-        <p className="ok" role="status" data-testid="leave-message">
+      {rows.length === 0 && s.message && (
+        <p className="nc-msg" data-tone="ok" role="status" data-testid="leave-message">
           {s.message}
         </p>
       )}
-      {s.error && (
-        <p className="error" role="alert" data-testid="leave-error">
+      {rows.length === 0 && s.error && (
+        <p className="nc-msg" data-tone="err" role="alert" data-testid="leave-error">
           {s.error}
         </p>
       )}
       <BackupAfterClose ids={s.backupFor} />
 
-      <h3>Expiry</h3>
-      <p className="hint">
-        A note that reaches its expiry goes to the treasury. While this app is open it shows notices
-        at 14, 7 and 2 days, stops opening leases on the note 5 days before, starts a close at 5
-        days and, if the close did not go through, an exit at 3 days. Each waits for your wallet
-        signature.
-      </p>
-      <label>
-        <input
-          type="checkbox"
-          data-testid="guard-enabled"
-          checked={s.settings.enabled}
-          onChange={(e) =>
-            void leaveStore.setSettings({ ...s.settings, enabled: e.target.checked })
-          }
-        />{' '}
-        Expiry guard (on by default)
-      </label>
-      <br />
-      <label>
-        <input
-          type="checkbox"
-          data-testid="close-at-end"
-          checked={s.settings.closeAtSessionEnd}
-          onChange={(e) =>
-            void leaveStore.setSettings({ ...s.settings, closeAtSessionEnd: e.target.checked })
-          }
-        />{' '}
-        Start a close when a conversation ends (off by default: every close shows the note ID and
-        the total spend on chain)
-      </label>
-    </section>
+      <Fold title="What leaving shows and what it does not cover">
+        <blockquote className="nc-quote" data-testid="public-sentence">
+          <Ticks text={PUBLIC_SENTENCE} />
+        </blockquote>
+        <p className="nc-cap" data-testid="old-state-limit">
+          {OLD_STATE_LIMIT}
+        </p>
+        <p className="nc-cap" data-testid="close-reveals">
+          {CLOSE_REVEALS}
+        </p>
+        <p className="nc-cap" data-testid="gas-note">
+          <Ticks text={GAS_NOTE} />
+        </p>
+      </Fold>
+
+      <Fold
+        title="Expiry guard"
+        badge={
+          <Chip tone={s.settings.enabled ? 'good' : 'warn'}>
+            {s.settings.enabled ? 'on' : 'off'}
+          </Chip>
+        }
+      >
+        <p className="nc-cap nc-cap-first">
+          A note that reaches its expiry can go to the treasury 7 days later, unless an exit is
+          pending. While this app is open it guards the last days. Each step waits for your wallet
+          signature.
+        </p>
+        <GuardTimeline off={!s.settings.enabled} />
+        <div className="nc-guard-switches">
+          <label className="nc-keep">
+            <input
+              type="checkbox"
+              data-testid="guard-enabled"
+              checked={s.settings.enabled}
+              onChange={(e) =>
+                void leaveStore.setSettings({ ...s.settings, enabled: e.target.checked })
+              }
+            />
+            <span className="nc-keep-switch" aria-hidden="true" />
+            <span className="nc-keep-text">
+              <strong>Guard my notes near expiry</strong>
+              <small>On by default.</small>
+            </span>
+          </label>
+          <label className="nc-keep">
+            <input
+              type="checkbox"
+              data-testid="close-at-end"
+              checked={s.settings.closeAtSessionEnd}
+              onChange={(e) =>
+                void leaveStore.setSettings({ ...s.settings, closeAtSessionEnd: e.target.checked })
+              }
+            />
+            <span className="nc-keep-switch" aria-hidden="true" />
+            <span className="nc-keep-text">
+              <strong>Start a close when a conversation ends</strong>
+              <small>
+                Off by default: every close shows the note ID and the total spend on chain.
+              </small>
+            </span>
+          </label>
+        </div>
+      </Fold>
+    </Screen>
   );
 }

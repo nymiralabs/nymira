@@ -1,0 +1,128 @@
+{
+  "retrieved": "2026-11-08",
+  "purpose": "Technology identification; no endorsement or partnership claim.",
+  "assets": [
+    {
+      "file": "near-dark.svg",
+      "source": "https://mintcdn.com/neardocs/qO2GD-gji1aakHqN/assets/logo_rev.svg?fit=max&auto=format&n=qO2GD-gji1aakHqN&q=85&s=1455d1ccc3385495e8b52e6657ce8c84",
+      "sha256": "f76009dce4c0d4bbd4bda6c485e50b0376f3814d60ec73feb2a0e46a85873ca6"
+    },
+    {
+      "file": "near-light.svg",
+      "source": "https://mintcdn.com/neardocs/qO2GD-gji1aakHqN/assets/logo.svg?fit=max&auto=format&n=qO2GD-gji1aakHqN&q=85&s=fe9551b1c3085e39a97965b2886dad4a",
+      "sha256": "41538b7792a49c4c9826fe022e5672829444c80e0293d22443d81d0639a3335c"
+    },
+    {
+      "file": "near-ai-dark.svg",
+      "source": "https://near.ai/branding/logos/primary/primary-white.svg",
+      "sha256": "4c68349557f0da518011b44af5d75d8e0b12d5a3571f9e2a17810557358b037b"
+    },
+    {
+      "file": "near-ai-light.svg",
+      "source": "https://near.ai/branding/logos/primary/primary-black.svg",
+      "sha256": "64383e243872330b618ac4051fa31bebd34d27edbf8284ca7b4e292c62ff563a"
+    },
+    {
+      "file": "circle-dark.svg",
+      "source": "https://6778953.fs1.hubspotusercontent-na1.net/hubfs/6778953/Pressroom/brandkit/logo-downloads/circle-logo-2024.zip",
+      "archive_member": "circle-logo/logo svg/circle-logo-white.svg",
+      "sha256": "6f8a2eb832be369dd1e38c6da970e6e7c8a36aef64c830b2c20a9785bb65aadb"
+    },
+    {
+      "file": "circle-light.svg",
+      "source": "https://6778953.fs1.hubspotusercontent-na1.net/hubfs/6778953/Pressroom/brandkit/logo-downloads/circle-logo-2024.zip",
+      "archive_member": "circle-logo/logo svg/circle-logo-licorice.svg",
+      "sha256": "502b6bd9bef84a5a85c8da11960991a4c5ea4acef5fee1d07bf7f566d9e64f33"
+    },
+    {
+      "file": "ethereum-light.svg",
+      "source": "https://ethereum.org/images/assets/svgs/eth-diamond-black.svg",
+      "sha256": "4611f65a00cff2e61dd7815aa59cb1bed0e0a266acca7eafc8212e78c7c7d10e"
+    },
+    {
+      "file": "ethereum-dark.svg",
+      "source": "https://ethereum.org/images/assets/svgs/eth-diamond-black.svg",
+      "sha256": "cd2a741d248828f8410ec65adea22bcb35dc2165eadb0c08a933f4c38d084c60",
+      "modification": "fill set to white on the root element; shapes unchanged"
+    },
+    {
+      "file": "tor-light.svg",
+      "source": "https://styleguide.torproject.org/static/images/tor-logo/black.svg",
+      "sha256": "88e2b033d3420c75d8daba2fe7f34003a8eaceda9bcbce204861c35c87a52755",
+      "source_sha256_before_metadata_removal": "28c02080b658478aeab2815637ff2b7ccd94d87c44d0ea51efc3a3bede2fe116",
+      "modification": "removed embedded metadata"
+    },
+    {
+      "file": "tor-dark.svg",
+      "source": "https://styleguide.torproject.org/static/images/tor-logo/white.svg",
+      "sha256": "ae7f45a9bb6532bfe308281be7c6a8d7477d96eb7a9ddba16c884f1d32aa17ff",
+      "source_sha256_before_metadata_removal": "33f776ae44ece1ec8508f944254dbae3d48059de3257cbc45700288c27559307",
+      "modification": "removed embedded metadata"
+    },
+    {
+      "file": "nvidia-light.svg",
+      "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/about-nvidia/logo-and-brand/nvidia-logo-horz.svg",
+      "sha256": "e2746da7c83c2af3f854302ccc915aae4a60a14278e246ddfc103f5da45de2f6",
+      "modification": "viewBox cropped to the artwork"
+    },
+    {
+      "file": "nvidia-dark.svg",
+      "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/about-nvidia/logo-and-brand/nvidia-logo-horz.svg",
+      "sha256": "affacd9f58907be241c3f94fc7b7454450a129115f905f67e96c5f6e0d08857c",
+      "modification": "viewBox cropped to the artwork; wordmark fill set to white for dark backgrounds"
+    },
+    {
+      "file": "wallet-meteor.svg",
+      "source": "https://raw.githubusercontent.com/Meteor-Wallet/meteor_wallet_sdk/main/assets/meteor-logo-svg.svg",
+      "sha256": "9c3981ca59212248e09d37011c07492bf1e19d7d55b9210213af3be6079a05ae"
+    },
+    {
+      "file": "wallet-intear.svg",
+      "source": "https://wallet.intear.tech/favicon.svg",
+      "sha256": "1e55f60b338b06e7aa54b622696882266568684a62837283bc912b462ce6eb2e"
+    },
+    {
+      "file": "agent-claude.svg",
+      "source": "https://claude.com/favicon.svg",
+      "sha256": "b150888bc7257af83e3b85d3c2be4294f88986026f8168f6c12fc1fde6697350"
+    },
+    {
+      "file": "agent-codex.svg",
+      "source": "https://developers.openai.com/favicon.svg",
+      "sha256": "8e1b976ba47e927ac2928303fd5362fcadfefd68743506510596f107df676e58"
+    },
+    {
+      "file": "agent-cursor.svg",
+      "source": "https://cursor.com/marketing-static/favicon-light.svg",
+      "sha256": "78f169abca311d70e18ada789ccf1a55b4ca0306822f21a9ab0c2658ed88dbe0"
+    },
+    {
+      "file": "agent-vscode.png",
+      "source": "https://code.visualstudio.com/assets/branding/code-stable.png",
+      "sha256": "bacba8b8576ab69faf8591c44558a2ba32871fc8aaf654769323f71bbf6c83c5",
+      "modification": "resized to 128 px; removed embedded metadata",
+      "source_sha256_before_metadata_removal": "74c9c94c835859e0b1639af5a8bc09b88f210f3532616cb0d0ed4dabcdb3d419"
+    },
+    {
+      "file": "agent-ironclaw.png",
+      "source": "https://github.com/nearai.png",
+      "sha256": "e9d6e2c5035b8b9039074b090b996668d82c24426931105c0fcbb3f19357367f",
+      "modification": "NEAR AI organisation avatar (IronClaw is its project); resized to 160 px wide; removed embedded metadata",
+      "source_sha256_before_metadata_removal": "dc385ffc212fc4d395593ea59d3ede67c1ab7c52beb1b0aa685d48e2fdcaede6"
+    },
+    {
+      "file": "model-zai.svg",
+      "source": "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+      "sha256": "87bcc97bc333c7539a11bf5ad6212ceb919f9b385884d2b81ada01e66bd10487",
+      "source_sha256_before_metadata_removal": "07a45e8e35b0b631ed2c68cd1cb041f9721b1ceeb0bd0e34f1459b0304a741c7",
+      "modification": "removed embedded metadata"
+    },
+    {
+      "file": "model-qwen.png",
+      "source": "https://img.alicdn.com/imgextra/i4/O1CN01OXv3EM1FN8t9W4P79_!!6000000000474-2-tps-80-80.png",
+      "sha256": "701cf22b6bd62edab13f24cfe727f68e124d66ccff51eea8cbc7e42e3fbe1580",
+      "modification": "resized to 96 px; removed embedded metadata",
+      "source_sha256_before_metadata_removal": "b5c491d969cb78b147a342ffa2c3e509eabe4f6e2ea5e3e34b5ee2a96cc6ef9f"
+    }
+  ]
+}

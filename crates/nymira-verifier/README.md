@@ -1,5 +1,7 @@
 # nymira-verifier
 
+[README](../../README.md) · [Website](https://nymira.pages.dev) · [Documentation](https://nymira.pages.dev/#docs) · [Try it in 20 minutes](../../JUDGES.md) · [Threat model](../../THREAT_MODEL.md) · [Releases](https://github.com/nymiralabs/nymira/releases)
+
 Groth16 verification over NEAR's `alt_bn128` host functions, for zkapi proofs at the pinned commit.
 
 What the host enforces and what this crate adds, confirmed on the sandbox and under `testing_env!`:

@@ -20,7 +20,15 @@ export function depositEvents(status: TxStatus, vault: string): DepositEvent[] {
   const found: DepositEvent[] = [];
   for (const receipt of status.receipts_outcome ?? []) {
     const outcome = receipt.outcome;
-    if (!outcome || outcome.executor_id !== vault) continue;
+    const result = outcome?.status;
+    if (
+      !outcome ||
+      outcome.executor_id !== vault ||
+      typeof result !== 'object' ||
+      result === null ||
+      !('SuccessValue' in result || 'SuccessReceiptId' in result)
+    )
+      continue;
     for (const line of outcome.logs ?? []) {
       if (!line.startsWith(PREFIX)) continue;
       let body: unknown;

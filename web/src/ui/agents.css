@@ -1,0 +1,867 @@
+/* Agents screen: only what console.css has no rule for. */
+.nc-screen[data-testid='agents'] .nc-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-screen[data-testid='agents'] .nc-notice {
+  margin-bottom: 0;
+}
+.nc-screen[data-testid='agents'] .nc-msg.nc-list {
+  color: inherit;
+  padding-left: 30px;
+}
+.nc-screen[data-testid='agents'] .nc-models {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+.nc-screen[data-testid='agents'] .nc-models legend {
+  padding: 0;
+  margin-bottom: 8px;
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-screen[data-testid='agents'] .nc-agent-steps {
+  margin-top: 28px;
+}
+.nc-screen[data-testid='agents'] .nc-agent-steps .nc-clients {
+  margin-bottom: 4px;
+}
+.nc-screen[data-testid='agents'] .nc-sign {
+  margin-top: 16px;
+}
+.nc-screen[data-testid='agents'] .nc-cmds li > .nc-actions {
+  margin-top: 8px;
+}
+.nc-screen[data-testid='agents'] .nc-recipe {
+  display: grid;
+  gap: 8px;
+}
+.nc-screen[data-testid='agents'] .nc-recipe > p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nc-screen[data-testid='agents'] .nc-card-body > .nc-recipe .nc-cmds {
+  margin-top: 4px;
+}
+
+/* ---- calm pass: steps, grids, the limit ladder ---- */
+.nc-screen[data-testid='agents'] .nc-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px 16px;
+}
+.nc-screen[data-testid='agents'] .nc-agent-grid .nc-field {
+  min-width: 0;
+}
+.nc-screen[data-testid='agents'] .nc-policy {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.nc-screen[data-testid='agents'] .nc-policy-out {
+  display: grid;
+  gap: 12px;
+  position: sticky;
+  top: 16px;
+}
+.nc-screen[data-testid='agents'] .nc-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+.nc-screen[data-testid='agents'] .nc-models legend {
+  float: left;
+  width: 100%;
+}
+.nc-screen[data-testid='agents'] .nc-models .nc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--nm-line);
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-screen[data-testid='agents'] .nc-models .nc-check:has(input:checked) {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-screen[data-testid='agents'] .nc-models .nc-check span {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+/* what is still missing reads as a to-do, not as an alarm */
+.nc-screen[data-testid='agents'] .nc-todo {
+  margin: 12px 0 0;
+  padding: 10px 14px 10px 30px;
+  border: 1px dashed var(--nm-line);
+  background: none;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-ladder {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--nm-line);
+}
+.nc-ladder-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 10px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-ladder-row em {
+  font-style: normal;
+  text-align: right;
+}
+.nc-ladder-row i {
+  display: block;
+  height: 8px;
+  background: repeating-linear-gradient(90deg, var(--nm-soft-line) 0 4px, transparent 4px 8px);
+}
+.nc-ladder-row b {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  background: var(--nm-fg);
+  transition: width 420ms var(--nc-ease);
+}
+.nc-ladder-row[data-set='true'] {
+  color: var(--nm-fg);
+}
+.nc-screen[data-testid='agents'] .nc-sign .nc-actions .nc-button:disabled {
+  opacity: 1;
+  border-style: dashed;
+  background: transparent;
+  color: var(--nm-muted);
+}
+@media (max-width: 760px) {
+  .nc-screen[data-testid='agents'] .nc-policy {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-screen[data-testid='agents'] .nc-policy-out {
+    position: static;
+  }
+  .nc-screen[data-testid='agents'] .nc-agent-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-ladder-row b {
+    transition: none;
+  }
+}
+.nc-screen[data-testid='agents'] .nc-agent-grid .nc-field {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-self: start;
+}
+.nc-screen[data-testid='agents'] .nc-models legend {
+  float: none;
+  display: block;
+  flex-basis: 100%;
+  margin: 0;
+}
+.nc-screen[data-testid='agents'] .nc-steps > li {
+  min-width: 0;
+}
+.nc-screen[data-testid='agents'] code,
+.nc-screen[data-testid='agents'] .nc-cap {
+  overflow-wrap: anywhere;
+}
+.nc-screen[data-testid='agents'] .nc-code {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.nc-screen[data-testid='agents'] input {
+  max-width: 100%;
+}
+
+/* ======== the agent screen: a flow of sections and a permit that fills while you type ======== */
+.nc-screen[data-testid='agents'] .nc-agent-steps__x {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+}
+@keyframes ag-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.nc-agent-steps > li .nc-cap-first {
+  margin-top: 0;
+}
+.nc-agent-steps > li .nc-policy {
+  grid-template-columns: minmax(0, 1fr);
+}
+.nc-agent-steps > li .nc-policy-out {
+  position: static;
+}
+
+/* the permit */
+.ag-permit {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--nm-fg);
+  background: var(--nm-panel);
+  animation: ag-in 360ms var(--nc-ease) backwards;
+}
+.ag-permit-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ag-permit-name {
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.ag-permit-note {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+  overflow-wrap: anywhere;
+}
+[data-empty='true'] {
+  color: var(--nm-muted);
+}
+.ag-print {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 2px;
+}
+.ag-print i {
+  height: 9px;
+  background: var(--nm-fg);
+  opacity: 0.12;
+  transition: opacity 320ms;
+}
+.ag-print i[data-l='0'] {
+  background: none;
+  border: 1px dashed var(--nm-line);
+  opacity: 1;
+}
+.ag-print i[data-l='1'] {
+  opacity: 0.2;
+}
+.ag-print i[data-l='2'] {
+  opacity: 0.45;
+}
+.ag-print i[data-l='3'] {
+  opacity: 0.75;
+}
+.ag-print i[data-l='4'] {
+  opacity: 1;
+}
+.ag-perf {
+  position: relative;
+  height: 0;
+  margin: 2px -18px;
+  border-top: 1px dashed var(--nm-muted);
+}
+.ag-perf::before,
+.ag-perf::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--nm-fg);
+  border-radius: 50%;
+  background: var(--nm-bg);
+}
+.ag-perf::before {
+  left: -8px;
+  clip-path: inset(0 0 0 50%);
+}
+.ag-perf::after {
+  right: -8px;
+  clip-path: inset(0 50% 0 0);
+}
+.ag-permit-block {
+  display: grid;
+  gap: 6px;
+}
+.ag-permit-block small {
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ag-permit-block p {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 12px;
+}
+.ag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ag-chips span {
+  padding: 1px 8px;
+  border: 1px solid var(--nm-line);
+  font:
+    11px/18px 'IBM Plex Mono',
+    monospace;
+  animation: ag-in 240ms var(--nc-ease) backwards;
+}
+.ag-permit .nc-ladder {
+  padding: 0;
+  border: 0;
+}
+.ag-checks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 20px;
+}
+.ag-checks li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--nm-muted);
+}
+.ag-checks i {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--nm-muted);
+  transition:
+    background-color 200ms,
+    border-color 200ms;
+}
+.ag-checks li[data-done='true'] {
+  color: var(--nm-fg);
+}
+.ag-checks li[data-done='true'] i {
+  border-color: var(--nm-good);
+  background: var(--nm-good);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ag-permit,
+  .ag-chips span {
+    animation: none;
+  }
+}
+.nc-agent-steps > li .nc-models .nc-check {
+  min-width: 0;
+}
+.nc-agent-steps > li .nc-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-agent-steps > li .nc-models .nc-check input {
+  appearance: none;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border: 1px solid var(--nm-muted);
+  background: transparent;
+  transition:
+    background-color 160ms,
+    border-color 160ms;
+}
+.nc-agent-steps > li .nc-models .nc-check input:checked {
+  border-color: var(--nm-fg);
+  background: var(--nm-fg);
+}
+.nc-agent-steps > li .nc-models .nc-check input:focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+
+/* policy: three groups, each one idea */
+.ag-pol {
+  display: grid;
+  gap: 18px;
+}
+.ag-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ag-group > legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ag-group > legend + * {
+  clear: both;
+}
+.ag-models {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+}
+.ag-models .nc-check {
+  min-width: 0;
+}
+.ag-money-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px 12px;
+  align-items: start;
+}
+.ag-money > span:first-child {
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.ag-money-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--nm-line);
+  transition: border-color 160ms;
+}
+.ag-money-box:focus-within {
+  border-color: var(--nm-fg);
+}
+.ag-money-box b {
+  color: var(--nm-muted);
+  font-weight: 400;
+}
+.ag-money-box input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font-variant-numeric: tabular-nums;
+}
+.ag-money-box small {
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+}
+/* what is still missing: pills in a row, not a list beside the form */
+.nc-screen[data-testid='agents'] .nc-todo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  list-style: none;
+}
+.nc-screen[data-testid='agents'] .nc-todo li {
+  padding: 2px 10px;
+  border: 1px dashed var(--nm-line);
+  font-size: 12px;
+  line-height: 18px;
+}
+.ag-money-box input,
+.ag-money-box input:focus {
+  min-height: 0;
+  height: auto;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}
+.ag-pol .ag-money-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.nc-screen[data-testid='agents'] .nc-msg.nc-list.nc-todo {
+  padding-left: 0;
+}
+.nc .ag-money-box input,
+.nc .ag-money-box input:focus,
+.nc .ag-money-box input:hover {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  min-height: 0;
+}
+.nc .ag-money .ag-money-box input:not([type='checkbox']) {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  min-height: 0;
+  padding-inline: 0;
+}
+
+/* policy, minimal: chips, then one quiet table of limits */
+.ag-pol {
+  gap: 12px;
+}
+.ag-group > legend {
+  margin: 0 0 6px;
+}
+.ag-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ag-models .nc-check {
+  padding: 4px 10px;
+}
+.ag-rows {
+  display: grid;
+  max-width: 460px;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.ag-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  font-size: 13px;
+}
+.ag-row > span:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+}
+.ag-row small {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.ag-row-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  transition: border-color 160ms;
+}
+.ag-row:hover .ag-row-box,
+.ag-row-box:focus-within {
+  border-color: var(--nm-line);
+}
+.ag-row-box:focus-within {
+  border-color: var(--nm-fg);
+}
+.ag-row-box b {
+  color: var(--nm-muted);
+  font-weight: 400;
+}
+.nc .ag-row .ag-row-box input:not([type='checkbox']) {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 0;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ag-pol .nc-cap {
+  margin: 0;
+}
+.nc-screen[data-testid='agents'] .nc-msg.nc-list.nc-todo {
+  display: block;
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-screen[data-testid='agents'] .nc-todo li {
+  display: inline;
+  padding: 0;
+  border: 0;
+}
+.nc-screen[data-testid='agents'] .nc-todo li:not(:last-child)::after {
+  content: ' · ';
+}
+.nc-screen[data-testid='agents'] .nc-todo::before {
+  content: 'Still needed: ';
+  color: var(--nm-fg);
+}
+
+/* policy as one sentence with blanks */
+.ag-sentence {
+  max-width: none;
+  margin: 0;
+  font-size: 17px;
+  line-height: 38px;
+}
+.ag-blank {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 0 4px;
+  border-bottom: 1px dashed var(--nm-muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 15px;
+  transition: border-color 160ms;
+}
+.ag-blank:focus-within {
+  border-bottom: 1px solid var(--nm-fg);
+}
+.ag-blank[data-filled='true'] {
+  border-bottom-style: solid;
+}
+.ag-blank b {
+  color: var(--nm-muted);
+  font-weight: 400;
+}
+.nc .ag-blank input:not([type='checkbox']) {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  font: inherit;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.nc .ag-blank input::placeholder {
+  color: var(--nm-muted);
+  opacity: 0.6;
+}
+.ag-fine {
+  max-width: none;
+  margin: -4px 0 0;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.ag-sentence {
+  line-height: 36px;
+}
+.ag-blank {
+  display: inline-block;
+  padding: 0 3px;
+  line-height: 22px;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.nc .ag-blank input:not([type='checkbox']) {
+  display: inline-block;
+  line-height: 22px;
+  vertical-align: baseline;
+}
+
+/* policy, plain: chips, six small fields in a grid */
+.ag-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.ag-grid .nc-field {
+  gap: 4px;
+}
+.ag-grid .nc-field > span {
+  font-size: 11px;
+  line-height: 16px;
+}
+.nc .ag-grid input:not([type='checkbox']) {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.nc .ag-grid input::placeholder {
+  color: var(--nm-muted);
+  opacity: 0.4;
+}
+@media (max-width: 760px) {
+  .ag-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.nc-screen[data-testid='agents'] .nc-sign .nc-fold {
+  margin: 8px 0 12px;
+}
+
+/* approve and commands: the same small fields, a slim client row, copy inside the block */
+.ag-grid.ag-grid-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.nc-agent-steps .nc-clients {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.nc-agent-steps .nc-clients button {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 0;
+  align-items: center;
+  padding: 8px 10px;
+}
+.nc-agent-steps .nc-clients .nc-client-mark {
+  grid-row: 1 / span 2;
+}
+.nc-agent-steps .nc-clients strong {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+}
+.nc-agent-steps .nc-clients small {
+  display: none;
+}
+.nc-agent-steps .nc-clients em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nc-agent-steps .nc-cmds {
+  gap: 12px;
+  margin-top: 14px;
+}
+.nc-agent-steps .nc-cmds li {
+  position: relative;
+}
+.nc-agent-steps .nc-cmds li > .nc-actions {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  margin: 0;
+}
+.nc-agent-steps .nc-cmds li > .nc-actions .nc-button {
+  min-height: 28px;
+  padding: 2px 12px;
+  font-size: 12px;
+}
+.nc-agent-steps .nc-cmds .nc-code {
+  margin-top: 6px;
+}
+.nc-agent-steps .nc-cap-first {
+  margin-bottom: 10px;
+}
+@media (max-width: 760px) {
+  .ag-grid.ag-grid-wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.nc-agent-steps .nc-clients {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.nc-agent-steps .nc-clients em {
+  display: none;
+}
+.nc-agent-steps .nc-clients button {
+  grid-template-rows: auto;
+}
+@media (max-width: 760px) {
+  .nc-agent-steps .nc-clients {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* transport: two options, so a segmented choice instead of the browser's menu */
+.ag-seg {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--nm-line);
+}
+.ag-seg button {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 0;
+  background: none;
+  color: var(--nm-muted);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 200ms,
+    color 200ms;
+}
+.ag-seg button + button {
+  border-left: 1px solid var(--nm-line);
+}
+.ag-seg strong {
+  font:
+    13px/18px 'IBM Plex Mono',
+    monospace;
+  font-weight: 400;
+}
+.ag-seg small {
+  font-size: 11px;
+  line-height: 14px;
+}
+.ag-seg button::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--nm-fg);
+  transform: scaleX(0);
+  transition: transform 240ms var(--nc-ease);
+}
+.ag-seg button:hover {
+  color: var(--nm-fg);
+}
+.ag-seg button[aria-checked='true'] {
+  background: var(--nm-raised);
+  color: var(--nm-fg);
+}
+.ag-seg button[aria-checked='true']::after {
+  transform: scaleX(1);
+}
+.ag-seg button:focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: -2px;
+}

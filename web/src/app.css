@@ -1,0 +1,581 @@
+/* The web app on the shared design layer: tokens, fonts and the console shell come from
+   marketing/site.css. This file adds what the real screens need: forms, notices, lists and the
+   chat. Every rule is scoped to .nm-app, so nothing reaches the wallet frame or the landing. */
+
+.nm-app {
+  --nm-err: #ff9b9b;
+  --nm-warn: #f0c674;
+}
+.nm-app[data-theme='light'] {
+  --nm-err: #a31919;
+  --nm-warn: #7a4a00;
+}
+
+/* ---- the plain frame: landing, origin refusal, a screen with no side panel ---- */
+
+.nm-app-plain {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 24px 48px;
+}
+
+.nm-app button.brand {
+  display: block;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  min-height: 0;
+  cursor: pointer;
+}
+.nm-app-foot {
+  display: grid;
+  gap: 4px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app-foot a:hover {
+  color: var(--nm-fg);
+  text-decoration: underline;
+}
+
+/* ---- console shell, buttons in the nav ---- */
+
+.nm-legacy > .warning,
+.nm-legacy > .notice,
+.nm-legacy > .banner {
+  width: min(712px, calc(100% - 48px));
+  max-width: none;
+  margin: 16px auto 0;
+}
+
+/* ---- a screen without a side panel ---- */
+.nm-legacy > section,
+.nm-legacy > div > section {
+  max-width: 760px;
+  margin-inline: auto;
+  padding: 32px 24px 80px;
+}
+.nm-legacy h1,
+.nm-app-plain h1,
+.nm-legacy section > h2:first-child {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 36px;
+}
+.nm-legacy section h2,
+.nm-legacy section h3 {
+  font-weight: 400;
+}
+.nm-legacy section h2:not(:first-child) {
+  margin-top: 32px;
+  font-size: 18px;
+  line-height: 26px;
+}
+.nm-legacy section h3 {
+  margin: 28px 0 8px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-legacy p,
+.nm-app-plain p {
+  margin: 0 0 12px;
+  max-width: 68ch;
+  line-height: 24px;
+  text-wrap: pretty;
+}
+.nm-app-plain a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nm-app .lead {
+  color: var(--nm-muted);
+  font-size: 17px;
+  line-height: 26px;
+}
+.nm-app .hint {
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nm-legacy code,
+.nm-app-plain code {
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+}
+
+/* ---- notices, warnings, errors: a bordered panel, never a coloured side stripe ---- */
+.nm-app .notice,
+.nm-app .banner,
+.nm-app .warning {
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  color: var(--nm-fg);
+  font-size: 14px;
+  line-height: 22px;
+}
+.nm-app .warning {
+  border-color: var(--nm-warn);
+}
+.nm-app .error {
+  color: var(--nm-err);
+}
+.nm-app .error::before {
+  content: 'Error · ';
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app .ok {
+  color: var(--nm-good);
+}
+
+/* ---- buttons, fields, lists in the content area ---- */
+.nm-legacy button,
+.nm-app-plain button:not(.brand) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin: 0 8px 8px 0;
+  padding: 8px 16px;
+  border: 1px solid var(--nm-muted);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nm-fg);
+  font:
+    14px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  transition:
+    background-color 160ms,
+    opacity 160ms;
+}
+.nm-legacy button:hover:not(:disabled),
+.nm-app-plain button:not(.brand):hover:not(:disabled) {
+  background: var(--nm-raised);
+}
+.nm-legacy button.primary,
+.nm-app-plain button.primary {
+  border-color: var(--nm-button);
+  background: var(--nm-button);
+  color: var(--nm-button-text);
+}
+.nm-legacy button.primary:hover:not(:disabled),
+.nm-app-plain button.primary:hover:not(:disabled) {
+  background: var(--nm-button);
+  opacity: 0.88;
+}
+.nm-legacy button:disabled,
+.nm-app-plain button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nm-legacy input[type='text'],
+.nm-legacy input[type='password'],
+.nm-legacy input[type='number'],
+.nm-legacy input:not([type]),
+.nm-legacy textarea,
+.nm-legacy select {
+  display: block;
+  width: 100%;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  font:
+    14px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nm-legacy select {
+  appearance: none;
+  padding-right: 32px;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--nm-muted) 50%) right 16px center / 5px 5px
+      no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--nm-muted) 50%) right 11px center / 5px 5px
+      no-repeat,
+    var(--nm-bg);
+}
+.nm-legacy input:focus-visible,
+.nm-legacy textarea:focus-visible,
+.nm-legacy select:focus-visible,
+.nm-legacy button:focus-visible {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nm-legacy label:not([class]) {
+  display: block;
+  margin: 12px 0 4px;
+  color: var(--nm-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.nm-legacy input[type='checkbox'],
+.nm-legacy input[type='radio'],
+.nm-legacy input[type='checkbox'],
+.nm-legacy input[type='radio'] {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--nm-accent);
+  flex: none;
+}
+.nm-legacy fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 0;
+  color: var(--nm-fg);
+  cursor: pointer;
+}
+
+.nm-legacy fieldset {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+}
+.nm-legacy legend {
+  padding: 0 8px;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-app ul.wallets,
+.nm-app ul.notes {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.nm-app ul.notes li {
+  margin: 0 0 12px;
+  padding: 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  line-height: 24px;
+}
+.nm-app ul.notes li small {
+  color: var(--nm-muted);
+}
+.nm-app .leases {
+  padding: 0;
+  list-style: none;
+}
+.nm-app .leases li {
+  padding: 10px 0;
+  border-top: 1px solid var(--nm-line);
+}
+.nm-app .columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 24px;
+}
+.nm-app .columns dd {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.nm-app .price th {
+  padding-right: 16px;
+  font-weight: 400;
+  text-align: left;
+  color: var(--nm-muted);
+}
+.nm-legacy pre {
+  margin: 8px 0 12px;
+  padding: 12px 16px;
+  overflow: auto;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-code-bg);
+  color: var(--nm-code-fg);
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+}
+
+/* ---- who sees what (landing) ---- */
+.nm-app .who {
+  margin: 24px 0;
+}
+.nm-app .who svg {
+  width: 100%;
+  height: auto;
+}
+.nm-app .who .box rect {
+  fill: none;
+  stroke: var(--nm-line);
+  stroke-width: 1.5;
+}
+.nm-app .who .arrow path {
+  stroke: var(--nm-muted);
+  stroke-width: 1.5;
+  fill: none;
+}
+.nm-app .who text {
+  fill: var(--nm-fg);
+  font:
+    12px 'IBM Plex Mono',
+    monospace;
+  text-anchor: middle;
+}
+.nm-app .who .head text {
+  font-weight: 700;
+}
+
+/* ---- the sandboxed wallet frame: invisible and click-through until a popup is on screen ---- */
+.wallet-frame {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+  pointer-events: none;
+  z-index: 40;
+}
+.wallet-frame.active {
+  pointer-events: auto;
+}
+
+/* ---- chat ---- */
+
+@keyframes nm-app-load {
+  50% {
+    background: var(--nm-muted);
+  }
+}
+
+@media (max-width: 900px) {
+  .nm-legacy > section,
+  .nm-legacy > div > section {
+    padding: 24px 16px 48px;
+  }
+}
+
+/* ---- forms: options as tiles, tables, disclosures (screens keep their markup and test ids) ---- */
+.nm-legacy fieldset {
+  min-width: 0;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+}
+.nm-legacy legend {
+  margin: 0 0 8px;
+  padding: 0;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nm-legacy input[type='radio'],
+.nm-legacy input[type='checkbox'] {
+  accent-color: var(--nm-fg);
+  margin: 0 10px 0 0;
+}
+.nm-legacy label:has(> input[type='radio']) {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  margin: 0 0 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nm-legacy label:has(> input[type='radio']:checked) {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nm-legacy label:has(> input[type='radio']:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.nm-legacy label:has(> input[type='radio']:focus-visible) {
+  outline: 2px solid var(--nm-accent);
+  outline-offset: 2px;
+}
+.nm-legacy table {
+  width: 100%;
+  max-width: 68ch;
+  margin: 0 0 16px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.nm-legacy th,
+.nm-legacy td {
+  padding: 10px 12px;
+  border: 1px solid var(--nm-line);
+  text-align: left;
+  vertical-align: top;
+  font-weight: 400;
+}
+.nm-legacy th {
+  color: var(--nm-muted);
+}
+.nm-legacy td {
+  font-family: 'IBM Plex Mono', monospace;
+}
+.nm-legacy details {
+  margin: 0 0 12px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-panel);
+}
+.nm-legacy summary {
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.nm-legacy details[open] > summary {
+  border-bottom: 1px solid var(--nm-line);
+}
+.nm-legacy details > :not(summary) {
+  margin-inline: 16px;
+}
+.nm-legacy details > :last-child {
+  margin-bottom: 16px;
+}
+.nm-legacy label {
+  display: block;
+  margin: 0 0 8px;
+  color: var(--nm-muted);
+  font-size: 13px;
+}
+.nm-legacy ul,
+.nm-legacy ol {
+  max-width: 68ch;
+  padding-left: 22px;
+  line-height: 24px;
+}
+.nm-legacy pre {
+  max-width: 100%;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-code-bg);
+  color: var(--nm-code-fg);
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+}
+
+/* A screen not yet moved to the console kit sits in .nm-legacy; the wrapper adds no box. */
+.nm-legacy {
+  display: contents;
+}
+
+/* ---- terms link and bundle hash under the backup card ---- */
+.nc-legal {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 8px 0;
+  border-top: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+  overflow-wrap: anywhere;
+}
+.nc-legal a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  color: var(--nm-fg);
+  font:
+    13px/20px 'IBM Plex Sans',
+    sans-serif;
+  text-decoration: none;
+}
+.nc-legal a svg {
+  flex: none;
+  color: var(--nm-muted);
+  transition: color 150ms ease;
+}
+.nc-legal a:hover,
+.nc-legal a:hover svg {
+  color: var(--nm-accent);
+}
+.nc-legal small {
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-legal code {
+  font-size: inherit;
+}
+
+.nm-bundle {
+  position: relative;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nm-bundle summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.nm-bundle summary::-webkit-details-marker {
+  display: none;
+}
+.nm-bundle summary span {
+  color: var(--nm-fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nm-bundle-detail {
+  position: absolute;
+  z-index: 5;
+  bottom: calc(100% + 12px);
+  left: 0;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-raised);
+  overflow-wrap: anywhere;
+}
+.nm-bundle-detail > code {
+  color: var(--nm-fg);
+}
+.nm-bundle-detail p {
+  margin: 8px 0 0;
+}
+.nc-legal .nm-bundle-detail a {
+  display: inline-block;
+  min-height: 0;
+  margin-top: 10px;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- the sidebar card for a store with no note: the note card, empty ---- */
+.nc-notes button.nc-note-empty {
+  border-style: dashed;
+  color: var(--nm-muted);
+}
+.nc-notes button.nc-note-empty:hover small {
+  color: var(--nm-fg);
+}

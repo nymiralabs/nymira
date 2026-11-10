@@ -1,25 +1,118 @@
-# Nymira
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/hero-dark.svg">
+    <img src="assets/readme/hero-light.svg" alt="Nymira: private, prepaid API credits on NEAR" width="760">
+  </picture>
+</p>
 
-Private, prepaid API credits on NEAR.
+<p align="center">
+  <a href="https://nymira.pages.dev">Website</a> ·
+  <a href="https://nymira.pages.dev/#docs">Documentation</a> ·
+  <a href="https://nymira.pages.dev/#status">Status</a> ·
+  <a href="JUDGES.md">Try it in 20 minutes</a> ·
+  <a href="THREAT_MODEL.md">Threat model</a> ·
+  <a href="https://github.com/nymiralabs/nymira/releases">Releases</a> ·
+  <a href="TERMS.md">Terms</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nymiralabs/nymira/actions/workflows/ci.yml"><img src="https://github.com/nymiralabs/nymira/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+# Nymira
 
 **This is a testnet project with test funds.** The vault holds Circle's testnet USDC, which has no value. The circuit has had no independent review, and zkapi does not use it on its own mainnet yet. The anonymity set on testnet is small and made of test notes, so a lease can be tied to a note more easily than it could be on a busy network. Read [THREAT_MODEL.md](THREAT_MODEL.md) before you trust any sentence here. Use of the deployment is under the [terms of use](TERMS.md).
 
-Want to try it? [JUDGES.md](JUDGES.md) is a 20-minute path from a new wallet to a first answer and a close.
+Want to try it? [JUDGES.md](JUDGES.md) is a 20-minute path from a new wallet to a first answer and a close. The same material, with diagrams and a lease calculator, is on the [documentation page](https://nymira.pages.dev/#docs).
+
+**Contents:** [What Nymira is](#what-nymira-is) · [Quickstart](#quickstart) · [Status](#status) · [For hackathon judges](#for-hackathon-judges) · [Live deployment](#live-deployment) · [Limits](#limits) · [Download `nymirad`](#download-nymirad) · [Build](#build) · [Budget notes for agents](#budget-notes-for-agents) · [Documentation](#documentation) · [License](#license)
+
+## What Nymira is
+
+A pay-as-you-go API usually ties every request to an account and a card, so the provider can read your whole history, and a model key given to an agent can drain the account behind it. Prepaying removes the card from the request path. A zero-knowledge proof removes the account too. A budget note caps what one agent can ever spend.
+
+Nymira sells prepaid API credits. You deposit USDC into a vault contract on NEAR and get a note: a balance only you can spend. Each conversation spends a short lease from the note. Your device proves that the note can pay without saying which note it is, and your prompt is encrypted to the model's attested key, so the operator does not read it. When you are done, you close the note and the rest goes to a payout account that was fixed at deposit. Without the operator, you leave with `request_exit` and a 7-day wait ([how an exit works](https://nymira.pages.dev/#docs/note-life)).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/parties-dark.svg">
+    <img src="assets/readme/parties-light.svg" alt="Who does what and who sees what: you, the operator, NEAR AI and the vault" width="860">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/lease-dark.svg">
+    <img src="assets/readme/lease-light.svg" alt="One request in six steps: you prove and seal, the operator checks the proof and opens a lease, NEAR AI answers and signs, your client verifies, the operator settles the charge" width="860">
+  </picture>
+</p>
+
+## Quickstart
+
+A local stack needs no keys and no money. On a fresh clone:
+
+```bash
+git clone https://github.com/nymiralabs/nymira && cd nymira
+rustup show                                           # installs the pinned toolchain (rust-toolchain.toml)
+cargo install cargo-near --version 0.22.0 --locked    # the sandbox tests need it
+make golden    # a note is deposited, used, settled, closed and retired, asserted step by step
+make demo      # the stack stays up and prints the `nymirad` commands to try against it
+```
+
+To use the live testnet deployment instead, open <https://nymira.pages.dev> and follow [JUDGES.md](JUDGES.md). [Try it locally](#try-it-locally) says what each command starts.
+
+## What we built on top of zkapi
+
+The proof circuits and the off-chain wallet logic come from [zkapi](https://github.com/ethereum/zkapi), pinned at one commit with eight listed patches (`NOTICE`). The rest is ours, written during the hackathon:
+
+- **The vault**, a NEAR contract in `near-sdk` that holds USDC, keeps the commitment tree and the spent nullifiers, and runs close, exit and expiry. Its Groth16 verifier (`crates/nymira-verifier`) runs on NEAR's `alt_bn128` host functions, and the verifying-key hashes are compiled into the contract.
+- **The NEAR mapping** of zkapi's EVM fields (`crates/nymira-near-codec`), shared by the contract, the operator, `nymirad` and the browser.
+- **The operator**, which opens a lease from a proof and settles the charge, and calls [NEAR AI Cloud](https://cloud.near.ai) with a key made for one lease.
+- **Private inference.** Prompts are encrypted to the model's attested key. Clients check the Intel TDX quote, a signed policy and, in `nymirad`, NVIDIA GPU evidence.
+- **Clients:** the web app, and `nymirad`, a local gateway that sends through Tor and speaks the OpenAI API, so existing tools work unchanged.
+- **Budget notes and an MCP server** for agents, with a signed spending policy.
+- **Funding from other chains** through [NEAR Intents](https://near-intents.org) (1Click).
+- **Our own trusted-setup ceremony**, so the deployed keys are not zkapi's development keys.
+
+## Status
+
+| Part | State |
+|---|---|
+| Web app | Release 0.1.2 is live at <https://nymira.pages.dev> (mirror: <https://nymiralabs.github.io/nymira/>). The main branch also has the Agents screen, the privacy panel, the Intents screen and the documentation page. They are not in 0.1.2. |
+| `nymirad` | Release [0.1.2](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.2) has Linux x86_64 and macOS arm64 binaries with signed checksums ([how to download and check them](#download-nymirad)). Budget notes (`nymirad agent`), set size (`--rpc-second`) and the Debian Tor pins are on main, not in 0.1.2. |
+| Vault | [`vault.nymira.testnet`](https://testnet.nearblocks.io/address/vault.nymira.testnet) on NEAR testnet, built reproducibly from the tag [`vault-testnet-1`](https://github.com/nymiralabs/nymira/tree/vault-testnet-1) ([values and checks](#live-deployment)). |
+| MCP server | Not released. Build it from a checkout of [`mcp/`](mcp/README.md). |
+| Paying sellers (x402) | Not built. |
+| Mainnet | None. No mainnet vault is pinned in this build. |
+
+## For hackathon judges
+
+1. **Run it.** [JUDGES.md](JUDGES.md) takes you from a new wallet to a first answer and a close in about 20 minutes. A local stack with no keys and no money runs with `make golden` or `make demo`.
+2. **Check the chain.** The deployed vault code hash equals the reproducible build, and the on-chain verifying-key hashes equal the ceremony's. The table under [Live deployment](#live-deployment) has the values and how they were checked.
+3. **Check the release.** The web release 0.1.2 and the `nymirad` downloads are signed with a key whose fingerprint is published. [`web/INTEGRITY.md`](web/INTEGRITY.md) lists the steps, and `nymirad verify-web` runs them for you.
+4. **Read what we do not promise.** [THREAT_MODEL.md](THREAT_MODEL.md) says what each party can see and do, and the [Limits](#limits) below list what is open: no independent review of the circuits or the vault, a trusted setup run by the team alone, a small anonymity set, and an operator on a home machine that can be offline.
+5. **Find the code.** [`contracts/vault`](contracts/vault) is the contract. [`crates/nymira-operator`](crates/nymira-operator) is the operator, [`crates/nymirad`](crates/nymirad) the local gateway and CLI, [`web`](web) the browser app, [`mcp`](mcp) the MCP server, and [`vendor/zkapi`](vendor/zkapi) the proof circuits at a pinned commit.
+
 
 ## Live deployment
 
-The vault runs on NEAR testnet with Circle's test USDC (token account `3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af`). Every value below can be checked against the chain.
+The vault runs on NEAR testnet with Circle's test USDC (token account [`3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af`](https://testnet.nearblocks.io/address/3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af)). Every value below can be checked against the chain.
 
-| What | Value |
-|---|---|
-| Vault account | `vault.nymira.testnet`, deployed in transaction `G1LGwd1oxcrza7VSwNuGYf9xjaMeNJzYdEZ2EFamjQVY` (`new()` ran in the same transaction) |
-| Vault code hash (reproducible build) | `71QXP9FT4eiRcaqjZtsHi7mXMCAexXjCFgQ338p8tur4` in base58; as SHA-256 of the wasm, `5940b853e51476c69ab2cd0ffba2fb76ffd3fedb621a2471c9ccd2bdb62ad4f5`. Built from the tag `vault-testnet-1` (commit `18107d876dd9d3912796f4b002e9a006c74b1152`) with `scripts/reproducible-smoke.sh` (cargo-near 0.22.0, rustc 1.99.0, image `sourcescan/cargo-near@sha256:51ab40efd798eae26c0dc71180909303f10bb4988b15ce3a18522c5be06e277e`). The on-chain hash was checked against the build with `view_account`, and testnet.nearblocks.io shows the contract as source code verified (<https://testnet.nearblocks.io/address/vault.nymira.testnet/contract/code>). Two builds on one Mac (arm64) were equal, and a build on an amd64 CI runner (`vault-reproducible` workflow, 5 November 2026) gave the same hash. |
-| `vk_hashes()` next to the ceremony transcript hashes | On chain: request `0xf3092e0d550f696a6507f279862afb43d0c22663de56f1b47160b5db6fc6fa1b`, withdrawal `0x3469ebb3245101549343dbe5939427d3dc7706c314f281f9b5935416fc720c8d`. These equal the verifying key keccak256 values in the `final` release of [nymira-ceremony](https://github.com/nymiralabs/nymira-ceremony), whose transcript SHA-256 is `e75cae40c203b08f8b9e559a2fa4b18f464e709d68abe01318c2d8a7aa4b7e07` (beacon: NEAR mainnet block 222942364). Proving key SHA-256: `request.pk` `b5cdb12000cf51cf566375aadbc2a27cf875438f646f751fa857371cd6cb7022`, `withdrawal.pk` `89e03ac8f9d6e90d189e9a3eb6b0c9c0126e1b121e78955a11f0f70a44d0161d`. |
-| `view_access_key_list` of the vault | One key, full access: `ed25519:DJc2C6WWveyUY1VvLEdUPjBggzKrMuEwx7GGp1BLHMze`. It is the team's, and it can replace the vault code (see [THREAT_MODEL.md](THREAT_MODEL.md)). |
-| Vault config (`config()`) | Operator `operator.nymira.testnet`, owner `owner.nymira.testnet`, treasury `treasury.nymira.testnet`. Denominations 1 and 5 USDC, bound classes 0.10 and 0.50 USDC, charge step 0.001, minimum charge 0.002, deposit fee 0.05 USDC, close fee 0.03 USDC, exit delay 604800 s (7 days), note TTL 2592000 s (30 days), cap on open deposits 100 USDC. |
-| Web bundle | Release testnet 0.1.2 (tag `web-v0.1.2`, commit `d00dc17ea51c409a9bfe7cec1490d8dc841aa352`), served at <https://nymira.pages.dev> and mirrored at <https://nymiralabs.github.io/nymira/>. `bundle_hash` `3ee5ccb57cdaf2a1fa58cd914b6806909eac98c4dd20c013f6e0af5c926e045f`, `header_set_hash` `0a09ba64fb8a576c119a313c52b3ba78fe426454083cfae085cd43b0212e2eb8`. The signed manifest is in `web/releases/testnet-0.1.2/`; the signing key is `web/pins/release-signing.pub` (minisign key id `934C176AF34D794D`). A public Sigstore Rekor entry (index 3700443670) holds the hash of a text with these two hashes and the key; see `web/INTEGRITY.md`. Cloudflare adds `access-control-allow-origin: *` to some pages while the signed header set has none; `nymirad verify-web` prints those as accepted notes. No outside party has rebuilt the bundle and attested to it yet. |
-| Keys the vault uses | The vault account holds only the full-access key above. `operator.nymira.testnet` holds function-call keys limited to `vault.nymira.testnet`: `heartbeat` (`ed25519:ByNe51phL1HLruA2m5mpUNjYU8N8fdAiv2vzjTUPg8Cp`), `mutual_close` (`ed25519:6Sz6SKZd4VRYSiXFANiFS32yNhSfAMwDarHmbmjMiacZ`), and two upkeep keys for `sync_root`, `retire_closed_leaf`, `claim_expired`, `claim_expired_batch` and `finalize_exit` (`ed25519:EcnUgf2F3nVVGh3VJDxydjxfo8asTGJrv2oPaTEns3Di` and, from a second machine, `ed25519:FQZbqfECB8XpMVP42osm5HadqiZpqUyuVzF2cEBmFM7s`). The operator account also still carries two old gas keys for a test vault that was deleted; they are harmless. `answer.nymira.testnet` holds the `defeat_exit` and `raise_concession` keys: `ed25519:3aQcKFzVdwHVBM6vjES6LYimcwDZWRwr7V2grAVg1qRC` (laptop) and `ed25519:HBqKTwBSqY62moLVqCK7MM7DZ36hAcQ2jTo2P95J5KbC` (second machine); its full-access key is `ed25519:396S8bP3UUU4zgRLjjYGGP7rEZMi47SzS7T6MKMUnEcf`. |
-| Operator status | <https://nymira-operator.tail0484c4.ts.net/v1/status>, served from a home machine that can be offline. |
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/money-dark.svg">
+    <img src="assets/readme/money-light.svg" alt="Where the USDC goes: a 1 USDC note costs 1.05 USDC, a lease reserves 0.10 USDC and charges at least 0.002 USDC, a close from the wallet pays the rest out" width="860">
+  </picture>
+</p>
+
+- **Vault account.** [`vault.nymira.testnet`](https://testnet.nearblocks.io/address/vault.nymira.testnet), deployed in transaction [`G1LGwd1oxcrza7VSwNuGYf9xjaMeNJzYdEZ2EFamjQVY`](https://testnet.nearblocks.io/txns/G1LGwd1oxcrza7VSwNuGYf9xjaMeNJzYdEZ2EFamjQVY) (`new()` ran in the same transaction)
+- **Vault code hash (reproducible build).** `71QXP9FT4eiRcaqjZtsHi7mXMCAexXjCFgQ338p8tur4` in base58; as SHA-256 of the wasm, `5940b853e51476c69ab2cd0ffba2fb76ffd3fedb621a2471c9ccd2bdb62ad4f5`. Built from the tag [`vault-testnet-1`](https://github.com/nymiralabs/nymira/tree/vault-testnet-1) (commit [`18107d8`](https://github.com/nymiralabs/nymira/commit/18107d876dd9d3912796f4b002e9a006c74b1152)) with [`scripts/reproducible-smoke.sh`](scripts/reproducible-smoke.sh) (cargo-near 0.22.0, rustc 1.99.0, image `sourcescan/cargo-near@sha256:51ab40efd798eae26c0dc71180909303f10bb4988b15ce3a18522c5be06e277e`). The on-chain hash was checked against the build with `view_account`, and testnet.nearblocks.io shows the contract as source code verified (<https://testnet.nearblocks.io/address/vault.nymira.testnet/contract/code>). Two builds on one Mac (arm64) were equal, and a build on an amd64 CI runner ([`vault-reproducible`](.github/workflows/vault-reproducible.yml) workflow, 5 November 2026) gave the same hash.
+- **`vk_hashes()` next to the ceremony transcript hashes.** On chain: request `0xf3092e0d550f696a6507f279862afb43d0c22663de56f1b47160b5db6fc6fa1b`, withdrawal `0x3469ebb3245101549343dbe5939427d3dc7706c314f281f9b5935416fc720c8d`. These equal the verifying key keccak256 values in the `final` release of [nymira-ceremony](https://github.com/nymiralabs/nymira-ceremony), whose transcript SHA-256 is `e75cae40c203b08f8b9e559a2fa4b18f464e709d68abe01318c2d8a7aa4b7e07` (beacon: NEAR mainnet block 222942364). Proving key SHA-256: `request.pk` `b5cdb12000cf51cf566375aadbc2a27cf875438f646f751fa857371cd6cb7022`, `withdrawal.pk` `89e03ac8f9d6e90d189e9a3eb6b0c9c0126e1b121e78955a11f0f70a44d0161d`.
+- **`view_access_key_list` of the vault.** One key, full access: `ed25519:DJc2C6WWveyUY1VvLEdUPjBggzKrMuEwx7GGp1BLHMze`. It is the team's, and it can replace the vault code (see [THREAT_MODEL.md](THREAT_MODEL.md)).
+- **Vault config (`config()`).** Operator [`operator.nymira.testnet`](https://testnet.nearblocks.io/address/operator.nymira.testnet), owner [`owner.nymira.testnet`](https://testnet.nearblocks.io/address/owner.nymira.testnet), treasury [`treasury.nymira.testnet`](https://testnet.nearblocks.io/address/treasury.nymira.testnet). Denominations 1 and 5 USDC, bound classes 0.10 and 0.50 USDC, charge step 0.001, minimum charge 0.002, deposit fee 0.05 USDC, close fee 0.03 USDC, exit delay 604800 s (7 days), note TTL 2592000 s (30 days), cap on open deposits 100 USDC.
+- **Web bundle.** Release testnet 0.1.2 (tag [`web-v0.1.2`](https://github.com/nymiralabs/nymira/tree/web-v0.1.2), commit [`d00dc17`](https://github.com/nymiralabs/nymira/commit/d00dc17ea51c409a9bfe7cec1490d8dc841aa352)), served at <https://nymira.pages.dev> and mirrored at <https://nymiralabs.github.io/nymira/>. `bundle_hash` `3ee5ccb57cdaf2a1fa58cd914b6806909eac98c4dd20c013f6e0af5c926e045f`, `header_set_hash` `0a09ba64fb8a576c119a313c52b3ba78fe426454083cfae085cd43b0212e2eb8`. The signed manifest is in [`web/releases/testnet-0.1.2/`](web/releases/testnet-0.1.2/); the signing key is [`web/pins/release-signing.pub`](web/pins/release-signing.pub) (minisign key id `934C176AF34D794D`). A public Sigstore Rekor entry ([index 3700443670](https://search.sigstore.dev/?logIndex=3700443670)) holds the hash of a text with these two hashes and the key; see [`web/INTEGRITY.md`](web/INTEGRITY.md). Cloudflare adds `access-control-allow-origin: *` to some pages while the signed header set has none; `nymirad verify-web` prints those as accepted notes. No outside party has rebuilt the bundle and attested to it yet.
+- **Keys the vault uses.** The vault account holds only the full-access key above. `operator.nymira.testnet` holds function-call keys limited to `vault.nymira.testnet`: `heartbeat` (`ed25519:ByNe51phL1HLruA2m5mpUNjYU8N8fdAiv2vzjTUPg8Cp`), `mutual_close` (`ed25519:6Sz6SKZd4VRYSiXFANiFS32yNhSfAMwDarHmbmjMiacZ`), and two upkeep keys for `sync_root`, `retire_closed_leaf`, `claim_expired`, `claim_expired_batch` and `finalize_exit` (`ed25519:EcnUgf2F3nVVGh3VJDxydjxfo8asTGJrv2oPaTEns3Di` and, from a second machine, `ed25519:FQZbqfECB8XpMVP42osm5HadqiZpqUyuVzF2cEBmFM7s`). The operator account also carries two old gas keys for `vaultdev.nymira.testnet`, a test vault that is no longer in use, and one full-access key that is kept offline. `owner.nymira.testnet` and `treasury.nymira.testnet` each hold one full-access key. `answer.nymira.testnet` holds the `defeat_exit` and `raise_concession` keys: `ed25519:3aQcKFzVdwHVBM6vjES6LYimcwDZWRwr7V2grAVg1qRC` (laptop) and `ed25519:HBqKTwBSqY62moLVqCK7MM7DZ36hAcQ2jTo2P95J5KbC` (second machine); its full-access key is `ed25519:396S8bP3UUU4zgRLjjYGGP7rEZMi47SzS7T6MKMUnEcf`.
+- **Operator status.** <https://nymira-operator.tail0484c4.ts.net/v1/status>, served from a home machine that can be offline.
 
 The proving and verifying keys come from a setup run by the team alone (the log, scripts and the accepted contributions are in [nymira-ceremony](https://github.com/nymiralabs/nymira-ceremony)). They are sound if at least one contributor really was honest, and the team cannot prove that: if every contribution was dishonest or its machine was compromised, proofs can be forged and the vault emptied. zkapi's development keys, whose secrets are public, never run on the final public vault or on mainnet. The deployed vault uses the final ceremony keys (see the table). A deposit fee is read from the vault's `config()`; on testnet it is a placeholder in test USDC and is not revenue.
 
@@ -27,7 +120,14 @@ The proving keys are release assets of the ceremony repository (`request.pk`, `w
 
 ## Limits
 
-These are the rules of the vault contract and of the testnet deployment. The vault's `config()` shows the values. The operator cannot send your money to another account or block your exit: with `request_exit` you leave to your payout account after 7 days, and the operator can deduct at most the bound of the one lease in flight. If you lose your latest wallet state, an exit from an older state can be defeated and you can lose the remaining balance, so keep your encrypted backup. A note expires 30 days after the deposit; seven days after that, the treasury can take it unless an exit is pending. The team can still update the vault code, and open user deposits in the vault are capped at 100 USDC (test USDC on testnet; the cap bounds open deposits, not what the provider is paid).
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/note-life-dark.svg">
+    <img src="assets/readme/note-life-light.svg" alt="The life of a note: 30 days, a close tried at 5 days left, an exit at 3 days left, and 7 more days before the treasury can take it" width="860">
+  </picture>
+</p>
+
+These are the rules of the vault contract and of the testnet deployment. The vault's `config()` shows the values. While you keep your latest state, the operator cannot send your money to another account or block your exit: with `request_exit` you leave to your payout account after 7 days, and the operator can deduct at most the bound of the one lease in flight. If you lose your latest wallet state, an exit from an older state can be defeated and you can lose the remaining balance, so keep your encrypted backup. The team can still update the vault code, and open user deposits in the vault are capped at 100 USDC (test USDC on testnet; the cap bounds open deposits, not what the provider is paid).
 
 The first sentence holds while you keep your latest state; see the first point below. The cap is a vault parameter that the owner can change after a 48-hour delay announced by an event.
 
@@ -36,9 +136,9 @@ The first sentence holds while you keep your latest state; see the first point b
 - A note expires at the end of the UTC day 30 days after the deposit. The treasury can take it only 7 days after the later of that expiry and the last exit activity on the note, and never while an exit is pending; until then an expired note can still exit and finalize.
 - If the operator is offline for a whole 7-day exit window, a user can leave with an older, higher balance than the real one. The loss falls on the operator, and the 100 USDC cap on open deposits bounds it.
 - Closing shows your note ID, total spend and payout account on chain, next to the account that sends the close.
-- The web app cannot use Tor, so the operator and the RPC provider see your IP address. Use Tor Browser or `nymirad` for IP protection.
+- The web app cannot use Tor. The operator's entry relay (a Tailscale Funnel) sees your IP address and request times, and passes the address to the operator's machine in a header that the operator software does not read or store. The RPC provider sees your IP address too. Use Tor Browser or `nymirad` for IP protection.
 - GPU evidence goes through the operator relay and is checked in your client. NVIDIA's attestation service (NRAS) answers 403 to Tor exit nodes ([issue 165](https://github.com/nymiralabs/nymira/issues/165)), so `nymirad` cannot send the model's GPU evidence there over Tor. The operator forwards it instead and returns the answer unchanged. It learns that some client asked for a GPU check, and when, and keeps nothing. Your client checks the signature, the nonce, the times, and that the signing key's certificate chain reaches a certificate pinned in the signed attestation policy. The call uses its own Tor circuit, apart from your lease.
-- The signed policy (version 5) pins two NVIDIA intermediate certificates. They come from NVIDIA's public key set, where on 5 November 2026 every key carried a two-certificate chain. On 5 November 2026 the 005 certificate matched, byte for byte, the one served by NVIDIA's own PKI host (`prod.vault.nvidia.com`), and both intermediates verify under NVIDIA's "Attestation Service CA 001" root published there (SHA-256 `CDE269E3…1A1E`). No NVIDIA documentation page lists these fingerprints, so the policy still marks the pins as unverified, and the root is not pinned. One chat through `nymirad` over Tor with the relay passed the GPU check and ended model-signed on 5 November 2026.
+- The signed policy ([version 5](crates/nymirad/pins/attestation-policy.changelog.md)) pins two NVIDIA intermediate certificates. They come from NVIDIA's public key set, where on 5 November 2026 every key carried a two-certificate chain. On 5 November 2026 the 005 certificate matched, byte for byte, the one served by NVIDIA's own PKI host (`prod.vault.nvidia.com`), and both intermediates verify under NVIDIA's "Attestation Service CA 001" root published there (SHA-256 `CDE269E3…1A1E`). No NVIDIA documentation page lists these fingerprints, so the policy still marks the pins as unverified, and the root is not pinned. One chat through `nymirad` over Tor with the relay passed the GPU check and ended model-signed on 5 November 2026.
 - `nymirad serve --nras-direct` sends the GPU evidence straight to NVIDIA, without Tor, so NVIDIA sees your IP address and when you ask. It is off by default, `nymirad status` says when it is on, and `nymirad` never switches to it by itself.
 - The web app does not check NVIDIA GPU evidence. It checks the Intel TDX quote, the signed policy and the key binding.
 - A compromised host could serve a different web app. `nymirad verify-web` catches that only if you run it and the host does not cloak, so it does not replace trusting the host you load the app from.
@@ -48,10 +148,28 @@ Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum
 
 ## Download `nymirad`
 
-Each `nymirad-vX.Y.Z` release on GitHub has a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in `web/pins/release-signing.pub`) that lists every file. Check the signature with `minisign -V -p web/pins/release-signing.pub -m SHA256SUMS`, then run `shasum -a 256 -c SHA256SUMS`.
+Get the binary from the [releases page](https://github.com/nymiralabs/nymira/releases) (the newest is [nymirad-v0.1.2](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.2)). Each `nymirad-vX.Y.Z` release has the two binaries, `attestation-policy.json` and a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in [`web/pins/release-signing.pub`](web/pins/release-signing.pub)) that lists every file. The steps are the same on both platforms:
 
-- **Linux x86_64** (`nymirad-X.Y.Z-x86_64-linux`): built twice in the pinned container, and published only when the two builds are identical (`scripts/release-nymirad.sh build`). In a few runs the two builds differed and the cause is not found, so a rebuild may need a second try. No outside party has rebuilt a release yet.
-- **macOS arm64** (`nymirad-X.Y.Z-aarch64-macos`): built by hand on the maintainer's Mac. The signature shows that the project published these exact bytes. It does not show that the binary matches the source, because the macOS toolchain's output is not byte-stable and nobody can rebuild it to the same hash. If that matters to you, build from the tag yourself or use the Linux binary.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/verify-dark.svg">
+    <img src="assets/readme/verify-light.svg" alt="Download the binary, SHA256SUMS and its signature; check the signature with the pinned minisign key; check the binary's hash; then run nymirad init" width="860">
+  </picture>
+</p>
+
+```bash
+V=0.1.2                      # the release you want
+B=https://github.com/nymiralabs/nymira/releases/download/nymirad-v$V
+curl -LO $B/SHA256SUMS -LO $B/SHA256SUMS.minisig -LO $B/nymirad-$V-aarch64-macos   # or ...-x86_64-linux
+minisign -V -p web/pins/release-signing.pub -m SHA256SUMS      # the signature must verify
+shasum -a 256 -c SHA256SUMS --ignore-missing                   # the binary's hash must match
+chmod +x nymirad-$V-aarch64-macos && ./nymirad-$V-aarch64-macos init --help
+```
+
+[`minisign`](https://jedisct1.github.io/minisign/) is a small signature checker (`brew install minisign`). The key file is in this repository, so check it out or download that one file first. [`web/INTEGRITY.md`](web/INTEGRITY.md) says how the key's fingerprint is published and how to check it. The full list of `nymirad` commands is in [Try it locally](#try-it-locally) and [Budget notes for agents](#budget-notes-for-agents).
+
+- **Linux x86_64** (`nymirad-X.Y.Z-x86_64-linux`): built twice in the pinned container, and published only when the two builds are identical ([`scripts/release-nymirad.sh build`](scripts/release-nymirad.sh)). In a few runs the two builds differed and the cause is not found, so a rebuild may need a second try. No outside party has rebuilt a release yet.
+- **macOS arm64** (`nymirad-X.Y.Z-aarch64-macos`): built by the [`nymirad-macos`](.github/workflows/nymirad-macos.yml) workflow and added to the release by hand, then signed with the rest. The signature shows that the project published these exact bytes. It does not show that the binary matches the source, because the macOS toolchain's output is not byte-stable and nobody can rebuild it to the same hash. If that matters to you, build from the tag yourself or use the Linux binary.
 
 `nymirad` starts its own Tor, and it runs only a Tor executable whose SHA-256 is compiled into the build. A build pins one hash per platform. Three packages are pinned, each one run through `nymirad`'s Tor start, which bootstrapped and carried a request over Tor:
 
@@ -67,7 +185,7 @@ On a Mac with Apple silicon:
 2. Copy that file to `~/.nymira/tor/package/tor` (or set `tor_package` in `config.json` to its path). Without a pinned Tor package or your own SOCKS proxy, chat and `close` do not start.
 3. Or run a Tor you trust yourself and give `nymirad` its loopback SOCKS port: `nymirad init ... --socks 127.0.0.1:9050`. Then `nymirad` does not check the Tor executable; you do.
 
-On Debian 12 (amd64 or arm64): `apt install tor`, then check `sha256sum /usr/bin/tor` prints the hash above for your architecture, and continue with step 2. Debian ships newer builds as security updates; a build other than 0.4.9.11-0+deb12u1 has a different hash and `nymirad` refuses it, so use option 3 then. Other Linux distributions have no pinned package, so use option 3.
+On Debian 12 (amd64 or arm64): `apt install tor`, then check `sha256sum /usr/bin/tor` prints the hash above for your architecture, and continue with step 2. Debian ships newer builds as security updates; a build other than 0.4.9.11-0+deb12u1 has a different hash and `nymirad` refuses it, so use option 3 then. The Debian pins are on main and not in the 0.1.2 binary, which pins only the macOS package. Other Linux distributions have no pinned package, so use option 3.
 
 ## Set size in `nymirad status`
 
@@ -79,7 +197,7 @@ The figure is an upper bound. Balances are private, and N includes notes the ope
 
 ## Build
 
-The toolchain is pinned in `rust-toolchain.toml` (rustc 1.99.0, `wasm32-unknown-unknown`). Install cargo-near 0.22.0, then:
+The toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml) (rustc 1.99.0, `wasm32-unknown-unknown`). Install [cargo-near](https://github.com/near/cargo-near) 0.22.0, then:
 
 ```bash
 cargo check --target wasm32-unknown-unknown --locked -p nymira-vault -p nymira-near-codec -p nymira-verifier -p verifier-probe -p mock-usdc -p mock-ft-receiver -p nymira-near-codec-wasm
@@ -115,223 +233,37 @@ The CLI integration tests deliver through the open-source Verifier, release v0.4
 
 ## Budget notes for agents
 
-A budget note is a note you fund for one agent. Its payout account is your own account, fixed at deposit, so whatever the agent leaves comes back to you. The agent gets a token and can spend that one note on inference. It cannot withdraw anywhere else.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/budget-dark.svg">
+    <img src="assets/readme/budget-light.svg" alt="A budget note for one agent: the vault enforces the ceiling, nymirad on your machine enforces the policy" width="760">
+  </picture>
+</p>
 
-```bash
-nymirad agent create --name cursor --transport tcp --key-file KEY --amount 1000000
-nymirad agent create --name worker --transport unix --agent-user agent1 --token-file /srv/agent/worker.token --key-file KEY --amount 1000000
-nymirad agent list
-nymirad agent disable --name cursor
-nymirad agent policy --name cursor --file cursor-policy.signed.json
-```
+A budget note is a note you fund for one agent. Its payout account is your own account, fixed at deposit, so whatever the agent leaves comes back to you. The agent gets a token and can spend that one note on inference, and nothing else. The vault enforces the ceiling (the note's balance). `nymirad` on your machine enforces the policy you sign: models, lease, call and daily limits, rate, approvals and `require_tee`.
 
-`agent create` is the normal deposit plus a registry entry, written before the transfer is signed. On chain the note looks like any other note of its denomination. It prints a reminder that a fresh 1 USDC note each day is the hard way to cap a day's spend: it costs the note fee every day and leaves a daily deposit pattern on your account. The registry (`agents.json` in the state directory, mode 0600) keeps the agent name, a hash of the token, the budget note, your account and the policy version. Tokens are never stored. Agent tokens start with `nyma_`, the owner token with `nymo_`, so a tool can accept only the agent prefix.
+- **Set it up:** the [Agents screen](https://nymira.pages.dev/#agents) builds and signs the policy and prints the `nymirad` commands, or use `nymirad agent create` ([commands](BUDGET_NOTES.md#agent-api)).
+- **Connect a tool:** [IronClaw](BUDGET_NOTES.md#ironclaw) (tested with v1.4.1) through the OpenAI-compatible API, [Cursor](BUDGET_NOTES.md#cursor) through the [MCP server](mcp/README.md).
+- **Know the limits:** [what a budget note guarantees](BUDGET_NOTES.md#what-a-budget-note-guarantees), and [what changes when the note lives on the agent's machine](BUDGET_NOTES.md#opt-in-the-note-on-the-agents-machine).
 
-- **Own note only.** An agent token draws on its budget note and nothing else. Your own token never selects a budget note, and `nymirad status` marks them.
-- **One transport per token.** A `unix` token works on the agent socket only and a `tcp` token on loopback port 8788 only. A remote agent reached through an SSH forward gets a `tcp` token.
-- **Routes.** An agent token reaches `POST /v1/chat/completions`, `GET /v1/models`, `GET /v1/nymira/balance` and `POST /v1/nymira/quote` on both listeners and nothing else, and works as an OpenAI API key on the first two (the last two are described under "Agent API" below). The owner token is not accepted on the agent socket.
-- **Disabling.** `agent disable` takes effect on the next request, which gets 401 `token_disabled`.
-- **No policy, no spending.** Until a signed policy is loaded for the agent, every agent request gets 402 `policy_missing` and nothing reaches the operator. A policy that is unsigned, changed after signing, signed by another account or by a function-call key, signed for another agent or note, older than one already seen, or that misses a limit key or has an unknown one counts as no policy.
-- **Signed policy.** `policy.yaml` has `allowed_models`, `max_lease_usd`, `max_call_usd`, `max_daily_usd`, `confirm_above_usd`, `rate_limit_per_min`, `require_tee` (omitted means true) and `allowed_origins` (empty for now; a non-empty list is refused until paying sellers exists). You sign it with your NEAR account (NEP-413) and a full-access key. The signed message is JSON, `{"kind":"nymira-policy","version":N,"policy":"<the yaml text>"}`, and the recipient is `nymirad:<agent name>:<note commitment>`. `agent policy` checks the signature, reads your account's access keys over the configured RPC endpoints to confirm the key is full-access, prints a summary and asks you to type yes. The policy applies from the agent's next request. The YAML is a small subset (one `key: value` per line, plain-word lists, no anchors, tags, merge keys or quotes) and is parsed only after the signature over its exact bytes has verified. The signed file is kept in the state directory (`policy-<agent>.json`, mode 0600) and checked again on every request.
-- **Model allowlist.** A request for a model outside `allowed_models` gets 402 `model_not_allowed` before anything leaves the machine, also on a lease that is already open. `GET /v1/models` lists only the allowed models.
-- **Spending limits.** Every agent request, also one on an open lease, is checked in this order: token enabled, valid signed policy, model, rate, call cost, the day, and last the note's balance. `rate_limit_per_min` caps requests in a minute (429 `policy_rate_limit` with `Retry-After`). `max_call_usd` lowers the `max_tokens` that is sent so the call's worst case stays within it; a request whose own `max_tokens` asks for more, or whose input alone passes the limit, gets 402 `call_limit`. `max_daily_usd` counts, for the UTC day, what settled leases charged plus the bound of the open lease plus the worst case of calls in flight; a request that would pass it gets 402 `daily_limit`. Opening a lease reserves its bound, and settlement replaces the reservation with the charge. The day's total is kept in `counters-<agent>.json` in the state directory and after a restore is never lower than the charges in the lease records. Leases use the 0.10 USDC bound class; the 0.50 class only when the request asks for it with `X-Nymira-Max-Lease-Usd` and `max_lease_usd` is at least 0.5. The call limit lowers `max_tokens`, never the bound. A note that cannot cover the bound gets 402 `budget_exhausted`, whatever your other notes hold. A third request while the note's lease has two in flight gets 409 `busy`. A call whose worst case is above `confirm_above_usd` is held for your approval and gets 402 `approval_required`.
-- **`require_tee`.** With `require_tee: true`, the default, an agent gets an answer only after `nymirad` has checked its signature against the exact bytes exchanged. The model's attestation report, and the binding of the encryption key to it, are checked before anything is encrypted, and the answer opens only with that key. The provider's signatures can only be read once a lease is closed, so each such call closes its lease, waits up to 120 s for the operator to store the signature, and only then releases the answer. A streamed answer is held and released in one piece. The reply carries `X-Nymira-Signature-Kind`, `model-signed` or `gateway-signed`. `require_tee` means the attestation verified and the key is bound to it; a gateway-signed answer passes, and it does not show that the model itself signed. Streams are expected to be gateway-signed. An answer that fails gets 502 `not_verified` and no content. The closed lease has to settle before the note can serve the next call. With `require_tee: false` the lease stays open and answers arrive at once.
+Everything about it is in [BUDGET_NOTES.md](BUDGET_NOTES.md).
 
-### Agent API
+## Documentation
 
-An agent calls these with `Authorization: Bearer nyma_...` on the agent socket or on loopback port 8788. Every number is in micro-USD (1 USDC is 1,000,000) unless the name says USD.
-
-- `GET /v1/nymira/balance` returns `balance_micro` (the deposit less the charges of settled leases; a lease still open counts when it settles), `spendable_micro` (the balance when it can pay for a lease of the agent's class and the note is open, else 0), `lease_bound_micro`, `spent_today_micro`, `note` (`status`: `open`, `expiring`, `revoking`, `exiting`, `closed` or `unfunded`; `closing`; `expires_at` in Unix seconds), `charge_warning` and `limits` (the policy's limits). It names no other note.
-- `POST /v1/nymira/quote` takes the same body as a chat request and runs the same checks, in the same order, as `POST /v1/chat/completions`. It moves no counter, holds no approval, opens no lease and sends nothing. It answers `{"decision": "allow" | "needs_approval" | "deny", "reason": ..., "estimated_cost_micro", "max_tokens", "input_tokens", "model"}`; a `deny` also carries `http_status`, `retry_after_secs` for a rate limit and `detail` for `unavailable`. The balance and the lease are read from local state, so a refusal the operator would make at the lease (its own limits) shows only when the call is made.
-- `X-Nymira-Max-Cost-Usd` on a chat or quote request caps the call's cost in USD with at most 6 decimals, for example `0.002`. It lowers the `max_tokens` that is sent. A cap above `max_call_usd` is refused, not lowered. A request whose own `max_tokens` would pass the cap, or a cap below the cost of the prompt and one answer token, also gets 402 `call_limit`.
-- A non-streamed chat answer on the agent API carries `nymira.charge_usd`: what this call cost at the pinned prices, from the usage the answer reports, as a USD decimal string with six places, rounded up to a micro-USD. It is an estimate of the call alone. The lease's final charge adds the slot fee and the charge step, and shows in the balance after the lease settles. A replay under an `Idempotency-Key` returns the same figure. A streamed answer has none.
-- `Idempotency-Key` on a chat request (1 to 128 printable characters, not with `stream: true`): a retry of the same request with the same key returns the first answer, with `X-Nymira-Idempotent-Replay: true`, and spends nothing. A retry that arrives while the first request runs waits for it. The answer is found by token, note, key and request, so another token, another note or another request finds nothing. It is kept in memory for 5 minutes, at most 64 at once, never written to disk or a backup. Only answers are kept; a refusal or failure runs again on retry.
-- Message `content` is one string, or a list of text parts that are each exactly `{"type": "text", "text": "..."}`; `nymirad` joins the texts with nothing between them and encrypts the result as one string. A part of any other type (image, audio, file) or with an extra field, and an empty list, gets 400 `invalid_request`, because it would have to travel in the clear or be dropped.
-- `X-Nymira-Approval-Id` on a chat request is the retry of a held call. The 402 `approval_required` that held it carries the ID as `error.approval_id` and in the `X-Nymira-Approval-Id` response header.
-- `X-Nymira-Max-Lease-Usd` asks for the 0.50 lease class, as above.
-
-Errors use the OpenAI shape, `{"error": {"message", "type", "param", "code"}}`, plus `approval_id` for `approval_required` and `detail` for `unavailable`. On the agent API the `code` is one of the reasons below and the `message` is a fixed text or one `nymirad` wrote from its own figures; nothing the operator or the model wrote is passed on.
-
-| Status | `code` | Meaning |
-|---|---|---|
-| 401 | `token_disabled` | the owner disabled this token |
-| 402 | `policy_missing` | no valid signed policy for this agent |
-| 402 | `model_not_allowed` | the model is not in `allowed_models` |
-| 402 | `call_limit` | the call would pass `max_call_usd` or the cost cap, or the cost cap is above `max_call_usd` |
-| 402 | `daily_limit` | the call would pass `max_daily_usd` |
-| 402 | `approval_required` | held for the owner; carries the approval ID |
-| 402 | `budget_exhausted` | the note cannot cover the lease |
-| 402 | `note_expiring` | the note is in its last 5 days, or a revocation, close or exit has begun |
-| 402 | `note_moved` | the note was moved to the agent's own machine; this copy does not spend it |
-| 402 | `no_note_can_cover_request` | the lease cannot pay for this prompt and an answer |
-| 429 | `policy_rate_limit` | `rate_limit_per_min` reached; `Retry-After` given |
-| 429 | `operator_capacity` | the operator's admission, in-flight limit or daily provider budget refused; `Retry-After` given, to the next UTC midnight when the daily budget is used up |
-| 429 | `provider_rate_limit` | the model provider is rate limiting; `Retry-After` given |
-| 409 | `busy` | the note's lease already has 2 requests in flight |
-| 502 | `not_verified` | `require_tee` withheld an answer whose signature did not verify |
-| 503 | `unavailable` | `detail` says why: `tor_down`, `tor_refused`, `vault_pins_changed`, `operator_emergency`, `charge_warning` (see below), `operator_unreachable`, or the code of any other operator error |
-
-Approval requests also use `approval_unknown` (404), `approval_used` (409), `approval_expired` (410), `approval_mismatch` (409) and `approval_limit` (429); a malformed body is 400 `invalid_request`.
-
-A **charge warning** is raised when a lease settles with a charge more than one charge step above the one recomputed from the signed usage. From then on every request on that agent's note gets 503 `unavailable` with `detail: charge_warning`, `nymirad serve` prints a warning, and `agent show` marks it, until you run `nymirad agent ack-warning --name NAME`. The mark is a file in the state directory and part of the backup.
-
-### What a budget note guarantees
-
-The ceiling is cryptographic: an agent can spend at most the balance of its budget note, and a close can only pay your payout account. The policy is only as strong as the machine that runs `nymirad`. The model list, the lease, call and daily limits, the rate limit, the approvals and `require_tee` are checked there. That machine is yours by default. In opt-in mode (below) it is the agent's, and revoking is not guaranteed.
-
-Both rest on the vault matching the client's pins. The team can still update the vault code, and open user deposits in the vault are capped at 100 USDC (test USDC on testnet).
-
-There is no remote rate limit and no remote kill switch. A lease request does not name its note, and the design is meant to keep the operator from grouping leases by note. That is a claim of the underlying protocol that has not been checked independently. Only your own `nymirad` limits an agent's rate, and only you disable its token. The operator can still stop new leases for everyone, through its emergency stop and capacity limits.
-
-Closing a budget note shows its note ID and total spend on chain, next to the payout account you named, so the agent's total becomes public at the end.
-
-### Agents screen in the web app
-
-The web app has an Agents screen for the owner. It builds `policy.yaml` from form fields and signs it with your NEAR wallet (NEP-413, so the wallet has to support `signMessage`; on testnet Meteor and Intear are the supported wallets, and the screen is hidden when the connected wallet cannot sign messages). `require_tee: true` is the only value it offers. It signs an approval from the approval ID, request hash, amount and nonce that `nymirad agent approvals` shows, and it prints the `nymirad` commands and tool settings from the fields you type: every value is shell-quoted, control characters are refused, and nothing is read from the URL. The remote-agent forward it prints is `ssh -N -R 8788:localhost:8788 AGENT_HOST`, to run on your machine.
-
-The page creates no budget note, never asks for or shows a token, and makes no request to `nymirad`. You download the signed files and run the commands yourself. The policy needs the note commitment: it is the `note` field of the agent in `agents.json` in the state directory, and it goes into the signed recipient, so a file signed for one agent or note is refused for another.
-
-### Another OS user on your machine
-
-Use `--transport unix --agent-user USER --token-file PATH`. `nymirad serve` opens a socket at `/tmp/nymira-agent-<your uid>/agent.sock` (or `agent_socket_dir` in `config.json`), mode 0660 in a directory of mode 0750, both in the agent group. The group is the agent user's primary group, or `--group`. Every connection's peer user ID is checked: your own OS user is refused, as is any user no socket agent is registered for, and each token works only for its own user. The token file is mode 0640, owned by you, in the agent group, so the agent user can read it and nobody else can. If you are not a member of that group, you cannot give files to it: the command then prints `sudo chgrp GROUP FILE` for the token file, and `serve` prints the `sudo chgrp` and `chmod 2750` commands for the socket directory. Restart `nymirad serve` after the first socket agent is created.
-
-The peer check on the socket is the only OS-user check there is. Loopback TCP has none, so a `tcp` token is a bearer secret for anything on the machine that can read it. An agent that runs as your own OS user (Cursor, IronClaw, any tool started from your shell) can read your owner token. Run it against a dedicated `nymirad` instance with its own `--home`, port and owner token that holds only its budget note and none of your personal notes. `agent create` refuses `--agent-user` set to your own user.
-
-### Another machine
-
-Requests arrive on the loopback listener, so they pass the same checks as yours: loopback peer, `Host: localhost:8788`, no `Origin`, no cross-site fetch. Start the forward from your own machine, so the agent host holds no credential for it:
-
-```bash
-ssh -N -R 8788:localhost:8788 AGENT_HOST
-```
-
-The forwarded port binds to the loopback of the agent host as long as `GatewayPorts` stays off there. A direct connection to your machine over a tailnet or LAN is refused. If the forward has to start on the agent host, restrict that key in your `authorized_keys` with `restrict,port-forwarding,permitopen="localhost:8788",command="/bin/false"` and run `ssh -N -L 8788:localhost:8788 OWNER_HOST` there. `permitopen` limits `-L` forwards only. For a key that starts the `-R` forward from your machine on the agent host, use `restrict,port-forwarding,permitlisten="localhost:8788",command="/bin/false"` there instead. `scripts/agent-ssh-forward-check.sh` tests both lines against a throwaway `sshd` on loopback (no `sudo`): no shell, only the permitted port forwards, other ports are refused. It passed with OpenSSH 10.3. `scripts/agent-os-user-check.sh` checks the socket and token file with a throwaway second OS user (macOS, needs `sudo`).
-
-### IronClaw
-
-<!-- recipe:ironclaw begin: written from shared/recipes.json by scripts/recipes.mjs, do not edit here -->
-
-[IronClaw](https://github.com/nearai/ironclaw) is NEAR's agent runtime. This recipe points it at `nymirad`, so every model call it makes is paid from a budget note under your signed policy. It was tested with IronClaw v1.4.1. A newer version is listed here only after it passes `scripts/agents-smoke.sh`, which runs that release against the mock stack and checks its SHA-256 before it unpacks it. The recipe works against `make demo` with no keys or money: `cargo run -p nymirad --features mock --example demo_sign -- DEMO_HOME NAME` signs the demo policy with the demo account's key. That tool is built only with the `mock` feature, so a release build has no key to sign with.
-
-Start from a budget note, a signed policy that allows the model below, and an agent token (see "Budget notes for agents" in the README or the Agents screen). IronClaw starts as the user who launches it, so it must not share an OS user with the `nymirad` that holds your own notes. Pick one:
-
-- a different OS user on this machine (IronClaw reaches `nymirad` over loopback TCP, so issue a `tcp` token, not a `unix` one);
-- a different machine, reached with the forward under "Another machine" in the README;
-- a dedicated `nymirad` instance with its own `--home`, port and owner token that holds only the budget note.
-
-Write an environment file that only IronClaw's user can read (mode 0600), from your token file. Run this as you, and replace `AGENT_USER` with IronClaw's OS user:
-
-```bash
-{
-  echo 'LLM_BACKEND=openai_compatible'
-  echo 'LLM_BASE_URL=http://localhost:8788/v1'
-  printf 'LLM_API_KEY=%s\n' "$(cat /srv/agent/ironclaw.token)"
-  echo 'LLM_MODEL=z-ai/glm-5.3-flash'
-} | sudo install -m 600 -o AGENT_USER /dev/stdin ~AGENT_USER/nymira.env
-```
-
-Then, as IronClaw's user, from a work directory that is not the home directory:
-
-```bash
-set -a; . ~/nymira.env; set +a
-ironclaw onboard --no-service </dev/null
-ironclaw models status        # default.base_url must read http://localhost:8788/v1
-```
-
-`LLM_BACKEND=openai_compatible` is IronClaw's generic provider (`provider_id = "openai_compatible"` with a `base_url` in `config.toml` is the same thing). `onboard` with no terminal asks nothing and copies the key from the environment into IronClaw's own secret store under that user's home; disabling the token (`nymirad agent disable --name ironclaw`) is what stops the agent, not deleting the file. Use the pinned model's canonical ID. `nymirad` refuses any model outside `allowed_models` with 402 `model_not_allowed`, whatever IronClaw is configured to ask for, and `GET /v1/models` lists only the allowed ones.
-
-One-line check, then the owner command that shows the charge:
-
-```bash
-ironclaw run --message "Reply with one short greeting."     # as IronClaw's user
-nymirad agent show                                          # as you: balance, and spend today once the lease has settled
-```
-
-What to expect:
-
-- Chat completions only. An agent token reaches `/v1/chat/completions` and `/v1/models` as an OpenAI key; every other OpenAI route is refused.
-- IronClaw on Linux sends message content as a list of text parts (on macOS as a string). `nymirad` joins the text parts into one string before it encrypts them; any other part type is refused with 400.
-- At most two requests in flight per lease; a third gets 409 `busy`.
-- A pause of up to about 10 seconds when a new lease opens.
-- A call whose worst case is above `confirm_above_usd` is held for your approval and gets 402 `approval_required`.
-- A 429 `operator_capacity` with `Retry-After` when the operator's daily provider budget is used up; a 429 `policy_rate_limit` when your own rate limit is reached.
-- Errors arrive in OpenAI's shape. IronClaw words a 402 as "The AI provider account is out of credits" and prints `nymirad`'s reason (the `code`, for example `model_not_allowed`) in its warning line.
-- With `require_tee` on, an answer is held until its signature and the model's attestation are checked, and each answer comes back with its signature kind in `X-Nymira-Signature-Kind`. Streamed answers are expected to be gateway-signed, not model-signed. `run` in v1.4.1 sent no `stream` field in our run.
-
-What IronClaw's calls still reveal: the operator sees the model, the request settings, the number and size of messages, token usage and timing, as for any request (THREAT_MODEL.md). IronClaw sends its own tool list with every request; v1.4.1 sent 26 definitions in our run, so that length is visible too, and their text is encrypted. The set of notes a lease could belong to is small while few notes are open, and on testnet it is made of test notes. IronClaw's other traffic does not go through Tor. A machine that runs IronClaw sees every prompt.
-
-IronClaw has no MCP entry for the Nymira server. Its documentation says v1.4.1 connects to MCP servers over HTTP(S) and rejects the `stdio` transport, and the Nymira server speaks stdio only. IronClaw pays through the provider route above.
-
-For IronClaw on another machine, run this on your machine, so the agent host holds no credential for yours:
-
-```bash
-ssh -N -R 8788:localhost:8788 AGENT_HOST
-```
-
-The forwarded port binds to loopback on the agent host while `GatewayPorts` stays off there, and a direct connection to your machine over a tailnet is refused. If the forward must start on the agent host, restrict the key on your machine as shown under "Another machine" in the README. Never expose `nymirad` through a public tunnel: that removes the loopback guard, and the tunnel's operator would carry the token.
-
-<!-- recipe:ironclaw end -->
-
-### Cursor
-
-<!-- recipe:cursor begin: written from shared/recipes.json by scripts/recipes.mjs, do not edit here -->
-
-Cursor's agent pays for answers from a budget note through the Nymira MCP server and its `nymira_ask` tool. It does not use Cursor's base URL override (see below). Cursor has not been run against this recipe, so no Cursor version is listed here; the entry follows the format in Cursor's MCP documentation.
-
-Start from the same budget note, signed policy and agent token as for the IronClaw recipe. Cursor starts the MCP server as the user who runs Cursor, so run Cursor as a different OS user or on a different machine, or point the entry at a dedicated `nymirad` instance that holds only the budget note.
-
-Install the server at a fixed path from the signed release (the steps are in `mcp/README.md`), keep the token in a file that only that user can read, and add this entry to `.cursor/mcp.json` in the project or to `~/.cursor/mcp.json`. It holds the path of the token file and no token. `node tools/host-config.ts --host cursor` in `mcp/` prints it for your paths.
-
-```json
-{
-  "mcpServers": {
-    "nymira": {
-      "type": "stdio",
-      "command": "/usr/local/bin/node",
-      "args": [
-        "/opt/nymira-mcp/node_modules/@nymiralabs/nymira-mcp/dist/index.js",
-        "--token-file",
-        "/srv/agent/cursor.token",
-        "--transport",
-        "tcp",
-        "--url",
-        "http://127.0.0.1:8788"
-      ]
-    }
-  }
-}
-```
-
-**Why not the base URL override.** Replies on Cursor's forum say that a request with an overridden base URL first goes to Cursor's servers ([one](https://forum.cursor.com/t/problem-reaching-openai-error-on-a-local-model-with-overriden-base-url/3975), [two](https://forum.cursor.com/t/connecting-local-ai-server-to-cursor-does-not-work/152940)), so they cannot reach `localhost`. Exposing `nymirad` through a tunnel would remove its loopback guard, and Cursor would still read every prompt. If Cursor adds a mode that sends custom-base-URL requests from the local client, this recipe is checked again before that path is added.
-
-**What Cursor sees.** Cursor and its model vendor see what the agent sends to `nymira_ask` and what comes back, with the balance, charges and timing the tools return. MCP gives no content privacy from the host. What the path does give: NEAR AI sees only Nymira's organisation as the payer, the agent cannot raise its ceiling, and your policy applies to every call.
-
-What to expect is the IronClaw list, with the tool's own limits: `max_usd` caps a call, a held call returns `approval_required` and only you can approve it, and an answer's text reaches Cursor as untrusted text.
-
-One-line check, then the owner command that shows the charge: ask Cursor's agent to call `nymira_ask` with a short question and `max_usd` of `0.01`, then run `nymirad agent show`. To stop the agent, run `nymirad agent disable --name cursor`.
-
-<!-- recipe:cursor end -->
-
-### Opt-in: the note on the agent's machine
-
-If the agent has to run without your machine, you can move its budget note to the agent's own `nymirad`. This is off unless you ask for it, and only the owner CLI does it.
-
-```bash
-nymirad agent move --name cursor --agent-recipient AGE_PUBLIC_KEY_OF_THE_AGENT_MACHINE \
-  --state-recipient YOUR_AGE_PUBLIC_KEY --state-place /mnt/vault/states --out cursor-move.age
-# on the agent's machine, into an empty state directory:
-nymirad restore --from cursor-move.age
-# later, on your machine:
-nymirad agent import-state --name cursor --from /mnt/vault/states
-```
-
-`agent move` prints what you give up and asks you to type yes. In short: revocation is not guaranteed, the ceiling is. The note's balance is still the most the agent can spend, and a close can only pay your payout account. The policy, the counters and the approvals now run on the agent's machine and are advisory, because anyone who controls that machine can change them. Revoking becomes a race: only what is unspent when your close or exit lands comes back to you, a hostile agent can spend the rest on inference first, and an exit from a stale state can be defeated by a newer one.
-
-After the move your copy refuses to spend (402 `note_moved`), so two copies never fork the note. It keeps the secret, so you can still close or exit. The agent machine's `nymirad` takes the token over on loopback TCP (a Unix user ID from your machine means nothing there) and carries the signed policy and this note's lease records, so today's charges still count against the daily limit. After each retire it writes the note's new state to every `--state-place`, as `moved-<note>-<sequence>.age`, encrypted to your age key.
-
-`agent import-state` decrypts every file there with your private key and chooses by the note's nullifier chain: a state counts only if its anchor lies on the chain that your secret generates and the operator's signature on it verifies. The file's own sequence number only breaks a tie, so a validly encrypted old state with a high number loses to a longer chain. Stale files are listed. It then asks the operator whether the best state's nullifier is already used and warns if it is: the agent is ahead of the files you hold. Run it before every close or exit of a moved note.
-
-A moved note can only be paid out to the account fixed at deposit, so an agent that holds the secret and sends `mutual_close` pays only you (a test covers it). Paying sellers (x402) is not built yet; when it is, your copy will refuse to pay sellers for a moved note, and an agent that holds the secret could pay any listed seller.
+| Read | For |
+|---|---|
+| [Website](https://nymira.pages.dev) | The web app and the landing page. |
+| [Documentation page](https://nymira.pages.dev/#docs) | How a note lives, who sees what, the vault, `nymirad`, budget notes, how to verify a release. It has a lease calculator. |
+| [JUDGES.md](JUDGES.md) | A 20-minute path from a new wallet to a first answer and a close. |
+| [THREAT_MODEL.md](THREAT_MODEL.md) | What the operator, the model provider, the RPC provider and the web host can see and do. |
+| [TERMS.md](TERMS.md) | Terms of use of the testnet deployment. |
+| [web/README.md](web/README.md) | The web app: screens, storage, backups, set size. |
+| [web/INTEGRITY.md](web/INTEGRITY.md) | How a web release is signed, and how to check it. |
+| [BUDGET_NOTES.md](BUDGET_NOTES.md) | Budget notes for agents: the policy, the agent API, the IronClaw and Cursor recipes, the opt-in mode. |
+| [mcp/README.md](mcp/README.md) | The MCP server for agents that spend from a budget note. |
+| [PINS.md](PINS.md) | The toolchain and dependency pins. |
+| [Releases](https://github.com/nymiralabs/nymira/releases) | The `nymirad` binaries and their signed checksums. |
+| [llms.txt](https://nymira.pages.dev/llms.txt) | A short index of the above, as plain text. |
 
 ## License
 

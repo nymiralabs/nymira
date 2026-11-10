@@ -1,0 +1,569 @@
+/* The composer slot of a chat with no funded note: the same box, with the way to Fund inside. */
+.nc-compose-idle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 12px 12px 16px;
+}
+.nc-compose-idle p {
+  margin: 0;
+  color: var(--nm-muted);
+}
+.nc-compose-idle .nc-button {
+  margin: 0;
+  flex: none;
+}
+
+/* Without a note the inspector is short: the screen takes the height left under the header and
+   the notice, whatever that is, so the composer sits at the bottom as it does with a note. */
+.nc-content,
+.nc-content > div:has(.nc-chat-screen),
+.nc-content > div > div:has(.nc-chat-screen) {
+  display: flex;
+  flex-direction: column;
+}
+.nc-content > div:has(.nc-chat-screen),
+.nc-content > div > div:has(.nc-chat-screen) {
+  flex: 1;
+}
+.nc-screen.nc-chat-screen {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The note list that shows when a conversation cannot open by itself: rows, not cards. */
+.nc-pick {
+  display: grid;
+  gap: 16px;
+  max-width: 640px;
+}
+.nc-pick-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--nm-line);
+}
+.nc-pick-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 14px 16px;
+}
+.nc-pick-row + .nc-pick-row {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-pick-id,
+.nc-pick-life {
+  display: grid;
+  gap: 6px;
+}
+.nc-pick-id strong {
+  font-size: 18px;
+  font-weight: 500;
+}
+.nc-pick-id small,
+.nc-pick-life small,
+.nc-pick-why {
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nc-pick-act {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.nc-pick-why {
+  grid-column: 1 / -1;
+}
+.nc-pick-why[data-tone='err'] {
+  color: var(--nc-err);
+}
+@media (max-width: 700px) {
+  /* a note on a phone: its id and what is left on one line, its days under it, then two buttons */
+  .nc .nc-pick-row {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-areas:
+      'id strip'
+      'state state'
+      'act act'
+      'why why';
+    align-items: center;
+    gap: 6px 14px;
+    padding: 12px 14px;
+  }
+  .nc .nc-pick-id {
+    grid-area: id;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    white-space: nowrap;
+  }
+  .nc .nc-pick-id strong {
+    font-size: 17px;
+  }
+  .nc .nc-pick-life {
+    display: contents;
+  }
+  .nc .nc-pick-life > .nc-strip {
+    grid-area: strip;
+    justify-self: end;
+    width: min(150px, 100%);
+  }
+  .nc .nc-pick-life > .nc-state {
+    grid-area: state;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 10px;
+  }
+  .nc .nc-pick-act {
+    grid-area: act;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .nc .nc-pick-act .nc-button {
+    width: 100%;
+    min-height: 34px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+  .nc .nc-pick-why {
+    grid-area: why;
+  }
+}
+
+/* What opens in the inspector keeps a rhythm: facts, then a note, each with room above. */
+.nc-fold-body > * + * {
+  margin-top: 12px;
+}
+.nc-fold-body > .nc-cap {
+  margin-bottom: 0;
+}
+.nc-fold-body .nc-facts + .nc-cap {
+  margin-top: 14px;
+}
+.nc-inspector .nc-fold:last-child {
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nc-fold-body .nc-cap[data-status='failed'] {
+  color: var(--nc-err);
+}
+
+/* The empty state sits a fixed distance from the top instead of being centred: opening a fold in
+   the inspector makes the screen taller, and a centred block would slide down with it. No auto margin below: what follows (the note
+   list) stays right under it instead of being pushed to the bottom. */
+.nc-chat-screen .nc-empty {
+  margin-block: clamp(24px, 10vh, 96px) 0;
+}
+/* Alone (a note is open, nothing under it), it sits near the middle of the window. The offset is a
+   share of the window height, not of the screen, so a fold opening in the inspector does not move it. */
+.nc-chat-screen .nc-empty:not(:has(+ .nc-pick)) {
+  margin-block: clamp(24px, 15vh, 200px) 0;
+}
+.nc-chat-screen .nc-empty + .nc-pick {
+  margin-top: 24px;
+}
+
+/* Why a note cannot start a chat yet: amber for a rule that blocks it, a moving bar while it loads. */
+.nc-pick-why[data-tone='warn'] {
+  color: var(--nc-warn);
+}
+.nc-pick-why[data-tone='warn']::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  vertical-align: 1px;
+  background: var(--nc-warn);
+}
+.nc-pick-why[data-tone='wait'] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nc-wait {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 3px;
+}
+.nc-wait b {
+  width: 12px;
+  height: 6px;
+  background: var(--nm-line);
+  animation: nc-wait 1.2s ease-in-out infinite;
+}
+.nc-wait b:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.nc-wait b:nth-child(3) {
+  animation-delay: 0.2s;
+}
+.nc-wait b:nth-child(4) {
+  animation-delay: 0.3s;
+}
+.nc-wait b:nth-child(5) {
+  animation-delay: 0.4s;
+}
+.nc-wait b:nth-child(6) {
+  animation-delay: 0.5s;
+}
+@keyframes nc-wait {
+  0%,
+  60%,
+  100% {
+    background: var(--nm-line);
+  }
+  30% {
+    background: var(--nm-muted);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-wait b {
+    animation: none;
+    background: var(--nm-muted);
+  }
+}
+
+/* The sample answer: the same thread as a real one, with the suggestions kept under it. */
+.nc-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.nc-demo-more {
+  margin-top: 4px;
+}
+
+/* The chat stays mounted under the privacy panel; `hidden` must win over the flex layout above. */
+.nc-content > div[hidden],
+.nc-content > div > div[hidden] {
+  display: none;
+}
+
+/* ---- the note picker with many notes: grouped, capped, filterable ---- */
+.nc-pick {
+  max-width: 760px;
+}
+.nc-pick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.nc-pick-bar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nc-pick-bar button {
+  min-height: 32px;
+  padding: 3px 12px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: none;
+  color: var(--nm-muted);
+  font:
+    12px/20px 'IBM Plex Mono',
+    monospace;
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    color 160ms,
+    background-color 160ms;
+}
+.nc-pick-bar button:hover {
+  border-color: var(--nm-muted);
+  color: var(--nm-fg);
+}
+.nc-pick-bar button[aria-pressed='true'] {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+  color: var(--nm-fg);
+}
+.nc-pick-bar input {
+  width: 130px;
+  min-height: 32px;
+  padding: 3px 10px;
+  font:
+    12px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nc-pick-list[data-many='true'] {
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc-pick-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  background: var(--nm-bg);
+  color: var(--nm-muted);
+  font:
+    10px/14px 'IBM Plex Mono',
+    monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.nc-pick-row {
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  gap: 4px 18px;
+  padding: 10px 16px;
+  animation: nc-pick-in 260ms var(--nc-ease) backwards;
+}
+.nc-pick-row[data-best] {
+  background: var(--nm-panel);
+}
+.nc-pick-row[data-rank='2'] .nc-pick-id strong {
+  color: var(--nm-muted);
+}
+.nc-pick-id strong {
+  font-size: 16px;
+  line-height: 22px;
+}
+.nc-pick-life {
+  gap: 4px;
+}
+.nc-pick-life .nc-state {
+  flex-wrap: wrap;
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-pick-best {
+  padding: 0 6px;
+  border: 1px solid var(--nm-accent);
+  color: var(--nm-accent);
+  font-size: 10px;
+  font-style: normal;
+}
+.nc-pick-act .nc-button {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+@keyframes nc-pick-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-pick-row,
+  .nc-pick-bar button {
+    animation: none;
+    transition: none;
+  }
+}
+
+.nc .nc-pick-bar input {
+  flex: none;
+  width: 130px !important;
+}
+.nc-pick-row + .nc-pick-head {
+  border-top: 1px solid var(--nm-soft-line);
+}
+
+.nc-pick-life .nc-state {
+  column-gap: 8px;
+}
+.nc-pick-best {
+  margin-left: 14px;
+  padding: 1px 8px;
+}
+
+.nc-pick-life .nc-state {
+  column-gap: 14px;
+}
+.nc-pick-life .nc-state > i {
+  margin-right: -4px;
+}
+.nc-pick-best {
+  margin-left: 6px;
+}
+
+.nc-pick-near {
+  color: var(--nm-muted);
+}
+
+.nc-pick .nc-hold {
+  max-width: none;
+  margin: 0;
+}
+
+.nc-pick-life .nc-state {
+  row-gap: 0;
+}
+
+/* In the picker the wait notice is one thin line: bar, title, reason. */
+.nc-pick .nc-hold {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 10px 16px;
+}
+.nc-pick .nc-hold strong {
+  font-size: 14px;
+  line-height: 20px;
+}
+.nc-pick .nc-hold p {
+  flex: 1 1 260px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-pick .nc-hold .nc-wait {
+  margin: 0;
+}
+.nc-pick .nc-hold .nc-wait b {
+  width: 10px;
+  height: 6px;
+}
+
+/* Closer to the intro above it, and the reason stays on the title's line when it fits. */
+.nc-chat-screen .nc-empty + .nc-pick {
+  margin-top: 8px;
+}
+.nc-chat-screen .nc-empty:has(+ .nc-pick) {
+  padding-bottom: 0;
+}
+.nc .nc-pick .nc-hold p {
+  flex: 1 1 auto;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (max-width: 700px) {
+  .nc-pick-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .nc-pick-id {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .nc-pick-act {
+    justify-content: flex-start;
+  }
+  .nc-pick-bar input {
+    width: 100% !important;
+  }
+}
+
+/* Phones: the hero starts right under the head, not a tenth of the window further down. */
+@media (max-width: 700px) {
+  .nc-chat-screen .nc-empty,
+  .nc-chat-screen .nc-empty:not(:has(+ .nc-pick)) {
+    margin-block: 8px 0;
+  }
+  .nc-chat-screen .nc-thread {
+    padding-top: 12px;
+  }
+  .nc-chat-screen .nc-empty h2 {
+    font-size: 22px;
+    line-height: 30px;
+  }
+}
+
+/* ---- Chat is a fixed frame: the head and the composer stay put, only the thread scrolls ---- */
+.nc[data-screen='chat'] {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc[data-screen='chat'] .nc-main {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+.nc[data-screen='chat'] .nc-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc[data-screen='chat'] .nc-content > div:not(.nm-legacy):not(.nc-banner),
+.nc[data-screen='chat'] .nc-content > div:not(.nm-legacy):not(.nc-banner) > div {
+  flex: 1;
+  min-height: 0;
+}
+.nc[data-screen='chat'] .nc-chat-screen {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+.nc[data-screen='chat'] .nc-chat-main {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc[data-screen='chat'] .nc-chat-head,
+.nc[data-screen='chat'] .nc-composer {
+  position: static;
+  flex: none;
+}
+.nc[data-screen='chat'] .nc-chat-screen .nc-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc[data-screen='chat'] .nc-chat-screen > .nc-inspector {
+  position: static;
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+}
+@media (max-width: 1100px) {
+  .nc[data-screen='chat'] .nc-chat-screen > .nc-inspector {
+    position: fixed;
+    height: auto;
+  }
+}
+
+/* while the proving key loads, the list under the waiting line is not usable yet: no scrollbar flashing */
+.nc[data-screen='chat'] .nc-chat-screen .nc-thread:has([data-testid='chat-blocked']) {
+  overflow-y: hidden;
+}
+
+/* Many notes: the list takes the height the frame has left and scrolls inside itself, so the page
+   behind it does not scroll as a second bar. On a short window there is no room for that: the
+   whole thread scrolls once and the list does not scroll inside it. */
+@media (min-height: 821px) {
+  .nc[data-screen='chat'] .nc-chat-screen .nc-thread:has(.nc-pick-list[data-many='true']) .nc-pick {
+    display: flex;
+    flex: 1 0 auto;
+    flex-direction: column;
+  }
+  .nc[data-screen='chat'] .nc-chat-screen .nc-pick-list[data-many='true'] {
+    flex: 1 1 0;
+    min-height: 220px;
+    max-height: none;
+  }
+}
+@media (max-height: 820px) {
+  .nc[data-screen='chat'] .nc-chat-screen .nc-pick-list[data-many='true'] {
+    max-height: none;
+    overflow-y: visible;
+  }
+}

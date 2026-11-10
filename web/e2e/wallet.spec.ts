@@ -15,6 +15,7 @@ import {
   setUpPassphrase,
   watch,
   workdir,
+  enterApp,
 } from './support';
 
 test('testnet quotes: off by default, quote only, dummy refund, no note data, cached and rate limited', async ({
@@ -23,7 +24,7 @@ test('testnet quotes: off by default, quote only, dummy refund, no note data, ca
 }) => {
   await newFundingWallet(context);
   await fetch(`${ONECLICK}/requests`, { method: 'DELETE' });
-  await openFund(page);
+  await openFund(page, 'other');
   await expect(page.getByTestId('quotes-notice')).toContainText('1Click');
   await expect(page.getByTestId('quotes-notice')).toContainText('IP address');
   await expect(page.getByTestId('quotes-notice')).toContainText('Tor Browser');
@@ -31,7 +32,8 @@ test('testnet quotes: off by default, quote only, dummy refund, no note data, ca
   await page.waitForTimeout(1500);
   expect(await (await fetch(`${ONECLICK}/requests`)).json()).toEqual([]);
 
-  await page.getByTestId('quotes-toggle').check();
+  await page.getByTestId('fund-source-other').check({ force: true });
+  await page.getByTestId('quotes-toggle').check({ force: true });
   const rows = page.getByTestId('quote-row');
   await expect(rows).toHaveCount(2, { timeout: 40_000 });
   for (const row of await rows.all()) await expect(row).toContainText('quote only');
@@ -51,7 +53,8 @@ test('testnet quotes: off by default, quote only, dummy refund, no note data, ca
   }
   // Turning it off and on again within a minute is answered from the cache.
   await page.getByTestId('quotes-toggle').uncheck();
-  await page.getByTestId('quotes-toggle').check();
+  await page.getByTestId('fund-source-other').check({ force: true });
+  await page.getByTestId('quotes-toggle').check({ force: true });
   await expect(rows).toHaveCount(2);
   expect(await (await fetch(`${ONECLICK}/requests`)).json()).toHaveLength(2);
   // No text says the cross-chain payment was tested on testnet.
@@ -168,7 +171,8 @@ test('the network, vault, RPC and operator cannot be changed by URL or storage',
   await page.getByTestId('open-app').click();
   await expect(page.getByTestId('network-label')).toContainText('testnet');
   await expect(page.getByTestId('vault-ok')).toBeVisible();
-  await page.getByTestId('quotes-toggle').check();
+  await page.getByTestId('fund-source-other').check({ force: true });
+  await page.getByTestId('quotes-toggle').check({ force: true });
   await expect(page.getByTestId('quote-row').first()).toBeVisible({ timeout: 20_000 });
   expect([...hosts].filter((h) => /evil/.test(h))).toEqual([]);
   expect([...hosts].sort()).toEqual(['127.0.0.1:18545', '127.0.0.1:18547', 'localhost:4173']);
@@ -204,7 +208,7 @@ test('a passkey with PRF wraps the notes and unlocks them after a reload', async
 
   // After a reload the same passkey unlocks the same note store.
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await page.getByTestId('nav-notes').click();
   await page.getByTestId('unlock-prf').click();
   await expect(page.getByTestId('note-row')).toHaveAttribute('data-phase', 'backed_up');

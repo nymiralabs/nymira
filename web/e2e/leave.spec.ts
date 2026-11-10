@@ -43,6 +43,7 @@ import {
   scriptChain,
   watch,
   workdir,
+  enterApp,
 } from './support';
 
 test.describe.configure({ timeout: 360_000 });
@@ -70,10 +71,19 @@ async function fundForLeaving(page: Page, context: BrowserContext, expiryInDays?
 /** After a reload the app starts again: unlock, no wallet connected. */
 async function reloadTo(page: Page, nav: 'nav-chat' | 'nav-close') {
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await page.getByTestId(nav).click();
-  await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
-  await page.getByTestId('unlock-submit').click();
+  // A dev build with the mock profile keeps the tab unlocked across a reload: then no prompt shows.
+  const field = page.getByTestId('unlock-passphrase');
+  if (
+    await field.waitFor({ state: 'visible', timeout: 8000 }).then(
+      () => true,
+      () => false,
+    )
+  ) {
+    await field.fill(WRAP_PASSPHRASE);
+    await page.getByTestId('unlock-submit').click();
+  }
 }
 
 const payoutDestination = (account: string) => toHex(destination(account));
@@ -202,9 +212,10 @@ test('exit: request, see the deadline, advance the chain, finalize, claim; no re
   await openClose(page);
   await expect(page.getByTestId('exit-concession')).toContainText('0.00 USDC');
 
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
-  await expect(page.getByTestId('leave-message')).toContainText('concedes 0 base units');
+  await expect(page.getByTestId('leave-message')).toContainText('concedes 0.00 USDC');
 
   // request_exit from the user's wallet: concession 0 (no request left the state), a valid proof,
   // the payout account fixed at deposit. No clearance was asked.
@@ -293,13 +304,14 @@ test('an exit concedes the stored bound when a request may have left the state',
   await connectWallet(page);
   await expect(page.getByTestId('withdrawal-prover-status')).toContainText('loaded and checked');
   await expect(page.getByTestId('exit-concession')).toContainText('0.10 USDC');
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
 
   const exit = wallet.decoded('request_exit');
   expect(exit.valid).toBe(true);
   expect(exit).toMatchObject({ kind: 0, conceded: 100_000n, finalBalance: 900_000n });
-  await expect(page.getByTestId('leave-message')).toContainText('concedes 100000 base units');
+  await expect(page.getByTestId('leave-message')).toContainText('concedes 0.10 USDC');
 });
 
 test('the expiry banner, no new lease within 5 days, and a close that starts by itself and waits for the wallet', async ({
@@ -315,7 +327,7 @@ test('the expiry banner, no new lease within 5 days, and a close that starts by 
   await reloadTo(page, 'nav-chat');
   await expect(page.getByTestId('chat-screen')).toBeVisible();
   await expect(page.getByTestId('expiry-banner')).toContainText('expires in 3 days (7-day notice)');
-  await expect(page.getByTestId('expiry-banner')).toContainText('stops opening leases');
+  await expect(page.getByTestId('expiry-banner')).toContainText('stopped opening leases');
   await expect(page.getByTestId('note-near-expiry')).toContainText('no new lease');
   await expect(page.getByTestId('chat-use-note')).toBeDisabled();
   expect(stack.seen.some((r) => r.path === '/v2/openrouter/leases')).toBe(false);
@@ -390,7 +402,8 @@ test('the expiry guard can be switched off: nothing starts and leases are not cu
   expect(wallet.vaultCalls).toHaveLength(0);
   expect(stack.clearances).toHaveLength(0);
   await page.getByTestId('nav-chat').click();
-  await expect(page.getByTestId('chat-use-note')).toBeEnabled();
+  // Not blocked any more: the conversation opens by itself.
+  await expect(page.getByTestId('chat-input')).toBeVisible();
   await expect(page.getByTestId('note-near-expiry')).toHaveCount(0);
 });
 
@@ -402,7 +415,7 @@ test('on the operator’s emergency notice the app stops opening leases and sugg
   stack.reset();
   const wallet = await fundForLeaving(page, context);
   await openChat(page);
-  await expect(page.getByTestId('chat-use-note')).toBeEnabled();
+  await expect(page.getByTestId('chat-input')).toBeVisible();
   await startConversation(page);
   await say(page, 'before the notice');
   await endConversation(page);
@@ -425,6 +438,7 @@ test('on the operator’s emergency notice the app stops opening leases and sugg
   await page.getByTestId('close-wallet').click();
   await expect(page.getByTestId('leave-error')).toContainText('emergency');
   await expect(page.getByTestId('leave-error')).toContainText('Request an exit');
+  await page.getByTestId('way-exit').click();
   await page.getByTestId('exit-request').click();
   await expect(page.getByTestId('exit-deadline')).toBeVisible({ timeout: 240_000 });
   expect(wallet.vaultCalls.map((c) => c.method)).toEqual(['request_exit']);

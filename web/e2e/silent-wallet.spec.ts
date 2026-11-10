@@ -15,6 +15,7 @@ import {
   scriptChain,
   workdir,
   type WalletMode,
+  enterApp,
 } from './support';
 
 test.describe.configure({ timeout: 240_000 });
@@ -37,10 +38,10 @@ test.describe('funding with a wallet that does not answer', () => {
     await page.getByTestId('send').click();
     await expect(page.getByTestId('accepted')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('note-id')).toHaveText('#0');
-    await expect(page.getByTestId('accepted')).toContainText('found the note on the vault itself');
+    await expect(page.getByTestId('accepted')).toContainText('found on the vault itself');
     await expect(page.getByTestId('chain-found-warning')).toContainText('payout account');
     await expect(page.getByTestId('fund-error')).toHaveCount(0);
-    await expect(page.getByTestId('send')).toBeDisabled();
+    await expect(page.getByTestId('send')).toHaveCount(0); // accepted: no second send
   });
 
   test('the user closes the wallet window after it sent: never "rejected" when the chain shows the deposit', async ({
@@ -167,7 +168,7 @@ test('after a reload the app says the wallet connection is gone and offers to co
   await expect(page.getByTestId('session-lost')).toHaveCount(0);
 
   await page.reload();
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await expect(page.getByTestId('session-lost')).toContainText('not connected any more');
   await expect(page.getByTestId('session-lost')).toContainText('forgets the connection on purpose');
   await page.getByTestId('reconnect').click();

@@ -1,3 +1,11 @@
+<p align="center">
+  <a href="README.md">README</a> ·
+  <a href="https://nymira.pages.dev">Website</a> ·
+  <a href="https://nymira.pages.dev/#docs">Documentation</a> ·
+  <a href="JUDGES.md">Try it in 20 minutes</a> ·
+  <a href="https://github.com/nymiralabs/nymira/releases">Releases</a>
+</p>
+
 # Threat model: the operator
 
 This file covers the operator side. It says what the operator can see and do, what limits that, and what it cannot promise. The testnet deployment holds test funds only, the contract has had no independent review, and the anonymity set is small and made of test notes.
@@ -15,11 +23,11 @@ NEAR AI receives each request under a per-lease key that the operator mints and 
 
 ## What the logs keep
 
-The operator writes no log lines that come from a request; its error output holds start-up errors and, after a panic, the source line only. Lease records hold the nullifier, the lease token's hash, the bound, the charge, the usage reading and times; at settlement the key id and the exact timers are deleted and times fall back to the hour. Copies on the second machine carry hour-rounded times from the start. Request proofs and signed states are deleted after 44 days, on both machines. Alarm messages pass through a scrubber that removes `sk-` and `rpt-` strings and `Authorization` values.
+The operator writes no log lines that come from a request; its error output holds start-up errors and, after a panic, the source line only. Lease records hold the nullifier, the lease token's hash, the bound, the charge, the usage reading and times; at settlement the key id and the exact timers are deleted and times fall back to the hour. Copies on the second machine carry hour-rounded times from the start. Request proofs and signed states are deleted after 44 days, on both machines. Alarm messages pass through a scrubber that removes `sk-` and `rpt-` strings, `Bearer` credentials and `Authorization` values.
 
 ## Processes and keys
 
-The operator runs as five processes under one dedicated macOS user: the public API, a key minter, a signer, a closer and a watcher. The public API has no NEAR key and no login; it holds the provider keys of the leases that are open, in memory, each capped at its lease bound. The NEAR AI login lives only in the key minter. The state and clearance keys exist only in the signer, from two passphrases typed at start-up. The closer holds one function-call key, `mutual_close`; the signer's is `heartbeat`; the watcher holds the upkeep key and a separate exit-answer key. Processes talk over Unix sockets (mode 0600, checked by user id), and the public API is the only TCP listener.
+The operator runs as five processes under one dedicated macOS user: the public API, a key minter, a signer, a closer and a watcher. The public API has no NEAR key and no login; it holds the provider keys of the leases that are open, in memory, each capped at its lease bound. The NEAR AI login lives only in the key minter. The state and clearance keys exist only in the signer, from two passphrases typed at start-up. The closer holds one function-call key, `mutual_close`; the signer's is `heartbeat`; the watcher holds the upkeep key and a separate exit-answer key. Processes talk over Unix sockets (mode 0600, checked by user id), and on the laptop the public API is the only TCP listener. The replica on the second machine also listens on TCP.
 
 The processes share one macOS user, so code execution in any one of them as that user can read every file that user can read, including the sealed login file once its passphrase is known. The separation limits what a bug in the web-facing process can reach in memory and which keys it holds; it does not stop an attacker who gets a shell as the service user. The developer tools and browsers installed on the laptop stay readable by every user on macOS.
 
@@ -31,7 +39,7 @@ The operator signs a state only after a second machine has the record on disk, s
 
 ## If the operator is offline
 
-A user leaves with `request_exit` and `finalize_exit` after the 7-day window, and the vault does not need the operator for that. If the operator and every watcher are offline for the whole window, nobody can answer an exit from an old state, so the user leaves with an older, higher balance than the real one. The loss falls on the operator, and the cap on open deposits bounds it.
+A user leaves with `request_exit` and, once the 7-day window has passed, `finalize_exit`, and the vault does not need the operator for that. If the operator and every watcher are offline for the whole window, nobody can answer an exit from an old state, so the user leaves with an older, higher balance than the real one. The loss falls on the operator, and the cap on open deposits bounds it.
 
 ## If a key leaks
 
@@ -39,7 +47,7 @@ New leases and clearances stop at once (`emergency`) and `/v1/status` shows why;
 
 ## What closing and exiting show, from the web app
 
-A close, an exit request, a finalize and a payout name the note ID in the vault call. A close also shows the note's total spend and the payout account. The web app sends them from the wallet account the user connects, so that account is on chain next to the note ID; connecting an account other than the funding account keeps the two apart, and the app does not create one. `request_exit` and `finalize_exit` can come from any account with a little NEAR, and the payout still goes to the account fixed at deposit.
+A close, an exit request and a finalize name the note ID in the vault call, and a payout names the payout account. A close also shows the note's total spend and the payout account. An exit request also shows the note's balance and concession, and a finalize shows the amount paid. The web app sends them from the wallet account the user connects, so that account is on chain next to the note ID; connecting an account other than the funding account keeps the two apart, and the app does not create one. `request_exit` and `finalize_exit` can come from any account with a little NEAR, and the payout still goes to the account fixed at deposit.
 
 The RPC provider sees the user's IP address with every read the app makes to leave: the sending account's balance, `exit_requests` (a page of the whole list, naming no note), `note_records` (names the note ID) and `pending_payout` (names the payout account). The browser cannot use Tor.
 
@@ -49,7 +57,7 @@ An exit from an old state can be defeated: if the user loses the latest state (t
 
 ## What closing and exiting show on chain
 
-A close, an exit request and a payout name the note's ID in the vault call. `nymirad` sends them from a submitter account, a separate NEAR account whose access key can call only `request_exit`, `finalize_exit`, `mutual_close` and `claim_payout` on the vault, so the account that funded the note does not sign them. The submitter's own funding trail is visible on chain: whoever funds it can be seen to have paid for gas next to your note ID.
+A close, an exit request and a finalize name the note's ID in the vault call, and a payout names the payout account. `nymirad` sends them from a submitter account, a separate NEAR account whose access key can call only `request_exit`, `finalize_exit`, `mutual_close` and `claim_payout` on the vault, so the account that funded the note does not sign them. The submitter's own funding trail is visible on chain: whoever funds it can be seen to have paid for gas next to your note ID.
 
 One submitter shared by every note puts all of those notes next to one account. `nymirad` keeps one submitter per family (your personal notes, and each budget note on its own) so you can keep that link apart. A note belongs to the family `personal` until you assign another.
 
@@ -57,11 +65,11 @@ Sends go over Tor, each on its own circuit. If Tor is down, `nymirad` sends noth
 
 ## Expiry and backups
 
-A note that reaches its expiry goes to the treasury. By default `nymirad` opens no new lease on a note within 5 days of its expiry and tries a mutual close at 5 days. If the close has failed, it files `request_exit` at 3 days. It shows notices at 14, 7 and 2 days. The guard can be switched off. A close or exit it sends shows the note ID like any other, and it never goes direct while Tor is down. Closing every note when a session ends is a separate switch, off by default, because each close shows the note ID and the total spend.
+A note can still close or exit after its expiry. The treasury can take it only 7 days after the later of the expiry and the last exit activity, and never while an exit is pending. By default `nymirad` opens no new lease on a note within 5 days of its expiry and tries a mutual close at 5 days. If the close has failed, it files `request_exit` at 3 days. It shows notices at 14, 7 and 2 days. The guard can be switched off. A close or exit it sends shows the note ID like any other, and it never goes direct while Tor is down. Closing every note when a session ends is a separate switch, off by default, because each close shows the note ID and the total spend.
 
 After every retire, and after each lease open, close and deposit, `nymirad` writes the whole state, encrypted with age to a public key you chose at setup, to a copy on the machine and to a second place you name. The private key is shown once and is never stored by `nymirad`, in the keychain or beside the file. With a passphrase instead, Argon2id (64 MiB, 3 passes, 1 lane, random salt) derives the key, and the passphrase needs at least 12 characters. A passphrase can still be guessed offline by anyone who holds a backup; Argon2id slows that down and does not stop it.
 
-Inside the encryption the notes and wallet states are in the clear, so whoever holds a backup and its key or passphrase can spend your notes. Keep the key away from the machine and from the backup. The place that stores the file sees an encrypted blob, its size and its write times.
+Inside the encryption sit the notes and wallet states (in the clear), the submitter keys, the exit book, the lease records, the agent registry and the config, so whoever holds a backup and its key or passphrase can spend your notes. Keep the key away from the machine and from the backup. The place that stores the file sees an encrypted blob, its size and its write times.
 
 On the machine the wallet state is sealed under the passphrase. While a wallet is open for a lease, a close or an exit, its plain files sit in a memory-backed directory (tmpfs on Linux, a RAM disk on macOS), never on the disk, and `nymirad` refuses to open the wallet if it cannot make one. A crash leaves the files in memory until the next start seals them. The operating system may still write memory to swap: macOS encrypts swap by default, Linux does not unless the machine is set up for it.
 
@@ -97,7 +105,7 @@ What is enforced by `nymirad` on your machine, not by the chain: an agent token 
 
 ## What the other parties see
 
-- **The web hosts (Cloudflare Pages and the GitHub Pages mirror).** They see each visitor's IP address and which files were asked for, and they decide which code a visitor gets. A compromised host could serve a different app. `nymirad verify-web` compares both hosts with the signed manifest of the current release (0.1.2) over Tor and directly; its key and the two host names are compiled in, and it passed against both hosts on 5 November 2026 (Cloudflare adds one header it prints as an accepted note). It catches a change only if the user runs it, and not a host that serves different content to different clients. The manifest hashes and the release key are in the repository and the README, which a thief with the GitHub, Cloudflare and domain accounts could change; one public Sigstore Rekor entry holds the hash of a statement with the bundle hash and the key (see `web/INTEGRITY.md`), but it is not signed by the release key. No outside party has rebuilt the bundle.
+- **The web hosts (Cloudflare Pages and the GitHub Pages mirror).** They see each visitor's IP address and which files were asked for, and they decide which code a visitor gets. A compromised host could serve a different app. `nymirad verify-web` checks each host against the manifest that the host serves, if the pinned release key signed it for this profile, over Tor and directly; its key and the two host names are compiled in, and it passed against both hosts on 5 November 2026 (Cloudflare adds one header it prints as an accepted note). It does not check that the version is the newest, so a host could serve an older signed release and pass. It checks headers on the Cloudflare host only; the mirror is checked for file bytes. It catches a change only if the user runs it, and not a host that serves different content to different clients. The manifest hashes and the release key are in the repository and the README, which a thief with the GitHub, Cloudflare and domain accounts could change; one public Sigstore Rekor entry holds the hash of a statement with the bundle hash and the key (see `web/INTEGRITY.md`), but it is not signed by the release key. No outside party has rebuilt the bundle.
 - **RPC providers.** They see the IP address of whoever reads or sends, and with a deposit transaction the account, the transaction hash (so the note ID, the commitment and the payout account) and the time. The web app cannot use Tor. `nymirad` sends through Tor and asks first before any direct send.
 - **Public certificate logs.** The operator's host name, which the certificate of its public entry carries, is listed in public certificate logs. They show that the name exists and when a certificate was issued, not who connects.
 - **Attestation and collateral services (NEAR AI's attestation endpoint, PCCS).** They see the address that asks and the time. `nymirad` asks through Tor; the web app asks NEAR AI and Phala's PCCS directly (Intel's own collateral service sends no CORS headers).
@@ -120,4 +128,4 @@ The keys that check the zero-knowledge proofs come from a multi-party setup run 
 
 ## What the team's keys can do
 
-The vault account keeps a full-access key. The team can use it to replace the vault code, so it could change the rules the contract enforces for deposits already inside it. The key is offline and the operator software never touches it. The operator account keeps its own full-access key offline too. Online work uses function-call keys whose methods are listed by name (`heartbeat`, `sync_root`, `mutual_close`, `defeat_exit`, `raise_concession`, `finalize_exit`, `retire_closed_leaf`, `claim_expired`, `claim_expired_batch`) and hold no owner method; the second machine's key has neither `heartbeat` nor `mutual_close`. Anyone can list a vault's keys with `view_access_key_list`, and `scripts/watch-vault-keys.mjs` raises an alert on a `DeployContract`, `AddKey` or `DeleteKey` on the vault account. The testnet vault caps open user deposits at 100 USDC, so a code swap by the team puts at most that much (test funds) at stake.
+The vault account keeps a full-access key. The team can use it to replace the vault code, so it could change the rules the contract enforces for deposits already inside it. The key is offline and the operator software never touches it. The operator account keeps its own full-access key offline too. Online work uses function-call keys whose methods are listed by name (`heartbeat`, `sync_root`, `mutual_close`, `defeat_exit`, `raise_concession`, `finalize_exit`, `retire_closed_leaf`, `claim_expired`, `claim_expired_batch`) and hold no owner method; the second machine's key has neither `heartbeat` nor `mutual_close`. Anyone can list a vault's keys with `view_access_key_list`, and `scripts/watch-vault-keys.mjs` raises an alert on a `DeployContract`, `AddKey` or `DeleteKey` on the vault account. The testnet vault caps open deposits, fees included, at 100 USDC, so a code swap by the team puts at most that much (test funds) at stake. The owner account can raise the cap 48 hours after announcing it, so the figure bounds the loss only while the cap stays.

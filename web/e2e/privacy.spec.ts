@@ -110,6 +110,9 @@ test('six notes, three on the team: set size 3 (external) and 6; drops, later cl
   await expect(rows.nth(1).getByTestId('small-set')).toContainText(
     'matching a lease to a deposit is easy',
   );
+  await page.getByRole('tab', { name: /^Leases/ }).click();
+  // One lease shows at a time: pick the first one.
+  await page.getByRole('list', { name: 'Leases' }).getByRole('button').first().click();
   await expect(rows.nth(0).getByTestId('small-set')).toBeVisible();
   // The raw open-note count never stands alone.
   await expect(rows.nth(0)).not.toContainText(/open notes/i);
@@ -158,16 +161,16 @@ test('a pinned ID missing from the operator list does not raise N; an extra ID l
   stack.reset();
   const { wallet } = await fundNote(page, context);
   await scriptVault(wallet, active(6));
-  await openChat(page);
-  // The operator leaves pinned ID 2 out.
+  // Set the status before opening Chat, which can start a lease automatically.
   stack.set({ params: { team_note_ids: [0, 1] } });
+  await openChat(page);
   await lease(page, 'omitting lease', true);
   // The operator adds ID 3.
   stack.set({ params: { team_note_ids: [0, 1, 2, 3] } });
   await lease(page, 'adding lease');
   // A long job uses the 0.50 class, which few leases use.
   await page.getByRole('button', { name: 'New conversation' }).click();
-  await page.getByTestId('long-job').check();
+  await page.getByTestId('long-job-side').check();
   await lease(page, 'long job', true);
 
   await openPanel(page);
@@ -235,10 +238,10 @@ test('the panel from the notes and chat screens: chain column from the record, h
   const { wallet } = await fundNote(page, context);
   await scriptVault(wallet, active(1));
   await page.getByTestId('nav-notes').click();
-  await expect(page.getByTestId('notes-privacy')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open the privacy panel' })).toBeVisible();
   const before = (await rpcRequests()).length;
   const requestsBefore = seen.requests.length;
-  await page.getByTestId('notes-privacy').click();
+  await page.getByRole('button', { name: 'Open the privacy panel' }).click();
   await expect(page.getByTestId('privacy-screen')).toBeVisible();
   await expect(page.getByTestId('now-text')).toContainText('now: set size: 0 (external), total 1');
 
@@ -265,11 +268,13 @@ test('the panel from the notes and chat screens: chain column from the record, h
   await context.route('https://testnet.nearblocks.io/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html', body: '<title>explorer</title>' }),
   );
+  await page.getByRole('tab', { name: /^On chain/ }).click();
   const [popup] = await Promise.all([page.waitForEvent('popup'), link.click()]);
   expect(popup.url()).toContain('testnet.nearblocks.io/txns/');
   await popup.close();
 
   // Right column: no lease yet, and the operator's published policy, labelled as such.
+  await page.getByRole('tab', { name: /^Leases/ }).click();
   await expect(page.getByTestId('no-leases')).toBeVisible();
   const policy = page.getByTestId('policy');
   await expect(policy).toContainText('published retention policy');
