@@ -179,6 +179,95 @@ function SignPanel({
   );
 }
 
+const HEX64 = /^0x[0-9a-fA-F]{64}$/;
+const STEP_TITLES = ['Wallet', 'The agent', 'Policy'];
+
+/** A fingerprint of the note commitment: one cell per byte, four levels of ink. */
+function Fingerprint({ commitment }: { commitment: string }) {
+  const ok = HEX64.test(commitment);
+  return (
+    <div className="ag-print" data-ok={ok} role="img" aria-label="Fingerprint of the commitment">
+      {Array.from({ length: 32 }, (_, i) => {
+        const byte = ok ? parseInt(commitment.slice(2 + i * 2, 4 + i * 2), 16) : 0;
+        return <i key={i} data-l={ok ? 1 + Math.floor(byte / 65) : 0} />;
+      })}
+    </div>
+  );
+}
+
+/** The side card: what this page has so far, as a permit that fills while you type. */
+function Permit({
+  name,
+  commitment,
+  models,
+  version,
+  rows,
+  checks,
+}: {
+  name: string;
+  commitment: string;
+  models: string[];
+  version: string;
+  rows: { key: string; label: string; value: string }[];
+  checks: boolean[];
+}) {
+  const next = checks.findIndex((c) => !c);
+  const short =
+    commitment.length > 18 ? `${commitment.slice(0, 10)}…${commitment.slice(-6)}` : commitment;
+  return (
+    <div className="ag-permit" data-testid="agent-permit">
+      <div className="ag-permit-top">
+        <span>Budget permit</span>
+        <span>{version.trim() ? `policy v${version.trim()}` : 'no version'}</span>
+      </div>
+      <strong className="ag-permit-name" data-empty={!name}>
+        {name || 'unnamed agent'}
+      </strong>
+      <code className="ag-permit-note" data-empty={!commitment}>
+        {short || 'no note commitment'}
+      </code>
+      <Fingerprint commitment={commitment} />
+      <div className="ag-perf" aria-hidden="true" />
+      <div className="ag-permit-block">
+        <small>Models</small>
+        {models.length > 0 ? (
+          <div className="ag-chips">
+            {models.map((m) => (
+              <span key={m}>{m}</span>
+            ))}
+          </div>
+        ) : (
+          <p>none picked</p>
+        )}
+      </div>
+      <div className="ag-permit-block">
+        <small>Limits</small>
+        <BudgetLadder rows={rows} />
+      </div>
+      <div className="ag-perf" aria-hidden="true" />
+      <ol className="ag-checks">
+        {['Wallet connected', 'Agent and note named', 'Policy ready to sign'].map((t, i) => (
+          <li key={t} data-done={checks[i]}>
+            <i />
+            {t}
+          </li>
+        ))}
+      </ol>
+      {next >= 0 && (
+        <Button
+          primary
+          testId="agent-next"
+          onClick={() =>
+            document.getElementById(`ag-step-${next}`)?.scrollIntoView({ behavior: 'smooth' })
+          }
+        >
+          Next: {STEP_TITLES[next]}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_POLICY = {
   models: [] as string[],
   maxLeaseUsd: '',
@@ -254,6 +343,21 @@ export function Agents() {
         </span>
       }
       illustration={agentsIllustration}
+      side={
+        <Permit
+          name={name}
+          commitment={commitment}
+          models={policy.models}
+          version={version}
+          rows={[
+            { key: 'day', label: 'Per day', value: policy.maxDailyUsd },
+            { key: 'lease', label: 'Per lease', value: policy.maxLeaseUsd },
+            { key: 'ask', label: 'Ask above', value: policy.confirmAboveUsd },
+            { key: 'call', label: 'Per call', value: policy.maxCallUsd },
+          ]}
+          checks={[!!wallet.connected, agentErrors.length === 0, policyMsg.ok]}
+        />
+      }
     >
       <p className="nc-notice" data-testid="agents-scope">
         This page creates no budget note, never asks for or shows a token, and makes no request to{' '}
@@ -292,9 +396,13 @@ export function Agents() {
         </ul>
       </Fold>
 
-      <ol className="nc-steps nc-agent-steps">
-        <li data-s={stepOf(0)}>
-          <h2>Wallet</h2>
+      <div className="ag-flow">
+        <section className="ag-step" id="ag-step-0" data-s={stepOf(0)}>
+          <header>
+            <span className="ag-num">01</span>
+            <h2>Wallet</h2>
+            <em className="ag-st" data-s={stepOf(0)} />
+          </header>
           <p className="nc-cap nc-cap-first">
             The policy and each approval are signed as NEP-413 messages with your NEAR wallet. The
             account must be the one that funded the budget note. <code>nymirad</code> checks that
@@ -304,10 +412,14 @@ export function Agents() {
           {wallet.connected && wallet.connected.signature === 'unsupported' && (
             <p className="nc-cap">This browser cannot check the sign-in signature.</p>
           )}
-        </li>
+        </section>
 
-        <li data-s={stepOf(1)}>
-          <h2>The agent</h2>
+        <section className="ag-step" id="ag-step-1" data-s={stepOf(1)}>
+          <header>
+            <span className="ag-num">02</span>
+            <h2>The agent</h2>
+            <em className="ag-st" data-s={stepOf(1)} />
+          </header>
           <Field label="Agent name" id="agent-name" value={name} onChange={setName} />
           <Field
             label="Budget note commitment"
@@ -316,10 +428,14 @@ export function Agents() {
             onChange={setCommitment}
             hint="The note field of the agent in agents.json in the nymirad state directory."
           />
-        </li>
+        </section>
 
-        <li data-s={stepOf(2)}>
-          <h2>Policy</h2>
+        <section className="ag-step" id="ag-step-2" data-s={stepOf(2)}>
+          <header>
+            <span className="ag-num">03</span>
+            <h2>Policy</h2>
+            <em className="ag-st" data-s={stepOf(2)} />
+          </header>
           <div className="nc-policy">
             <div className="nc-policy-form nc-agent-grid">
               <fieldset className="nc-models">
@@ -383,14 +499,6 @@ export function Agents() {
               />
             </div>
             <div className="nc-policy-out">
-              <BudgetLadder
-                rows={[
-                  { key: 'day', label: 'Per day', value: policy.maxDailyUsd },
-                  { key: 'lease', label: 'Per lease', value: policy.maxLeaseUsd },
-                  { key: 'ask', label: 'Ask above', value: policy.confirmAboveUsd },
-                  { key: 'call', label: 'Per call', value: policy.maxCallUsd },
-                ]}
-              />
               {yaml.ok && (
                 <pre className="nc-code nc-yaml" data-testid="policy-yaml">
                   {yaml.value}
@@ -411,10 +519,15 @@ export function Agents() {
             recipient={policyRecipient(name, commitment)}
             fileName={`${name || 'agent'}-policy.signed.json`}
           />
-        </li>
+        </section>
 
-        <li data-s={stepOf(3)}>
-          <h2>Approve a held call</h2>
+        <p className="ag-divider">After signing</p>
+        <section className="ag-step" id="ag-step-3" data-s={stepOf(3)}>
+          <header>
+            <span className="ag-num">04</span>
+            <h2>Approve a held call</h2>
+            <em className="ag-st" data-s={stepOf(3)} />
+          </header>
           <p className="nc-cap nc-cap-first">
             Copy the four values from <code>nymirad agent approvals</code>. The approval is good for
             ten minutes and for that one request.
@@ -452,10 +565,14 @@ export function Agents() {
             recipient={approvalRecipient(name, commitment)}
             fileName={`${name || 'agent'}-approval.signed.json`}
           />
-        </li>
+        </section>
 
-        <li data-s={stepOf(4)}>
-          <h2>Commands and tool settings</h2>
+        <section className="ag-step" id="ag-step-4" data-s={stepOf(4)}>
+          <header>
+            <span className="ag-num">05</span>
+            <h2>Commands and tool settings</h2>
+            <em className="ag-st" data-s={stepOf(4)} />
+          </header>
           <p className="nc-cap nc-cap-first">
             Nothing here runs. Copy a block and run it yourself. No block holds a passphrase or a
             token; the agent reads its token from the file you name.
@@ -520,10 +637,14 @@ export function Agents() {
               ))}
             </ol>
           )}
-        </li>
+        </section>
 
-        <li data-s={stepOf(5)}>
-          <h2>Recipes</h2>
+        <section className="ag-step" id="ag-step-5" data-s={stepOf(5)}>
+          <header>
+            <span className="ag-num">06</span>
+            <h2>Recipes</h2>
+            <em className="ag-st" data-s={stepOf(5)} />
+          </header>
           <p className="nc-cap nc-cap-first">
             The IronClaw and Cursor recipes, filled from the fields above. They are the same text as
             the README sections. Every recipe names the token file and holds no token. Pick a client
@@ -575,8 +696,8 @@ export function Agents() {
               </Card>
             );
           })}
-        </li>
-      </ol>
+        </section>
+      </div>
     </Screen>
   );
 }
