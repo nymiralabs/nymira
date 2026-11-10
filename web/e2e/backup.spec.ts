@@ -16,6 +16,7 @@ import {
   watch,
   workdir,
   enterApp,
+  lockAfterDevReload,
 } from './support';
 
 test('no transfer without a downloaded and test-restored backup; a wrong file does not count', async ({
@@ -151,6 +152,7 @@ test('@webkit restore from a backup file after the site data was purged', async 
   await page2.reload();
   await enterApp(page2);
   await page2.getByTestId('nav-notes').click();
+  await lockAfterDevReload(page2);
   await page2.getByTestId('unlock-passphrase').fill('a wrong guess at the passphrase');
   await page2.getByTestId('unlock-submit').click();
   await expect(page2.getByText('Wrong passphrase.')).toBeVisible();

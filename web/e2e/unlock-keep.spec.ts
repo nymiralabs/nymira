@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { WRAP_PASSPHRASE } from './support';
+import { WRAP_PASSPHRASE, enterApp } from './support';
 
 async function openChat(page: import('@playwright/test').Page) {
-  await page.getByTestId('open-app').click();
+  await enterApp(page);
   await page.getByTestId('nav-chat').click();
 }
 

@@ -75,7 +75,12 @@ async function reloadTo(page: Page, nav: 'nav-chat' | 'nav-close') {
   await page.getByTestId(nav).click();
   // A dev build with the mock profile keeps the tab unlocked across a reload: then no prompt shows.
   const field = page.getByTestId('unlock-passphrase');
-  if (await field.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (
+    await field.waitFor({ state: 'visible', timeout: 8000 }).then(
+      () => true,
+      () => false,
+    )
+  ) {
     await field.fill(WRAP_PASSPHRASE);
     await page.getByTestId('unlock-submit').click();
   }

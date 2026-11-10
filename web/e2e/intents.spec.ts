@@ -29,6 +29,7 @@ import {
   setUpPassphrase,
   workdir,
   enterApp,
+  lockAfterDevReload,
 } from './support';
 
 test.describe.configure({ timeout: 300_000 });
@@ -226,8 +227,8 @@ async function toReview(page: Page, context: BrowserContext, twoStep = false) {
   await openFund(page, 'other');
   await expect(page.getByTestId('vault-ok')).toBeVisible();
   if (twoStep) {
-    await connectWallet(page);
     await page.getByTestId('intents-path-two-step').check();
+    await connectWallet(page);
   }
   await setUpPassphrase(page, undefined, 'intents-prepare');
   await page.getByTestId('intents-load-sources').click();
@@ -326,6 +327,7 @@ test('Intents funding resumes after a reload and confirms the note', async ({
   expect(stored).not.toContain(address);
   await page.reload();
   await enterApp(page);
+  await lockAfterDevReload(page);
   await page.getByTestId('unlock-passphrase').fill(WRAP_PASSPHRASE);
   await page.getByTestId('unlock-submit').click();
   await expect(page.getByTestId('intents-address')).toHaveText(address, { timeout: 30_000 });
@@ -532,9 +534,9 @@ test('the two-step path is not offered to an account with no NEAR', async ({
   await control({ cmd: 'set_account', account: SENDER, spec: { amount: '0' } });
   await openFund(page, 'other');
   await expect(page.getByTestId('vault-ok')).toBeVisible();
+  await page.getByTestId('intents-path-two-step').check();
   await connectWallet(page);
   await setUpPassphrase(page, undefined, 'intents-prepare');
-  await page.getByTestId('intents-path-two-step').check();
   await expect(page.getByTestId('intents-two-step-problem')).toContainText('too little NEAR');
   await expect(page.getByTestId('intents-load-sources')).toBeDisabled();
 });

@@ -39,7 +39,7 @@ async function lease(page: Page, text: string) {
 /** The panel from the notes screen, which works whatever state the note is in. */
 async function openFromNotes(page: Page) {
   await page.getByTestId('nav-notes').click();
-  await page.getByTestId('notes-privacy').click();
+  await page.getByRole('button', { name: 'Open the privacy panel' }).click();
   await expect(page.getByTestId('privacy-screen')).toBeVisible();
 }
 

@@ -267,12 +267,26 @@ export async function openFund(page: Page, source: 'near' | 'other' = 'near') {
   if (source === 'other') await page.getByTestId('fund-source-other').check({ force: true });
 }
 
+/** Dev mock builds keep the wrapping key across reloads; production builds must prompt. */
+export async function lockAfterDevReload(page: Page) {
+  const devServer = (await page.locator('script[src*="/@vite/client"]').count()) > 0;
+  if (devServer && (await page.getByTestId('lock-notes').isVisible())) {
+    await page.getByTestId('lock-notes').click();
+  }
+}
+
 /** Opens the Notes tab; unlocks first when `unlock` is set (after a reload). */
 export async function openNotes(page: Page, unlock = false) {
   await page.getByTestId('nav-notes').click();
   // A dev build with the mock profile keeps the tab unlocked across a reload: then there is no prompt.
   const field = page.getByTestId('unlock-passphrase');
-  if (unlock && (await field.isVisible({ timeout: 3000 }).catch(() => false))) {
+  if (
+    unlock &&
+    (await field.waitFor({ state: 'visible', timeout: 8000 }).then(
+      () => true,
+      () => false,
+    ))
+  ) {
     await field.fill(WRAP_PASSPHRASE);
     await page.getByTestId('unlock-submit').click();
   }
@@ -294,8 +308,8 @@ export function watch(page: Page) {
 }
 
 export async function connectWallet(page: Page) {
-  await page.getByTestId('connect-nymira-test-wallet').click();
-  await expect(page.getByTestId('connected')).toContainText(SENDER);
+  await page.getByTestId('connect-nymira-test-wallet').filter({ visible: true }).click();
+  await expect(page.getByTestId('connected').filter({ visible: true })).toContainText(SENDER);
 }
 
 export async function setUpPassphrase(page: Page, passphrase = WRAP_PASSPHRASE, ready = 'prepare') {
