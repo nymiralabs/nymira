@@ -21,16 +21,20 @@ import { Fund } from './Fund';
 import { Landing } from './Landing';
 import { Notes } from './Notes';
 import { Privacy } from './Privacy';
+import type { VaultCheck } from '../chain/vault';
 import { originOk, useVaultCheck, useWallet } from './services';
 import { Unlock } from './Unlock';
 import { Docs } from './Docs';
+import { Status } from './Status';
+import { StatusChip } from './StatusChip';
 import { Watch } from './Watch';
 
-type Screen = 'landing' | 'docs' | 'fund' | 'chat' | 'close' | 'notes' | 'agents';
+type Screen = 'landing' | 'docs' | 'status' | 'fund' | 'chat' | 'close' | 'notes' | 'agents';
 type Theme = 'dark' | 'light';
 
 const TITLES: Record<Exclude<Screen, 'landing'>, string> = {
   docs: 'Documentation',
+  status: 'Status',
   chat: 'Chat',
   fund: 'Fund a note',
   notes: 'Notes and backup',
@@ -49,7 +53,15 @@ const NAV: readonly [Exclude<Screen, 'landing'>, string, IconName][] = [
 const THEME_KEY = 'nymira.theme';
 const SCREEN_KEY = 'nymira.screen';
 
-const SCREEN_IDS: readonly Screen[] = ['docs', 'chat', 'fund', 'notes', 'close', 'agents'];
+const SCREEN_IDS: readonly Screen[] = [
+  'docs',
+  'status',
+  'chat',
+  'fund',
+  'notes',
+  'close',
+  'agents',
+];
 function hashScreen(): Screen | null {
   const name = location.hash.slice(1).split('/')[0];
   return SCREEN_IDS.find((id) => id === name) ?? null;
@@ -155,9 +167,10 @@ function useShellNotes(unlocked: boolean, refreshOn: string): ShellNote[] {
   return rows;
 }
 
-function Foot() {
+function Foot({ check, onStatus }: { check: VaultCheck | null; onStatus: () => void }) {
   return (
     <div className="nm-app-foot">
+      <StatusChip check={check} onStatus={onStatus} />
       <small data-testid="network-label">
         {PROFILE.network} · {PROFILE.id === 'mock' ? 'test build' : 'vault ' + PROFILE.vaultAccount}
       </small>
@@ -223,7 +236,7 @@ export function App() {
   const [thumb, setThumb] = useState({ top: 0, h: 0, show: false, ft: 0, fb: 0 });
   useEffect(() => {
     try {
-      if (screen === 'landing' || screen === 'agents' || screen === 'docs')
+      if (screen === 'landing' || screen === 'agents' || screen === 'docs' || screen === 'status')
         sessionStorage.removeItem(SCREEN_KEY);
       else sessionStorage.setItem(SCREEN_KEY, screen);
     } catch {
@@ -356,6 +369,19 @@ export function App() {
         onTheme={flip}
         onHome={() => go('landing')}
         onOpenApp={() => go('fund')}
+        onStatus={() => go('status')}
+      />
+    );
+  }
+
+  if (screen === 'status') {
+    return (
+      <Status
+        theme={theme}
+        onTheme={flip}
+        onHome={() => go('landing')}
+        onDocs={() => go('docs')}
+        onOpenApp={() => go('fund')}
       />
     );
   }
@@ -365,9 +391,10 @@ export function App() {
       <Landing
         onOpen={() => go('fund')}
         onDocs={() => go('docs')}
+        onStatus={() => go('status')}
         theme={theme}
         onTheme={flip}
-        footerStatus={<Foot />}
+        footerStatus={<Foot check={check} onStatus={() => go('status')} />}
       />
     );
   }
@@ -556,6 +583,7 @@ export function App() {
               )}
             </div>
             <div className="nc-legal">
+              <StatusChip check={check} onStatus={() => go('status')} />
               <a
                 href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
                 target="_blank"

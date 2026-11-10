@@ -107,12 +107,14 @@ export function WhoSeesWhat() {
 export function Landing({
   onOpen,
   onDocs,
+  onStatus,
   theme,
   onTheme,
   footerStatus,
 }: {
   onOpen: () => void;
   onDocs: () => void;
+  onStatus: () => void;
   theme: 'dark' | 'light';
   onTheme: () => void;
   footerStatus: ReactNode;
@@ -123,6 +125,7 @@ export function Landing({
       onTheme={onTheme}
       onOpenApp={onOpen}
       onOpenDocs={onDocs}
+      onOpenStatus={onStatus}
       footerStatus={footerStatus}
     />
   );

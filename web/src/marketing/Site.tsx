@@ -150,6 +150,7 @@ type SiteProps = {
   /** Set when the site is the app's landing page: "Open web app" calls this. */
   onOpenApp?: () => void;
   onOpenDocs?: () => void;
+  onOpenStatus?: () => void;
   /** Replaces the design-preview status in the footer. */
   footerStatus?: ReactNode;
 };
@@ -159,6 +160,7 @@ export function Site({
   onTheme,
   onOpenApp,
   onOpenDocs,
+  onOpenStatus,
   footerStatus,
 }: SiteProps = {}) {
   const [ownTheme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -577,6 +579,16 @@ export function Site({
             <h3>Resources</h3>
             <a href="#docs" onClick={openDocs}>
               Documentation
+            </a>
+            <a
+              href="#status"
+              onClick={(e) => {
+                if (!onOpenStatus) return;
+                e.preventDefault();
+                onOpenStatus();
+              }}
+            >
+              Status
             </a>
             <a href={`${source}/releases`}>Releases</a>
             <a href="#local">Run locally</a>

@@ -1,0 +1,77 @@
+/* The one-line status in the footer of the landing page and in the console's side panel. */
+.nm-statuschip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  color: var(--nm-muted);
+  font:
+    12px/1.4 'IBM Plex Mono',
+    monospace;
+  text-decoration: none;
+  transition: color 160ms;
+}
+.nm-statuschip:hover {
+  color: var(--nm-fg);
+}
+.nm-statuschip i {
+  flex: none;
+  width: 6px;
+  height: 11px;
+  border: 1px solid var(--nm-card-line);
+}
+.nm-statuschip[data-level='ok'] i {
+  border-color: #6fcf86;
+  background: #6fcf86;
+}
+.nm-statuschip[data-level='warn'] i {
+  border-color: #d9a441;
+  background: repeating-linear-gradient(135deg, #d9a441 0 1px, transparent 1px 4px);
+}
+.nm-statuschip[data-level='fail'] i {
+  border-color: #e5736a;
+  background: #e5736a;
+}
+.nm-statuschip[data-level='idle'] i {
+  animation: nm-chip-wait 1.1s ease-in-out infinite;
+}
+@keyframes nm-chip-wait {
+  50% {
+    opacity: 0.35;
+  }
+}
+.nm-statuschip b {
+  margin-left: 2px;
+  color: var(--nm-fg);
+  font-weight: 400;
+  text-decoration: underline;
+  text-decoration-color: var(--nm-card-line);
+  text-underline-offset: 3px;
+}
+[data-theme='light'] .nm-statuschip[data-level='ok'] i {
+  border-color: #1f7a3a;
+  background: #1f7a3a;
+}
+[data-theme='light'] .nm-statuschip[data-level='warn'] i {
+  border-color: #9a6a0c;
+  background: repeating-linear-gradient(135deg, #9a6a0c 0 1px, transparent 1px 4px);
+}
+[data-theme='light'] .nm-statuschip[data-level='fail'] i {
+  border-color: #b3382c;
+  background: #b3382c;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nm-statuschip i {
+    animation: none !important;
+  }
+}
+
+.nm-statuschip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nc-legal .nm-statuschip {
+  margin-bottom: 6px;
+}
