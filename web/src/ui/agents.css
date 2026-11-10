@@ -728,3 +728,80 @@
 .nc-screen[data-testid='agents'] .nc-sign .nc-fold {
   margin: 8px 0 12px;
 }
+
+/* approve and commands: the same small fields, a slim client row, copy inside the block */
+.ag-grid.ag-grid-wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.nc-agent-steps .nc-clients {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.nc-agent-steps .nc-clients button {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 0;
+  align-items: center;
+  padding: 8px 10px;
+}
+.nc-agent-steps .nc-clients .nc-client-mark {
+  grid-row: 1 / span 2;
+}
+.nc-agent-steps .nc-clients strong {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+}
+.nc-agent-steps .nc-clients small {
+  display: none;
+}
+.nc-agent-steps .nc-clients em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nc-agent-steps .nc-cmds {
+  gap: 12px;
+  margin-top: 14px;
+}
+.nc-agent-steps .nc-cmds li {
+  position: relative;
+}
+.nc-agent-steps .nc-cmds li > .nc-actions {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  margin: 0;
+}
+.nc-agent-steps .nc-cmds li > .nc-actions .nc-button {
+  min-height: 28px;
+  padding: 2px 12px;
+  font-size: 12px;
+}
+.nc-agent-steps .nc-cmds .nc-code {
+  margin-top: 6px;
+}
+.nc-agent-steps .nc-cap-first {
+  margin-bottom: 10px;
+}
+@media (max-width: 760px) {
+  .ag-grid.ag-grid-wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.nc-agent-steps .nc-clients {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.nc-agent-steps .nc-clients em {
+  display: none;
+}
+.nc-agent-steps .nc-clients button {
+  grid-template-rows: auto;
+}
+@media (max-width: 760px) {
+  .nc-agent-steps .nc-clients {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

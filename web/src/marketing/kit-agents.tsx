@@ -89,6 +89,7 @@ export function ClientGrid({
           type="button"
           role="radio"
           aria-checked={pick === c.id}
+          title={`${c.via}: ${c.status}`}
           onClick={() => onPick(c)}
         >
           <ClientMark client={c} size={36} />

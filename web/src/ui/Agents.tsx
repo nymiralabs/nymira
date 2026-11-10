@@ -532,28 +532,32 @@ export function Agents() {
             Copy the four values from <code>nymirad agent approvals</code>. The approval is good for
             ten minutes and for that one request.
           </p>
-          <div className="nc-policy-form nc-agent-grid">
+          <div className="ag-grid ag-grid-wide">
             <Field
               label="Approval ID"
               id="a-id"
+              placeholder="apv_ and 32 hex digits"
               value={approval.id}
               onChange={(v) => setApproval({ ...approval, id: v })}
             />
             <Field
               label="Request hash"
               id="a-hash"
+              placeholder="64 hex digits"
               value={approval.requestHash}
               onChange={(v) => setApproval({ ...approval, requestHash: v })}
             />
             <Field
               label="Amount (micro-USD)"
               id="a-amount"
+              placeholder="micro-USD"
               value={approval.amountMicro}
               onChange={(v) => setApproval({ ...approval, amountMicro: v })}
             />
             <Field
               label="Nonce"
               id="a-nonce"
+              placeholder="64 hex digits"
               value={approval.nonce}
               onChange={(v) => setApproval({ ...approval, nonce: v })}
             />
@@ -574,7 +578,7 @@ export function Agents() {
             token; the agent reads its token from the file you name.
           </p>
           <ClientGrid pick={pick} onPick={choose} />
-          <div className="nc-policy-form nc-agent-grid">
+          <div className="ag-grid ag-grid-wide">
             <label className="nc-field">
               <span>Transport</span>
               <select
@@ -590,6 +594,7 @@ export function Agents() {
               <Field
                 label="Agent user"
                 id="c-user"
+                placeholder="agent user"
                 value={cmd.agentUser}
                 onChange={(v) => setCmd({ ...cmd, agentUser: v })}
               />
@@ -597,30 +602,35 @@ export function Agents() {
             <Field
               label="Token file path"
               id="c-token"
+              placeholder="/srv/agent/cursor.token"
               value={cmd.tokenFile}
               onChange={(v) => setCmd({ ...cmd, tokenFile: v })}
             />
             <Field
               label="Funding key file path"
               id="c-key"
+              placeholder="/home/me/key.json"
               value={cmd.keyFile}
               onChange={(v) => setCmd({ ...cmd, keyFile: v })}
             />
             <Field
               label="Amount (base units, 1 USDC is 1000000)"
               id="c-amount"
+              placeholder="1000000"
               value={cmd.amount}
               onChange={(v) => setCmd({ ...cmd, amount: v })}
             />
             <Field
               label={cmd.transport === 'unix' ? 'Agent socket path' : 'Loopback address (optional)'}
               id="c-endpoint"
+              placeholder="optional"
               value={cmd.endpoint}
               onChange={(v) => setCmd({ ...cmd, endpoint: v })}
             />
             <Field
               label="Agent host for an SSH forward (optional)"
               id="c-host"
+              placeholder="optional"
               value={cmd.agentHost}
               onChange={(v) => setCmd({ ...cmd, agentHost: v })}
             />
