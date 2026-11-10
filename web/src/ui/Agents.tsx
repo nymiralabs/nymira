@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import agentsIllustration from '../marketing/assets/app-agents.webp';
-import { Button, Card, Chip, Screen } from '../marketing/kit';
+import { Button, Card, Chip, Fold, Screen } from '../marketing/kit';
 import {
+  BudgetLadder,
   ClientGrid,
   ClientMark,
   CLIENTS,
@@ -34,7 +35,7 @@ import './agents.css';
 function Errors({ list, id }: { list: string[]; id: string }) {
   if (list.length === 0) return null;
   return (
-    <ul className="nc-msg nc-list" data-tone="err" data-testid={id}>
+    <ul className="nc-msg nc-list nc-todo" data-tone="err" data-testid={id}>
       {list.map((e) => (
         <li key={e}>{e}</li>
       ))}
@@ -219,6 +220,18 @@ export function Agents() {
     agentErrors.length > 0 ? { ok: false, errors: agentErrors } : approvalMessage(approval);
   const blocks = buildBlocks({ ...cmd, name });
   const recipes = recipeViews({ ...cmd, name });
+  const stepOf = (i: number) => {
+    const done = [
+      !!wallet.connected,
+      agentErrors.length === 0,
+      policyMsg.ok,
+      false,
+      blocks.ok,
+      false,
+    ];
+    const firstOpen = done.findIndex((d, j) => !d && j < 3);
+    return done[i] ? 'done' : i === (firstOpen < 0 ? 3 : firstOpen) ? 'now' : 'next';
+  };
   const set = (k: keyof typeof policy) => (v: string) => setPolicy({ ...policy, [k]: v });
   const choose = (c: ClientInfo) => {
     setPick(c.id);
@@ -247,7 +260,7 @@ export function Agents() {
         <code>nymirad</code>. It writes the policy file, signs it and your approvals with your
         wallet, and prints commands for you to run yourself.
       </p>
-      <Card title="What is guaranteed, and what is not" testId="agents-guarantees">
+      <Fold title="What is guaranteed, and what is not" testId="agents-guarantees">
         <ul className="nc-list">
           <li>
             The ceiling is cryptographic. An agent can spend at most the balance of its budget note,
@@ -277,10 +290,10 @@ export function Agents() {
             account you named. The agent&apos;s total becomes public at the end.
           </li>
         </ul>
-      </Card>
+      </Fold>
 
       <ol className="nc-steps nc-agent-steps">
-        <li>
+        <li data-s={stepOf(0)}>
           <h2>Wallet</h2>
           <p className="nc-cap nc-cap-first">
             The policy and each approval are signed as NEP-413 messages with your NEAR wallet. The
@@ -293,7 +306,7 @@ export function Agents() {
           )}
         </li>
 
-        <li>
+        <li data-s={stepOf(1)}>
           <h2>The agent</h2>
           <Field label="Agent name" id="agent-name" value={name} onChange={setName} />
           <Field
@@ -305,10 +318,10 @@ export function Agents() {
           />
         </li>
 
-        <li>
+        <li data-s={stepOf(2)}>
           <h2>Policy</h2>
           <div className="nc-policy">
-            <div className="nc-policy-form">
+            <div className="nc-policy-form nc-agent-grid">
               <fieldset className="nc-models">
                 <legend>Allowed models</legend>
                 {MODELS.map((m) => (
@@ -369,7 +382,15 @@ export function Agents() {
                 hint="Must be higher than any version this agent has had."
               />
             </div>
-            <div>
+            <div className="nc-policy-out">
+              <BudgetLadder
+                rows={[
+                  { key: 'day', label: 'Per day', value: policy.maxDailyUsd },
+                  { key: 'lease', label: 'Per lease', value: policy.maxLeaseUsd },
+                  { key: 'ask', label: 'Ask above', value: policy.confirmAboveUsd },
+                  { key: 'call', label: 'Per call', value: policy.maxCallUsd },
+                ]}
+              />
               {yaml.ok && (
                 <pre className="nc-code nc-yaml" data-testid="policy-yaml">
                   {yaml.value}
@@ -392,13 +413,13 @@ export function Agents() {
           />
         </li>
 
-        <li>
+        <li data-s={stepOf(3)}>
           <h2>Approve a held call</h2>
           <p className="nc-cap nc-cap-first">
             Copy the four values from <code>nymirad agent approvals</code>. The approval is good for
             ten minutes and for that one request.
           </p>
-          <div className="nc-policy-form">
+          <div className="nc-policy-form nc-agent-grid">
             <Field
               label="Approval ID"
               id="a-id"
@@ -433,14 +454,14 @@ export function Agents() {
           />
         </li>
 
-        <li>
+        <li data-s={stepOf(4)}>
           <h2>Commands and tool settings</h2>
           <p className="nc-cap nc-cap-first">
             Nothing here runs. Copy a block and run it yourself. No block holds a passphrase or a
             token; the agent reads its token from the file you name.
           </p>
           <ClientGrid pick={pick} onPick={choose} />
-          <div className="nc-policy-form">
+          <div className="nc-policy-form nc-agent-grid">
             <label className="nc-field">
               <span>Transport</span>
               <select
@@ -501,7 +522,7 @@ export function Agents() {
           )}
         </li>
 
-        <li>
+        <li data-s={stepOf(5)}>
           <h2>Recipes</h2>
           <p className="nc-cap nc-cap-first">
             The IronClaw and Cursor recipes, filled from the fields above. They are the same text as

@@ -100,3 +100,32 @@ export function ClientGrid({
     </div>
   );
 }
+
+const num = (v: string) => (/^[0-9]+(\.[0-9]+)?$/.test(v.trim()) ? Number(v) : NaN);
+
+/** The limits as bars on one scale, so the order (day, lease, ask, call) is visible while typing. */
+export function BudgetLadder({
+  rows,
+}: {
+  rows: readonly { key: string; label: string; value: string }[];
+}) {
+  const nums = rows.map((r) => num(r.value));
+  const top = Math.max(0, ...nums.filter((n) => Number.isFinite(n)));
+  return (
+    <div className="nc-ladder" aria-hidden="true">
+      {rows.map((r, i) => {
+        const n = nums[i] ?? NaN;
+        const set = Number.isFinite(n) && n > 0 && top > 0;
+        return (
+          <div className="nc-ladder-row" key={r.key} data-set={set}>
+            <span>{r.label}</span>
+            <i>
+              <b style={vars({ '--w': set ? `${Math.max(3, (n / top) * 100)}%` : '0%' })} />
+            </i>
+            <em>{set ? `$${r.value.trim()}` : 'not set'}</em>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

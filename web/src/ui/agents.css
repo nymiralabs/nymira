@@ -56,3 +56,148 @@
 .nc-screen[data-testid='agents'] .nc-card-body > .nc-recipe .nc-cmds {
   margin-top: 4px;
 }
+
+/* ---- calm pass: steps, grids, the limit ladder ---- */
+.nc-screen[data-testid='agents'] .nc-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px 16px;
+}
+.nc-screen[data-testid='agents'] .nc-agent-grid .nc-field {
+  min-width: 0;
+}
+.nc-screen[data-testid='agents'] .nc-policy {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.nc-screen[data-testid='agents'] .nc-policy-out {
+  display: grid;
+  gap: 12px;
+  position: sticky;
+  top: 16px;
+}
+.nc-screen[data-testid='agents'] .nc-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+.nc-screen[data-testid='agents'] .nc-models legend {
+  float: left;
+  width: 100%;
+}
+.nc-screen[data-testid='agents'] .nc-models .nc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--nm-line);
+  cursor: pointer;
+  transition:
+    border-color 160ms,
+    background-color 160ms;
+}
+.nc-screen[data-testid='agents'] .nc-models .nc-check:has(input:checked) {
+  border-color: var(--nm-fg);
+  background: var(--nm-raised);
+}
+.nc-screen[data-testid='agents'] .nc-models .nc-check span {
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+/* what is still missing reads as a to-do, not as an alarm */
+.nc-screen[data-testid='agents'] .nc-todo {
+  margin: 12px 0 0;
+  padding: 10px 14px 10px 30px;
+  border: 1px dashed var(--nm-line);
+  background: none;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.nc-ladder {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--nm-line);
+}
+.nc-ladder-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 10px;
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-ladder-row em {
+  font-style: normal;
+  text-align: right;
+}
+.nc-ladder-row i {
+  display: block;
+  height: 8px;
+  background: repeating-linear-gradient(90deg, var(--nm-soft-line) 0 4px, transparent 4px 8px);
+}
+.nc-ladder-row b {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  background: var(--nm-fg);
+  transition: width 420ms var(--nc-ease);
+}
+.nc-ladder-row[data-set='true'] {
+  color: var(--nm-fg);
+}
+.nc-screen[data-testid='agents'] .nc-sign .nc-actions .nc-button:disabled {
+  opacity: 1;
+  border-style: dashed;
+  background: transparent;
+  color: var(--nm-muted);
+}
+@media (max-width: 760px) {
+  .nc-screen[data-testid='agents'] .nc-policy {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nc-screen[data-testid='agents'] .nc-policy-out {
+    position: static;
+  }
+  .nc-screen[data-testid='agents'] .nc-agent-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-ladder-row b {
+    transition: none;
+  }
+}
+.nc-screen[data-testid='agents'] .nc-agent-grid .nc-field {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-self: start;
+}
+.nc-screen[data-testid='agents'] .nc-models legend {
+  float: none;
+  display: block;
+  flex-basis: 100%;
+  margin: 0;
+}
+.nc-screen[data-testid='agents'] .nc-steps > li {
+  min-width: 0;
+}
+.nc-screen[data-testid='agents'] code,
+.nc-screen[data-testid='agents'] .nc-cap {
+  overflow-wrap: anywhere;
+}
+.nc-screen[data-testid='agents'] .nc-code {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.nc-screen[data-testid='agents'] input {
+  max-width: 100%;
+}
