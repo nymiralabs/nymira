@@ -497,3 +497,25 @@
 .nc[data-screen='chat'] .nc-chat-screen .nc-thread:has([data-testid='chat-blocked']) {
   overflow-y: hidden;
 }
+
+/* Many notes: the list takes the height the frame has left and scrolls inside itself, so the page
+   behind it does not scroll as a second bar. On a short window there is no room for that: the
+   whole thread scrolls once and the list does not scroll inside it. */
+@media (min-height: 821px) {
+  .nc[data-screen='chat'] .nc-chat-screen .nc-thread:has(.nc-pick-list[data-many='true']) .nc-pick {
+    display: flex;
+    flex: 1 0 auto;
+    flex-direction: column;
+  }
+  .nc[data-screen='chat'] .nc-chat-screen .nc-pick-list[data-many='true'] {
+    flex: 1 1 0;
+    min-height: 220px;
+    max-height: none;
+  }
+}
+@media (max-height: 820px) {
+  .nc[data-screen='chat'] .nc-chat-screen .nc-pick-list[data-many='true'] {
+    max-height: none;
+    overflow-y: visible;
+  }
+}

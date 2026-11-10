@@ -23,7 +23,9 @@ export function ExpiryBanner({
       <p>{children}</p>
       {onOpen && (
         <Button onClick={onOpen}>
-          <span className="nc-m-hide">Open the </span>Close screen
+          <span>
+            <span className="nc-m-hide">Open the </span>Close screen
+          </span>
         </Button>
       )}
     </div>
@@ -210,7 +212,9 @@ export function ExpiryStack({
           )}
           {onOpen && (
             <Button onClick={onOpen}>
-              <span className="nc-m-hide">Open the </span>Close screen
+              <span>
+                <span className="nc-m-hide">Open the </span>Close screen
+              </span>
             </Button>
           )}
         </div>
