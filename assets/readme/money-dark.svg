@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 340" width="1000" height="340" role="img" aria-labelledby="t d">
+<title id="t">Where the USDC goes</title>
+<desc id="d">A 1 USDC note costs 1.05 USDC with the fee. A lease reserves 0.10 USDC and, when it ends, charges its usage with a minimum of 0.002 USDC. A close from the wallet pays the rest to the payout account with no close fee.</desc>
+<style>
+text{font-family:'IBM Plex Sans',-apple-system,'Segoe UI',system-ui,sans-serif;fill:#fafafa}
+.m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.mu{fill:#a1a1a1}
+.ln{stroke:#3a3a3a;fill:none;stroke-width:1}
+.ac{stroke:#9aa8ff;fill:none;stroke-width:1}
+.hatch{fill:url(#hatch)}
+.cell{animation:cell-in .5s cubic-bezier(.16,1,.3,1) both}
+@keyframes cell-in{from{opacity:0;transform:translateY(6px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+<pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" stroke="#9aa8ff" stroke-width="1.2"/></pattern>
+</defs>
+
+<text x="48" y="44" font-size="22">Where the USDC goes</text>
+<text x="48" y="68" class="mu" font-size="15">One cell is 0.05 USDC. An example: a short chat with z-ai/glm-5.3-flash on a 1 USDC note.</text>
+<text x="48" y="117" font-size="16">Deposit</text>
+<rect class="cell" x="250" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:0ms"/>
+<rect class="cell" x="268" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:10ms"/>
+<rect class="cell" x="286" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:20ms"/>
+<rect class="cell" x="304" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:30ms"/>
+<rect class="cell" x="322" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:40ms"/>
+<rect class="cell" x="340" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:50ms"/>
+<rect class="cell" x="358" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:60ms"/>
+<rect class="cell" x="376" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:70ms"/>
+<rect class="cell" x="394" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:80ms"/>
+<rect class="cell" x="412" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:90ms"/>
+<rect class="cell" x="430" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:100ms"/>
+<rect class="cell" x="448" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:110ms"/>
+<rect class="cell" x="466" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:120ms"/>
+<rect class="cell" x="484" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:130ms"/>
+<rect class="cell" x="502" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:140ms"/>
+<rect class="cell" x="520" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:150ms"/>
+<rect class="cell" x="538" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:160ms"/>
+<rect class="cell" x="556" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:170ms"/>
+<rect class="cell" x="574" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:180ms"/>
+<rect class="cell" x="592" y="100" width="15" height="22" fill="#ffffff48" style="animation-delay:190ms"/>
+<g class="cell" style="animation-delay:200ms"><rect x="610" y="100" width="15" height="22" class="hatch"/><rect x="610.5" y="100.5" width="14" height="21" class="ac"/></g>
+<text x="646" y="117" class="m mu" font-size="13">1.05 = 1.00 note + 0.05 fee</text>
+<text x="48" y="167" font-size="16">A lease opens</text>
+<rect class="cell" x="250" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:0ms"/>
+<rect class="cell" x="268" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:10ms"/>
+<rect class="cell" x="286" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:20ms"/>
+<rect class="cell" x="304" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:30ms"/>
+<rect class="cell" x="322" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:40ms"/>
+<rect class="cell" x="340" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:50ms"/>
+<rect class="cell" x="358" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:60ms"/>
+<rect class="cell" x="376" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:70ms"/>
+<rect class="cell" x="394" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:80ms"/>
+<rect class="cell" x="412" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:90ms"/>
+<rect class="cell" x="430" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:100ms"/>
+<rect class="cell" x="448" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:110ms"/>
+<rect class="cell" x="466" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:120ms"/>
+<rect class="cell" x="484" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:130ms"/>
+<rect class="cell" x="502" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:140ms"/>
+<rect class="cell" x="520" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:150ms"/>
+<rect class="cell" x="538" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:160ms"/>
+<rect class="cell" x="556" y="150" width="15" height="22" fill="#ffffff48" style="animation-delay:170ms"/>
+<rect class="cell ac" x="574.5" y="150.5" width="14" height="21" style="animation-delay:180ms"/>
+<rect class="cell ac" x="592.5" y="150.5" width="14" height="21" style="animation-delay:190ms"/>
+<text x="628" y="167" class="m mu" font-size="13">0.10 reserved, nothing spent yet</text>
+<text x="48" y="217" font-size="16">The lease ends</text>
+<rect class="cell" x="250" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:0ms"/>
+<rect class="cell" x="268" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:10ms"/>
+<rect class="cell" x="286" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:20ms"/>
+<rect class="cell" x="304" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:30ms"/>
+<rect class="cell" x="322" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:40ms"/>
+<rect class="cell" x="340" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:50ms"/>
+<rect class="cell" x="358" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:60ms"/>
+<rect class="cell" x="376" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:70ms"/>
+<rect class="cell" x="394" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:80ms"/>
+<rect class="cell" x="412" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:90ms"/>
+<rect class="cell" x="430" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:100ms"/>
+<rect class="cell" x="448" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:110ms"/>
+<rect class="cell" x="466" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:120ms"/>
+<rect class="cell" x="484" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:130ms"/>
+<rect class="cell" x="502" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:140ms"/>
+<rect class="cell" x="520" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:150ms"/>
+<rect class="cell" x="538" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:160ms"/>
+<rect class="cell" x="556" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:170ms"/>
+<rect class="cell" x="574" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:180ms"/>
+<rect class="cell" x="592" y="200" width="15" height="22" fill="#ffffff48" style="animation-delay:190ms"/>
+<text x="628" y="217" class="m mu" font-size="13">charge 0.002, the rest is free again</text>
+<text x="48" y="267" font-size="16">Close from the wallet</text>
+<rect class="cell" x="250" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:0ms"/>
+<rect class="cell" x="268" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:10ms"/>
+<rect class="cell" x="286" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:20ms"/>
+<rect class="cell" x="304" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:30ms"/>
+<rect class="cell" x="322" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:40ms"/>
+<rect class="cell" x="340" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:50ms"/>
+<rect class="cell" x="358" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:60ms"/>
+<rect class="cell" x="376" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:70ms"/>
+<rect class="cell" x="394" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:80ms"/>
+<rect class="cell" x="412" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:90ms"/>
+<rect class="cell" x="430" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:100ms"/>
+<rect class="cell" x="448" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:110ms"/>
+<rect class="cell" x="466" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:120ms"/>
+<rect class="cell" x="484" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:130ms"/>
+<rect class="cell" x="502" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:140ms"/>
+<rect class="cell" x="520" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:150ms"/>
+<rect class="cell" x="538" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:160ms"/>
+<rect class="cell" x="556" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:170ms"/>
+<rect class="cell" x="574" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:180ms"/>
+<rect class="cell" x="592" y="250" width="15" height="22" fill="#ffffff48" style="animation-delay:190ms"/>
+<text x="628" y="267" class="m mu" font-size="13">0.998 to the payout account, no fee</text>
+<text x="48" y="318" class="mu" font-size="14">Charge = usage x 1.03 + a slot fee, rounded up to 0.001, at least 0.002, never above the bound.</text>
+</svg>
