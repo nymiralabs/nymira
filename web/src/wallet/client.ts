@@ -26,7 +26,7 @@ export interface SignedByWallet extends SignedMessage {
   recipient: string;
 }
 
-const SIGN_IN_MESSAGE = 'Connect to Nymira. This signature only shows that you hold this account.';
+const SIGN_IN_MESSAGE = 'Connect to Nymira. This signature shows control of the signing key.';
 
 type Listener = () => void;
 

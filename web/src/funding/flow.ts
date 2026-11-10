@@ -309,9 +309,8 @@ export async function confirmDeposit(
     if (fromWallet.ok) return finalize(record, fromWallet.event, 'wallet');
     if (fromWallet.reason.startsWith('the event does not match')) {
       return {
-        status: 'rejected',
-        record: await update(record, { phase: 'rejected' }),
-        reason: fromWallet.reason,
+        status: 'pending',
+        reason: `${fromWallet.reason}. The transfer may have been accepted; do not assume a refund`,
       };
     }
   }
@@ -347,9 +346,8 @@ export async function confirmDeposit(
         found.reason.startsWith('the transaction was signed')
       ) {
         return {
-          status: 'rejected',
-          record: await update(record, { phase: 'rejected', txHash: hash }),
-          reason: found.reason,
+          status: 'pending',
+          reason: `${found.reason}. The transfer may have been accepted; do not assume a refund`,
         };
       }
       // A complete outcome with no deposit event: the vault refused and the token refunded.

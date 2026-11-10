@@ -512,7 +512,7 @@ export function Fund({
           <li data-s={stepState(0)}>
             <h2>Wallet</h2>
             <WalletConnect busy={busy !== ''} />
-            <VaultBanner check={vault} onRecheck={recheck} />
+            {route === 'near' && <VaultBanner check={vault} onRecheck={recheck} />}
           </li>
           <li data-s={stepState(1)}>
             <h2>Size</h2>
@@ -812,7 +812,7 @@ export function Fund({
               <div className="nc-result" data-tone="err" role="alert">
                 <div className="nc-result-head">
                   <i aria-hidden="true" />
-                  <strong>That did not go through</strong>
+                  <strong>Could not complete this step</strong>
                 </div>
                 <p data-testid="fund-error">{error}</p>
                 {/wallet|transfer|deposit|transaction/i.test(error) && (
@@ -860,6 +860,7 @@ export function Fund({
       </div>
       {otherRoute && (
         <div hidden={route !== 'other'}>
+          {route === 'other' && <VaultBanner check={vault} onRecheck={recheck} />}
           {intentsPathsEnabled(PROFILE) && (
             <Intents
               vault={vault}
