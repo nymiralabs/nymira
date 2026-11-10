@@ -61,16 +61,13 @@ header {
   padding: 28px clamp(20px, 5vw, 56px);
 }
 .brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
+  display: inline-block;
   color: var(--fg);
-  font-size: 20px;
-  text-decoration: none;
 }
-.brand img {
+.brand svg {
   display: block;
-  border-radius: 7px;
+  width: 112px;
+  height: auto;
 }
 main {
   display: grid;
