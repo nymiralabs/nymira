@@ -396,13 +396,9 @@ export function Agents() {
         </ul>
       </Fold>
 
-      <div className="ag-flow">
-        <section className="ag-step" id="ag-step-0" data-s={stepOf(0)}>
-          <header>
-            <span className="ag-num">01</span>
-            <h2>Wallet</h2>
-            <em className="ag-st" data-s={stepOf(0)} />
-          </header>
+      <ol className="nc-steps nc-agent-steps">
+        <li id="ag-step-0" data-s={stepOf(0)}>
+          <h2>Wallet</h2>
           <p className="nc-cap nc-cap-first">
             The policy and each approval are signed as NEP-413 messages with your NEAR wallet. The
             account must be the one that funded the budget note. <code>nymirad</code> checks that
@@ -412,14 +408,10 @@ export function Agents() {
           {wallet.connected && wallet.connected.signature === 'unsupported' && (
             <p className="nc-cap">This browser cannot check the sign-in signature.</p>
           )}
-        </section>
+        </li>
 
-        <section className="ag-step" id="ag-step-1" data-s={stepOf(1)}>
-          <header>
-            <span className="ag-num">02</span>
-            <h2>The agent</h2>
-            <em className="ag-st" data-s={stepOf(1)} />
-          </header>
+        <li id="ag-step-1" data-s={stepOf(1)}>
+          <h2>The agent</h2>
           <Field label="Agent name" id="agent-name" value={name} onChange={setName} />
           <Field
             label="Budget note commitment"
@@ -428,14 +420,10 @@ export function Agents() {
             onChange={setCommitment}
             hint="The note field of the agent in agents.json in the nymirad state directory."
           />
-        </section>
+        </li>
 
-        <section className="ag-step" id="ag-step-2" data-s={stepOf(2)}>
-          <header>
-            <span className="ag-num">03</span>
-            <h2>Policy</h2>
-            <em className="ag-st" data-s={stepOf(2)} />
-          </header>
+        <li id="ag-step-2" data-s={stepOf(2)}>
+          <h2>Policy</h2>
           <div className="nc-policy">
             <div className="nc-policy-form nc-agent-grid">
               <fieldset className="nc-models">
@@ -519,15 +507,9 @@ export function Agents() {
             recipient={policyRecipient(name, commitment)}
             fileName={`${name || 'agent'}-policy.signed.json`}
           />
-        </section>
-
-        <p className="ag-divider">After signing</p>
-        <section className="ag-step" id="ag-step-3" data-s={stepOf(3)}>
-          <header>
-            <span className="ag-num">04</span>
-            <h2>Approve a held call</h2>
-            <em className="ag-st" data-s={stepOf(3)} />
-          </header>
+        </li>
+        <li id="ag-step-3" data-s={stepOf(3)}>
+          <h2>Approve a held call</h2>
           <p className="nc-cap nc-cap-first">
             Copy the four values from <code>nymirad agent approvals</code>. The approval is good for
             ten minutes and for that one request.
@@ -565,14 +547,10 @@ export function Agents() {
             recipient={approvalRecipient(name, commitment)}
             fileName={`${name || 'agent'}-approval.signed.json`}
           />
-        </section>
+        </li>
 
-        <section className="ag-step" id="ag-step-4" data-s={stepOf(4)}>
-          <header>
-            <span className="ag-num">05</span>
-            <h2>Commands and tool settings</h2>
-            <em className="ag-st" data-s={stepOf(4)} />
-          </header>
+        <li id="ag-step-4" data-s={stepOf(4)}>
+          <h2>Commands and tool settings</h2>
           <p className="nc-cap nc-cap-first">
             Nothing here runs. Copy a block and run it yourself. No block holds a passphrase or a
             token; the agent reads its token from the file you name.
@@ -637,14 +615,10 @@ export function Agents() {
               ))}
             </ol>
           )}
-        </section>
+        </li>
 
-        <section className="ag-step" id="ag-step-5" data-s={stepOf(5)}>
-          <header>
-            <span className="ag-num">06</span>
-            <h2>Recipes</h2>
-            <em className="ag-st" data-s={stepOf(5)} />
-          </header>
+        <li id="ag-step-5" data-s={stepOf(5)}>
+          <h2>Recipes</h2>
           <p className="nc-cap nc-cap-first">
             The IronClaw and Cursor recipes, filled from the fields above. They are the same text as
             the README sections. Every recipe names the token file and holds no token. Pick a client
@@ -696,8 +670,8 @@ export function Agents() {
               </Card>
             );
           })}
-        </section>
-      </div>
+        </li>
+      </ol>
     </Screen>
   );
 }
