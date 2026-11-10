@@ -168,7 +168,9 @@ export function CliScene({ s }: { s: number }) {
           chip={s >= 2 && s < 6 ? 'lease open' : 'idle'}
           on={s >= 2 && s < 6}
         />
-        <span className="nm-node-subtitle">Authorizes the lease. Sees only ciphertext.</span>
+        <span className="nm-node-subtitle">
+          Authorizes the lease. Sees sizes and timing, not your prompt.
+        </span>
         <Cipher run={s >= 3 && s <= 4} rows={3} cols={26} />
         <div className="nm-show-meta">
           <span>Lease bound</span>
@@ -381,7 +383,7 @@ export function McpScene({ s }: { s: number }) {
           <Tick /> Attestation checked
         </Row>
         <Wave run={s === 5 || s === 6} rows={3} cols={28} />
-        <span className="nm-node-bottom">Sees only Nymira’s organisation as the payer</span>
+        <span className="nm-node-bottom">Sees Nymira as the payer, not your account</span>
       </Node>
       <Wires wires={wires} />
     </>

@@ -65,7 +65,7 @@ const FILES: readonly Entry[] = [
       'nymirad runs only a Tor whose SHA-256 is compiled into the build. Any other hash is refused.',
     leaves: {
       stays: true,
-      text: 'Never. It is the route out: everything nymirad sends goes through it.',
+      text: 'Never. It is the route out: nymirad sends through it by default.',
     },
     copied: 'Skip it with your own SOCKS proxy. Then you check the executable yourself.',
   },
@@ -77,7 +77,7 @@ const FILES: readonly Entry[] = [
       'age (X25519). With a passphrase, the key comes from Argon2id (64 MiB, 3 passes) and the passphrase needs at least 12 characters.',
     leaves: {
       stays: false,
-      text: 'Yes, to the places you chose at setup. It is the only note data that leaves the folder.',
+      text: 'Yes, encrypted, to the places you chose at setup. It is the only copy of your notes that leaves the folder.',
     },
     copied:
       'Your age key or passphrase restores the notes. Treat either as you would the notes themselves.',
@@ -198,8 +198,8 @@ export function LocalScene() {
           <i>$ </i>nymirad serve
         </code>
         <span>
-          Everything nymirad sends goes through Tor, and it asks before any direct send. The browser
-          app has no such directory and cannot hide your IP address.
+          nymirad sends through Tor and asks before any direct send. The browser app has no such
+          directory and cannot hide your IP address.
         </span>
       </p>
     </div>

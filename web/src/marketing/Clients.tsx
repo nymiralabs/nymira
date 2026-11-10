@@ -28,7 +28,7 @@ const CLIENTS: readonly {
     blurb: 'The same web app, opened in Tor Browser.',
     credential: 'NEAR wallet',
     hops: [{ name: 'Tor Browser' }, { name: 'Tor', tor: true }, { name: 'Operator' }],
-    ip: 'Your IP address stays out of the operator’s view.',
+    ip: 'The operator sees a Tor exit, not your IP address.',
     hidden: true,
   },
   {

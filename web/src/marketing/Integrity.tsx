@@ -28,6 +28,7 @@ const LIMITS = [
   'A host that shows the verifier a clean copy and you another one defeats the check. Running it over Tor and directly makes that harder, not impossible.',
   'A signature says who vouched for a release. It does not say what the code does.',
   'A hash in a footer proves nothing. The check only counts when you run it.',
+  'No outside party has rebuilt this release yet, and the signing key is the team’s own.',
 ] as const;
 
 export function Integrity() {

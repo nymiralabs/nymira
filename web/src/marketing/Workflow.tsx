@@ -100,7 +100,7 @@ export function Workflow() {
       </ol>
       <div className="nm-flow-note">
         <div className="nm-flow-note-head">
-          <span>Budget note · agent cursor</span>
+          <span>Budget note · agent worker</span>
           <span data-held={held ? 'true' : 'false'}>{held ? 'waiting for you' : 'open'}</span>
         </div>
         <Cells n={Math.round(DAY / CELL)} filled={Math.ceil(spent / CELL - 1e-9)} />

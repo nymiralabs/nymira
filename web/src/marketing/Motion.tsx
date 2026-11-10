@@ -60,8 +60,8 @@ const LIFE: readonly Life[] = [
   {
     balance: 0,
     reserved: 0,
-    paid: 0.925,
-    text: 'Close: the vault pays the balance less the 0.03 USDC close fee, 0.925, to the payout account.',
+    paid: 0.955,
+    text: 'Close from your wallet: the vault pays the whole balance, 0.955, to the payout account. A close sent by the operator costs 0.03.',
   },
 ];
 
@@ -136,7 +136,7 @@ const BEATS: readonly Beat[] = [
   {
     open: OPEN0,
     wave: true,
-    text: 'A lease arrives: a proof, a nullifier, a bound class. Any open note could have paid.',
+    text: 'A lease arrives: a proof, a nullifier, a bound class. Any open note with enough balance could have paid.',
   },
   { open: [...OPEN0, 13], wave: false, text: 'A new deposit joins the set.' },
   {
@@ -196,7 +196,7 @@ export function ExpiryLine() {
   const left = DAYS - day;
   const note =
     day >= DAYS
-      ? 'The note has expired. Close it or exit before this day.'
+      ? 'The note has expired. It can still exit; the treasury can take it 7 days later.'
       : left <= 2
         ? 'Two days left: the last calendar reminder.'
         : left <= 7

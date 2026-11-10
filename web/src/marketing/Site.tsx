@@ -240,8 +240,8 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
           </a>
           <h1 id="hero-title">Private credit. On your terms.</h1>
           <p className="nm-hero-description" data-testid="description">
-            Prepaid AI credit backed by USDC on NEAR. Fund a note, use attested models without a
-            Nymira account, and withdraw what you don’t spend.
+            Prepaid AI credit in USDC on NEAR, on testnet for now. Fund a note, use attested models
+            without a Nymira account, and withdraw what you don’t spend.
           </p>
           <div className="nm-actions">
             <Action href={app} onClick={openApp} testId="open-app">
@@ -257,7 +257,7 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
         <Section
           id="how-it-works"
           title="Give your credit a private note."
-          description="Fund a note with USDC. Your device proves it can spend without revealing which deposit it came from. The operator authorizes a lease, and encrypted requests pass through to the model."
+          description="Fund a note with USDC. Your device proves it can spend, and the proof does not name the deposit. The operator authorizes a lease, and encrypted requests pass through to the model."
           art={privateNoteIllustration}
         >
           <Showcase source={source} />
@@ -403,8 +403,8 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
                 <div className="nm-life-step">
                   <h3>Close with the operator</h3>
                   <p>
-                    The operator signs a clearance. The vault pays the balance less a 0.03 USDC
-                    close fee.
+                    The operator signs a clearance and the vault pays the balance to the payout
+                    account. A close the operator sends for you costs 0.03 USDC.
                   </p>
                 </div>
                 <div className="nm-life-step">
@@ -415,13 +415,14 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
               </div>
             </div>
             <p className="nm-life-foot">
-              Either way, the balance goes to the note’s payout account.
+              Either way, the payout goes to the note’s payout account. An exit from an old state
+              can be defeated, so keep the backup.
             </p>
           </div>
           <p className="nm-inline-note">
             The web app connects a NEAR wallet in a sealed frame: Meteor or Intear on testnet.
-            Funding from another chain through NEAR Intents is in the mainnet build. The testnet app
-            only shows 1Click quotes.
+            Funding from another chain through NEAR Intents is built for mainnet and has not run
+            against the live service. The testnet app only shows 1Click quotes.
           </p>
         </Section>
         <Section
@@ -503,6 +504,14 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
             <div>
               <dt>Lose your latest state</dt>
               <dd>An exit from an older state can be defeated</dd>
+            </div>
+            <div>
+              <dt>After expiry</dt>
+              <dd>The treasury can take the balance 7 days later, unless an exit is pending</dd>
+            </div>
+            <div>
+              <dt>The operator</dt>
+              <dd>Runs on a home machine and can be offline</dd>
             </div>
             <div>
               <dt>The vault code</dt>

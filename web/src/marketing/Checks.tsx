@@ -28,9 +28,9 @@ const STEPS: readonly [title: string, detail: string][] = [
 
 const LIMITS = [
   'The web app does not check NVIDIA GPU evidence. nymirad does.',
-  'The proving and verifying keys come from a setup run by the team alone. If every contribution was dishonest, proofs can be forged.',
+  'The proving and verifying keys come from a setup run by the team alone. If every contribution was dishonest, proofs can be forged. The circuits come from zkapi and have had no independent review.',
   'A browser cannot read or pin the gateway’s TLS certificate.',
-  'Intel’s collateral comes through Phala’s PCCS. It is signed by Intel’s chain, so the PCCS is trusted for availability only.',
+  'Intel’s collateral comes through Phala’s PCCS. It sees your address, and Intel’s chain signs the collateral.',
 ] as const;
 
 export function Checks() {

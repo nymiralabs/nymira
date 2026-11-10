@@ -3,7 +3,7 @@
 const DIFFERENCES: readonly [concern: string, web: string, daemon: string][] = [
   [
     'Your IP address',
-    'RPC providers see it with every read and send, and the operator sees it when you close. The app cannot use Tor.',
+    'RPC providers see it with every read and send, and the operator sees it with every request and close. The app cannot use Tor.',
     'Sends through Tor, and asks before any direct send.',
   ],
   [
@@ -18,7 +18,7 @@ const DIFFERENCES: readonly [concern: string, web: string, daemon: string][] = [
   ],
   [
     'GPU evidence',
-    'Not checked. The app checks the Intel TDX quote, the signed policy and the key binding.',
+    'Not verified. The app checks the Intel TDX quote, the signed policy, the key binding and that the GPU evidence carries the nonce.',
     'Sent through the operator, which sees that a client asked and when. With --nras-direct, NVIDIA sees your IP instead.',
   ],
   [
