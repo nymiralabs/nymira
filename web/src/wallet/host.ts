@@ -180,6 +180,12 @@ async function main() {
         box.remove();
         asking = false;
         syncUi();
+        // The app keeps the frame on top only while this says so: say it again after the dust
+        // settles, so a state that drifted cannot leave an invisible layer over the page.
+        setTimeout(() => {
+          visible = popupVisible() || asking;
+          send({ type: 'ui', visible });
+        }, 250);
         resolve(answer);
       };
       open.addEventListener('click', () => done(true));
