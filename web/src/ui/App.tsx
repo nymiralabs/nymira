@@ -178,6 +178,23 @@ export function App() {
   const [screen, setScreen] = useState<Screen>(firstScreen);
   const [theme, setTheme] = useState<Theme>(firstTheme);
   const [drawer, setDrawer] = useState(false);
+  const [brandMenu, setBrandMenu] = useState(false);
+  const brandRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!brandMenu) return;
+    const away = (e: MouseEvent) => {
+      if (!brandRef.current?.contains(e.target as Node)) setBrandMenu(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBrandMenu(false);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [brandMenu]);
   const [funded, setFunded] = useState(0);
   const [notesOpen, setNotesOpen] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -337,20 +354,53 @@ export function App() {
         data-screen={screen === 'chat' && privacy === null ? 'chat' : screen}
       >
         <aside className="nc-side" aria-label="Console">
-          <div className="nc-brand-row">
-            <a
+          <div className="nc-brand-row" ref={brandRef}>
+            <button
+              type="button"
               className="nc-brand"
-              href="#home"
-              role="button"
               aria-label="Nymira"
+              aria-haspopup="menu"
+              aria-expanded={brandMenu}
+              aria-controls="nc-brand-menu"
+              data-testid="brand-menu"
               draggable={false}
-              onClick={(e) => {
-                e.preventDefault();
-                go('landing');
-              }}
+              onClick={() => setBrandMenu(!brandMenu)}
             >
               <Wordmark animated />
-            </a>
+            </button>
+            {brandMenu && (
+              <div className="nc-brand-menu" id="nc-brand-menu" role="menu" aria-label="Nymira">
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="brand-home"
+                  onClick={() => {
+                    setBrandMenu(false);
+                    go('landing');
+                  }}
+                >
+                  <Icon name="browser" size={14} />
+                  <span>Home page</span>
+                </button>
+                <a
+                  role="menuitem"
+                  href="https://github.com/nymiralabs/nymira"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="brand-github"
+                  onClick={() => setBrandMenu(false)}
+                >
+                  <Icon name="branch" size={14} />
+                  <span>GitHub</span>
+                  <Icon name="upRight" size={12} />
+                </a>
+                <span role="menuitem" aria-disabled="true" data-testid="brand-docs">
+                  <Icon name="braces" size={14} />
+                  <span>Docs</span>
+                  <em>soon</em>
+                </span>
+              </div>
+            )}
             <span className="nc-network" title={PROFILE.vaultAccount} data-testid="network-label">
               <i aria-hidden="true" />
               {PROFILE.network}

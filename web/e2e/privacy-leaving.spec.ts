@@ -171,7 +171,8 @@ test('leaving and observer lists, a long refusal is cut, no Intents line for a n
   await expect(observers).not.toContainText('1Click');
   // The landing drawing says the same words.
   await page.getByTestId('privacy-back').click();
-  await page.getByRole('button', { name: 'Nymira', exact: true }).click();
+  await page.getByTestId('brand-menu').click();
+  await page.getByTestId('brand-home').click();
   const desc = await page.getByTestId('who-desc').innerHTML();
   for (const key of ['who_operator', 'who_model', 'who_chain']) {
     expect(desc.replaceAll('&amp;', '&').replaceAll('&#39;', "'")).toContain(

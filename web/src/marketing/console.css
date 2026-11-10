@@ -6409,3 +6409,59 @@ html {
   scrollbar-width: thin;
   scrollbar-color: light-dark(#c8c8c8, #333) transparent;
 }
+
+/* ---- the Nymira menu: home page, GitHub, docs ---- */
+.nc-brand-row {
+  position: relative;
+}
+.nc .nc-brand-row button.nc-brand {
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.nc-brand-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 40;
+  display: grid;
+  width: 220px;
+  border: 1px solid var(--nm-muted);
+  background: var(--nm-bg);
+  animation: nc-menu-in 180ms var(--nc-ease) both;
+}
+.nc-brand-menu > * {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  background: none;
+  color: var(--nm-fg);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.nc-brand-menu > * + * {
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-brand-menu > button:hover,
+.nc-brand-menu > a:hover,
+.nc-brand-menu > *:focus-visible {
+  background: var(--nm-raised);
+}
+.nc-brand-menu > [aria-disabled='true'] {
+  color: var(--nm-muted);
+  cursor: default;
+}
+.nc-brand-menu em {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+  font-style: normal;
+}
