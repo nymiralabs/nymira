@@ -36,4 +36,10 @@ ignore = [
   # the SDK's jsonwebtoken. nymirad only verifies RSA signatures (Intel's chain, NVIDIA's JWT keys);
   # it holds no RSA private key and decrypts nothing. No fixed version exists.
   "RUSTSEC-2023-0071",
+  # libsqlite3-sys 0.35.0 (bundled SQLite before 3.54.0 can return uninitialized memory when it opens
+  # a database file next to a -wal file with a different page size; local, needs crafted files).
+  # Only the operator uses it, and it opens only its own database at the path it is configured with,
+  # which it created. Nothing opens a database or a -wal file that someone else supplied. The fix needs
+  # rusqlite 0.41, a change to the operator's dependencies that waits for after release 0.1.3.
+  "RUSTSEC-2026-0459",
 ]
