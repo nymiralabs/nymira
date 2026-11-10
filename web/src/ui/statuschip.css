@@ -72,15 +72,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.nc-legal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nc-legal-row > a:last-child {
+  flex: 1;
+}
 .nc-legal a.nm-statuschip-dot {
   display: inline-flex;
+  flex: none;
   width: auto;
   min-height: 0;
-  margin: 0 0 4px;
-  padding: 6px 8px 6px 0;
-  justify-content: flex-start;
-  justify-self: start;
-  width: fit-content;
+  margin: 0;
+  padding: 6px 0;
 }
 .nm-statuschip-dot i {
   width: 8px;

@@ -583,18 +583,20 @@ export function App() {
               )}
             </div>
             <div className="nc-legal">
-              <StatusChip dot check={check} onStatus={() => go('status')} />
-              <a
-                href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="terms-link"
-              >
-                <span>Terms of use</span>
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
-                  <path d="M4 12 12 4M5 4h7v7" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-              </a>
+              <div className="nc-legal-row">
+                <StatusChip dot check={check} onStatus={() => go('status')} />
+                <a
+                  href="https://github.com/nymiralabs/nymira/blob/main/TERMS.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="terms-link"
+                >
+                  <span>Terms of use</span>
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                    <path d="M4 12 12 4M5 4h7v7" stroke="currentColor" strokeWidth="1.2" />
+                  </svg>
+                </a>
+              </div>
               <BundleHash />
             </div>
           </div>
