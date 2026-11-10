@@ -10,7 +10,6 @@ import { Privacy } from './Privacy';
 import { Workflow } from './Workflow';
 import { LocalScene } from './Local';
 import { LogoBackdrop } from './Visuals';
-import { AppConsole, type Tab } from './Console';
 import { ThemeToggle } from './ThemeToggle';
 import { Wordmark } from './Wordmark';
 import { WhoSees } from './WhoSees';
@@ -163,32 +162,12 @@ export function Site({ theme: fixedTheme, onTheme, onOpenApp, footerStatus }: Si
     document.documentElement.style.colorScheme = theme;
   }, [theme]);
   const [menu, setMenu] = useState(false);
-  // Design preview only: "Open web app" shows the app screens instead of leaving the page.
-  const [view, setView] = useState<'site' | Tab>('site');
   const openApp = (e: React.MouseEvent) => {
+    if (!onOpenApp) return;
     e.preventDefault();
     setMenu(false);
-    if (onOpenApp) {
-      onOpenApp();
-      return;
-    }
-    setView('chat');
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    onOpenApp();
   };
-  const inApp = view !== 'site';
-  if (inApp) {
-    return (
-      <div className="nm-site" data-theme={theme}>
-        <AppConsole
-          tab={view}
-          onTab={setView}
-          onExit={() => setView('site')}
-          theme={theme}
-          onTheme={flipTheme}
-        />
-      </div>
-    );
-  }
   return (
     <div className="nm-site" data-theme={theme} data-testid="landing">
       <a className="nm-skip" href="#main-content">
