@@ -34,7 +34,7 @@ The operator runs on a home machine. If the status link does not answer, it is o
 
 You need a desktop browser and about 20 minutes.
 
-1. **Get a wallet account.** Open <https://nymira.pages.dev>, press Fund, and connect Meteor or Intear Wallet on testnet. Meteor works on testnet. Intear signs in, but its approval window can fail to report back; the app then reads the vault to see whether the transaction landed. You need a little test NEAR for gas.
+1. **Get a wallet account.** Open <https://nymira.pages.dev>, press Open web app, then Connect wallet in the top bar, and connect Meteor or Intear Wallet on testnet. Meteor works on testnet. Intear signs in, but its approval window can fail to report back; the app then reads the vault to see whether the transaction landed. You need a little test NEAR for gas.
 2. **Get test USDC.** Go to <https://faucet.circle.com>, choose Near Testnet, and ask for USDC for your account. A request gives 20 USDC, and each address can ask once every 2 hours.
 3. **Register with the token.** The USDC contract only accepts an account that has paid for its storage. Register your account once (0.00125 NEAR), here with [near-cli-rs](https://github.com/near/near-cli-rs):
    ```bash
@@ -43,11 +43,11 @@ You need a desktop browser and about 20 minutes.
    If you pay out to a different account, register that one the same way.
 4. **Fund a note.** On the Fund screen pick the 1 USDC note. The app shows the price: the note plus a 0.05 USDC fee that you do not get back. Set a passphrase, download the encrypted backup, and send. The app reads the `deposit` event from your transaction, shows the note ID and offers an explorer link. Open it and check that the payout account is yours.
 5. **Wait a little.** The operator adds your note to the vault's tree on its next root update. If Chat says the note is not in the tree yet, wait and try again. A chat right after funding is also easier to link to the deposit by timing.
-6. **Chat.** Open Chat, choose the note, pick a model and ask something. The first step loads a proving key (about 5 MB) and checks its hash. Under the answer you see a badge:
+6. **Chat.** Open Chat, press Chat with this note on your note, pick a model and ask something. The first step loads a proving key (about 5 MB) and checks its hash. Under the answer you see a badge:
    - `model-signed response`: the model's TEE signed the answer, and the signature checked out.
    - `gateway-signed response`: the gateway signed it, not the model.
    - `not verified`: the signature could not be checked. Treat the answer as unauthenticated.
-7. **Close.** Open Close, close the note, and sign with your wallet. The vault pays the rest to the payout account. The close shows your note ID, the total you spent and the payout account on chain. Check the payout in the explorer.
+7. **Close.** Open Close. Keep Close with the operator (the other choice, Exit without the operator, takes 7 days), press Close note and sign with your wallet; there is no close fee from your wallet. The vault pays the rest to the payout account. The close shows your note ID, the total you spent and the payout account on chain. Check the payout in the explorer.
 
 Test models available: `z-ai/glm-5.3-flash` (default), `Qwen/Qwen3.6-35B-A3B-FP8`, `Qwen/Qwen3.8-27B`, `Qwen/Qwen3-VL-30B-A3B-Instruct`.
 
