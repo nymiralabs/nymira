@@ -907,14 +907,16 @@ export function Fold({
   badge,
   children,
   testId,
+  open,
 }: {
   title: string;
   badge?: ReactNode;
   children: ReactNode;
   testId?: string;
+  open?: boolean;
 }) {
   return (
-    <details className="nc-fold" data-testid={testId}>
+    <details className="nc-fold" data-testid={testId} open={open}>
       <summary>
         <span>{title}</span>
         {badge}

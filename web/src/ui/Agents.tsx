@@ -185,7 +185,6 @@ function SignPanel({
 }
 
 const HEX64 = /^0x[0-9a-fA-F]{64}$/;
-const STEP_TITLES = ['Wallet', 'The agent', 'Policy'];
 
 /** A fingerprint of the note commitment: one cell per byte, four levels of ink. */
 function Fingerprint({ commitment }: { commitment: string }) {
@@ -207,16 +206,16 @@ function Permit({
   models,
   version,
   rows,
-  checks,
+  items,
 }: {
   name: string;
   commitment: string;
   models: string[];
   version: string;
   rows: { key: string; label: string; value: string }[];
-  checks: boolean[];
+  items: { label: string; done: boolean; step: number; cta: string }[];
 }) {
-  const next = checks.findIndex((c) => !c);
+  const next = items.findIndex((c) => !c.done);
   const short =
     commitment.length > 18 ? `${commitment.slice(0, 10)}…${commitment.slice(-6)}` : commitment;
   return (
@@ -251,10 +250,10 @@ function Permit({
       </div>
       <div className="ag-perf" aria-hidden="true" />
       <ol className="ag-checks">
-        {['Wallet connected', 'Agent and note named', 'Policy ready to sign'].map((t, i) => (
-          <li key={t} data-done={checks[i]}>
+        {items.map((it) => (
+          <li key={it.label} data-done={it.done}>
             <i />
-            {t}
+            {it.label}
           </li>
         ))}
       </ol>
@@ -263,10 +262,12 @@ function Permit({
           primary
           testId="agent-next"
           onClick={() =>
-            document.getElementById(`ag-step-${next}`)?.scrollIntoView({ behavior: 'smooth' })
+            document
+              .getElementById(`ag-step-${items[next]?.step ?? 0}`)
+              ?.scrollIntoView({ behavior: 'smooth' })
           }
         >
-          Next: {STEP_TITLES[next]}
+          Next: {items[next]?.cta}
         </Button>
       )}
     </div>
@@ -314,17 +315,22 @@ export function Agents() {
     agentErrors.length > 0 ? { ok: false, errors: agentErrors } : approvalMessage(approval);
   const blocks = buildBlocks({ ...cmd, name });
   const recipes = recipeViews({ ...cmd, name });
+  const OTHER = /^(Socket or address|Address|Agent host)/;
+  const allErrors = blocks.ok ? [] : blocks.errors;
+  const ownErrors = allErrors.filter((e) => !OTHER.test(e));
+  const otherErrors = allErrors.filter((e) => OTHER.test(e));
   const touched =
     policy.models.length > 0 ||
     version !== '' ||
     Object.entries(policy).some(([k, v]) => k !== 'models' && v !== '');
+  const nameOk = checkAgent(name, '0x' + '0'.repeat(64)).length === 0;
+  const commitmentOk = checkAgent('x', commitment).length === 0;
   const stepOf = (i: number) => {
     const done = [
-      !!wallet.connected,
-      agentErrors.length === 0,
+      nameOk && blocks.ok,
+      !!wallet.connected && commitmentOk,
       policyMsg.ok,
       false,
-      blocks.ok,
       false,
     ];
     const firstOpen = done.findIndex((d, j) => !d && j < 3);
@@ -364,7 +370,12 @@ export function Agents() {
             { key: 'ask', label: 'Ask above', value: policy.confirmAboveUsd },
             { key: 'call', label: 'Per call', value: policy.maxCallUsd },
           ]}
-          checks={[!!wallet.connected, agentErrors.length === 0, policyMsg.ok]}
+          items={[
+            { label: 'Agent named', done: nameOk, step: 0, cta: 'Create the budget note' },
+            { label: 'Wallet connected', done: !!wallet.connected, step: 1, cta: 'Wallet' },
+            { label: 'Note commitment set', done: commitmentOk, step: 1, cta: 'Note commitment' },
+            { label: 'Policy ready to sign', done: policyMsg.ok, step: 2, cta: 'Policy' },
+          ]}
         />
       }
     >
@@ -407,7 +418,74 @@ export function Agents() {
 
       <ol className="nc-steps nc-agent-steps">
         <li id="ag-step-0" data-s={stepOf(0)}>
-          <h2>Wallet</h2>
+          <h2>Create the budget note</h2>
+          <p className="nc-cap nc-cap-first">
+            Nothing here runs. Copy a block and run it yourself. No block holds a passphrase or a
+            token; the agent reads its token from the file you name.
+          </p>
+          <div className="ag-grid ag-grid-wide">
+            <Field
+              label="Agent name"
+              id="agent-name"
+              placeholder="cursor"
+              value={name}
+              onChange={setName}
+            />
+            <label className="nc-field">
+              <span>Transport</span>
+              <select
+                data-testid="c-transport"
+                value={cmd.transport}
+                onChange={(e) => setCmd({ ...cmd, transport: e.target.value as 'tcp' | 'unix' })}
+              >
+                <option value="tcp">tcp (loopback port 8788)</option>
+                <option value="unix">unix (another user on this machine)</option>
+              </select>
+            </label>
+            {cmd.transport === 'unix' && (
+              <Field
+                label="Agent user"
+                id="c-user"
+                placeholder="agent user"
+                value={cmd.agentUser}
+                onChange={(v) => setCmd({ ...cmd, agentUser: v })}
+              />
+            )}
+            <Field
+              label="Token file path"
+              id="c-token"
+              placeholder="/srv/agent/cursor.token"
+              value={cmd.tokenFile}
+              onChange={(v) => setCmd({ ...cmd, tokenFile: v })}
+            />
+            <Field
+              label="Funding key file path"
+              id="c-key"
+              placeholder="/home/me/key.json"
+              value={cmd.keyFile}
+              onChange={(v) => setCmd({ ...cmd, keyFile: v })}
+            />
+            <Field
+              label="Amount (base units, 1 USDC is 1000000)"
+              id="c-amount"
+              placeholder="1000000"
+              value={cmd.amount}
+              onChange={(v) => setCmd({ ...cmd, amount: v })}
+            />
+          </div>
+          {!blocks.ok && ownErrors.length > 0 && <Errors list={ownErrors} id="command-errors" />}
+          {blocks.ok && (
+            <ol className="nc-cmds">
+              {blocks.blocks
+                .filter((b) => ['create'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
+            </ol>
+          )}
+        </li>
+        <li id="ag-step-1" data-s={stepOf(1)}>
+          <h2>Wallet and note</h2>
           <p className="nc-cap nc-cap-first">
             The policy and each approval are signed as NEP-413 messages with your NEAR wallet. The
             account must be the one that funded the budget note. <code>nymirad</code> checks that
@@ -417,20 +495,15 @@ export function Agents() {
           {wallet.connected && wallet.connected.signature === 'unsupported' && (
             <p className="nc-cap">This browser cannot check the sign-in signature.</p>
           )}
-        </li>
-
-        <li id="ag-step-1" data-s={stepOf(1)}>
-          <h2>The agent</h2>
-          <Field label="Agent name" id="agent-name" value={name} onChange={setName} />
           <Field
             label="Budget note commitment"
             id="agent-commitment"
             value={commitment}
             onChange={setCommitment}
+            placeholder="0x…"
             hint="The note field of the agent in agents.json in the nymirad state directory."
           />
         </li>
-
         <li id="ag-step-2" data-s={stepOf(2)}>
           <h2>Policy</h2>
           <div className="ag-pol">
@@ -525,12 +598,109 @@ export function Agents() {
             recipient={policyRecipient(name, commitment)}
             fileName={`${name || 'agent'}-policy.signed.json`}
           />
+          {blocks.ok && (
+            <ol className="nc-cmds">
+              {blocks.blocks
+                .filter((b) => ['policy'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
+            </ol>
+          )}
         </li>
         <li id="ag-step-3" data-s={stepOf(3)}>
-          <h2>Approve a held call</h2>
+          <h2>Connect a client</h2>
+          <ClientGrid pick={pick} onPick={choose} />
+          <div className="ag-grid ag-grid-wide">
+            <Field
+              label={cmd.transport === 'unix' ? 'Agent socket path' : 'Loopback address (optional)'}
+              id="c-endpoint"
+              placeholder="optional"
+              value={cmd.endpoint}
+              onChange={(v) => setCmd({ ...cmd, endpoint: v })}
+            />
+            <Field
+              label="Agent host for an SSH forward (optional)"
+              id="c-host"
+              placeholder="optional"
+              value={cmd.agentHost}
+              onChange={(v) => setCmd({ ...cmd, agentHost: v })}
+            />
+          </div>
+          {!blocks.ok && ownErrors.length === 0 && otherErrors.length > 0 && (
+            <Errors list={otherErrors} id="command-errors" />
+          )}
+          {!blocks.ok && ownErrors.length > 0 && otherErrors.length > 0 && (
+            <Errors list={otherErrors} id="client-errors" />
+          )}
+          {blocks.ok && (
+            <ol className="nc-cmds">
+              {blocks.blocks
+                .filter((b) => ['forward', 'mcp-command', 'mcp-json', 'base-url'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
+            </ol>
+          )}
+          <p className="nc-cap">
+            The IronClaw and Cursor recipes, filled from the fields above. They are the same text as
+            the README sections. Every recipe names the token file and holds no token. Pick a client
+            above to move its recipe to the top.
+          </p>
+          {picked && recipes.ok && !views.some((v) => v.id === picked.id) && (
+            <p className="nc-msg" data-tone="warn">
+              Nymira has no {picked.name} recipe yet. Any client that takes an OpenAI base URL and
+              key can use the values in the commands above, with chat completions only.
+            </p>
+          )}
+          {!recipes.ok && <Errors list={recipes.errors} id="recipe-errors" />}
+          {views.map((v) => {
+            const client = CLIENTS.find((c) => c.id === v.id);
+            return (
+              <Fold
+                key={v.id}
+                title={v.title}
+                testId={`recipe-${v.id}`}
+                open={v.id === pick}
+                badge={
+                  <>
+                    {client && <ClientMark client={client} size={20} />}
+                    {v.id === pick && <Chip tone="live">picked</Chip>}
+                  </>
+                }
+              >
+                <div className="nc-recipe">
+                  {v.blocks.map((b, i) => {
+                    if (b.t === 'p') return <p key={i}>{plainText(b.text)}</p>;
+                    if (b.t === 'ul')
+                      return (
+                        <ul key={i} className="nc-list">
+                          {b.items.map((item) => (
+                            <li key={item}>{plainText(item)}</li>
+                          ))}
+                        </ul>
+                      );
+                    return (
+                      <ol key={i} className="nc-cmds">
+                        <CopyBlock
+                          id={`recipe-${v.id}-${i}`}
+                          title={b.title ?? v.title}
+                          text={b.text}
+                        />
+                      </ol>
+                    );
+                  })}
+                </div>
+              </Fold>
+            );
+          })}
+        </li>
+        <li id="ag-step-4" data-s={stepOf(4)}>
+          <h2>Day to day</h2>
           <p className="nc-cap nc-cap-first">
-            Copy the four values from <code>nymirad agent approvals</code>. The approval is good for
-            ten minutes and for that one request.
+            When the agent hits your ask-me limit, a call is held. Copy the four values from{' '}
+            <code>nymirad agent approvals</code>. The approval is good for ten minutes and for that
+            one request.
           </p>
           <div className="ag-grid ag-grid-wide">
             <Field
@@ -569,136 +739,16 @@ export function Agents() {
             recipient={approvalRecipient(name, commitment)}
             fileName={`${name || 'agent'}-approval.signed.json`}
           />
-        </li>
-
-        <li id="ag-step-4" data-s={stepOf(4)}>
-          <h2>Commands and tool settings</h2>
-          <p className="nc-cap nc-cap-first">
-            Nothing here runs. Copy a block and run it yourself. No block holds a passphrase or a
-            token; the agent reads its token from the file you name.
-          </p>
-          <ClientGrid pick={pick} onPick={choose} />
-          <div className="ag-grid ag-grid-wide">
-            <label className="nc-field">
-              <span>Transport</span>
-              <select
-                data-testid="c-transport"
-                value={cmd.transport}
-                onChange={(e) => setCmd({ ...cmd, transport: e.target.value as 'tcp' | 'unix' })}
-              >
-                <option value="tcp">tcp (loopback port 8788)</option>
-                <option value="unix">unix (another user on this machine)</option>
-              </select>
-            </label>
-            {cmd.transport === 'unix' && (
-              <Field
-                label="Agent user"
-                id="c-user"
-                placeholder="agent user"
-                value={cmd.agentUser}
-                onChange={(v) => setCmd({ ...cmd, agentUser: v })}
-              />
-            )}
-            <Field
-              label="Token file path"
-              id="c-token"
-              placeholder="/srv/agent/cursor.token"
-              value={cmd.tokenFile}
-              onChange={(v) => setCmd({ ...cmd, tokenFile: v })}
-            />
-            <Field
-              label="Funding key file path"
-              id="c-key"
-              placeholder="/home/me/key.json"
-              value={cmd.keyFile}
-              onChange={(v) => setCmd({ ...cmd, keyFile: v })}
-            />
-            <Field
-              label="Amount (base units, 1 USDC is 1000000)"
-              id="c-amount"
-              placeholder="1000000"
-              value={cmd.amount}
-              onChange={(v) => setCmd({ ...cmd, amount: v })}
-            />
-            <Field
-              label={cmd.transport === 'unix' ? 'Agent socket path' : 'Loopback address (optional)'}
-              id="c-endpoint"
-              placeholder="optional"
-              value={cmd.endpoint}
-              onChange={(v) => setCmd({ ...cmd, endpoint: v })}
-            />
-            <Field
-              label="Agent host for an SSH forward (optional)"
-              id="c-host"
-              placeholder="optional"
-              value={cmd.agentHost}
-              onChange={(v) => setCmd({ ...cmd, agentHost: v })}
-            />
-          </div>
-          {!blocks.ok && <Errors list={blocks.errors} id="command-errors" />}
           {blocks.ok && (
             <ol className="nc-cmds">
-              {blocks.blocks.map((b) => (
-                <CopyBlock key={b.id} {...b} />
-              ))}
+              {blocks.blocks
+                .filter((b) => ['approvals', 'disable'].includes(b.id))
+                .map((b) => (
+                  <CopyBlock key={b.id} {...b} />
+                ))}
             </ol>
           )}
-        </li>
-
-        <li id="ag-step-5" data-s={stepOf(5)}>
-          <h2>Recipes</h2>
-          <p className="nc-cap nc-cap-first">
-            The IronClaw and Cursor recipes, filled from the fields above. They are the same text as
-            the README sections. Every recipe names the token file and holds no token. Pick a client
-            above to move its recipe to the top.
-          </p>
-          {picked && recipes.ok && !views.some((v) => v.id === picked.id) && (
-            <p className="nc-msg" data-tone="warn">
-              Nymira has no {picked.name} recipe yet. Any client that takes an OpenAI base URL and
-              key can use the values in the commands above, with chat completions only.
-            </p>
-          )}
-          {!recipes.ok && <Errors list={recipes.errors} id="recipe-errors" />}
-          {views.map((v) => {
-            const client = CLIENTS.find((c) => c.id === v.id);
-            return (
-              <Card
-                key={v.id}
-                title={v.title}
-                testId={`recipe-${v.id}`}
-                aside={
-                  <>
-                    {client && <ClientMark client={client} size={24} />}
-                    {v.id === pick && <Chip tone="live">picked</Chip>}
-                  </>
-                }
-              >
-                <div className="nc-recipe">
-                  {v.blocks.map((b, i) => {
-                    if (b.t === 'p') return <p key={i}>{plainText(b.text)}</p>;
-                    if (b.t === 'ul')
-                      return (
-                        <ul key={i} className="nc-list">
-                          {b.items.map((item) => (
-                            <li key={item}>{plainText(item)}</li>
-                          ))}
-                        </ul>
-                      );
-                    return (
-                      <ol key={i} className="nc-cmds">
-                        <CopyBlock
-                          id={`recipe-${v.id}-${i}`}
-                          title={b.title ?? v.title}
-                          text={b.text}
-                        />
-                      </ol>
-                    );
-                  })}
-                </div>
-              </Card>
-            );
-          })}
-        </li>
+        </li>{' '}
       </ol>
     </Screen>
   );

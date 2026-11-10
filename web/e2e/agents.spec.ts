@@ -276,6 +276,7 @@ test.describe('Agents screen', () => {
     await expect(ironclaw.locator('pre').last()).toContainText('agent.example');
     await expect(cursor.locator('pre').first()).toContainText('/srv/agent/worker.token');
     for (const recipe of [ironclaw, cursor]) {
+      await recipe.locator('summary').first().click();
       await expect(recipe.getByRole('button', { name: 'Copy' }).first()).toBeVisible();
       expect(await recipe.innerText()).not.toMatch(/ny(?:ma|mo)_[A-Za-z0-9]/);
     }
