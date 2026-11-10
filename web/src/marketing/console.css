@@ -1296,6 +1296,9 @@
   .nc-net-spacer {
     display: none;
   }
+  .nc-top > .nm-icon-button:not(.nc-menu) {
+    margin-left: 0;
+  }
   .nc-top,
   .nc-ip,
   .nc-screen-main,
