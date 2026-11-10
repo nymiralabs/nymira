@@ -72,41 +72,38 @@ function Field({
   );
 }
 
-/** One line of the policy: what it is on the left, a short input on the right. */
-function Row({
+/** A blank in the policy sentence: a short input that sits in the line of text. */
+function Blank({
   label,
   value,
   onChange,
   id,
-  hint,
   usd = false,
+  width = 4,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   id: string;
-  hint?: string;
   usd?: boolean;
+  width?: number;
 }) {
   return (
-    <label className="ag-row">
-      <span>
-        {label}
-        {hint && <small>{hint}</small>}
-      </span>
-      <span className="ag-row-box">
-        {usd && <b aria-hidden="true">$</b>}
-        <input
-          type="text"
-          inputMode="decimal"
-          data-testid={id}
-          value={value}
-          autoComplete="off"
-          spellCheck={false}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </span>
-    </label>
+    <span className="ag-blank" data-filled={value !== ''}>
+      {usd && <b aria-hidden="true">$</b>}
+      <input
+        type="text"
+        inputMode="decimal"
+        aria-label={label}
+        data-testid={id}
+        value={value}
+        placeholder="0"
+        autoComplete="off"
+        spellCheck={false}
+        style={{ width: `${Math.max(width, value.length + 1)}ch` }}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </span>
   );
 }
 
@@ -490,52 +487,61 @@ export function Agents() {
                 ))}
               </div>
             </fieldset>
-            <div className="ag-rows">
-              <Row
+            <p className="ag-sentence">
+              This agent may spend up to{' '}
+              <Blank
                 usd
-                label="Per day"
-                hint="UTC day"
+                label="Per day limit (USD, UTC day)"
                 id="p-daily"
                 value={policy.maxDailyUsd}
                 onChange={set('maxDailyUsd')}
-              />
-              <Row
+              />{' '}
+              a day,{' '}
+              <Blank
                 usd
-                label="Per lease"
-                hint="at least 0.1"
+                label="Per lease limit (USD)"
                 id="p-lease"
                 value={policy.maxLeaseUsd}
                 onChange={set('maxLeaseUsd')}
-              />
-              <Row
+              />{' '}
+              on one lease and{' '}
+              <Blank
                 usd
-                label="Ask me above"
-                hint="per call"
-                id="p-confirm"
-                value={policy.confirmAboveUsd}
-                onChange={set('confirmAboveUsd')}
-              />
-              <Row
-                usd
-                label="Per call"
+                label="Per call limit (USD)"
                 id="p-call"
                 value={policy.maxCallUsd}
                 onChange={set('maxCallUsd')}
-              />
-              <Row
+              />{' '}
+              on one call. It asks me first above{' '}
+              <Blank
+                usd
+                label="Ask me above (USD per call)"
+                id="p-confirm"
+                value={policy.confirmAboveUsd}
+                onChange={set('confirmAboveUsd')}
+              />{' '}
+              a call, and may send{' '}
+              <Blank
                 label="Requests a minute"
                 id="p-rate"
                 value={policy.rateLimitPerMin}
                 onChange={set('rateLimitPerMin')}
-              />
-              <Row
+                width={3}
+              />{' '}
+              requests a minute. This is policy version{' '}
+              <Blank
                 label="Policy version"
-                hint="higher than any this agent has had"
                 id="p-version"
                 value={version}
                 onChange={setVersion}
+                width={2}
               />
-            </div>
+              .
+            </p>
+            <p className="ag-fine">
+              Days are UTC days. A lease limit is at least 0.1. The version must be higher than any
+              this agent has had.
+            </p>
             {!yaml.ok && touched && <Errors list={yaml.errors} id="policy-needs" />}
             <Fold title="The policy file this signs" testId="policy-fold">
               {yaml.ok ? (

@@ -632,3 +632,69 @@
   content: 'Still needed: ';
   color: var(--nm-fg);
 }
+
+/* policy as one sentence with blanks */
+.ag-sentence {
+  max-width: none;
+  margin: 0;
+  font-size: 17px;
+  line-height: 38px;
+}
+.ag-blank {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 0 4px;
+  border-bottom: 1px dashed var(--nm-muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 15px;
+  transition: border-color 160ms;
+}
+.ag-blank:focus-within {
+  border-bottom: 1px solid var(--nm-fg);
+}
+.ag-blank[data-filled='true'] {
+  border-bottom-style: solid;
+}
+.ag-blank b {
+  color: var(--nm-muted);
+  font-weight: 400;
+}
+.nc .ag-blank input:not([type='checkbox']) {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: none;
+  font: inherit;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.nc .ag-blank input::placeholder {
+  color: var(--nm-muted);
+  opacity: 0.6;
+}
+.ag-fine {
+  max-width: none;
+  margin: -4px 0 0;
+  color: var(--nm-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.ag-sentence {
+  line-height: 36px;
+}
+.ag-blank {
+  display: inline-block;
+  padding: 0 3px;
+  line-height: 22px;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.nc .ag-blank input:not([type='checkbox']) {
+  display: inline-block;
+  line-height: 22px;
+  vertical-align: baseline;
+}
