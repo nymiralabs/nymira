@@ -110,6 +110,7 @@ test('six notes, three on the team: set size 3 (external) and 6; drops, later cl
   await expect(rows.nth(1).getByTestId('small-set')).toContainText(
     'matching a lease to a deposit is easy',
   );
+  await page.getByRole('tab', { name: /^Leases/ }).click();
   await expect(rows.nth(0).getByTestId('small-set')).toBeVisible();
   // The raw open-note count never stands alone.
   await expect(rows.nth(0)).not.toContainText(/open notes/i);
@@ -265,11 +266,13 @@ test('the panel from the notes and chat screens: chain column from the record, h
   await context.route('https://testnet.nearblocks.io/**', (route) =>
     route.fulfill({ status: 200, contentType: 'text/html', body: '<title>explorer</title>' }),
   );
+  await page.getByRole('tab', { name: /^On chain/ }).click();
   const [popup] = await Promise.all([page.waitForEvent('popup'), link.click()]);
   expect(popup.url()).toContain('testnet.nearblocks.io/txns/');
   await popup.close();
 
   // Right column: no lease yet, and the operator's published policy, labelled as such.
+  await page.getByRole('tab', { name: /^Leases/ }).click();
   await expect(page.getByTestId('no-leases')).toBeVisible();
   const policy = page.getByTestId('policy');
   await expect(policy).toContainText('published retention policy');

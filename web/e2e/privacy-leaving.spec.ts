@@ -90,6 +90,7 @@ test('reuse check: finalized as spent, a resent request refused with the reason 
 
   stack.set({ refusal: MARKUP });
   const posts = leasePosts(stack);
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   // The evidence: what the operator's route reports, shown as spent.
   await expect(page.getByTestId('reuse-status')).toHaveText(shared.reuse_finalized!);
@@ -117,6 +118,7 @@ test('reuse check: finalized as spent, a resent request refused with the reason 
 
   // After 300 seconds the proof is too old to say anything: only the status is shown.
   await page.clock.setFixedTime(Date.now() + 301_000);
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   await expect(page.getByTestId('reuse-not-sent')).toHaveText(shared.reuse_too_old!);
   await expect(page.getByTestId('reuse-status')).toHaveText(shared.reuse_finalized!);
@@ -183,6 +185,7 @@ test('leaving and observer lists, a long refusal is cut, no Intents line for a n
   await page.getByTestId('open-app').click();
   await openChat(page);
   await page.getByTestId('chat-privacy').click();
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   const text = await page.getByTestId('operator-says-text').innerText();
   expect(text.length).toBeLessThanOrEqual(301);
@@ -245,6 +248,7 @@ test('the sentence changes after an exit, and the reuse check then resends nothi
   await openFromNotes(page);
   await expectLeftSentence(page);
   const posts = leasePosts(stack);
+  await page.getByRole('tab', { name: /^Leaving/ }).click();
   await page.getByTestId('reuse-check').click();
   await expect(page.getByTestId('reuse-status')).toHaveText(shared.reuse_finalized!);
   await expect(page.getByTestId('reuse-not-sent')).toHaveText(shared.reuse_left!);
