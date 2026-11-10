@@ -53,10 +53,10 @@ Test models available: `z-ai/glm-5.3-flash` (default), `Qwen/Qwen3.6-35B-A3B-FP8
 
 ### Also worth a look in the web app
 
-- **Documentation** (`#docs`): how a note lives, who sees what, the vault, and a lease calculator. It reads one section at a time and has a search.
-- **Status** (`#status`): reads the operator, the vault against the pins in the bundle, each RPC endpoint and the release manifest when you press Check. Each read shows your address to that host.
-- **Notes** (`#notes`): your notes with their days, the encrypted backup, and a restore. **Privacy panel**, opened from a note in Chat: the set size now, what joins a lease to a note, and what to watch.
-- **Agents** (`#agents`): builds and signs a spending policy for an agent with your wallet and prints the `nymirad` commands. It creates no note and sends nothing to `nymirad`. The full guide, with the IronClaw and Cursor recipes, is [BUDGET_NOTES.md](BUDGET_NOTES.md).
+- **[Documentation](https://nymira.pages.dev/#docs)**: how a note lives, who sees what, the vault, and a lease calculator. It reads one section at a time and has a search.
+- **[Status](https://nymira.pages.dev/#status)**: reads the operator, the vault against the pins in the bundle, each RPC endpoint and the release manifest when you press Check. Each read shows your address to that host.
+- **[Notes](https://nymira.pages.dev/#notes)**: your notes with their days, the encrypted backup, and a restore. **Privacy panel**, opened from a note in Chat: the set size now, what joins a lease to a note, and what to watch.
+- **[Agents](https://nymira.pages.dev/#agents)**: builds and signs a spending policy for an agent with your wallet and prints the `nymirad` commands. It creates no note and sends nothing to `nymirad`. The full guide, with the IronClaw and Cursor recipes, is [BUDGET_NOTES.md](BUDGET_NOTES.md).
 
 ## Path 2: `nymirad`, the command line client
 
