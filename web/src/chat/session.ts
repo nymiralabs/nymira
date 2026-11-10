@@ -19,7 +19,7 @@ import type { Profile } from '../profiles/types';
 import type { LeaseConfigInput } from '../worker/protocol';
 import { callWorker } from '../worker/client';
 import { noteAad, type NoteRecord } from '../store/types';
-import { putNote } from '../store/db';
+import { patchNote } from '../store/db';
 import type { ActiveLease, LeaseRecord, NoteView, PreparedLease } from '../note/lease';
 import { ClientKeys, E2eeError, openResponse, openSseLine, sealRequest } from './e2ee';
 import { fromHex, toHex } from '../crypto/bytes';
@@ -178,8 +178,7 @@ export class ChatSession {
   }
 
   private async store(sealed: NoteRecord['sealed']): Promise<void> {
-    this.note = { ...this.note, sealed, updatedAt: this.now() };
-    await putNote(this.note);
+    this.note = await patchNote(this.note, { sealed }, this.now());
   }
 
   private config(): LeaseConfigInput {

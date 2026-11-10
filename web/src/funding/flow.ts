@@ -18,7 +18,7 @@ import {
   type DepositEvent,
 } from '../chain/receipt';
 import { checkVault } from '../chain/vault';
-import { getNote, listNotes, putNote } from '../store/db';
+import { getNote, listNotes, patchNote, putNote } from '../store/db';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { requireKey } from '../crypto/wrap';
@@ -96,9 +96,7 @@ export async function prepareNote(plan: DepositPlan): Promise<NoteRecord> {
 }
 
 export async function update(record: NoteRecord, patch: Partial<NoteRecord>): Promise<NoteRecord> {
-  const next = { ...record, ...patch, updatedAt: Date.now() };
-  await putNote(next);
-  return next;
+  return patchNote(record, patch, Date.now());
 }
 
 /** Notes of this build's vault, newest first. */

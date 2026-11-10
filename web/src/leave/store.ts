@@ -8,7 +8,7 @@ import { loadNotes } from '../funding/flow';
 import { leaveDeps } from '../chat/runtime';
 import { OperatorClient } from '../chat/operator';
 import type { NoteView } from '../note/lease';
-import { getNote, putNote } from '../store/db';
+import { getNote, patchNote } from '../store/db';
 import { noteAad, type NoteRecord } from '../store/types';
 import { walletClient } from '../wallet/client';
 import { callWorker } from '../worker/client';
@@ -273,9 +273,7 @@ class LeaveStore {
   // ---- the expiry guard ----
 
   private async patchGuard(note: NoteRecord, patch: NonNullable<NoteRecord['guard']>) {
-    const next = { ...note, guard: { ...note.guard, ...patch }, updatedAt: this.now() };
-    await putNote(next);
-    return next;
+    return patchNote(note, { guard: { ...note.guard, ...patch } }, this.now());
   }
 
   /**

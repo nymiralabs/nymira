@@ -22,7 +22,7 @@ import {
 } from '../chat/operator';
 import { GateError, verifyStatus, type SignatureCheck } from '../chat/gate';
 import type { Profile } from '../profiles/types';
-import { putNote } from '../store/db';
+import { patchNote } from '../store/db';
 import { noteAad, type LeaveInfo, type NoteRecord } from '../store/types';
 import type { FunctionCallAction } from '../wallet/protocol';
 import { raceWallet, type RaceOptions } from '../wallet/watch';
@@ -99,9 +99,7 @@ async function save(
   note: NoteRecord,
   patch: Partial<NoteRecord>,
 ): Promise<NoteRecord> {
-  const next = { ...note, ...patch, updatedAt: nowMs(d) };
-  await putNote(next);
-  return next;
+  return patchNote(note, patch, nowMs(d));
 }
 
 const leaveOf = (d: LeaveDeps, state: LeaveInfo['state'], more: Partial<LeaveInfo> = {}) => ({
