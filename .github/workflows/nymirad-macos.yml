@@ -17,7 +17,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-14 is no longer offered ("configuration macos-14-arm64-us-default is not supported", 10 Nov 2026).
+    runs-on: macos-15
     steps:
       - name: Check the tag name
         env:
@@ -32,6 +33,9 @@ jobs:
       - name: Toolchain from rust-toolchain.toml
         run: rustup show active-toolchain
       - name: Build
+        # The binary keeps the macOS 14 floor of the earlier releases, whatever the runner's macOS is.
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: cargo build --release --locked -p nymirad --bin nymirad
       # No mock feature in the graph, no demo strings in the binary (the same check as the linux release).
       - name: Release binary check
