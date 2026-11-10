@@ -492,3 +492,8 @@
     height: auto;
   }
 }
+
+/* while the proving key loads, the list under the waiting line is not usable yet: no scrollbar flashing */
+.nc[data-screen='chat'] .nc-chat-screen .nc-thread:has([data-testid='chat-blocked']) {
+  overflow-y: hidden;
+}
