@@ -49,12 +49,14 @@ function Field({
   onChange,
   id,
   hint,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   id: string;
   hint?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="nc-field">
@@ -63,47 +65,13 @@ function Field({
         type="text"
         data-testid={id}
         value={value}
+        placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
         onChange={(e) => onChange(e.target.value)}
       />
       {hint && <small className="nc-hint">{hint}</small>}
     </label>
-  );
-}
-
-/** A blank in the policy sentence: a short input that sits in the line of text. */
-function Blank({
-  label,
-  value,
-  onChange,
-  id,
-  usd = false,
-  width = 4,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  id: string;
-  usd?: boolean;
-  width?: number;
-}) {
-  return (
-    <span className="ag-blank" data-filled={value !== ''}>
-      {usd && <b aria-hidden="true">$</b>}
-      <input
-        type="text"
-        inputMode="decimal"
-        aria-label={label}
-        data-testid={id}
-        value={value}
-        placeholder="0"
-        autoComplete="off"
-        spellCheck={false}
-        style={{ width: `${Math.max(width, value.length + 1)}ch` }}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </span>
   );
 }
 
@@ -155,13 +123,15 @@ function SignPanel({
   if (!message.ok) return <Errors list={message.errors} id={`${id}-errors`} />;
   return (
     <div className="nc-sign">
-      <p className="nc-cap">
-        You are about to sign this {what} as <strong>{account ?? 'your account'}</strong>, for the
-        recipient <code data-testid={`${id}-recipient`}>{recipient}</code>:
-      </p>
-      <pre className="nc-code" data-testid={`${id}-message`}>
-        {message.value}
-      </pre>
+      <Fold title="What the wallet will show" testId={`${id}-fold`}>
+        <p className="nc-cap">
+          You are about to sign this {what} as <strong>{account ?? 'your account'}</strong>, for the
+          recipient <code data-testid={`${id}-recipient`}>{recipient}</code>:
+        </p>
+        <pre className="nc-code" data-testid={`${id}-message`}>
+          {message.value}
+        </pre>
+      </Fold>
       <div className="nc-actions">
         <Button
           primary
@@ -487,62 +457,50 @@ export function Agents() {
                 ))}
               </div>
             </fieldset>
-            <p className="ag-sentence">
-              This agent may spend up to{' '}
-              <Blank
-                usd
-                label="Per day limit (USD, UTC day)"
+            <div className="ag-grid">
+              <Field
+                label="Per day (USD, UTC day)"
                 id="p-daily"
                 value={policy.maxDailyUsd}
                 onChange={set('maxDailyUsd')}
-              />{' '}
-              a day,{' '}
-              <Blank
-                usd
-                label="Per lease limit (USD)"
+                placeholder="5"
+              />
+              <Field
+                label="Per lease (USD)"
                 id="p-lease"
                 value={policy.maxLeaseUsd}
                 onChange={set('maxLeaseUsd')}
-              />{' '}
-              on one lease and{' '}
-              <Blank
-                usd
-                label="Per call limit (USD)"
+                placeholder="at least 0.1"
+              />
+              <Field
+                label="Per call (USD)"
                 id="p-call"
                 value={policy.maxCallUsd}
                 onChange={set('maxCallUsd')}
-              />{' '}
-              on one call. It asks me first above{' '}
-              <Blank
-                usd
-                label="Ask me above (USD per call)"
+                placeholder="0.25"
+              />
+              <Field
+                label="Ask me above (USD)"
                 id="p-confirm"
                 value={policy.confirmAboveUsd}
                 onChange={set('confirmAboveUsd')}
-              />{' '}
-              a call, and may send{' '}
-              <Blank
+                placeholder="0.1"
+              />
+              <Field
                 label="Requests a minute"
                 id="p-rate"
                 value={policy.rateLimitPerMin}
                 onChange={set('rateLimitPerMin')}
-                width={3}
-              />{' '}
-              requests a minute. This is policy version{' '}
-              <Blank
+                placeholder="30"
+              />
+              <Field
                 label="Policy version"
                 id="p-version"
                 value={version}
                 onChange={setVersion}
-                width={2}
+                placeholder="higher than the last"
               />
-              .
-            </p>
-            <p className="ag-fine">
-              Days are UTC days. A lease limit is at least 0.1. The version must be higher than any
-              this agent has had.
-            </p>
-            {!yaml.ok && touched && <Errors list={yaml.errors} id="policy-needs" />}
+            </div>
             <Fold title="The policy file this signs" testId="policy-fold">
               {yaml.ok ? (
                 <pre className="nc-code nc-yaml" data-testid="policy-yaml">
@@ -553,12 +511,12 @@ export function Agents() {
                   It shows here when the fields above are complete.
                 </p>
               )}
+              <p className="nc-cap" data-testid="p-tee">
+                <code>require_tee: true</code> is the only value this page offers:{' '}
+                <code>nymirad</code> releases an answer only after it checked the provider&apos;s
+                signature on it.
+              </p>
             </Fold>
-            <p className="nc-cap" data-testid="p-tee">
-              <code>require_tee: true</code> is the only value this page offers:{' '}
-              <code>nymirad</code> releases an answer only after it checked the provider&apos;s
-              signature on it.
-            </p>
           </div>
           <SignPanel
             id="policy"

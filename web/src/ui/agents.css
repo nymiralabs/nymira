@@ -698,3 +698,33 @@
   line-height: 22px;
   vertical-align: baseline;
 }
+
+/* policy, plain: chips, six small fields in a grid */
+.ag-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.ag-grid .nc-field {
+  gap: 4px;
+}
+.ag-grid .nc-field > span {
+  font-size: 11px;
+  line-height: 16px;
+}
+.nc .ag-grid input:not([type='checkbox']) {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.nc .ag-grid input::placeholder {
+  color: var(--nm-muted);
+  opacity: 0.4;
+}
+@media (max-width: 760px) {
+  .ag-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.nc-screen[data-testid='agents'] .nc-sign .nc-fold {
+  margin: 8px 0 12px;
+}
