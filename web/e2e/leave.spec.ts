@@ -327,7 +327,7 @@ test('the expiry banner, no new lease within 5 days, and a close that starts by 
   await reloadTo(page, 'nav-chat');
   await expect(page.getByTestId('chat-screen')).toBeVisible();
   await expect(page.getByTestId('expiry-banner')).toContainText('expires in 3 days (7-day notice)');
-  await expect(page.getByTestId('expiry-banner')).toContainText('stops opening leases');
+  await expect(page.getByTestId('expiry-banner')).toContainText('stopped opening leases');
   await expect(page.getByTestId('note-near-expiry')).toContainText('no new lease');
   await expect(page.getByTestId('chat-use-note')).toBeDisabled();
   expect(stack.seen.some((r) => r.path === '/v2/openrouter/leases')).toBe(false);
