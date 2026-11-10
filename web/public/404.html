@@ -3,11 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'"
+    />
     <meta name="referrer" content="no-referrer" />
-    <title>Not found</title>
+    <meta name="color-scheme" content="dark light" />
+    <title>Page not found · Nymira</title>
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="stylesheet" href="/404.css" />
   </head>
   <body>
-    <p>Nothing here. <a href="/">Back to the app</a>.</p>
+    <header>
+      <a class="brand" href="/" aria-label="Nymira">
+        <img src="/apple-touch-icon.png" width="32" height="32" alt="" />
+        <span>Nymira</span>
+      </a>
+    </header>
+    <main>
+      <div class="strip" role="img" aria-label="Eleven filled cells and one empty cell">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+        ><i class="gap"></i>
+      </div>
+      <p class="code">404 · no page at this address</p>
+      <h1>This page does not exist.</h1>
+      <p class="lead">The link may be old or mistyped. The app is one click away.</p>
+      <a class="button" href="/">Open Nymira</a>
+    </main>
   </body>
 </html>
