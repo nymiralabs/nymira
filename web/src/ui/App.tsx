@@ -232,7 +232,10 @@ export function App() {
   }, [screen]);
   // The tab title and the address follow the screen, so a link and the back button work.
   useEffect(() => {
-    document.title = screen === 'landing' ? 'Nymira' : `${TITLES[screen]} · Nymira`;
+    document.title =
+      screen === 'landing'
+        ? 'Nymira: private, prepaid API credits on NEAR'
+        : `${TITLES[screen]} · Nymira`;
     if (screen === 'landing' && hashScreen()) {
       history.pushState(null, '', location.pathname + location.search);
     }

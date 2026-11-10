@@ -573,3 +573,446 @@
   outline: 1px dashed var(--nm-muted);
   outline-offset: -1px;
 }
+
+/* ---- reading progress ---- */
+.nd .nd-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--nm-fg);
+  transform: scaleX(var(--p, 0));
+  transform-origin: left;
+}
+
+/* ---- section anchors and the read-more row ---- */
+.nd .nd-anchor {
+  margin-left: 12px;
+  color: var(--nm-muted);
+  font:
+    400 16px/1 'IBM Plex Mono',
+    monospace;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 160ms;
+}
+.nd .nd-section > h2:hover .nd-anchor,
+.nd .nd-anchor:focus-visible {
+  opacity: 1;
+}
+.nd .nd-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  max-width: 44rem;
+  margin: 32px 0 0;
+  padding-top: 16px;
+  border-top: 1px dashed var(--nm-line);
+}
+.nd .nd-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-decoration-color: var(--nm-line);
+}
+.nd .nd-links a:hover {
+  color: var(--nm-fg);
+  text-decoration-color: var(--nm-fg);
+}
+
+/* ---- questions ---- */
+.nd .nd-faq {
+  max-width: 44rem;
+}
+.nd .nd-faq > div {
+  padding: 22px 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nd .nd-faq > div:last-child {
+  border-bottom: 1px solid var(--nm-soft-line);
+}
+.nd .nd-faq h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.nd .nd-faq p {
+  margin: 0;
+  color: var(--nm-muted);
+}
+
+/* ---- who talks to whom ---- */
+.nd .nd-parties {
+  margin: 8px 0 32px;
+}
+.nd .nd-p-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1fr) 96px minmax(0, 1fr);
+  grid-template-areas:
+    'you l1 op l2 ai'
+    'wl  wl d  .  .'
+    'wl  wl v  .  .';
+  align-items: stretch;
+}
+.nd .nd-p-box {
+  padding: 16px 18px;
+  border: 1px solid var(--nm-line);
+}
+.nd .nd-p-box[data-k='you'] {
+  grid-area: you;
+}
+.nd .nd-p-box[data-k='op'] {
+  grid-area: op;
+}
+.nd .nd-p-box[data-k='ai'] {
+  grid-area: ai;
+}
+.nd .nd-p-box[data-k='vault'] {
+  grid-area: v;
+  border-color: var(--nm-muted);
+}
+.nd .nd-p-box h4 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.nd .nd-p-box ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--nm-muted);
+  font:
+    12.5px/1.5 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-p-link,
+.nd .nd-p-down,
+.nd .nd-p-wallet {
+  position: relative;
+  display: grid;
+  align-content: center;
+  color: var(--nm-fg);
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-align: center;
+}
+.nd .nd-p-link[data-a='l1'] {
+  grid-area: l1;
+}
+.nd .nd-p-link[data-a='l2'] {
+  grid-area: l2;
+}
+.nd .nd-p-link {
+  padding: 0 6px;
+}
+.nd .nd-p-link span {
+  margin-bottom: 8px;
+}
+.nd .nd-p-link i,
+.nd .nd-p-wallet i,
+.nd .nd-p-down i {
+  display: block;
+  background: repeating-linear-gradient(90deg, var(--nm-muted) 0 5px, transparent 5px 10px);
+  animation: nd-flow 1s linear infinite;
+}
+.nd .nd-p-link i {
+  height: 1px;
+}
+.nd .nd-p-link i::after,
+.nd .nd-p-wallet i::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-top: 1px solid var(--nm-muted);
+  border-right: 1px solid var(--nm-muted);
+  transform: translateY(-3px) rotate(45deg);
+}
+.nd .nd-p-down {
+  grid-area: d;
+  grid-template-columns: auto 1px;
+  justify-content: center;
+  gap: 12px;
+  min-height: 52px;
+  text-align: right;
+}
+.nd .nd-p-down i {
+  height: 100%;
+  min-height: 52px;
+  background: repeating-linear-gradient(180deg, var(--nm-muted) 0 5px, transparent 5px 10px);
+  animation-name: nd-flow-y;
+}
+.nd .nd-p-wallet {
+  grid-area: wl;
+  grid-template-rows: auto 1px;
+  align-content: end;
+  gap: 8px;
+  padding: 0 12px 0 0;
+  text-align: right;
+}
+.nd .nd-p-wallet i {
+  height: 1px;
+  margin-bottom: 38px;
+}
+@keyframes nd-flow {
+  to {
+    background-position: 20px 0;
+  }
+}
+@keyframes nd-flow-y {
+  to {
+    background-position: 0 20px;
+  }
+}
+.nd .nd-parties figcaption {
+  max-width: 44rem;
+  margin-top: 14px;
+  color: var(--nm-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* ---- the exit window ---- */
+.nd .nd-exit {
+  margin: 8px 0 32px;
+}
+.nd .nd-exit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 4fr) minmax(0, 1.1fr);
+  gap: 14px;
+}
+.nd .nd-exit-cells {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+.nd .nd-exit-cells i {
+  display: block;
+  height: 26px;
+  background: var(--nm-art);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transform-origin: bottom;
+  transition:
+    opacity 360ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: calc(var(--n) * 90ms);
+}
+.nd .nd-exit[data-seen='true'] .nd-exit-cells i {
+  opacity: 1;
+  transform: none;
+}
+.nd .nd-exit-seg[data-k='start'] i,
+.nd .nd-exit-seg[data-k='end'] i {
+  background: repeating-linear-gradient(135deg, var(--nm-accent) 0 2px, transparent 2px 4px);
+  outline: 1px solid var(--nm-accent);
+  outline-offset: -1px;
+}
+.nd .nd-exit-seg p {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.nd .nd-exit-seg b {
+  display: block;
+  color: var(--nm-muted);
+  font:
+    400 12px/18px 'IBM Plex Mono',
+    monospace;
+}
+
+/* ---- the charge calculator ---- */
+.nd .nd-calc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 0;
+  margin: 8px 0 32px;
+  border: 1px solid var(--nm-line);
+}
+.nd .nd-calc-form {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border-right: 1px solid var(--nm-line);
+}
+.nd .nd-calc-form label,
+.nd .nd-calc-form fieldset {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 14px;
+}
+.nd .nd-calc-form legend,
+.nd .nd-calc-form label > span {
+  padding: 0;
+  color: var(--nm-muted);
+  font:
+    12px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-form output {
+  font:
+    13px/18px 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-form select {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--nm-line);
+  border-radius: 0;
+  background: var(--nm-bg);
+  color: var(--nm-fg);
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+}
+.nd .nd-calc-form input[type='range'] {
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: none;
+  accent-color: var(--nm-fg);
+}
+.nd .nd-calc-radio {
+  display: flex !important;
+  align-items: center;
+  gap: 10px !important;
+}
+.nd .nd-calc-radio span {
+  color: var(--nm-fg) !important;
+  font:
+    13px/18px 'IBM Plex Mono',
+    monospace !important;
+}
+.nd .nd-calc-radio input {
+  accent-color: var(--nm-fg);
+}
+.nd .nd-calc-out {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 20px;
+}
+.nd .nd-calc-out dl {
+  display: grid;
+  margin: 0;
+}
+.nd .nd-calc-out dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--nm-soft-line);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.nd .nd-calc-out dt {
+  color: var(--nm-muted);
+}
+.nd .nd-calc-out dd {
+  margin: 0;
+  flex: none;
+  font:
+    13px/20px 'IBM Plex Mono',
+    monospace;
+  text-align: right;
+}
+.nd .nd-calc-out dd strong {
+  font-size: 18px;
+  font-weight: 400;
+}
+.nd .nd-calc-cells {
+  display: grid;
+  grid-template-columns: repeat(50, minmax(0, 1fr));
+  gap: 2px;
+}
+.nd .nd-calc-cells i {
+  display: block;
+  height: 18px;
+  border: 1px solid var(--nm-line);
+  transition:
+    background-color 200ms,
+    border-color 200ms;
+}
+.nd .nd-calc-cells i[data-on='true'] {
+  border-color: var(--nm-accent);
+  background: repeating-linear-gradient(135deg, var(--nm-accent) 0 1px, transparent 1px 4px);
+}
+.nd .nd-calc-cap {
+  margin: 0;
+  color: var(--nm-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+@media (max-width: 960px) {
+  .nd .nd-calc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nd .nd-calc-form {
+    border-right: 0;
+    border-bottom: 1px solid var(--nm-line);
+  }
+}
+@media (max-width: 760px) {
+  .nd .nd-p-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
+    gap: 0;
+  }
+  .nd .nd-p-grid > * {
+    grid-area: auto !important;
+  }
+  .nd .nd-p-link,
+  .nd .nd-p-down,
+  .nd .nd-p-wallet {
+    min-height: 56px;
+    padding: 8px 0;
+    grid-template-columns: auto 1px;
+    justify-content: center;
+    gap: 12px;
+    text-align: left;
+  }
+  .nd .nd-p-link i,
+  .nd .nd-p-wallet i,
+  .nd .nd-p-down i {
+    height: 100%;
+    margin: 0;
+    background: repeating-linear-gradient(180deg, var(--nm-muted) 0 5px, transparent 5px 10px);
+    animation-name: nd-flow-y;
+  }
+  .nd .nd-p-link i::after,
+  .nd .nd-p-wallet i::after {
+    display: none;
+  }
+  .nd .nd-p-link span {
+    margin: 0;
+  }
+  .nd .nd-exit-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd .nd-p-link i,
+  .nd .nd-p-wallet i,
+  .nd .nd-p-down i {
+    animation: none;
+  }
+  .nd .nd-exit-cells i {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}

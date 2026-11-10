@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Wordmark } from '../marketing/Wordmark';
 import { ThemeToggle } from '../marketing/ThemeToggle';
 import { PROFILE } from '../profile';
-import { NoteLife } from './docs-diagrams';
-import { PAGE, type Block, type Section } from './docs-content';
+import { ExitWindow, NoteLife, Parties } from './docs-diagrams';
+import { ChargeCalc } from './docs-calc';
+import { PAGE, type Block, type DocLink, type Section } from './docs-content';
 import './docs.css';
 
 /** Strings carry `code` spans and the {{new}} tag; everything else passes through. */
@@ -108,18 +109,86 @@ function Render({ block }: { block: Block }): ReactNode {
         </aside>
       );
     case 'diagram':
-      return <NoteLife />;
+      return block.id === 'parties' ? (
+        <Parties />
+      ) : block.id === 'exit' ? (
+        <ExitWindow />
+      ) : (
+        <NoteLife />
+      );
+    case 'calc':
+      return <ChargeCalc />;
+    case 'faq':
+      return (
+        <div className="nd-faq">
+          {block.items.map(([q, a]) => (
+            <div key={q}>
+              <h3>{q}</h3>
+              <p>{rich(a)}</p>
+            </div>
+          ))}
+        </div>
+      );
   }
 }
 
-function Article({ section }: { section: Section }) {
+function Links({ links, onJump }: { links: DocLink[]; onJump: (id: string) => void }) {
+  return (
+    <nav className="nd-links" aria-label="Read more">
+      {links.map((l) =>
+        l.ext ? (
+          <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer">
+            {l.label}
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M4.5 11.5l7-7M5 4.5h6.5V11"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </a>
+        ) : (
+          <a
+            key={l.href}
+            href={l.href}
+            onClick={(e) => {
+              if (l.href.startsWith('#docs/')) {
+                e.preventDefault();
+                onJump(l.href.slice(6));
+              }
+            }}
+          >
+            {l.label}
+          </a>
+        ),
+      )}
+    </nav>
+  );
+}
+
+function Article({ section, onJump }: { section: Section; onJump: (id: string) => void }) {
   return (
     <section id={section.id} className="nd-section" aria-labelledby={`${section.id}-title`}>
-      <h2 id={`${section.id}-title`}>{section.title}</h2>
+      <h2 id={`${section.id}-title`}>
+        {section.title}
+        <a
+          className="nd-anchor"
+          href={`#docs/${section.id}`}
+          aria-label={`Link to ${section.title}`}
+          onClick={(e) => {
+            e.preventDefault();
+            onJump(section.id);
+          }}
+        >
+          #
+        </a>
+      </h2>
       {section.lead && <p className="nd-lead">{rich(section.lead)}</p>}
       {section.blocks.map((block, i) => (
         <Render key={i} block={block} />
       ))}
+      {section.links && <Links links={section.links} onJump={onJump} />}
     </section>
   );
 }
@@ -178,6 +247,20 @@ export function Docs({
     el?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [active]);
 
+  const bar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onScroll = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      bar.current?.style.setProperty(
+        '--p',
+        String(max > 0 ? Math.min(1, window.scrollY / max) : 0),
+      );
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   const jump = (id: string) => {
     history.replaceState(null, '', `#docs/${id}`);
     document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -200,6 +283,7 @@ export function Docs({
         </a>
         <span className="nd-where">Docs</span>
         <span className="nd-spacer" />
+        <div className="nd-progress" ref={bar} aria-hidden="true" />
         <ThemeToggle theme={theme} onTheme={onTheme} />
         <button type="button" className="nd-button" onClick={onOpenApp}>
           Open the app
@@ -234,7 +318,7 @@ export function Docs({
             <span>test funds only</span>
           </p>
           {PAGE.sections.map((s) => (
-            <Article key={s.id} section={s} />
+            <Article key={s.id} section={s} onJump={jump} />
           ))}
         </main>
       </div>

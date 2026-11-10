@@ -1,0 +1,25 @@
+# Nymira
+
+> Private, prepaid API credits on NEAR. You deposit USDC once and spend it in short leases on attested models. The rest comes back to a payout account fixed at deposit. This deployment runs on NEAR testnet with Circle's test USDC. The proof circuits and the vault have had no independent review.
+
+The web app and its documentation are one site: <https://nymira.pages.dev>. The documentation page is <https://nymira.pages.dev/#docs>. The code is at <https://github.com/nymiralabs/nymira>.
+
+## Read first
+
+- [README](https://github.com/nymiralabs/nymira/blob/main/README.md): what Nymira is, the live deployment, limits, the `nymirad` download, budget notes for agents
+- [Guide for judges](https://github.com/nymiralabs/nymira/blob/main/JUDGES.md): a 20-minute path from a new wallet to a first answer and a close
+- [Threat model](https://github.com/nymiralabs/nymira/blob/main/THREAT_MODEL.md): what the operator, the model provider, the RPC provider and the web host can see and do
+- [Terms of use](https://github.com/nymiralabs/nymira/blob/main/TERMS.md)
+
+## Reference
+
+- [Web app notes](https://github.com/nymiralabs/nymira/blob/main/web/README.md): screens, storage, backups, set size
+- [Release integrity](https://github.com/nymiralabs/nymira/blob/main/web/INTEGRITY.md): how a web release is signed and how to check it
+- [MCP server](https://github.com/nymiralabs/nymira/blob/main/mcp/README.md): three tools for an agent that spends from a budget note
+- [Vault contract](https://github.com/nymiralabs/nymira/blob/main/contracts/vault/src/lib.rs)
+- [Pins](https://github.com/nymiralabs/nymira/blob/main/PINS.md): toolchain and dependency pins
+
+## Optional
+
+- [Releases](https://github.com/nymiralabs/nymira/releases): the `nymirad` binaries and their signed checksums
+- [Issues](https://github.com/nymiralabs/nymira/issues)

@@ -13,14 +13,38 @@ export type Block =
   | { t: 'table'; label: string; head: string[]; rows: ReactNode[][] }
   | { t: 'code'; label?: string; text: string }
   | { t: 'note'; title: string; text: ReactNode }
-  | { t: 'diagram'; id: 'note-life' };
+  | { t: 'diagram'; id: 'note-life' | 'parties' | 'exit' }
+  | { t: 'calc' }
+  | { t: 'faq'; items: [string, ReactNode][] };
+
+export interface DocLink {
+  label: string;
+  href: string;
+  /** Leaves the page: opens in a new tab with `rel="noopener noreferrer"`. */
+  ext?: boolean;
+}
 
 export interface Section {
   id: string;
   title: string;
   lead?: ReactNode;
   blocks: Block[];
+  /** Where to read more: the sources and the other pages that cover the same ground. */
+  links?: DocLink[];
 }
+
+const REPO = 'https://github.com/nymiralabs/nymira';
+const src = (path: string, label = path): DocLink => ({
+  label,
+  href: `${REPO}/blob/main/${path}`,
+  ext: true,
+});
+const tree = (path: string, label = path): DocLink => ({
+  label,
+  href: `${REPO}/tree/main/${path}`,
+  ext: true,
+});
+const to = (id: string, label: string): DocLink => ({ label, href: `#docs/${id}` });
 
 export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
   title: 'How Nymira works',
@@ -38,6 +62,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           t: 'p',
           text: "This deployment runs on NEAR testnet with Circle's test USDC, which has no value. The proof circuits have had no independent review, and the anonymity set is small and made of test notes. Read the limits before you trust any sentence on this page.",
         },
+        { t: 'diagram', id: 'parties' },
         {
           t: 'table',
           label: 'The four parties',
@@ -61,6 +86,57 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             ],
           ],
         },
+      ],
+    },
+    {
+      id: 'try',
+      title: 'Try it',
+      lead: 'You need a desktop browser, a NEAR testnet account and about 20 minutes. Everything here uses test USDC.',
+      blocks: [
+        {
+          t: 'steps',
+          items: [
+            [
+              'Connect a wallet',
+              'Open the app, press Fund and connect Meteor or Intear Wallet on testnet. Meteor works on testnet. Intear signs in, but its approval window can fail to report back, and the app then reads the vault to see whether the transaction landed.',
+            ],
+            [
+              'Get test USDC',
+              'Ask the Circle faucet for USDC on Near Testnet. A request gives 20 USDC, and an address can ask once every 2 hours.',
+            ],
+            [
+              'Register with the token',
+              'The USDC contract only accepts accounts that paid for storage. Call `storage_deposit` on the token once for your account, with 0.00125 NEAR attached. The command is in the guide for judges.',
+            ],
+            [
+              'Fund a note',
+              'Pick the 1 USDC note. The app shows the price, 1.05 USDC with the fee. Set a passphrase, download the encrypted backup and send. The app reads the `deposit` event from your own receipts.',
+            ],
+            [
+              'Chat',
+              "Open Chat, pick the note and a model, and ask something. If the note is not in the tree yet, wait for the operator's next root update. The badge under the answer says who signed it.",
+            ],
+            [
+              'Close',
+              'Open Close and sign with your wallet. The vault pays the rest to the payout account. Check the payout in the explorer.',
+            ],
+          ],
+        },
+        {
+          t: 'p',
+          text: 'The operator runs on a home machine. If its status page does not answer, it is offline, so wait and try later. To try everything with no keys and no money, run the local stack with `make golden` or `make demo`.',
+        },
+      ],
+      links: [
+        { label: 'Open the app', href: '#fund' },
+        { label: 'Circle faucet', href: 'https://faucet.circle.com', ext: true },
+        src('JUDGES.md', 'The full guide for judges'),
+        {
+          label: 'Operator status',
+          href: 'https://nymira-operator.tail0484c4.ts.net/v1/status',
+          ext: true,
+        },
+        { label: 'Explorer', href: 'https://testnet.nearblocks.io', ext: true },
       ],
     },
     {
@@ -98,6 +174,18 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             ],
           ],
         },
+        { t: 'h3', text: 'The exit window' },
+        {
+          t: 'p',
+          text: 'An exit needs no operator and no clearance. Anyone can call `finalize_exit` once the 7 days are over, so a vanished operator cannot hold your money.',
+        },
+        { t: 'diagram', id: 'exit' },
+        { t: 'h3', text: 'What a lease costs' },
+        {
+          t: 'p',
+          text: "The charge is the usage at the pinned prices plus 3%, plus a slot fee of 0.1% of the bound for each minute the lease is held, rounded up to 0.001 USDC. It is at least 0.002 USDC and never above the bound. The calculator below runs the app's own function with this build's vault parameters. A short chat usually pays the minimum.",
+        },
+        { t: 'calc' },
         {
           t: 'note',
           title: 'Keep the latest state',
@@ -172,7 +260,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           rows: [
             [
               'Operator',
-              'The lease proof, the nullifier, the bound class, request times, the charge, the model name, message sizes and usage. From the web app it also sees your IP address. Over Tor, `nymirad` shows a Tor exit instead.',
+              'The lease proof, the nullifier, the bound class, request times, the charge, the model name, message sizes and usage. Its public entry point, a Tailscale Funnel relay, sees your IP address and the time of every connection. The operator code reads no address and keeps none. Over Tor, `nymirad` shows a Tor exit instead.',
               'Your prompt text. Every field the model reads is encrypted to its attested key. The operator also does not see which note a lease belongs to.',
             ],
             [
@@ -400,6 +488,33 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           text: 'Each release lists its files in a signed `SHA256SUMS`. `nymirad` runs only a Tor executable whose SHA-256 is compiled into the build. Three packages are pinned: Homebrew `tor` 0.4.9.15 for macOS arm64, and Debian 12 `tor` 0.4.9.11 for amd64 and arm64 {{new}}. Pass the loopback address of your own Tor with `nymirad init ... --socks HOST:PORT` if you run one. Then `nymirad` does not check the Tor executable.',
         },
         {
+          t: 'table',
+          label: 'Where to get what',
+          head: ['What', 'Where'],
+          rows: [
+            [
+              'Web app',
+              'https://nymira.pages.dev, mirrored at https://nymiralabs.github.io/nymira/. The mirror cannot send the security headers, so the app refuses to run there.',
+            ],
+            [
+              '`nymirad`',
+              'The releases page of the repository. Release 0.1.2 has a Linux x86_64 binary and a macOS arm64 binary, the signed `SHA256SUMS` and `attestation-policy.json`. Agents, set size and the Debian Tor pins are on main, not in 0.1.2.',
+            ],
+            [
+              'Proving keys',
+              'Release `final` of the nymira-ceremony repository: `request.pk` and `withdrawal.pk`. `nymirad init --setup-dir DIR` checks their hashes. The web app serves them from its own signed bundle.',
+            ],
+            [
+              'Vault source',
+              'The tag `vault-testnet-1` (commit `18107d876dd9d3912796f4b002e9a006c74b1152`), built reproducibly with `scripts/reproducible-smoke.sh`.',
+            ],
+            [
+              'MCP server',
+              'No release yet. Build it from a checkout: `cd mcp && npm ci && npm run build`.',
+            ],
+          ],
+        },
+        {
           t: 'code',
           label: 'Set up and run',
           text: 'nymirad init --rpc URL --operator URL --account ACCOUNT --setup-dir DIR --place DIR\nnymirad serve',
@@ -623,6 +738,85 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
       ],
     },
     {
+      id: 'faq',
+      title: 'Questions',
+      blocks: [
+        {
+          t: 'faq',
+          items: [
+            [
+              'Does Nymira see my prompts?',
+              "No. Every field the model reads is encrypted to the model's attested key. The operator sees the model name, message sizes, timing and usage.",
+            ],
+            [
+              'Can the operator take my money?',
+              'Not to another account: a close or exit pays only the payout account fixed at deposit. While you keep your latest state, the operator can deduct at most the bound of the lease in flight. If you lose it, an exit from an older state can be defeated and you can lose the remaining balance.',
+            ],
+            [
+              'What if the operator disappears?',
+              'Leave with `request_exit` and, after 7 days, `finalize_exit`. The vault does not need the operator. If the operator and every watcher stay offline for the whole window, you leave with an older, higher balance than the real one. That loss falls on the operator, and the 100 USDC cap bounds it.',
+            ],
+            [
+              'What if I lose my browser data?',
+              'Restore the encrypted backup file. With only the note secret, `nymirad restore-secret` rebuilds a note that can be exited, not spent, and an exit from an old state can be defeated.',
+            ],
+            [
+              'Is it anonymous?',
+              "It keeps deposits and calls apart. It is not a promise. The anonymity set is small and made of test notes, the web app cannot use Tor, and timing and usage can still link a user's requests.",
+            ],
+            [
+              'Which wallets work?',
+              'Meteor and Intear Wallet on testnet. Other wallets may work and are not promised.',
+            ],
+            [
+              'Has it been audited?',
+              'No. The proof circuits and the vault have had no independent review.',
+            ],
+            [
+              'Is there a mainnet?',
+              'No. This build runs on NEAR testnet with test USDC, and no mainnet vault is pinned in it.',
+            ],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'develop',
+      title: 'Build and contribute',
+      lead: 'The code is open under the Apache License 2.0 or the MIT license, at your option. The proof circuits come from zkapi, vendored at a pinned commit and credited in `NOTICE`.',
+      blocks: [
+        {
+          t: 'table',
+          label: 'The repository',
+          head: ['Path', 'What it holds'],
+          rows: [
+            ['`contracts/vault`', 'The NEAR vault contract.'],
+            [
+              '`crates/nymira-operator`',
+              'The operator: admission, leases, charges, the signer, the closer and the watcher.',
+            ],
+            ['`crates/nymirad`', 'The local gateway and CLI.'],
+            [
+              '`crates/nymira-near-codec`, `crates/nymira-verifier`',
+              'The shared NEAR codec and the on-chain proof verifier.',
+            ],
+            ['`web`', 'The web app, the landing page and this documentation.'],
+            ['`mcp`', 'The MCP server for agents.'],
+            ['`vendor/zkapi`', 'The zkapi circuits, vendored at a pinned commit.'],
+          ],
+        },
+        {
+          t: 'code',
+          label: 'Build and test',
+          text: 'cargo check --target wasm32-unknown-unknown --locked -p nymira-vault -p nymira-near-codec -p nymira-verifier\ncargo test --workspace --locked\nweb/scripts/build-wasm.sh && (cd web && npm ci --ignore-scripts)',
+        },
+        {
+          t: 'p',
+          text: 'The toolchain is pinned in `rust-toolchain.toml` (rustc 1.99.0, `wasm32-unknown-unknown`). Install cargo-near 0.22.0 for the contract builds. The workspace tests also run the web interop tests, which need Node 24 and `wasm-bindgen` 0.2.117. Report problems in the issue tracker.',
+        },
+      ],
+    },
+    {
       id: 'limits',
       title: 'Limits',
       lead: 'These hold today.',
@@ -646,3 +840,74 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
     },
   ],
 };
+
+const SECTION_LINKS: Record<string, DocLink[]> = {
+  overview: [
+    { label: 'Open the app', href: '#fund' },
+    src('README.md', 'README'),
+    src('JUDGES.md', 'Guide for judges'),
+    src('THREAT_MODEL.md', 'Threat model'),
+    { label: 'Releases', href: `${REPO}/releases`, ext: true },
+  ],
+  'note-life': [
+    to('vault', 'Vault entry points'),
+    src('contracts/vault/src/lib.rs'),
+    src('web/src/leave/guard.ts', 'Expiry guard'),
+  ],
+  words: [to('vault', 'Vault contract'), to('privacy', 'Who sees what')],
+  privacy: [
+    src('THREAT_MODEL.md', 'Threat model'),
+    src('TERMS.md', 'Terms of use'),
+    to('limits', 'Limits'),
+  ],
+  'web-app': [
+    src('web/README.md', 'Web app notes'),
+    tree('web/src/ui', 'Screens'),
+    to('verify', 'Verify a release'),
+  ],
+  attestation: [
+    src('web/pins/attestation-policy.json', 'Signed policy'),
+    tree('web/src/chat/attest', 'Attestation code'),
+    to('privacy', 'Who sees what'),
+  ],
+  vault: [
+    src('contracts/vault/src/lib.rs'),
+    {
+      label: 'Vault account on the explorer',
+      href: 'https://testnet.nearblocks.io/address/vault.nymira.testnet',
+      ext: true,
+    },
+    src('PINS.md', 'Pins'),
+    to('verify', 'Verify it yourself'),
+  ],
+  nymirad: [
+    tree('crates/nymirad'),
+    { label: 'Releases', href: `${REPO}/releases`, ext: true },
+    to('agents', 'Budget notes for agents'),
+    to('verify', 'Verify a release'),
+  ],
+  agents: [
+    src('README.md', 'README, budget notes'),
+    src('mcp/README.md', 'MCP server notes'),
+    tree('crates/nymirad/src', 'nymirad source'),
+  ],
+  verify: [
+    src('web/INTEGRITY.md', 'How releases are signed'),
+    tree('web/releases/testnet-0.1.2', 'Release 0.1.2'),
+    src('web/pins/release-signing.pub', 'Signing key'),
+  ],
+  faq: [to('limits', 'Limits'), src('THREAT_MODEL.md', 'Threat model')],
+  develop: [
+    tree('', 'Repository'),
+    { label: 'Issues', href: `${REPO}/issues`, ext: true },
+    src('NOTICE', 'NOTICE'),
+    {
+      label: 'Ceremony repository',
+      href: 'https://github.com/nymiralabs/nymira-ceremony',
+      ext: true,
+    },
+  ],
+  limits: [src('THREAT_MODEL.md', 'Threat model'), src('TERMS.md', 'Terms of use')],
+};
+
+for (const section of PAGE.sections) section.links ??= SECTION_LINKS[section.id];
