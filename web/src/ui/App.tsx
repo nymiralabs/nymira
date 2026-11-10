@@ -47,8 +47,17 @@ const NAV: readonly [Exclude<Screen, 'landing'>, string, IconName][] = [
 const THEME_KEY = 'nymira.theme';
 const SCREEN_KEY = 'nymira.screen';
 
+const SCREEN_IDS: readonly Screen[] = ['chat', 'fund', 'notes', 'close', 'agents'];
+function hashScreen(): Screen | null {
+  const name = location.hash.slice(1);
+  return SCREEN_IDS.find((id) => id === name) ?? null;
+}
+
 // A reload of this tab opens the screen it was on. A new tab starts at the landing page.
 function firstScreen(): Screen {
+  // A link to a screen (`#fund`) opens it; anything else in the hash is a landing page anchor.
+  const linked = hashScreen();
+  if (linked && linked !== 'agents') return linked;
   try {
     const saved = sessionStorage.getItem(SCREEN_KEY);
     if (saved === 'fund' || saved === 'chat' || saved === 'close' || saved === 'notes')
@@ -201,6 +210,25 @@ export function App() {
       // Not remembered: a reload starts at the landing page.
     }
   }, [screen]);
+  // The tab title and the address follow the screen, so a link and the back button work.
+  useEffect(() => {
+    document.title = screen === 'landing' ? 'Nymira' : `${TITLES[screen]} · Nymira`;
+    if (screen !== 'landing' && location.hash !== `#${screen}`) {
+      history.pushState(null, '', `#${screen}`);
+    }
+  }, [screen]);
+  const showAgentsRef = useRef(false);
+  useEffect(() => {
+    const onPop = () => {
+      const linked = hashScreen();
+      if (linked === 'agents' && !showAgentsRef.current) return;
+      setPrivacy(null);
+      setDrawer(false);
+      setScreen(linked ?? 'landing');
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const go = (next: Screen) => {
     setPrivacy(null);
     setDrawer(false);
@@ -210,6 +238,7 @@ export function App() {
   const { check, recheck } = useVaultCheck();
   const wallet = useWallet();
   const showAgents = agentsAvailable(wallet.wallets, wallet.connected?.walletId ?? null);
+  showAgentsRef.current = showAgents;
   const backupState = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state);
   const owed = backupState?.needed === true;
   const unlocked = useSyncExternalStore(subscribeUnlocked, isUnlocked);

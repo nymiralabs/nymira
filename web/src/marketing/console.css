@@ -6403,3 +6403,9 @@
   scrollbar-width: thin;
   scrollbar-color: var(--nm-line) transparent;
 }
+
+/* The page's own scrollbar: thin, no track, the two palettes' line colour. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: light-dark(#c8c8c8, #333) transparent;
+}
