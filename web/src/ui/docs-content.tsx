@@ -51,7 +51,7 @@ const to = (id: string, label: string): DocLink => ({ label, href: `#docs/${id}`
 
 export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
   title: 'How Nymira works',
-  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.3 and the code it was built from.',
+  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.4 and the code it was built from.',
   sections: [
     {
       id: 'overview',
@@ -605,7 +605,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             ],
             [
               '`nymirad`',
-              'The releases page of the repository. Release 0.1.3 has a Linux x86_64 binary and a macOS arm64 binary, the signed `SHA256SUMS` and `attestation-policy.json`. It includes budget notes for agents (`nymirad agent`), the set size option and the Debian Tor pins.',
+              'The releases page of the repository. Release 0.1.4 has a Linux x86_64 binary and a macOS arm64 binary, the signed `SHA256SUMS` and `attestation-policy.json`. It includes budget notes for agents (`nymirad agent`), the set size option and the Debian Tor pins.',
             ],
             [
               'Proving keys',
@@ -818,7 +818,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'code',
           label: 'The signed release',
-          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.3/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
+          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.4/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
         },
         {
           t: 'p',
@@ -840,7 +840,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
         {
           t: 'p',
-          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.3 testnet 0.1.3` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
+          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.4 testnet 0.1.4` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
         },
       ],
     },
@@ -947,36 +947,28 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
     },
     {
       id: 'changes',
-      title: 'What changed in 0.1.3',
-      lead: 'Release 0.1.3 of the web app and `nymirad`, compared with 0.1.2.',
+      title: 'What changed in 0.1.4',
+      lead: 'Release 0.1.4 of the web app and `nymirad`, compared with 0.1.3.',
       blocks: [
         { t: 'h3', text: 'The web app' },
         {
           t: 'list',
           items: [
-            'A documentation page and a status page. The status page reads the operator, the vault, the RPC endpoints and the release when you ask, and shows what it read.',
-            'The Agents screen: it builds and signs a budget-note policy and prints the `nymirad` commands. It creates no note and sends nothing to `nymirad`.',
-            'The privacy panel, with one lease at a time and charts of who sees what.',
-            'The Intents screen: a direct path and a two-step path for funding from another chain.',
-            'A deposit whose event does not match stays pending. It is not marked rejected, and the app does not imply a refund.',
-            'A stale tab cannot overwrite a newer sealed state of a note. The write is refused and the tab says so.',
-            'Notes: a status filter, status marks, and a list that scrolls inside itself. The expiry guard shows its last 14 days.',
+            'The chat can use a newer signed attestation policy that the site serves beside the release. The page takes it only when the pinned policy key signed it and its version is higher than the bundled one.',
+            'Policy version 6 lists the model compose hash that NEAR AI deployed on 11 November 2026. Chats on that deployment were refused before. A refusal for an unlisted deployment now names the policy version in force.',
+            'The first-open screen is "Unlock key for this browser". The backup file has its own passphrase, typed twice, or your unlock passphrase if you choose. The backup step in Fund is one card that says what the file holds.',
+            'Picking a note in the sidebar shows "Opening note", with its balance and days left, while the proving key loads. The conversation then opens on that note.',
           ],
         },
         { t: 'h3', text: '`nymirad`' },
         {
           t: 'list',
-          items: [
-            "Budget notes for agents: `nymirad agent`, a signed policy, tokens that reach chat and models only, and an opt-in mode that moves the note to the agent's machine.",
-            'The set size option `--rpc-second`, which asks a second provider and shows the lower figure.',
-            'Pinned Tor packages for Debian 12 on amd64 and arm64, next to the macOS one.',
-            'Message content sent as a list of text parts is accepted, so IronClaw on Linux works. Anything that is not text is still refused.',
-          ],
+          items: ['Policy version 6 is compiled in. Nothing else changed in the client.'],
         },
         { t: 'h3', text: 'Unchanged' },
         {
           t: 'p',
-          text: 'The vault, the operator and the pinned verifying keys are the ones from release 0.1.2. No redeploy was needed.',
+          text: 'The vault, the operator and the pinned verifying keys are the ones from release 0.1.3. No redeploy of the vault was needed.',
         },
         {
           t: 'note',
@@ -1044,7 +1036,7 @@ const SECTION_LINKS: Record<string, DocLink[]> = {
   ],
   verify: [
     src('web/INTEGRITY.md', 'How releases are signed'),
-    tree('web/releases/testnet-0.1.3', 'Release 0.1.3'),
+    tree('web/releases/testnet-0.1.4', 'Release 0.1.4'),
     src('web/pins/release-signing.pub', 'Signing key'),
   ],
   faq: [to('limits', 'Limits'), src('THREAT_MODEL.md', 'Threat model')],

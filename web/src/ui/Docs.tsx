@@ -956,7 +956,7 @@ export function Docs({
             />
           )}
           <footer className="nd-foot">
-            <span>Nymira docs · {PROFILE.network} · release 0.1.3 · test funds only</span>
+            <span>Nymira docs · {PROFILE.network} · release 0.1.4 · test funds only</span>
             <nav aria-label="Project">
               <a
                 href="#status"
