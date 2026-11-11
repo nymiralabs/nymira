@@ -5,7 +5,7 @@
 // probe paths with the signed header set. Run it after each deploy, against Cloudflare Pages and
 // against the GitHub Pages mirror (--no-headers: a static host cannot set them). It is a smoke
 // test for a deploy, not `nymirad verify-web`: it runs from one place, over one network path.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { classOfPath, parseCanonicalHeaderSet, sha256, SIGNED_HEADERS } from './lib/integrity.mjs';
@@ -40,6 +40,14 @@ export async function checkLive(base, site, { headers = true } = {}) {
   const manifest = await get('manifest.json');
   if (!manifest.res.ok || !manifest.body.equals(readFileSync(join(site, 'manifest.json')))) {
     problems.push('manifest.json is not the signed one');
+  }
+  // A newer signed policy beside the release (ADR 0021): when the site directory has one, the
+  // host must serve those bytes.
+  if (existsSync(join(site, 'attestation-policy.json'))) {
+    const side = await get('attestation-policy.json');
+    if (!side.res.ok || !side.body.equals(readFileSync(join(site, 'attestation-policy.json')))) {
+      problems.push('attestation-policy.json is not the one that was deployed');
+    }
   }
   const listing = readFileSync(join(site, 'integrity/files.txt'), 'utf8');
   for (const line of listing.split('\n').filter(Boolean)) {
