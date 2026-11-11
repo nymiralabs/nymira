@@ -9,6 +9,7 @@ import { loadNotes, makeBackupFile } from '../funding/flow';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { backupDue } from '../chat/backup-policy';
+import { leftChat } from '../chat/left-chat';
 import { retireBackup } from '../chat/retire-backup';
 import { DEFAULT_BOUND, DEFAULT_MODEL, LONG_JOB_BOUND, MODELS } from '../chat/models';
 import { Count } from '../marketing/Board';
@@ -39,6 +40,7 @@ import type { NoteView } from '../note/lease';
 import { download, formatDate, formatUnits } from './format';
 import { CLOSE_DAYS, leaseBlocked } from '../leave/guard';
 import { leaveStore } from '../leave/store';
+import { Typed } from './Typed';
 import { Unlock } from './Unlock';
 import { ChatDemo, SUGGESTIONS } from './ChatDemo';
 import type { VaultCheck } from '../chain/vault';
@@ -119,6 +121,8 @@ export function Chat({
   const [error, setError] = useState('');
   const [settled, setSettled] = useState<Settled | null>(null);
   const [attestation, setAttestation] = useState('');
+  // The answer that just arrived is written out; earlier ones are plain text.
+  const [fresh, setFresh] = useState<number | null>(null);
   const backup = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state);
   const [passphrase, setPassphrase] = useState('');
   const [fileHandle, setFileHandle] = useState<FsHandle | null>(null);
@@ -186,8 +190,13 @@ export function Chat({
       if (s?.lease?.token)
         void s
           .end()
-          .then(() => retireBackup.set({ needed: true, leases: 0 }))
-          .catch(() => undefined);
+          .then((result) => {
+            retireBackup.set({ needed: true, leases: 0 });
+            leftChat.set({ ok: true, charge: String(result.charge), balance: result.balance });
+          })
+          .catch((e) =>
+            leftChat.set({ ok: false, reason: e instanceof Error ? e.message : String(e) }),
+          );
       else void s?.abandon();
     },
     [],
@@ -201,6 +210,7 @@ export function Chat({
     setSettled(null);
     setMessages([]);
     setAnswers([]);
+    setFresh(null);
     try {
       const deps = await chatDeps(requireKey);
       session.current = new ChatSession(deps, record, longJob);
@@ -284,6 +294,7 @@ export function Chat({
       setBusy('Checking the model’s attestation, then sending…');
       const answer = await s.send(next, { model, stream });
       setMessages([...next, { role: 'assistant', content: answer.text }]);
+      setFresh(next.length);
       setAnswers(s.answers.slice());
       if (s.attestation) {
         const a = s.attestation;
@@ -856,7 +867,17 @@ export function Chat({
                       <span className={m.role === 'user' ? 'nc-sr' : 'nc-who'}>
                         {m.role === 'user' ? 'You' : model}
                       </span>
-                      <p>{m.content}</p>
+                      {m.role === 'assistant' ? (
+                        <Typed
+                          text={m.content}
+                          animate={i === fresh}
+                          onProgress={() =>
+                            threadEnd.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+                          }
+                        />
+                      ) : (
+                        <p>{m.content}</p>
+                      )}
                       {answer && (
                         <div className="nc-meta">
                           <Chip>sealed to its key</Chip>
@@ -1021,6 +1042,11 @@ export function Chat({
               </div>
               <small className="nc-hint">Ctrl or ⌘ + Enter sends</small>
             </div>
+            {leaseOpen && (
+              <small className="nc-hint nc-leave-warning" data-testid="leave-warning">
+                Leaving Chat or reloading the page ends the lease. The conversation is not saved.
+              </small>
+            )}
           </div>
         )}
       </div>

@@ -148,3 +148,12 @@ describe('estimateInputTokens (operator proxy.rs counts roles too)', () => {
     ).toBe(2n + 4n + 2n + 9n + 20n);
   });
 });
+
+describe('Typed answer duration', () => {
+  it('is about 11 ms a character, between 0.4 s and 3.5 s', async () => {
+    const { typeDuration } = await import('../src/ui/Typed');
+    expect(typeDuration(0)).toBe(400);
+    expect(typeDuration(100)).toBe(1100);
+    expect(typeDuration(100_000)).toBe(3500);
+  });
+});

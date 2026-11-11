@@ -179,6 +179,8 @@ test('several messages in one conversation: each answer cap fits the operator\u2
   for (const text of ['hi', 'and now a second one', 'a third, after two answers']) {
     await say(page, text);
     await expect(page.getByTestId('conversation')).toContainText(`echo: ${text}`);
+    // The answer is written out and then stays: no caret is left behind.
+    await expect(page.locator('.nc-typed[data-writing]')).toHaveCount(0);
   }
   await expect(page.getByTestId('chat-error')).toHaveCount(0);
   // The disabled switch keeps its real input out of sight: no stray box over the text.
@@ -198,6 +200,31 @@ test('several messages in one conversation: each answer cap fits the operator\u2
   await page.getByTestId('notes-backup-download').click();
   await expect(page.getByTestId('backup-owed')).toHaveCount(0);
   await expect(page.locator('.nc-backup[data-saved="true"]')).toBeVisible();
+});
+
+test('leaving Chat with a lease open ends it and says what it cost', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await fundNote(page, context);
+  await openChat(page);
+  await startConversation(page);
+  await expect(page.getByTestId('leave-warning')).toHaveCount(0);
+  await say(page, 'one question before I leave');
+  await expect(page.getByTestId('leave-warning')).toContainText('ends the lease');
+  await page.getByTestId('nav-notes').click();
+  await expect(page.getByTestId('left-chat')).toContainText(
+    'Your conversation ended when you left Chat',
+  );
+  await expect(page.getByTestId('left-chat')).toContainText('Charged');
+  await page.getByTestId('left-chat').getByRole('button', { name: 'Got it' }).click();
+  await expect(page.getByTestId('left-chat')).toHaveCount(0);
+  // Back on Chat the note is free for a new conversation, and the owed backup is still asked for.
+  await page.getByTestId('nav-chat').click();
+  await expect(page.getByTestId('chat-input')).toBeVisible();
+  await expect(page.getByTestId('backup-prompt')).toBeVisible();
 });
 
 test('nothing is encrypted, no proof is made and no lease opens when a check fails', async ({

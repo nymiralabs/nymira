@@ -973,6 +973,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           t: 'list',
           items: [
             'A message that fails to send comes back into the box, so you do not retype it.',
+            'While a lease is open the composer says that leaving Chat or reloading the page ends it and that the conversation is not saved. If you leave anyway, the lease is ended in the background and a strip on the screen you land on says what it cost and what the balance is. If the operator has not settled it yet, the strip says so and leads back to Chat.',
             'The Close screen says how to settle a lease that is still open on a note, and says when it is waiting for the chain\u2019s clock before an exit can be finalized.',
           ],
         },

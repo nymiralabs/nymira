@@ -6651,3 +6651,30 @@ html {
     animation: none;
   }
 }
+
+.nc-leave-warning {
+  display: block;
+  margin-top: 6px;
+}
+
+/* An answer being written out: the rest of the text holds its place, unseen, so nothing moves. */
+.nc-typed-rest {
+  visibility: hidden;
+}
+.nc-caret {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: nc-blink 900ms steps(1) infinite;
+}
+.nc-typed[data-writing] {
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-caret {
+    animation: none;
+  }
+}

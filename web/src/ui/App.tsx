@@ -4,12 +4,14 @@ import { Wordmark } from '../marketing/Wordmark';
 import { ThemeToggle } from '../marketing/ThemeToggle';
 import { IpChip, NoteRow, Strip, WalletMenu, type RowNote } from '../marketing/kit';
 import { agentsAvailable } from '../agents/available';
+import { leftChat } from '../chat/left-chat';
 import { retireBackup } from '../chat/retire-backup';
 import { warmProver } from '../chat/runtime';
 import { isUnlocked, lock, requireKey, subscribeUnlocked } from '../crypto/wrap';
 import { loadNotes } from '../funding/flow';
 import { DAY, CLOSE_DAYS } from '../leave/guard';
 import { PROFILE } from '../profile';
+import { formatUnits } from './format';
 import { WALLET_NOTES } from '../wallet/notes';
 import { noteAad } from '../store/types';
 import { callWorker } from '../worker/client';
@@ -303,6 +305,7 @@ export function App() {
   showAgentsRef.current = showAgents;
   const backupState = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state);
   const owed = backupState?.needed === true;
+  const left = useSyncExternalStore(leftChat.subscribe, () => leftChat.state);
   const unlocked = useSyncExternalStore(subscribeUnlocked, isUnlocked);
   const notes = useShellNotes(unlocked, `${screen}|${owed}|${backupState?.leases ?? ''}|${funded}`);
   // The note the sidebar marks: the conversation's, else the one picked, else the first.
@@ -692,6 +695,24 @@ export function App() {
               onDisconnect={() => void wallet.disconnect().catch(() => undefined)}
             />
           </header>
+          {left && (
+            <p className="nc-ip nc-owed" role="status" data-testid="left-chat" data-ok={left.ok}>
+              <Icon name={left.ok ? 'check' : 'lock'} size={14} />
+              <span>
+                {left.ok
+                  ? `Your conversation ended when you left Chat. Charged ${formatUnits(left.charge, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}; balance ${formatUnits(left.balance, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}. It was not saved.`
+                  : `Your conversation is still open on the operator: ${left.reason} Open Chat to settle it.`}
+              </span>
+              {!left.ok && (
+                <button type="button" className="nc-ip-ok" onClick={() => go('chat')}>
+                  Open Chat
+                </button>
+              )}
+              <button type="button" className="nc-ip-ok" onClick={() => leftChat.clear()}>
+                Got it
+              </button>
+            </p>
+          )}
           {owed && screen !== 'chat' && (
             <p className="nc-ip nc-owed" role="alert" data-testid="backup-owed">
               <Icon name="lock" size={14} />
