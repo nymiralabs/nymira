@@ -57,16 +57,14 @@ policy in force. So the file cannot widen what the signed bundle allows beyond w
 signs: whoever controls the host can withhold a newer policy, but cannot make the page accept a
 deployment the policy key did not sign.
 
-Keeping it current is automated for the common case. The `policy-watch` workflow reads NEAR AI's
-live reports every ten minutes (it verifies no quote). A new compose hash of the model, on a machine image
-and measurements the policy already lists, is signed by the workflow itself with the policy key
-kept as a secret of the `policy-signing` environment of this repository, at most three times in 24
-hours; it commits the file, starts `web-deploy` and opens an issue labelled `policy-auto`. Anything
-else (a new machine image, new measurements, many hashes at once, the cap, no key) opens an issue
-labelled `policy-watch`, and a person runs `scripts/policy-update.sh`, which shows the difference,
-asks, signs, commits and pushes. The cost is that the policy key is a GitHub secret: whoever can
-run a workflow in this repository, or take over the account, can sign a policy. That is accepted for
-the testnet, where the policy already trusts what NEAR AI's live endpoint shows.
+The `policy-watch` workflow reads NEAR AI's live reports every ten minutes (it verifies no quote).
+A new compose hash of the model, on an image and measurements the policy already lists, is signed
+by the workflow with the policy key, a secret of the `policy-signing` environment (limited to
+`main`), at most three times in 24 hours. It commits the file, starts `web-deploy` and opens an issue
+labelled `policy-auto`. Anything else opens an issue labelled `policy-watch`, and a person runs
+`scripts/policy-update.sh`. The cost: whoever can run workflows on `main`, or take over the account,
+can sign a policy. That is accepted for the testnet, where the policy already trusts what NEAR AI's
+live endpoint shows.
 
 The `web-deploy` workflow takes the file from the commit named in its `policy_ref` input, loads it
 with `policy_tool verify` (signature, version above the bundled one, strict TCB), copies it into the
