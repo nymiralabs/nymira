@@ -472,7 +472,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'list',
           items: [
-            'The signed policy has version 5 or higher and an Ed25519 signature from a pinned signer. It accepts only the TCB status `UpToDate`.',
+            'The signed policy has version 5 or higher and an Ed25519 signature from a pinned signer. It accepts only the TCB status `UpToDate`. The site may serve a newer policy beside the release; the page uses it only when the pinned signer signed it and its version is higher.',
             "The Intel TDX quote is verified in the browser with `dcap-qvl` compiled to WebAssembly. Collateral comes from the Phala PCCS, because Intel's own service sends no CORS headers.",
             'The debug flag is off. The nonce and the signing address are bound in the report data. The event log replays to RTMR3, and the compose file hashes to `mr_config_id`.',
             'The measured deployment is in the signed policy. For the model, the chat key equals the attested signer.',

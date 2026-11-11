@@ -29,17 +29,39 @@ harder, not impossible.
 
 Paths are relative to the site root (`https://nymira.pages.dev/`).
 
-| Path                    | Content                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `manifest.json`         | The manifest above, canonical form (below).                                         |
-| `manifest.json.minisig` | The minisign signature of `manifest.json`.                                          |
-| `integrity/files.txt`   | The bundle listing. Its SHA-256 is `bundle_hash`.                                   |
-| `integrity/headers.txt` | The signed header set. Its SHA-256 is `header_set_hash`.                            |
-| `_headers`              | The Cloudflare Pages header file. Served by no one (Pages consumes it); not hashed. |
-| every other file        | The bundle: each one is a line of `integrity/files.txt`.                            |
+| Path                      | Content                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| `manifest.json`           | The manifest above, canonical form (below).                                                 |
+| `manifest.json.minisig`   | The minisign signature of `manifest.json`.                                                  |
+| `integrity/files.txt`     | The bundle listing. Its SHA-256 is `bundle_hash`.                                           |
+| `integrity/headers.txt`   | The signed header set. Its SHA-256 is `header_set_hash`.                                    |
+| `_headers`                | The Cloudflare Pages header file. Served by no one (Pages consumes it); not hashed.         |
+| `attestation-policy.json` | Optional. A newer signed attestation policy than the one in the bundle; not hashed (below). |
+| every other file          | The bundle: each one is a line of `integrity/files.txt`.                                    |
 
 The mirror (`https://nymiralabs.github.io/nymira/`) holds the same files except that it cannot send
 the headers.
+
+## A newer attestation policy beside a release
+
+NEAR AI redeploys its models and each redeploy changes a compose hash, so the policy that lists the
+deployments the app accepts goes stale. A deploy may therefore put one more file next to a release:
+`attestation-policy.json`, the policy signed offline with the policy key. It is not in
+`integrity/files.txt`, so `bundle_hash` and the release signature do not change.
+
+The page asks its own origin for the file when a chat starts. It uses the file only if the policy
+signature verifies under the policy signer key that is inside the bundle, the version is higher than
+the bundled policy's, and the file loads under the same rules as the bundled one (strict `UpToDate`
+TCB, well-formed deployments). A missing, older, unsigned or unreachable file leaves the bundled
+policy in force. So the file cannot widen what the signed bundle allows beyond what the policy key
+signs: whoever controls the host can withhold a newer policy, but cannot make the page accept a
+deployment the policy key did not sign.
+
+The `web-deploy` workflow takes the file from the commit named in its `policy_ref` input, loads it
+with `policy_tool verify` (signature, version above the bundled one, strict TCB), copies it into the
+verified site and runs `integrity.mjs verify` again. `check-live.mjs` compares the live file with the
+one that was deployed. `verify-web` is unchanged: it checks the bundle, and the policy file checks
+itself.
 
 ## Bundle hash
 
