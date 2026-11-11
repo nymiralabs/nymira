@@ -15,6 +15,7 @@ import { PROFILE } from '../profile';
 import { callWorker } from '../worker/client';
 import { rpc, setSizeRpcs } from '../ui/services';
 import { liveQuoteVerifier } from './attest/intel';
+import { newerPolicy, type PolicySource } from './attest/channel';
 import { loadPolicy, type Policy } from './attest/policy';
 import type { QuoteVerifier } from './attest/verify';
 import type { SignatureCheck } from './gate';
@@ -41,6 +42,20 @@ export function loadSignedPolicy(): Policy {
   return loadPolicy(policyJson, signerPk, MIN_POLICY_VERSION);
 }
 
+let offered: Promise<PolicySource> | null = null;
+
+/**
+ * The policy in force: the bundled one, or a newer signed one the site serves (ADR 0021). A site
+ * file that could not be used is asked for again the next time, so a slow answer does not stick.
+ */
+export function policyInForce(get: typeof fetch = fetch): Promise<PolicySource> {
+  const asked = (offered ??= newerPolicy(loadSignedPolicy(), signerPk, get));
+  void asked.then((source) => {
+    if (source.note !== undefined && offered === asked) offered = null;
+  });
+  return asked;
+}
+
 export async function chatDeps(getKey: () => CryptoKey): Promise<Deps> {
   await checksReady();
   return {
@@ -48,7 +63,7 @@ export async function chatDeps(getKey: () => CryptoKey): Promise<Deps> {
     rpc,
     setSizeRpcs,
     operator: new OperatorClient(PROFILE.operatorUrl),
-    policy: loadSignedPolicy(),
+    policy: (await policyInForce()).policy,
     quote: await quoteVerifier(),
     signatureCheck,
     getKey,

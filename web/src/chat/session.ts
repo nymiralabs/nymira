@@ -256,7 +256,11 @@ export class ChatSession {
       if (e instanceof AttestationError) {
         throw new ChatError(
           'attestation_failed',
-          `The model’s attestation was refused (${e.code}): ${e.message}. Nothing was encrypted and no lease was opened.`,
+          `The model’s attestation was refused (${e.code}): ${e.message}${
+            e.code === 'deployment_rejected' || e.code === 'measurement_not_accepted'
+              ? ` (policy version ${this.deps.policy.version})`
+              : ''
+          }. Nothing was encrypted and no lease was opened.`,
         );
       }
       throw e;
