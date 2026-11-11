@@ -58,7 +58,7 @@ signs: whoever controls the host can withhold a newer policy, but cannot make th
 deployment the policy key did not sign.
 
 Keeping it current is automated for the common case. The `policy-watch` workflow reads NEAR AI's
-live reports every hour (it verifies no quote). A new compose hash of the model, on a machine image
+live reports every ten minutes (it verifies no quote). A new compose hash of the model, on a machine image
 and measurements the policy already lists, is signed by the workflow itself with the policy key
 kept as a secret of the `policy-signing` environment of this repository, at most three times in 24
 hours; it commits the file, starts `web-deploy` and opens an issue labelled `policy-auto`. Anything
