@@ -333,6 +333,7 @@ export async function prepare(page: Page) {
 /** Downloads the backup and chooses it again; returns the file's path. */
 export async function backUpAndTest(page: Page, saveTo: string): Promise<string> {
   await page.getByTestId('backup-passphrase').fill(BACKUP_PASSPHRASE);
+  await page.getByTestId('backup-confirm').fill(BACKUP_PASSPHRASE);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByTestId('backup-download').click(),

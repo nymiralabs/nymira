@@ -18,7 +18,8 @@ import { ExitDays, GuardTimeline, LeavePath } from '../marketing/kit-close';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
-import { isUnlocked, requireKey } from '../crypto/wrap';
+import { SameAsUnlock } from '../marketing/kit';
+import { isUnlocked, requireKey, typedUnlockPassphrase } from '../crypto/wrap';
 import { loadNotes, makeBackupFile } from '../funding/flow';
 import { warmWithdrawalProver, chatDeps, type ProverState } from '../chat/runtime';
 import { ChatSession } from '../chat/session';
@@ -79,6 +80,7 @@ function Countdown({ seconds }: { seconds: number }) {
 
 function BackupAfterClose({ ids }: { ids: string[] }) {
   const [pass, setPass] = useState('');
+  const [same, setSame] = useState(false);
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [tested, setTested] = useState(false);
   const [error, setError] = useState('');
@@ -131,17 +133,28 @@ function BackupAfterClose({ ids }: { ids: string[] }) {
       <p className="nc-cap nc-cap-first">
         Download an encrypted backup of this note’s final state now, then choose the file again so
         the app can test it. A backup you cannot open is no backup. Do not keep it in a synced
-        folder.
+        folder. The file passphrase is separate from your unlock key: it must work on any device.
       </p>
-      <label className="nc-field">
-        <span>Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)</span>
-        <input
-          type="password"
-          data-testid="close-backup-passphrase"
-          value={pass}
-          onChange={(e) => setPass(e.target.value)}
-        />
-      </label>
+      <SameAsUnlock
+        offered={typedUnlockPassphrase() !== null}
+        testId="close-backup-same"
+        on={same}
+        onChange={(on) => {
+          setSame(on);
+          setPass(on ? (typedUnlockPassphrase() ?? '') : '');
+        }}
+      />
+      {!same && (
+        <label className="nc-field">
+          <span>Backup file passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)</span>
+          <input
+            type="password"
+            data-testid="close-backup-passphrase"
+            value={pass}
+            onChange={(e) => setPass(e.target.value)}
+          />
+        </label>
+      )}
       <div className="nc-actions">
         <Button primary testId="close-backup-download" disabled={!ok || busy} onClick={downloadIt}>
           Download backup

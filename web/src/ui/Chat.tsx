@@ -3,7 +3,8 @@ import './chat-idle.css';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
-import { isUnlocked, requireKey } from '../crypto/wrap';
+import { isUnlocked, requireKey, typedUnlockPassphrase } from '../crypto/wrap';
+import { SameAsUnlock } from '../marketing/kit';
 import { loadNotes, makeBackupFile } from '../funding/flow';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
@@ -1114,6 +1115,7 @@ function BackupPrompt(p: {
   hasFile: boolean;
 }) {
   const canPick = fsAccess();
+  const [same, setSame] = useState(false);
   if (!p.backup?.needed && !(canPick && !p.hasFile && p.backup)) return null;
   return (
     <div data-testid="backup-prompt" className="nc-chat-fund" role="status">
@@ -1122,17 +1124,29 @@ function BackupPrompt(p: {
           ? 'Your note changed. Choose a file once and the app rewrites an encrypted backup after every lease.'
           : 'Your note changed. Download an encrypted backup now: a lost latest state lets the operator defeat your exit and can cost the remaining balance. This browser cannot write to a chosen file; nymirad or a Chromium browser backs up automatically.'}
       </p>
-      <label className="nc-field">
-        <span>
-          Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters; not in a synced folder)
-        </span>
-        <input
-          type="password"
-          data-testid="backup-passphrase"
-          value={p.passphrase}
-          onChange={(e) => p.setPassphrase(e.target.value)}
-        />
-      </label>
+      <SameAsUnlock
+        offered={typedUnlockPassphrase() !== null}
+        testId="backup-same"
+        on={same}
+        onChange={(on) => {
+          setSame(on);
+          p.setPassphrase(on ? (typedUnlockPassphrase() ?? '') : '');
+        }}
+      />
+      {!same && (
+        <label className="nc-field">
+          <span>
+            Backup file passphrase (at least {MIN_PASSPHRASE_LENGTH} characters; separate from your
+            unlock key; not in a synced folder)
+          </span>
+          <input
+            type="password"
+            data-testid="backup-passphrase"
+            value={p.passphrase}
+            onChange={(e) => p.setPassphrase(e.target.value)}
+          />
+        </label>
+      )}
       <div>
         {canPick ? (
           <Button testId="backup-choose" disabled={!p.pass12} onClick={p.onChoose}>

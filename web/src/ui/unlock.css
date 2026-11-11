@@ -88,3 +88,7 @@
     transition: none;
   }
 }
+.nc-seal .nc-keep,
+.nc .nc-seal .nc-keep {
+  margin: 0;
+}

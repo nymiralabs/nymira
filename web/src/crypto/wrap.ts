@@ -120,7 +120,15 @@ export function requireKey(): CryptoKey {
   if (!sessionKey) throw new Error('the note store is locked');
   return sessionKey;
 }
+// The passphrase typed to create or open this session's key, kept in memory only so the backup
+// step can offer it again instead of asking a second time. Dropped on lock and on a reload.
+let typedPassphrase: string | null = null;
+export const typedUnlockPassphrase = () => typedPassphrase;
+export function forgetTypedPassphrase() {
+  typedPassphrase = null;
+}
 export function lock() {
+  typedPassphrase = null;
   setKey(null);
 }
 
@@ -151,6 +159,7 @@ export async function createPassphraseWrap(passphrase: string): Promise<void> {
     check: await checkValue(key),
   });
   setKey(key);
+  typedPassphrase = passphrase;
 }
 
 export async function unlockWithPassphrase(passphrase: string): Promise<boolean> {
@@ -164,6 +173,7 @@ export async function unlockWithPassphrase(passphrase: string): Promise<boolean>
   });
   if (!(await verify(key, meta))) return false;
   setKey(key);
+  typedPassphrase = passphrase;
   return true;
 }
 

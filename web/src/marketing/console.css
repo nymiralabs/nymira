@@ -6472,3 +6472,128 @@ html {
     monospace;
   font-style: normal;
 }
+.nc-seal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px 16px 12px;
+  border: 1px solid color-mix(in srgb, var(--nm-accent) 50%, var(--nm-line));
+  background:
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 6px,
+      color-mix(in srgb, var(--nm-accent) 5%, transparent) 6px 7px
+    ),
+    var(--nm-bg);
+}
+.nc-seal-meter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nc-seal-meter .nc-strip {
+  flex: 1;
+  width: auto;
+}
+.nc-seal-meter small {
+  flex: none;
+  margin: 0;
+  color: var(--nm-muted);
+  font:
+    12px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-seal-why {
+  margin: 0;
+  color: var(--nm-muted);
+  font:
+    13px/20px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-seal-why strong {
+  display: inline;
+  color: var(--nm-fg);
+  font-size: inherit;
+  font-weight: 500;
+}
+.nc-seal-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+.nc-seal .nc-field {
+  margin-top: 0;
+}
+.nc-seal .nc-field > span {
+  display: flex;
+  justify-content: space-between;
+}
+.nc-seal .nc-field em {
+  font-style: normal;
+  color: var(--nc-err);
+}
+.nc-seal .nc-field em[data-ok='true'] {
+  color: var(--nm-good);
+}
+.nc-seal[data-ok='true'] {
+  border-color: var(--nm-good);
+}
+.nc-seal > small,
+.nc-seal > .nc-cap {
+  margin: 0;
+}
+@media (max-width: 700px) {
+  .nc-seal-fields {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+.nc-seal-main {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.nc-seal-file {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  border: 1px solid var(--nm-soft-line);
+  background: var(--nm-soft-line);
+}
+.nc-seal-file > div {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 8px 12px;
+  background: var(--nm-bg);
+}
+.nc-seal-file dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-seal-file dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font:
+    12px/18px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+}
+.nc-seal > small,
+.nc-seal > .nc-cap {
+  grid-column: 1 / -1;
+}
+.nc-sub > li > .nc-seal {
+  grid-column: 2 / -1;
+  margin: 0;
+}
+@media (max-width: 1100px) {
+  .nc-seal-file {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

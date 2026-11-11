@@ -102,6 +102,7 @@ test('Intents funding, direct path: quote, backup first, pay the fake address, s
   expect(await page.evaluate(() => (window as unknown as { __persist: number }).__persist)).toBe(1);
   expect((await sentToOneClick()).filter((r) => r.body.dry === false)).toEqual([]);
   await page.getByTestId('intents-backup-passphrase').fill(BACKUP_PASSPHRASE);
+  await page.getByTestId('intents-backup-confirm').fill(BACKUP_PASSPHRASE);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByTestId('intents-backup-download').click(),
@@ -241,6 +242,7 @@ async function toReview(page: Page, context: BrowserContext, twoStep = false) {
   await page.getByTestId('intents-fingerprint-confirm').check();
   await page.getByTestId('intents-prepare').click();
   await page.getByTestId('intents-backup-passphrase').fill(BACKUP_PASSPHRASE);
+  await page.getByTestId('intents-backup-confirm').fill(BACKUP_PASSPHRASE);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByTestId('intents-backup-download').click(),

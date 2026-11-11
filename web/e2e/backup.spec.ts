@@ -28,6 +28,7 @@ test('no transfer without a downloaded and test-restored backup; a wrong file do
   await prepare(page);
   const dir = workdir();
   await page.getByTestId('backup-passphrase').fill(BACKUP_PASSPHRASE);
+  await page.getByTestId('backup-confirm').fill(BACKUP_PASSPHRASE);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByTestId('backup-download').click(),
