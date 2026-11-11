@@ -116,6 +116,9 @@ test('chat end to end: attested, encrypted, both signature kinds, token, cost, b
   await expect(page.getByTestId('backup-prompt')).toBeVisible();
   await page.getByTestId('backup-passphrase').fill(BACKUP_PASSPHRASE);
   await page.getByTestId('backup-choose').click();
+  // The file is written at once, not after the next lease, and the screen says so.
+  await expect(page.getByTestId('backup-saved')).toBeVisible();
+  await expect.poll(async () => (await written(page)).length).toBeGreaterThanOrEqual(1);
 
   // A second conversation, streamed: expected to come back gateway-signed.
   await newConversation(page);
@@ -127,8 +130,9 @@ test('chat end to end: attested, encrypted, both signature kinds, token, cost, b
   await expect(page.getByTestId('badge')).toHaveAttribute('data-kind', 'gateway_signed');
   await expect(page.getByTestId('tls-note')).toBeVisible();
 
-  // The file written after the second retire carries both lease records, metadata only.
-  await expect.poll(async () => (await written(page)).length).toBeGreaterThanOrEqual(1);
+  // The file written after the second retire carries both lease records, metadata only. The first
+  // write came when the file was chosen, so the second one is the next.
+  await expect.poll(async () => (await written(page)).length).toBeGreaterThanOrEqual(2);
   const files = await written(page);
   const plain = await decryptBackup(new Uint8Array(files.at(-1)!), BACKUP_PASSPHRASE);
   const note = plain.notes.find((n) => n.kind === 'state')!;
@@ -189,6 +193,11 @@ test('several messages in one conversation: each answer cap fits the operator\u2
   await expect(page.getByTestId('backup-owed')).toBeVisible();
   await page.getByTestId('backup-owed').getByRole('button', { name: 'Back up now' }).click();
   await expect(page.getByTestId('notes-backup-passphrase')).toBeFocused();
+  // Downloading the backup there pays the debt: the strip and the sidebar follow.
+  await page.getByTestId('notes-backup-passphrase').fill('a long passphrase for the file');
+  await page.getByTestId('notes-backup-download').click();
+  await expect(page.getByTestId('backup-owed')).toHaveCount(0);
+  await expect(page.locator('.nc-backup[data-saved="true"]')).toBeVisible();
 });
 
 test('nothing is encrypted, no proof is made and no lease opens when a check fails', async ({

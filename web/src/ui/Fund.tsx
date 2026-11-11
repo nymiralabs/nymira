@@ -19,6 +19,7 @@ import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
 import { isUnlocked, typedUnlockPassphrase } from '../crypto/wrap';
 import {
   confirmDeposit,
+  loadNotes,
   makeBackupFile,
   notePrice,
   prepareNote,
@@ -215,6 +216,27 @@ export function Fund({
     null,
   );
   const [note, setNote] = useState<NoteRecord | null>(null);
+  // A note whose backup was already tested comes back after a reload or a visit to another screen:
+  // the work is not lost and the person does not make a second note beside it.
+  useEffect(() => {
+    if (!unlocked || note) return;
+    let live = true;
+    loadNotes().then(
+      (all) => {
+        const tested = all.find((n) => n.kind === 'pending' && n.phase === 'backed_up');
+        if (live && tested) {
+          setNote(tested);
+          setDenomination(tested.denomination);
+          setDownloaded(true);
+        }
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlocked]);
   const [backupPass, setBackupPass] = useState('');
   const [sameAsUnlock, setSameAsUnlock] = useState(false);
   const [backupConfirm, setBackupConfirm] = useState('');
@@ -328,7 +350,16 @@ export function Fund({
   const onSend = () =>
     act('send', async () => {
       if (!note) return;
-      const sent = await sendDepositWatched(rpc, note, wallet, PROFILE.watch);
+      let sent: Awaited<ReturnType<typeof sendDepositWatched>>;
+      try {
+        sent = await sendDepositWatched(rpc, note, wallet, PROFILE.watch);
+      } catch (e) {
+        // The stored record may have moved on (sending): show what is stored, so Send does not
+        // offer a second transfer for a note whose first one may be on its way.
+        const stored = (await loadNotes()).find((n) => n.id === note.id);
+        if (stored) setNote(stored);
+        throw e;
+      }
       setNote(sent.record);
       outcomeRef.current = sent.outcome;
       const result = sent.found
@@ -340,6 +371,14 @@ export function Fund({
       if ('record' in result) setNote(result.record);
       if (result.status === 'accepted') onFunded();
     });
+
+  // A failed step shows its error in the Send step; bring it into view from whichever step failed.
+  useEffect(() => {
+    if (!error) return;
+    document
+      .querySelector('[data-testid="fund-error"]')
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [error]);
 
   const onCalendar = () => {
     if (note?.expiry === undefined) return;
@@ -654,6 +693,15 @@ export function Fund({
                 <p className="nc-cap nc-cap-first">
                   Nothing is sent until you have a backup that opens.
                 </p>
+                {!created && busy === '' && (!vaultOk || !wallet.connected || !payoutReady) && (
+                  <p className="nc-cap" data-testid="create-blocked">
+                    {!wallet.connected
+                      ? 'Connect a wallet in step 1 to create the secret.'
+                      : !vaultOk
+                        ? 'The vault check has not passed yet, so the secret cannot be created.'
+                        : 'Confirm the payout account in step 3 to create the secret.'}
+                  </p>
+                )}
                 <BackupSteps
                   created={created}
                   createLabel={

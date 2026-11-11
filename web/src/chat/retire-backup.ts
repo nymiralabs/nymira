@@ -3,6 +3,8 @@
 export interface RetireBackup {
   needed: boolean;
   leases: number;
+  /** The latest state is in a backup file (written or downloaded); false when none is due yet. */
+  saved?: boolean;
 }
 
 type Listener = () => void;

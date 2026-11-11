@@ -589,14 +589,22 @@ export function App() {
               <Strip n={2} solid={owed ? 1 : 2} size="sm" />
               <span>
                 <strong>
-                  {owed ? 'Back up now' : backupState ? 'Latest state saved' : 'No backup owed'}
+                  {owed
+                    ? 'Back up now'
+                    : backupState?.saved
+                      ? 'Latest state saved'
+                      : backupState
+                        ? 'No backup due yet'
+                        : 'No backup owed'}
                 </strong>
                 <small>
                   {owed
                     ? 'A lease changed your note'
-                    : backupState
+                    : backupState?.saved
                       ? 'Nothing changed since'
-                      : 'No lease ended in this page'}
+                      : backupState
+                        ? 'A small balance: a backup every tenth lease'
+                        : 'No lease ended in this page'}
                 </small>
               </span>
               {owed && (

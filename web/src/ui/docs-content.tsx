@@ -51,7 +51,7 @@ const to = (id: string, label: string): DocLink => ({ label, href: `#docs/${id}`
 
 export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
   title: 'How Nymira works',
-  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.6 and the code it was built from.',
+  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.7 and the code it was built from.',
   sections: [
     {
       id: 'overview',
@@ -818,7 +818,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'code',
           label: 'The signed release',
-          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.6/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
+          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.7/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
         },
         {
           t: 'p',
@@ -840,7 +840,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
         {
           t: 'p',
-          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.6 testnet 0.1.6` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
+          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.7 testnet 0.1.7` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
         },
       ],
     },
@@ -947,33 +947,33 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
     },
     {
       id: 'changes',
-      title: 'What changed in 0.1.6',
-      lead: 'Release 0.1.6 of the web app, compared with 0.1.5. `nymirad` 0.1.4 is still the newest.',
+      title: 'What changed in 0.1.7',
+      lead: 'Release 0.1.7 of the web app, compared with 0.1.6. `nymirad` 0.1.4 is still the newest.',
       blocks: [
-        { t: 'h3', text: 'Chat' },
+        { t: 'h3', text: 'Backup' },
         {
           t: 'list',
           items: [
-            'A second message in the same conversation is no longer refused. The app sized the answer limit from the message text alone, while the operator also counts the role of each message and rounds the worst case up to a whole micro-USDC, so the second message went over the limit by a hair and the app showed "The answer limit does not fit what is left of the lease".',
-            'When an accepted request fails without a signed usage (the provider timed out, the answer was cut or carried no usage), the operator keeps the whole reservation as spent. The app now counts it the same way, so the next message is sized from what the operator will allow.',
-            'The message for an answer limit the lease cannot hold now says to end the conversation and start a new one.',
+            'Choosing the backup file now writes the current backup at once and says so. Before, the file was only remembered and written after the next lease, so the screen looked unchanged and kept asking for a backup.',
+            'Downloading a backup on the Notes screen, or after a close, clears the owed-backup strip and the sidebar card. Restoring a backup updates the note count and the rows in the sidebar.',
+            'The sidebar card says "No backup due yet" when a small balance makes no backup due, instead of "Latest state saved".',
+            'While a backup is being written the button says so and a second click does nothing.',
           ],
         },
-        { t: 'h3', text: 'Notes and backup' },
+        { t: 'h3', text: 'Funding' },
         {
           t: 'list',
           items: [
-            'A note that is closing or exiting shows "Follow close" or "Follow exit" and opens the Close screen with that note selected. Before, its Chat button was off with no way forward. The same goes for its card in the sidebar and for a note near its expiry in the chat list ("Close this note").',
-            'The note you pick on the Notes screen is the note Chat and Close open. Before, Close always opened the first one.',
-            '"Save" in the sidebar and "Back up now" lead to the backup form and put the cursor in it. Before, "Save" did nothing on the Chat screen. The reminder on other screens is a strip under the header.',
+            'A note whose backup was already tested comes back when you return to the Fund screen or reload the page, so you do not make a second note beside it.',
+            'When "Create the secret" is off, the step says why (no wallet, the vault check, or the payout account). A step that fails brings its error into view. After a failed send the screen shows the stored state of the note, so it does not offer a second transfer for a note whose first one may be on its way.',
           ],
         },
-        { t: 'h3', text: 'Look' },
+        { t: 'h3', text: 'Chat and Close' },
         {
           t: 'list',
           items: [
-            'A faint box over the "Long job" text while a lease was open is gone: the switch is disabled then, and the browser drew its hidden checkbox.',
-            'The scroll bar of an empty chat shows only while the pointer is over it.',
+            'A message that fails to send comes back into the box, so you do not retype it.',
+            'The Close screen says how to settle a lease that is still open on a note, and says when it is waiting for the chain\u2019s clock before an exit can be finalized.',
           ],
         },
         { t: 'h3', text: 'Unchanged' },
@@ -1047,7 +1047,7 @@ const SECTION_LINKS: Record<string, DocLink[]> = {
   ],
   verify: [
     src('web/INTEGRITY.md', 'How releases are signed'),
-    tree('web/releases/testnet-0.1.6', 'Release 0.1.6'),
+    tree('web/releases/testnet-0.1.7', 'Release 0.1.7'),
     src('web/pins/release-signing.pub', 'Signing key'),
   ],
   faq: [to('limits', 'Limits'), src('THREAT_MODEL.md', 'Threat model')],

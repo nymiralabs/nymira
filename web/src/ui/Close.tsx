@@ -1,3 +1,4 @@
+import { retireBackup } from '../chat/retire-backup';
 import './close.css';
 import { Fragment, useEffect, useState, useSyncExternalStore } from 'react';
 import closeIllustration from '../marketing/assets/app-close.webp';
@@ -95,6 +96,8 @@ function BackupAfterClose({ ids }: { ids: string[] }) {
       const file = await makeBackupFile(pass);
       setBytes(file);
       download(file as BlobPart, backupFileName(new Date()), 'application/octet-stream');
+      // This file holds every note of the vault, so a backup owed after a lease is paid too.
+      retireBackup.set({ needed: false, leases: retireBackup.state?.leases ?? 0, saved: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -319,7 +322,8 @@ function NoteWays({
     <div className="nc-lv-ways" hidden={!selected} data-state={leave?.state ?? 'open'}>
       {view.active?.token !== undefined && (
         <p className="nc-lv-note-text" data-testid="leave-lease-open">
-          A lease is open on this note. End the conversation on the Chat screen before closing.
+          A lease is open on this note. Settle it on the Chat screen before closing: end the
+          conversation there, or press “Settle the open lease” if the page was reloaded.
         </p>
       )}
       {view.pending && view.active?.token === undefined && !leave && (
@@ -478,9 +482,11 @@ function NoteWays({
             >
               <span>Finalize exit</span>
               <small>
-                {leave.deadline !== undefined && chainNow !== null && chainNow < leave.deadline
-                  ? `available ${when(leave.deadline)}`
-                  : 'pays your payout account'}
+                {leave.deadline !== undefined && chainNow === null
+                  ? 'waiting for the chain’s clock; it is read again every 30 seconds'
+                  : leave.deadline !== undefined && chainNow !== null && chainNow < leave.deadline
+                    ? `available ${when(leave.deadline)}`
+                    : 'pays your payout account'}
               </small>
             </Button>
           </div>

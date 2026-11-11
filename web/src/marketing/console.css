@@ -6636,3 +6636,18 @@ html {
 .nc-owed .nc-ip-ok {
   margin-left: auto;
 }
+
+/* A state change confirms itself: the saved backup, the owed-backup strip and a done message arrive
+   with the same short settle the rest of the console uses. */
+.nc-msg[data-tone='ok'],
+.nc-owed,
+.nc-backup[data-saved='true'] {
+  animation: nc-done-in 420ms var(--nc-ease) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-msg[data-tone='ok'],
+  .nc-owed,
+  .nc-backup[data-saved='true'] {
+    animation: none;
+  }
+}

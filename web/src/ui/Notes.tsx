@@ -31,6 +31,7 @@ import { INTENTS_SIGNER, confirmIntents, explainBooking } from '../funding/inten
 import { deleteNote, listNotes, putNote } from '../store/db';
 import { mergeRestored } from '../store/merge';
 import type { NoteRecord } from '../store/types';
+import { retireBackup } from '../chat/retire-backup';
 import { callWorker } from '../worker/client';
 import { seedSampleNotes } from './dev-seed';
 import { download, formatDate, formatUnits, readFile } from './format';
@@ -256,6 +257,8 @@ export function Notes({
     run(async () => {
       const bytes = await makeBackupFile(pass);
       download(bytes as BlobPart, backupFileName(), 'application/octet-stream');
+      // The file holds every note of this vault, so a backup owed after a lease is paid.
+      retireBackup.set({ needed: false, leases: retireBackup.state?.leases ?? 0, saved: true });
       setMsg('Backup downloaded.');
     });
 
@@ -283,6 +286,8 @@ export function Notes({
           '.',
       );
       refresh();
+      // The sidebar and the rows read their balance and status from the shell: tell it.
+      onChanged();
     });
   };
 

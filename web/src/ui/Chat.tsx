@@ -47,6 +47,7 @@ const units = (v: bigint | string) =>
   `${formatUnits(v, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}`;
 
 interface FsHandle {
+  name?: string;
   createWritable(): Promise<{ write(data: BlobPart): Promise<void>; close(): Promise<void> }>;
 }
 type PickerWindow = Window & {
@@ -121,6 +122,8 @@ export function Chat({
   const backup = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state);
   const [passphrase, setPassphrase] = useState('');
   const [fileHandle, setFileHandle] = useState<FsHandle | null>(null);
+  const [savedAs, setSavedAs] = useState('');
+  const [writing, setWriting] = useState(false);
   const session = useRef<ChatSession | null>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
   const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
@@ -294,6 +297,8 @@ export function Chat({
       }
     } catch (e) {
       setMessages(messages);
+      // The words the person typed come back, so a failed send costs no retyping.
+      setInput(next[next.length - 1]!.content);
       fail(e);
     } finally {
       setBusy('');
@@ -316,9 +321,9 @@ export function Chat({
       const w = await fileHandle.createWritable();
       await w.write(bytes as BlobPart);
       await w.close();
-      retireBackup.set({ needed: false, leases });
+      retireBackup.set({ needed: false, leases, saved: true });
     } else {
-      retireBackup.set({ needed, leases });
+      retireBackup.set({ needed, leases, saved: false });
     }
   };
 
@@ -341,23 +346,44 @@ export function Chat({
   };
 
   const downloadBackup = async () => {
+    if (writing) return;
+    setWriting(true);
     try {
       const bytes = await makeBackupFile(passphrase);
       download(bytes as BlobPart, backupFileName(new Date()), 'application/octet-stream');
-      retireBackup.clear();
+      retireBackup.set({ needed: false, leases: backup?.leases ?? 0, saved: true });
     } catch (e) {
       fail(e);
+    } finally {
+      setWriting(false);
     }
   };
 
   const chooseFile = async () => {
+    if (writing) return;
+    let handle: FsHandle;
     try {
-      const handle = await (window as PickerWindow).showSaveFilePicker!({
+      handle = await (window as PickerWindow).showSaveFilePicker!({
         suggestedName: backupFileName(new Date()),
       });
-      setFileHandle(handle);
     } catch {
       // The picker was closed: nothing changes.
+      return;
+    }
+    setWriting(true);
+    try {
+      // The current state is written at once: the backup is owed now, not after the next lease.
+      const bytes = await makeBackupFile(passphrase);
+      const w = await handle.createWritable();
+      await w.write(bytes as BlobPart);
+      await w.close();
+      setFileHandle(handle);
+      setSavedAs(handle.name ?? 'the chosen file');
+      retireBackup.set({ needed: false, leases: backup?.leases ?? 0, saved: true });
+    } catch (e) {
+      fail(e);
+    } finally {
+      setWriting(false);
     }
   };
 
@@ -916,6 +942,11 @@ export function Chat({
               {error}
             </p>
           )}
+          {savedAs && fileHandle && (
+            <p className="nc-msg" data-tone="ok" role="status" data-testid="backup-saved">
+              Backup written to {savedAs}. The app rewrites it after every lease.
+            </p>
+          )}
           <BackupPrompt
             backup={backup}
             passphrase={passphrase}
@@ -924,6 +955,7 @@ export function Chat({
             onDownload={downloadBackup}
             onChoose={chooseFile}
             hasFile={fileHandle !== null}
+            writing={writing}
           />
           <div ref={threadEnd} />
         </div>
@@ -1195,6 +1227,7 @@ function BackupPrompt(p: {
   onDownload: () => void;
   onChoose: () => void;
   hasFile: boolean;
+  writing: boolean;
 }) {
   const canPick = fsAccess();
   const [same, setSame] = useState(false);
@@ -1231,12 +1264,12 @@ function BackupPrompt(p: {
       )}
       <div>
         {canPick ? (
-          <Button testId="backup-choose" disabled={!p.pass12} onClick={p.onChoose}>
-            Choose backup file
+          <Button testId="backup-choose" disabled={!p.pass12 || p.writing} onClick={p.onChoose}>
+            {p.writing ? 'Writing the backup…' : 'Choose backup file'}
           </Button>
         ) : (
-          <Button testId="backup-download" disabled={!p.pass12} onClick={p.onDownload}>
-            Download backup
+          <Button testId="backup-download" disabled={!p.pass12 || p.writing} onClick={p.onDownload}>
+            {p.writing ? 'Writing the backup…' : 'Download backup'}
           </Button>
         )}
       </div>
