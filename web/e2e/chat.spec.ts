@@ -202,6 +202,56 @@ test('several messages in one conversation: each answer cap fits the operator\u2
   await expect(page.locator('.nc-backup[data-saved="true"]')).toBeVisible();
 });
 
+test('a markdown answer is drawn in the console\u2019s look and stays safe', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await fundNote(page, context);
+  await openChat(page);
+  await startConversation(page);
+  await say(
+    page,
+    [
+      'md:## Uses',
+      '',
+      '1. **Bold** and *italic* with `code`',
+      '   - nested [docs](https://near.org/docs)',
+      '',
+      '| a | b |',
+      '|---|--:|',
+      '| 1 | 2 |',
+      '',
+      '```ts',
+      'const x = 1;',
+      '```',
+      '',
+      '<script>window.__pwned = 1</script> ![t](https://evil.example/p.png) [bad](javascript:window.__pwned=1)',
+    ].join('\n'),
+  );
+  const answer = page.getByTestId('conversation').locator('.nc-md');
+  await expect(page.locator('.nc-typed[data-writing]')).toHaveCount(0);
+  await expect(answer.locator('h3')).toHaveText('Uses');
+  await expect(answer.locator('strong')).toHaveText('Bold');
+  await expect(answer.locator('em')).toHaveText('italic');
+  await expect(answer.locator('li li')).toContainText('nested');
+  await expect(answer.locator('table th')).toHaveCount(2);
+  await expect(answer.locator('figure.nc-md-code code')).toHaveText('const x = 1;');
+  const link = answer.getByRole('link', { name: 'docs' });
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', /noopener noreferrer/);
+  await expect(link).toHaveAttribute('referrerpolicy', 'no-referrer');
+  // Raw HTML is text, an image is never loaded, a script link is not a link.
+  await expect(answer).toContainText('<script>window.__pwned = 1</script>');
+  await expect(answer.locator('img, script')).toHaveCount(0);
+  await expect(answer.getByRole('link', { name: 'bad' })).toHaveCount(0);
+  expect(
+    await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned),
+  ).toBeUndefined();
+  expect(stack.seen.some((r) => r.path.includes('evil.example'))).toBe(false);
+});
+
 test('leaving Chat with a lease open ends it and says what it cost', async ({
   context,
   page,

@@ -164,10 +164,10 @@ export async function startConversation(page: Page) {
 }
 
 export async function say(page: Page, text: string) {
-  const before = await page.getByTestId('conversation').locator('li').count();
+  const before = await page.getByTestId('conversation').locator(':scope > li').count();
   await page.getByTestId('chat-input').fill(text);
   await page.getByTestId('chat-send').click();
-  await expect(page.getByTestId('conversation').locator('li')).toHaveCount(before + 2, {
+  await expect(page.getByTestId('conversation').locator(':scope > li')).toHaveCount(before + 2, {
     timeout: 180_000,
   });
 }

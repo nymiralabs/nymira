@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Markdown, parseMarkdown, textLength } from './markdown';
 
 const reduced = () =>
   typeof window !== 'undefined' &&
@@ -9,9 +10,9 @@ const reduced = () =>
 export const typeDuration = (chars: number) => Math.min(3500, Math.max(400, chars * 11));
 
 /**
- * An answer that has already arrived, written out the way it would have streamed in. The text is
- * all there for the page (the rest is hidden, so nothing moves while it is written); a click, or a
- * reduced-motion setting, shows it at once.
+ * An answer that has already arrived, drawn as markdown and written out the way a streamed one
+ * would come in. The whole text is in place from the first frame (the part not yet written is
+ * hidden), so nothing moves while it appears; a click, or a reduced-motion setting, shows it at once.
  */
 export function Typed({
   text,
@@ -22,26 +23,31 @@ export function Typed({
   animate: boolean;
   onProgress?: () => void;
 }) {
+  const tree = useMemo(() => parseMarkdown(text), [text]);
+  const total = useMemo(() => textLength(tree), [tree]);
   const instant = !animate || reduced();
-  const [shown, setShown] = useState(instant ? text.length : 0);
+  const [shown, setShown] = useState(instant ? total : 0);
   const progress = useRef(onProgress);
   progress.current = onProgress;
 
   useEffect(() => {
     if (instant) {
-      setShown(text.length);
+      setShown(total);
       return;
     }
-    const total = typeDuration(text.length);
+    const duration = typeDuration(total);
     const started = performance.now();
     let frame = 0;
     let last = 0;
+    let lastCount = -1;
     const step = (now: number) => {
-      const done = Math.min(1, (now - started) / total);
+      const done = Math.min(1, (now - started) / duration);
       // Ease out: the first words come quickly, the end settles.
-      const eased = 1 - Math.pow(1 - done, 2);
-      const count = Math.round(text.length * eased);
-      setShown(count);
+      const count = Math.round(total * (1 - Math.pow(1 - done, 2)));
+      if (count !== lastCount) {
+        lastCount = count;
+        setShown(count);
+      }
       if (now - last > 120) {
         last = now;
         progress.current?.();
@@ -50,25 +56,17 @@ export function Typed({
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [text, instant]);
+  }, [total, instant]);
 
-  const writing = shown < text.length;
+  const writing = shown < total;
   return (
-    <p
-      className="nc-typed"
+    <div
+      className="nc-typed nc-md"
       data-writing={writing || undefined}
       aria-busy={writing || undefined}
-      onClick={writing ? () => setShown(text.length) : undefined}
+      onClick={writing ? () => setShown(total) : undefined}
     >
-      {text.slice(0, shown)}
-      {writing && (
-        <>
-          <i className="nc-caret" aria-hidden="true" />
-          <span className="nc-typed-rest" aria-hidden="true">
-            {text.slice(shown)}
-          </span>
-        </>
-      )}
-    </p>
+      <Markdown tree={tree} shown={shown} />
+    </div>
   );
 }

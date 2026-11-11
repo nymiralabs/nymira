@@ -6658,17 +6658,9 @@ html {
 }
 
 /* An answer being written out: the rest of the text holds its place, unseen, so nothing moves. */
-.nc-typed-rest {
+.nc-typed-rest,
+.nc-md [data-pending] {
   visibility: hidden;
-}
-.nc-caret {
-  display: inline-block;
-  width: 0.5ch;
-  height: 1.05em;
-  margin-left: 1px;
-  vertical-align: text-bottom;
-  background: currentColor;
-  animation: nc-blink 900ms steps(1) infinite;
 }
 .nc-typed[data-writing] {
   cursor: pointer;
@@ -6677,4 +6669,192 @@ html {
   .nc-caret {
     animation: none;
   }
+}
+
+/* An answer drawn as markdown: the console's own type and lines, no second look inside it. */
+.nc-md {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.nc-md > * {
+  min-width: 0;
+  margin: 0;
+}
+.nc-md p {
+  white-space: normal;
+}
+.nc-md-h {
+  margin-top: 8px;
+  color: var(--nm-fg);
+  font:
+    600 16px/24px 'IBM Plex Sans',
+    sans-serif;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+.nc-md-h[data-level='1'],
+.nc-md-h[data-level='2'] {
+  font-size: 18px;
+  line-height: 26px;
+}
+.nc-md-h[data-level='4'] {
+  color: var(--nm-muted);
+  font-size: 14px;
+}
+.nc-md strong {
+  font-weight: 600;
+}
+.nc-md del {
+  opacity: 0.65;
+}
+.nc-md a {
+  color: var(--nm-fg);
+  text-decoration: underline;
+  text-decoration-color: var(--nm-line);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 160ms var(--nc-ease);
+}
+.nc-md a:hover {
+  text-decoration-color: var(--nm-fg);
+}
+.nc-md code {
+  padding: 1px 6px;
+  border: 1px solid var(--nm-soft-line);
+  background: var(--nm-raised);
+  font:
+    0.88em/1.4 'IBM Plex Mono',
+    monospace;
+}
+.nc-md ul,
+.nc-md ol {
+  display: grid;
+  gap: 4px;
+  padding-left: 24px;
+}
+.nc-md ol {
+  padding-left: 32px;
+}
+.nc-md li::marker {
+  color: var(--nm-muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.9em;
+}
+.nc-md li > * + * {
+  margin-top: 6px;
+}
+.nc-md li > ul,
+.nc-md li > ol {
+  margin-top: 4px;
+}
+.nc-md blockquote {
+  display: grid;
+  gap: 8px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--nm-line);
+  color: var(--nm-muted);
+}
+.nc-md hr {
+  width: 100%;
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--nm-soft-line);
+}
+.nc-md-img {
+  color: var(--nm-muted);
+  font:
+    0.88em/1.4 'IBM Plex Mono',
+    monospace;
+}
+.nc-md-code {
+  overflow: hidden;
+  border: 1px solid var(--nm-line);
+  background: var(--nm-raised);
+}
+.nc-md-code figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 6px 5px 14px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-md-copy {
+  padding: 2px 10px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--nm-muted);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    color 160ms var(--nc-ease),
+    border-color 160ms var(--nc-ease);
+}
+.nc-md-copy:hover {
+  border-color: var(--nm-line);
+  color: var(--nm-fg);
+}
+.nc-md-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+  font:
+    13px/21px 'IBM Plex Mono',
+    monospace;
+  tab-size: 2;
+}
+.nc-md-code pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+}
+.nc-md-table {
+  overflow-x: auto;
+  border: 1px solid var(--nm-line);
+  scrollbar-width: thin;
+  scrollbar-color: var(--nm-line) transparent;
+}
+.nc-md-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.nc-md-table th,
+.nc-md-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--nm-soft-line);
+  text-align: left;
+  vertical-align: top;
+}
+.nc-md-table tr:last-child td {
+  border-bottom: 0;
+}
+.nc-md-table th {
+  color: var(--nm-muted);
+  font:
+    400 11px/16px 'IBM Plex Mono',
+    monospace;
+  white-space: nowrap;
+}
+.nc-md-table [data-align='center'] {
+  text-align: center;
+}
+.nc-md-table [data-align='right'] {
+  text-align: right;
+}
+.nc-md pre:focus-visible,
+.nc-md-table:focus-visible,
+.nc-md-copy:focus-visible,
+.nc-md a:focus-visible {
+  outline: 2px solid var(--nm-accent, currentColor);
+  outline-offset: 2px;
 }

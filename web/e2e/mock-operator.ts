@@ -595,7 +595,9 @@ export class MockStack {
     }
     const clientPub = fromHex(String(req.headers['x-client-pub-key']));
     const last = plain[plain.length - 1]?.content ?? '';
-    const reply = `echo: ${last}`;
+    // A message that starts with `md:` is answered with the rest of it as it is, so a test can
+    // send the model's markdown.
+    const reply = last.startsWith('md:') ? last.slice(3).trimStart() : `echo: ${last}`;
     const prompt = plain.reduce((n, m) => n + new TextEncoder().encode(m.content).length, 0);
     const completion = reply.split(/\s+/).length;
     const chatId = `chatcmpl-${lease.id}-${lease.chats.length + 1}`;
