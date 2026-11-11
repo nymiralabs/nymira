@@ -1,0 +1,45 @@
+# A newer signed attestation policy pushed to main goes to the site beside the web release that is
+# live (ADR 0021). It starts web-deploy, which rebuilds the release from its tag, loads the policy
+# with `policy_tool verify` (signature, a version above the bundled one, strict TCB) and checks
+# the site afterwards. An unsigned or older file stops there.
+name: policy-deploy
+on:
+  push:
+    branches: [main]
+    paths:
+      - web/pins/attestation-policy.json
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Find the live release and compare policy versions
+        id: plan
+        run: |
+          tag="$(git tag --list 'web-v*' --sort=-version:refname | head -1)"
+          [ -n "$tag" ] || { echo "no web release tag"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          bundled="$(git show "$tag:web/pins/attestation-policy.json" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).version)')"
+          now="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("web/pins/attestation-policy.json","utf8")).version)')"
+          echo "release $tag bundles policy $bundled; main has policy $now"
+          if [ "$now" -gt "$bundled" ]; then
+            { echo "run=true"; echo "tag=$tag"; echo "version=${tag#web-v}"; } >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Start web-deploy with this commit's policy
+        if: steps.plan.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          gh workflow run web-deploy.yml --repo "$GITHUB_REPOSITORY" \
+            -f ref="$TAG" -f profile=testnet -f version="$VERSION" -f policy_ref="$GITHUB_SHA"

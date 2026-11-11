@@ -1,0 +1,64 @@
+# Watches NEAR AI's live attestation reports and opens an issue when a deployment is not listed in
+# the signed policy (ADR 0021). It verifies no quote; a person signs the next version with
+# scripts/policy-update.sh. GitHub emails the repository admins when the issue opens.
+name: policy-watch
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Compare the live deployments with the policy
+        id: watch
+        run: |
+          code=0
+          node web/scripts/watch-policy.mjs --json --draft draft.json > report.json || code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "watch exit code: $code (0 listed, 3 not listed, 4 endpoints unreadable)"
+      - name: Open an issue when something is not listed
+        if: steps.watch.outputs.code == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open="$(gh issue list --label policy-watch --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$open" ]; then echo "issue #$open is already open"; exit 0; fi
+          version="$(jq -r .policy_version report.json)"
+          {
+            echo "NEAR AI's live attestation reports show deployments that policy version $version does not list. Chats on them are refused (\`deployment_rejected\`) until a newer signed policy is deployed."
+            echo
+            echo '```json'
+            jq '.unknown' report.json
+            echo '```'
+            echo
+            echo "**To fix it**, on the machine that holds the policy key, from an up-to-date \`main\`:"
+            echo
+            echo '```bash'
+            echo 'scripts/policy-update.sh'
+            echo '```'
+            echo
+            echo 'It shows the diff, asks, signs the next version, commits and pushes. The `policy-deploy` workflow then serves the file beside the current web release. No new web release is needed. `nymirad` users put the new `attestation-policy.json` in their state directory (ADR 0020). A deployment marked `image` changes the measurements the policy trusts: record and check it before you sign.'
+          } > body.md
+          gh label create policy-watch --color 9aa8ff --description "NEAR AI deployment not in the signed policy" 2>/dev/null || true
+          gh issue create --title "NEAR AI redeployed: the attestation policy needs a new version" --label policy-watch --body-file body.md
+      - name: Close the issue when everything is listed again
+        if: steps.watch.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label policy-watch --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Every live deployment is listed in the signed policy now."
+          done
