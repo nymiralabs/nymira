@@ -350,16 +350,7 @@ export function Fund({
   const onSend = () =>
     act('send', async () => {
       if (!note) return;
-      let sent: Awaited<ReturnType<typeof sendDepositWatched>>;
-      try {
-        sent = await sendDepositWatched(rpc, note, wallet, PROFILE.watch);
-      } catch (e) {
-        // The stored record may have moved on (sending): show what is stored, so Send does not
-        // offer a second transfer for a note whose first one may be on its way.
-        const stored = (await loadNotes()).find((n) => n.id === note.id);
-        if (stored) setNote(stored);
-        throw e;
-      }
+      const sent = await sendDepositWatched(rpc, note, wallet, PROFILE.watch);
       setNote(sent.record);
       outcomeRef.current = sent.outcome;
       const result = sent.found

@@ -601,3 +601,36 @@
   font-size: 14px;
   line-height: 20px;
 }
+
+/* The chat area is as wide as its screen. The thread scrolls there, so its bar sits at the edge of
+   the area, not inside the column; the head, the text and the composer keep one measure. */
+.nc[data-screen='chat'] .nc-chat-main {
+  --nc-gutter: 32px;
+  max-width: none;
+  margin-inline: 0;
+  padding: 0;
+}
+.nc[data-screen='chat'] .nc-chat-head,
+.nc[data-screen='chat'] .nc-chat-screen .nc-thread,
+.nc[data-screen='chat'] .nc-composer {
+  padding-inline: max(var(--nc-gutter), calc((100% - 756px) / 2));
+}
+@media (max-width: 900px) {
+  .nc[data-screen='chat'] .nc-chat-main {
+    --nc-gutter: 16px;
+  }
+}
+
+/* The Chat screen stays mounted behind the other screens: hidden means hidden. */
+.nc-content > div[hidden],
+.nc-content > div > div[hidden] {
+  display: none;
+}
+
+/* No full-width rules above the head or the composer: the chat area reads as one surface. */
+.nc[data-screen='chat'] .nc-chat-head {
+  border-bottom: 0;
+}
+.nc[data-screen='chat'] .nc-composer {
+  border-top: 0;
+}

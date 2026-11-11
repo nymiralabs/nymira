@@ -51,7 +51,7 @@ const to = (id: string, label: string): DocLink => ({ label, href: `#docs/${id}`
 
 export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
   title: 'How Nymira works',
-  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.7 and the code it was built from.',
+  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.8 and the code it was built from.',
   sections: [
     {
       id: 'overview',
@@ -818,7 +818,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'code',
           label: 'The signed release',
-          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.7/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
+          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.8/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
         },
         {
           t: 'p',
@@ -840,7 +840,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
         {
           t: 'p',
-          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.7 testnet 0.1.7` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
+          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.8 testnet 0.1.8` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
         },
       ],
     },
@@ -947,34 +947,24 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
     },
     {
       id: 'changes',
-      title: 'What changed in 0.1.7',
-      lead: 'Release 0.1.7 of the web app, compared with 0.1.6. `nymirad` 0.1.4 is still the newest.',
+      title: 'What changed in 0.1.8',
+      lead: 'Release 0.1.8 of the web app, compared with 0.1.7. `nymirad` 0.1.4 is still the newest.',
       blocks: [
-        { t: 'h3', text: 'Backup' },
+        { t: 'h3', text: 'Chat' },
         {
           t: 'list',
           items: [
-            'Choosing the backup file now writes the current backup at once and says so. Before, the file was only remembered and written after the next lease, so the screen looked unchanged and kept asking for a backup.',
-            'Downloading a backup on the Notes screen, or after a close, clears the owed-backup strip and the sidebar card. Restoring a backup updates the note count and the rows in the sidebar.',
-            'The sidebar card says "No backup due yet" when a small balance makes no backup due, instead of "Latest state saved".',
-            'While a backup is being written the button says so and a second click does nothing.',
+            'An answer is drawn as markdown: headings, bold and italic, inline and fenced code (with a copy button), nested lists, quotes, tables and links. The app draws it itself, with no new dependency. Raw HTML stays text, images are never loaded (that would tell a third party the answer was read), and a link must be http or https without credentials in it and opens with no referrer.',
+            'Leaving Chat no longer ends the conversation. It stays open behind the other screens; a strip under the header says what is open, how much is used and how long until it ends by itself, and has "Back to chat" and "End now". After ten minutes away it ends on its own and the strip says what it cost. Reloading the page still ends the lease, and the composer says so.',
+            'The lease marker above a conversation is a dot and two words. The side panel lists State, Reserved and Used on one line each. The scroll bar of the thread sits at the edge of the chat area, and the full-width rules above the head and the composer are gone. The conversation column stays at the same width on a wide screen.',
           ],
         },
-        { t: 'h3', text: 'Funding' },
+        { t: 'h3', text: 'Backup and funding' },
         {
           t: 'list',
           items: [
-            'A note whose backup was already tested comes back when you return to the Fund screen or reload the page, so you do not make a second note beside it.',
-            'When "Create the secret" is off, the step says why (no wallet, the vault check, or the payout account). A step that fails brings its error into view. After a failed send the screen shows the stored state of the note, so it does not offer a second transfer for a note whose first one may be on its way.',
-          ],
-        },
-        { t: 'h3', text: 'Chat and Close' },
-        {
-          t: 'list',
-          items: [
-            'A message that fails to send comes back into the box, so you do not retype it.',
-            'While a lease is open the composer says that leaving Chat or reloading the page ends it and that the conversation is not saved. If you leave anyway, the lease is ended in the background and a strip on the screen you land on says what it cost and what the balance is. If the operator has not settled it yet, the strip says so and leads back to Chat.',
-            'The Close screen says how to settle a lease that is still open on a note, and says when it is waiting for the chain\u2019s clock before an exit can be finalized.',
+            'Choosing the backup file writes the current backup at once and says so; a backup downloaded on Notes or after a close clears the owed-backup strip, and a restore updates the sidebar. A note whose backup was tested comes back when you return to the Fund screen. These were in 0.1.7 and are unchanged.',
+            'Cancelling in the wallet window offers Send again. In 0.1.7 the Send button stayed off after a cancel, because the screen took the stored state of the note for the new state; a note whose wallet window closed after the transfer went out is still marked as interrupted, so it can be found again from its receipt.',
           ],
         },
         { t: 'h3', text: 'Unchanged' },
@@ -1048,7 +1038,7 @@ const SECTION_LINKS: Record<string, DocLink[]> = {
   ],
   verify: [
     src('web/INTEGRITY.md', 'How releases are signed'),
-    tree('web/releases/testnet-0.1.7', 'Release 0.1.7'),
+    tree('web/releases/testnet-0.1.8', 'Release 0.1.8'),
     src('web/pins/release-signing.pub', 'Signing key'),
   ],
   faq: [to('limits', 'Limits'), src('THREAT_MODEL.md', 'Threat model')],

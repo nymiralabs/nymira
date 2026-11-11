@@ -1,7 +1,8 @@
 // What happened to a conversation that was open when the person left the Chat screen: the lease is
 // ended in the background, and the person is told what it cost, on whichever screen they landed.
 export type LeftChat =
-  { ok: true; charge: string; balance: string } | { ok: false; reason: string };
+  | { ok: true; charge: string; balance: string; how: 'left' | 'idle' | 'away' }
+  | { ok: false; reason: string };
 
 type Listener = () => void;
 

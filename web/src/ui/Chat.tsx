@@ -9,6 +9,7 @@ import { loadNotes, makeBackupFile } from '../funding/flow';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
 import { backupDue } from '../chat/backup-policy';
+import { IDLE_END_MS, liveChat } from '../chat/live-chat';
 import { leftChat } from '../chat/left-chat';
 import { retireBackup } from '../chat/retire-backup';
 import { DEFAULT_BOUND, DEFAULT_MODEL, LONG_JOB_BOUND, MODELS } from '../chat/models';
@@ -90,6 +91,7 @@ export function Chat({
   onLeaving,
   onActive,
   preferred,
+  active,
 }: {
   vault: VaultCheck | null;
   onPrivacy: (noteId: string) => void;
@@ -100,6 +102,8 @@ export function Chat({
   onActive: (recordId: string | null) => void;
   /** The note picked in the sidebar: the conversation opens on it without a list to choose from. */
   preferred: string | null;
+  /** False while another screen is shown: the conversation stays open in the background. */
+  active: boolean;
 }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<{ record: NoteRecord; view: NoteView }[]>([]);
@@ -129,6 +133,10 @@ export function Chat({
   const [savedAs, setSavedAs] = useState('');
   const [writing, setWriting] = useState(false);
   const session = useRef<ChatSession | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const awaySince = useRef<number | null>(null);
+  const endRef = useRef<(how?: 'idle') => Promise<void>>(async () => undefined);
   const threadEnd = useRef<HTMLDivElement>(null);
   const leave = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
 
@@ -148,9 +156,10 @@ export function Chat({
     onActive(selected);
   }, [selected, onActive]);
 
+  // The operator's emergency notice is read whenever this screen is shown again.
   useEffect(() => {
-    if (unlocked) void leaveStore.checkEmergency(true);
-  }, [unlocked]);
+    if (unlocked && active) void leaveStore.checkEmergency(true);
+  }, [unlocked, active]);
 
   const refresh = useCallback(async () => {
     if (!isUnlocked()) return;
@@ -187,12 +196,18 @@ export function Chat({
   useEffect(
     () => () => {
       const s = session.current;
+      liveChat.set(null, null);
       if (s?.lease?.token)
         void s
           .end()
           .then((result) => {
             retireBackup.set({ needed: true, leases: 0 });
-            leftChat.set({ ok: true, charge: String(result.charge), balance: result.balance });
+            leftChat.set({
+              ok: true,
+              charge: String(result.charge),
+              balance: result.balance,
+              how: 'left',
+            });
           })
           .catch((e) =>
             leftChat.set({ ok: false, reason: e instanceof Error ? e.message : String(e) }),
@@ -226,7 +241,7 @@ export function Chat({
   // opens on it. The list stays for what needs a decision: an open lease to settle, a note too
   // close to its expiry, an emergency notice.
   useEffect(() => {
-    if (selected || busy || settled || error || !unlocked) return;
+    if (!active || selected || busy || settled || error || !unlocked) return;
     if (prover.status !== 'ready' || leave.emergency !== null) return;
     const target = notes.find((n) => n.record.id === preferred) ?? notes[0];
     if (!target || target.view.pending) return;
@@ -234,7 +249,18 @@ export function Chat({
     void start(target.record);
     // `start` only reads state that the guards above already cover.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, preferred, selected, busy, settled, error, unlocked, prover.status, leave.emergency]);
+  }, [
+    active,
+    notes,
+    preferred,
+    selected,
+    busy,
+    settled,
+    error,
+    unlocked,
+    prover.status,
+    leave.emergency,
+  ]);
 
   // A note picked in the sidebar while a conversation is open: with no lease open nothing is lost,
   // so the conversation moves to that note. With a lease open it stays, and says why.
@@ -267,7 +293,55 @@ export function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [longJob, selected, busy]);
 
-  if (!unlocked) return <Unlock onReady={() => setUnlocked(true)} />;
+  // An emergency notice while the screen was away: a conversation with no lease open is dropped, so
+  // the screen shows the notice and the way out (a lease is never opened in an emergency).
+  useEffect(() => {
+    if (!active || leave.emergency === null || !selected || session.current?.lease?.token) return;
+    void session.current?.abandon();
+    session.current = null;
+    setMessages([]);
+    setAnswers([]);
+    setSettled(null);
+    setSelected(null);
+  }, [active, leave.emergency, selected]);
+
+  // Back on this screen: the notes may have changed meanwhile (funded, closed, restored).
+  useEffect(() => {
+    if (active && unlocked) void refresh();
+  }, [active, unlocked, refresh]);
+
+  // A conversation stays open while the person is on another screen. The strip under the header
+  // says so and can end it; after `IDLE_END_MS` away it ends by itself and says what it cost.
+  const leaseHeld = Boolean(selected && !settled && session.current?.lease?.token);
+  const usedNow = answers.reduce((t, a) => t + a.usageMicro, 0);
+  const noteIdNow = notes.find((n) => n.record.id === selected)?.view.noteId;
+  useEffect(() => {
+    if (active) awaySince.current = null;
+    else awaySince.current ??= Date.now();
+    if (leaseHeld && noteIdNow !== undefined) {
+      liveChat.set(
+        {
+          noteId: noteIdNow,
+          used: String(usedNow),
+          bound: String(longJob ? LONG_JOB_BOUND : DEFAULT_BOUND),
+          awaySince: awaySince.current,
+        },
+        () => void endRef.current(),
+      );
+    } else if (liveChat.state) {
+      liveChat.set(null, null);
+    }
+  }, [active, leaseHeld, usedNow, noteIdNow, longJob]);
+
+  useEffect(() => {
+    if (active || !leaseHeld || busy) return;
+    const left = Math.max(0, IDLE_END_MS - (Date.now() - (awaySince.current ?? Date.now())));
+    const timer = window.setTimeout(() => void endRef.current('idle'), left);
+    return () => window.clearTimeout(timer);
+  }, [active, leaseHeld, busy]);
+
+  // Behind another screen the lock prompt would be a second copy of that screen's own.
+  if (!unlocked) return active ? <Unlock onReady={() => setUnlocked(true)} /> : null;
 
   if (prover.status === 'off') {
     return (
@@ -338,7 +412,7 @@ export function Chat({
     }
   };
 
-  const end = async () => {
+  const end = async (how?: 'idle') => {
     const s = session.current;
     if (!s) return;
     setError('');
@@ -349,12 +423,25 @@ export function Chat({
       setAnswers(s.answers.slice());
       setSettled(result);
       await afterRetire(result);
+      // Ended from the strip, or by itself, while another screen was shown: say what it cost there.
+      if (!activeRef.current) {
+        leftChat.set({
+          ok: true,
+          charge: String(result.charge),
+          balance: result.balance,
+          how: how ?? 'away',
+        });
+      }
     } catch (e) {
       fail(e);
+      if (!activeRef.current) {
+        leftChat.set({ ok: false, reason: e instanceof Error ? e.message : String(e) });
+      }
     } finally {
       setBusy('');
     }
   };
+  endRef.current = end;
 
   const downloadBackup = async () => {
     if (writing) return;
@@ -530,11 +617,19 @@ export function Chat({
             )}
             {selected && !settled && (
               <div className="nc-chat-head-end nc-lease-bar" data-open={leaseOpen}>
-                <span className="nc-state" data-s={leaseOpen ? 'leased' : 'open'}>
+                <span
+                  className="nc-state"
+                  data-s={leaseOpen ? 'leased' : 'open'}
+                  title={leaseOpen ? `${bound} is reserved for this lease` : undefined}
+                >
                   <i aria-hidden="true" />
-                  {leaseOpen ? <>Lease open · {bound} reserved</> : 'No lease yet'}
+                  {leaseOpen ? 'Lease open' : 'No lease yet'}
                 </span>
-                <Button testId="chat-end" disabled={Boolean(busy) || !leaseOpen} onClick={end}>
+                <Button
+                  testId="chat-end"
+                  disabled={Boolean(busy) || !leaseOpen}
+                  onClick={() => void end()}
+                >
                   End conversation
                 </Button>
               </div>
@@ -1044,7 +1139,8 @@ export function Chat({
             </div>
             {leaseOpen && (
               <small className="nc-hint nc-leave-warning" data-testid="leave-warning">
-                Leaving Chat or reloading the page ends the lease. The conversation is not saved.
+                Leaving Chat keeps this open for {IDLE_END_MS / 60_000} minutes; reloading the page
+                ends it. The conversation is not saved.
               </small>
             )}
           </div>
@@ -1088,15 +1184,18 @@ export function Chat({
                 mode={leaseOpen ? undefined : busy ? 'busy' : 'idle'}
                 label="Lease bound"
               />
-              <p className="nc-sum-line">
-                <span>
-                  <span data-testid="lease-status">
-                    {leaseOpen ? 'open' : settled ? 'settled' : 'not open'}
-                  </span>{' '}
-                  · bound {bound}
-                </span>
-                <span>used {units(String(used))}</span>
-              </p>
+              <Facts
+                rows={[
+                  [
+                    'State',
+                    <span key="s" data-testid="lease-status">
+                      {leaseOpen ? 'open' : settled ? 'settled' : 'not open'}
+                    </span>,
+                  ],
+                  ['Reserved', bound],
+                  ['Used', units(String(used))],
+                ]}
+              />
             </section>
             <section className="nc-sum nc-toggles">
               <label className="nc-toggle">

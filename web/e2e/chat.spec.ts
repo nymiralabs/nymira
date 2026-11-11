@@ -252,7 +252,7 @@ test('a markdown answer is drawn in the console\u2019s look and stays safe', asy
   expect(stack.seen.some((r) => r.path.includes('evil.example'))).toBe(false);
 });
 
-test('leaving Chat with a lease open ends it and says what it cost', async ({
+test('leaving Chat keeps the conversation open; a strip leads back or ends it', async ({
   context,
   page,
   stack,
@@ -262,19 +262,49 @@ test('leaving Chat with a lease open ends it and says what it cost', async ({
   await openChat(page);
   await startConversation(page);
   await expect(page.getByTestId('leave-warning')).toHaveCount(0);
-  await say(page, 'one question before I leave');
-  await expect(page.getByTestId('leave-warning')).toContainText('ends the lease');
+  await say(page, 'first question');
+  await expect(page.getByTestId('leave-warning')).toContainText('keeps this open');
+  // Another screen: nothing ends, and the strip says what is open and how long it lasts.
   await page.getByTestId('nav-notes').click();
-  await expect(page.getByTestId('left-chat')).toContainText(
-    'Your conversation ended when you left Chat',
-  );
-  await expect(page.getByTestId('left-chat')).toContainText('Charged');
-  await page.getByTestId('left-chat').getByRole('button', { name: 'Got it' }).click();
+  await expect(page.getByTestId('live-chat')).toContainText('Conversation open on note');
+  await expect(page.getByTestId('live-chat')).toContainText('ends by itself');
   await expect(page.getByTestId('left-chat')).toHaveCount(0);
-  // Back on Chat the note is free for a new conversation, and the owed backup is still asked for.
+  // Back to chat: the same conversation, the same lease, and it takes a second message.
+  await page.getByTestId('live-chat').getByRole('button', { name: 'Back to chat' }).click();
+  await expect(page.getByTestId('chat-screen')).toBeVisible();
+  await expect(page.getByTestId('conversation')).toContainText('echo: first question');
+  await expect(page.getByTestId('chat-end')).toBeEnabled();
+  await say(page, 'second question');
+  await expect(page.getByTestId('conversation')).toContainText('echo: second question');
+  // Away again, and ended from the strip: the cost shows, the receipt waits on Chat.
+  await page.getByTestId('nav-fund').click();
+  await page.getByTestId('live-end').click();
+  await expect(page.getByTestId('left-chat')).toContainText('Conversation ended. Charged');
+  await expect(page.getByTestId('live-chat')).toHaveCount(0);
+  await page.getByTestId('left-chat').getByRole('button', { name: 'Got it' }).click();
   await page.getByTestId('nav-chat').click();
-  await expect(page.getByTestId('chat-input')).toBeVisible();
+  await expect(page.getByTestId('settled')).toBeVisible();
   await expect(page.getByTestId('backup-prompt')).toBeVisible();
+});
+
+test('after ten minutes on another screen the conversation ends by itself', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await fundNote(page, context);
+  await openChat(page);
+  await startConversation(page);
+  await say(page, 'one question before I go');
+  await page.clock.install();
+  await page.getByTestId('nav-notes').click();
+  await expect(page.getByTestId('live-chat')).toBeVisible();
+  await page.clock.fastForward('11:00');
+  await expect(page.getByTestId('left-chat')).toContainText('after 10 minutes away from Chat');
+  await expect(page.getByTestId('live-chat')).toHaveCount(0);
+  await page.getByTestId('nav-chat').click();
+  await expect(page.getByTestId('settled')).toBeVisible();
 });
 
 test('nothing is encrypted, no proof is made and no lease opens when a check fails', async ({

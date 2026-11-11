@@ -6634,6 +6634,9 @@ html {
   color: var(--nc-warn);
 }
 .nc-owed .nc-ip-ok {
+  margin-left: 0;
+}
+.nc-owed .nc-ip-ok:first-of-type {
   margin-left: auto;
 }
 
@@ -6857,4 +6860,14 @@ html {
 .nc-md a:focus-visible {
   outline: 2px solid var(--nm-accent, currentColor);
   outline-offset: 2px;
+}
+
+/* The lease marker above a conversation: a dot and two words; the amount is in the side panel. */
+.nc-lease-bar > .nc-state {
+  gap: 8px;
+  white-space: nowrap;
+}
+/* A conversation open behind another screen: the strip says so, the buttons go back or end it. */
+.nc-live .nc-state {
+  flex: none;
 }

@@ -5,6 +5,7 @@ import { ThemeToggle } from '../marketing/ThemeToggle';
 import { IpChip, NoteRow, Strip, WalletMenu, type RowNote } from '../marketing/kit';
 import { agentsAvailable } from '../agents/available';
 import { leftChat } from '../chat/left-chat';
+import { IDLE_END_MS, liveChat } from '../chat/live-chat';
 import { retireBackup } from '../chat/retire-backup';
 import { warmProver } from '../chat/runtime';
 import { isUnlocked, lock, requireKey, subscribeUnlocked } from '../crypto/wrap';
@@ -169,6 +170,18 @@ function useShellNotes(unlocked: boolean, refreshOn: string): ShellNote[] {
   return rows;
 }
 
+/** "It ends by itself in 7 min", counted from when the person left Chat. */
+function Remaining({ since }: { since: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(t);
+  }, []);
+  if (since === null) return null;
+  const minutes = Math.max(0, Math.ceil((since + IDLE_END_MS - now) / 60_000));
+  return <>It ends by itself in {minutes <= 1 ? 'under a minute' : `${minutes} min`}.</>;
+}
+
 function Foot({ check, onStatus }: { check: VaultCheck | null; onStatus: () => void }) {
   return (
     <div className="nm-app-foot">
@@ -306,6 +319,13 @@ export function App() {
   const backupState = useSyncExternalStore(retireBackup.subscribe, () => retireBackup.state);
   const owed = backupState?.needed === true;
   const left = useSyncExternalStore(leftChat.subscribe, () => leftChat.state);
+  const live = useSyncExternalStore(liveChat.subscribe, () => liveChat.state);
+  // The Chat screen stays mounted once it has been shown: an open conversation goes on in the
+  // background while another screen is open.
+  const [chatSeen, setChatSeen] = useState(false);
+  useEffect(() => {
+    if (screen === 'chat') setChatSeen(true);
+  }, [screen]);
   const unlocked = useSyncExternalStore(subscribeUnlocked, isUnlocked);
   const notes = useShellNotes(unlocked, `${screen}|${owed}|${backupState?.leases ?? ''}|${funded}`);
   // The note the sidebar marks: the conversation's, else the one picked, else the first.
@@ -695,12 +715,42 @@ export function App() {
               onDisconnect={() => void wallet.disconnect().catch(() => undefined)}
             />
           </header>
+          {live && screen !== 'chat' && (
+            <p className="nc-ip nc-owed nc-live" role="status" data-testid="live-chat">
+              <span className="nc-state" data-s="leased">
+                <i aria-hidden="true" />
+              </span>
+              <span>
+                Conversation open on note #{live.noteId}: used{' '}
+                {formatUnits(live.used, PROFILE.tokenDecimals)} of{' '}
+                {formatUnits(live.bound, PROFILE.tokenDecimals)} {PROFILE.tokenSymbol}.{' '}
+                <Remaining since={live.awaySince} />
+              </span>
+              <button type="button" className="nc-ip-ok" onClick={() => go('chat')}>
+                Back to chat
+              </button>
+              <button
+                type="button"
+                className="nc-ip-ok"
+                data-testid="live-end"
+                onClick={() => liveChat.end?.()}
+              >
+                End now
+              </button>
+            </p>
+          )}
           {left && (
             <p className="nc-ip nc-owed" role="status" data-testid="left-chat" data-ok={left.ok}>
               <Icon name={left.ok ? 'check' : 'lock'} size={14} />
               <span>
                 {left.ok
-                  ? `Your conversation ended when you left Chat. Charged ${formatUnits(left.charge, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}; balance ${formatUnits(left.balance, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}. It was not saved.`
+                  ? `${
+                      left.how === 'idle'
+                        ? `Your conversation ended after ${IDLE_END_MS / 60_000} minutes away from Chat.`
+                        : left.how === 'away'
+                          ? 'Conversation ended.'
+                          : 'Your conversation ended when you left Chat.'
+                    } Charged ${formatUnits(left.charge, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}; balance ${formatUnits(left.balance, PROFILE.tokenDecimals)} ${PROFILE.tokenSymbol}. It was not saved.`
                   : `Your conversation is still open on the operator: ${left.reason} Open Chat to settle it.`}
               </span>
               {!left.ok && (
@@ -738,9 +788,10 @@ export function App() {
             <Watch screen={screen} onClose={() => setScreen('close')} />
             {locked && <Unlock onReady={() => setLocked(false)} />}
             <div hidden={locked}>
-              {screen === 'chat' && (
-                <div hidden={privacy !== null}>
+              {(screen === 'chat' || chatSeen) && (
+                <div hidden={screen !== 'chat' || privacy !== null}>
                   <Chat
+                    active={screen === 'chat'}
                     vault={check}
                     onPrivacy={setPrivacy}
                     onFund={() => go('fund')}
