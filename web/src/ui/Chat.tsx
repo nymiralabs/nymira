@@ -32,7 +32,7 @@ import {
   modelInfo,
   type NoteStatus,
 } from '../marketing/kit';
-import { chatDeps, warmProver, type ProverState } from '../chat/runtime';
+import { chatDeps, proverNow, warmProver, type ProverState } from '../chat/runtime';
 import { ChatError, ChatSession, type Answer, type Message, type Settled } from '../chat/session';
 import { badgeLabel } from '../chat/attest/signature';
 import type { NoteView } from '../note/lease';
@@ -97,7 +97,8 @@ export function Chat({
 }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<{ record: NoteRecord; view: NoteView }[]>([]);
-  const [prover, setProver] = useState<ProverState>({ status: 'loading' });
+  const [prover, setProver] = useState<ProverState>(proverNow() ?? { status: 'loading' });
+  const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [idleDraft, setIdleDraft] = useState('');
@@ -124,6 +125,9 @@ export function Chat({
   useEffect(() => {
     warmProver().then(setProver);
   }, []);
+
+  // Picking another note in the sidebar goes back to opening it on its own.
+  useEffect(() => setShowAll(false), [preferred]);
 
   // The thread is the one part of the screen that scrolls: it follows the conversation down.
   useEffect(() => {
@@ -409,6 +413,18 @@ export function Chat({
   };
   // No funded note yet: the whole chat is shown, switched off, with a way to Fund.
   const idle = !selected && notes.length === 0;
+  // A note was picked in the sidebar and only the proving key is missing: the conversation opens
+  // on it by itself, so the screen says so instead of showing the list for a moment.
+  const opening =
+    !selected && !idle && !showAll && prover.status === 'loading' && preferred !== null
+      ? notes.find(
+          (n) =>
+            n.record.id === preferred &&
+            !n.view.pending &&
+            leave.emergency === null &&
+            !(leave.settings.enabled && leaseBlocked(n.view.expiry, nowSecs())),
+        )
+      : undefined;
   const picker = (
     <ModelPicker models={MODEL_INFOS} value={model} onChange={setModel} testId="model-select" />
   );
@@ -521,7 +537,20 @@ export function Chat({
               )}
             </div>
           )}
-          {!selected && !idle && (
+          {opening && (
+            <div data-testid="chat-opening" className="nc-opening">
+              <Waiting title={`Opening note #${opening.view.noteId}`}>
+                Loading the proving key (SHA-256 checked). The conversation opens on this note as
+                soon as it is ready. Nothing is sent yet.
+              </Waiting>
+              <div className="nc-actions">
+                <Button testId="chat-show-all" onClick={() => setShowAll(true)}>
+                  Show all notes
+                </Button>
+              </div>
+            </div>
+          )}
+          {!selected && !idle && !opening && (
             <>
               <div className="nc-empty">
                 <h2>Ask an attested model.</h2>

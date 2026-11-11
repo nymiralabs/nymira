@@ -119,6 +119,11 @@ export function warmWithdrawalProver(): Promise<ProverState> {
   ));
 }
 
+let proverSettled: ProverState | null = null;
+
+/** The proving key's state when it is already known, so a screen need not start on `loading`. */
+export const proverNow = (): ProverState | null => proverSettled;
+
 /** Loads the request proving key into the worker and checks its SHA-256; once per page. */
 export function warmProver(): Promise<ProverState> {
   const key = PROFILE.provingKey;
@@ -129,10 +134,11 @@ export function warmProver(): Promise<ProverState> {
     });
   }
   return (prover ??= callWorker({ op: 'loadProver', url: key.url, sha256: key.sha256 }).then(
-    (r): ProverState => ({ status: 'ready', bytes: r.bytes, ms: r.ms }),
-    (e: unknown): ProverState => ({
-      status: 'failed',
-      reason: e instanceof Error ? e.message : String(e),
-    }),
+    (r): ProverState => (proverSettled = { status: 'ready', bytes: r.bytes, ms: r.ms }),
+    (e: unknown): ProverState =>
+      (proverSettled = {
+        status: 'failed',
+        reason: e instanceof Error ? e.message : String(e),
+      }),
   ));
 }
