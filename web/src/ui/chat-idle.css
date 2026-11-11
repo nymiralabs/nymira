@@ -567,3 +567,33 @@
     overflow-y: visible;
   }
 }
+
+/* The note that is opening: what the person picked, while the proving key loads. */
+.nc-opening-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  max-width: 520px;
+  margin: 12px 0 0;
+  border: 1px solid var(--nm-soft-line);
+  background: var(--nm-soft-line);
+}
+.nc-opening-facts > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  background: var(--nm-bg);
+}
+.nc-opening-facts dt {
+  color: var(--nm-muted);
+  font:
+    11px/16px 'IBM Plex Mono',
+    monospace;
+}
+.nc-opening-facts dd {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}

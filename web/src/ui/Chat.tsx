@@ -543,6 +543,27 @@ export function Chat({
                 Loading the proving key (SHA-256 checked). The conversation opens on this note as
                 soon as it is ready. Nothing is sent yet.
               </Waiting>
+              <dl className="nc-opening-facts" data-testid="chat-opening-facts">
+                <div>
+                  <dt>Balance</dt>
+                  <dd>
+                    {units(opening.view.balance)} of {units(opening.record.denomination)}
+                    <Strip n={10} solid={shareOf(opening) * 10} size="sm" />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Expires</dt>
+                  <dd>
+                    {(() => {
+                      const days = Math.max(
+                        0,
+                        Math.ceil((opening.view.expiry - nowSecs()) / 86_400),
+                      );
+                      return days === 1 ? 'in 1 day' : `in ${days} days`;
+                    })()}
+                  </dd>
+                </div>
+              </dl>
               <div className="nc-actions">
                 <Button testId="chat-show-all" onClick={() => setShowAll(true)}>
                   Show all notes
