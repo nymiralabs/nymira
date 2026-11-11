@@ -43,3 +43,8 @@ When NEAR AI deploys a new image or compose file, the new values are not in the 
 - The model entry lists a third compose hash, `e8416a02d6f7…`, seen in NEAR AI's live model attestation on 11 November 2026. The OS image hash and the Intel TDX measurements are the same as for the two earlier model hashes. Without it every chat on that deployment was refused with `deployment_rejected`.
 - As before, the hash was read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use.
 - Everything else is as in version 5. `MIN_POLICY_VERSION` stays 5.
+
+## Version 7
+
+- Lists the deployments seen in NEAR AI's live attestation on 11 November 2026 and not listed before: `e8416a02d6f7…` (model). The values were read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use.
+- Everything else is as in version 6.

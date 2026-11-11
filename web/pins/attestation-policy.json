@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "attestation_root_pk": "",
   "accepted_measurements": [],
   "deployments": [
@@ -43,5 +43,5 @@
       "official_source_verified": false
     }
   ],
-  "signature": "163188a1c21537bf6d837d7b27d8ea6ffcc27a6dcb38734e42354bf9ea612c4e77a364e9e1b0f6253a96bbf580018b8b724a67111428cd96132c583c4d49d00e"
+  "signature": "797435969eb68a1b4d851f9c9b090d33c94bca6880d9e4232275cbe9557788db6b3f494bf98c69c0a0dea58d9f651997892bbe052be2090537a7e3f47d3f9c01"
 }
