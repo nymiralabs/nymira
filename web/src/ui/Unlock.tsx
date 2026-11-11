@@ -135,14 +135,13 @@ export function Unlock({ onReady }: { onReady: () => void }) {
   const longEnough = passphraseLength(passphrase) >= MIN_PASSPHRASE_LENGTH;
   return card(
     <>
-      <h1>Protect your notes</h1>
+      <h1>Unlock key for this browser</h1>
       <p className="nc-lead">
-        The note secret is created in this browser. It leaves only inside an encrypted backup you
-        download. It is encrypted before it is stored, with a key that cannot be exported from the
-        browser. Choose how to derive that key. It lives in memory while this page is open.
+        Your note secret is encrypted in this browser. Choose what unlocks it on this device. The
+        backup file gets its own passphrase in the next step.
       </p>
       <label className="nc-field">
-        <span>Passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)</span>
+        <span>Unlock passphrase (at least {MIN_PASSPHRASE_LENGTH} characters)</span>
         <input
           type="password"
           autoComplete="new-password"
@@ -158,7 +157,7 @@ export function Unlock({ onReady }: { onReady: () => void }) {
         </small>
       </div>
       <label className="nc-field">
-        <span>Repeat the passphrase</span>
+        <span>Repeat the unlock passphrase</span>
         <input
           type="password"
           autoComplete="new-password"
@@ -173,7 +172,8 @@ export function Unlock({ onReady }: { onReady: () => void }) {
         </p>
       )}
       <p className="nc-cap">
-        {ARGON2_SENTENCE}. If you lose the passphrase and the backup, the note cannot be recovered.
+        {ARGON2_SENTENCE}. If you lose both the unlock passphrase and the backup file, the note
+        cannot be recovered.
       </p>
       {keepBox}
       <div className="nc-actions">
