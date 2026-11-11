@@ -57,6 +57,13 @@ policy in force. So the file cannot widen what the signed bundle allows beyond w
 signs: whoever controls the host can withhold a newer policy, but cannot make the page accept a
 deployment the policy key did not sign.
 
+Keeping it current takes one signature. The `policy-watch` workflow reads NEAR AI's live reports
+every hour and opens an issue when a deployment is not listed (it verifies no quote). On the
+machine that holds the policy key, `scripts/policy-update.sh` shows the difference, asks, signs the
+next version, commits and pushes it. The `policy-deploy` workflow then starts `web-deploy` for the
+release that is live. The signature is the one step that is not automated: a key on a server would
+let whoever controls the server approve any deployment.
+
 The `web-deploy` workflow takes the file from the commit named in its `policy_ref` input, loads it
 with `policy_tool verify` (signature, version above the bundled one, strict TCB), copies it into the
 verified site and runs `integrity.mjs verify` again. `check-live.mjs` compares the live file with the
