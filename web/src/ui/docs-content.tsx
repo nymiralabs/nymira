@@ -489,7 +489,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'note',
           title: 'Pins not yet verified',
-          text: "Policy version 5 pins exact compose hashes for the model and accepts any compose hash for the gateway. It pins two NVIDIA intermediate certificates and marks both as not verified against NVIDIA's documentation. The NVIDIA root is not pinned.",
+          text: "Policy version 6 pins exact compose hashes for the model and accepts any compose hash for the gateway. It pins two NVIDIA intermediate certificates and marks both as not verified against NVIDIA's documentation. The NVIDIA root is not pinned.",
         },
       ],
     },

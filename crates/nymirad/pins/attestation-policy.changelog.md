@@ -37,3 +37,9 @@ When NEAR AI deploys a new image or compose file, the new values are not in the 
 
 - The gateway entry accepts any compose hash. The OS image hash and the Intel TDX measurements stay pinned, so a change of the gateway's compose file no longer refuses every chat.
 - `MIN_POLICY_VERSION` is 5: clients refuse an older policy.
+
+## Version 6
+
+- The model entry lists a third compose hash, `e8416a02d6f7…`, seen in NEAR AI's live model attestation on 11 November 2026. The OS image hash and the Intel TDX measurements are the same as for the two earlier model hashes. Without it every chat on that deployment was refused with `deployment_rejected`.
+- As before, the hash was read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use.
+- Everything else is as in version 5. `MIN_POLICY_VERSION` stays 5.
