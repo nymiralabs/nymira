@@ -64,7 +64,7 @@ Test models available: `z-ai/glm-5.3-flash` (default), `Qwen/Qwen3.6-35B-A3B-FP8
 
 1. Download `nymirad` from the latest release and check the signature and hashes as in [the README](README.md#download-nymirad).
 2. Download `request.pk` and `withdrawal.pk` from the `final` release of [nymira-ceremony](https://github.com/nymiralabs/nymira-ceremony) into one directory. `nymirad` refuses files whose hash differs from the one built into it.
-3. Provide Tor. On a Mac with Apple silicon, follow the README: Homebrew's `tor` 0.4.9.15, or your own Tor with `--socks 127.0.0.1:9050`. Release 0.1.3 pins Homebrew's `tor` for macOS and Debian 12's `tor` 0.4.9.11-0+deb12u1 for Linux amd64 and arm64 (see the README). Other Linux distributions run their own Tor and use `--socks`.
+3. Provide Tor. On a Mac with Apple silicon, follow the README: Homebrew's `tor` 0.4.9.15, or your own Tor with `--socks 127.0.0.1:9050`. Release 0.1.4 pins Homebrew's `tor` for macOS and Debian 12's `tor` 0.4.9.11-0+deb12u1 for Linux amd64 and arm64 (see the README). Other Linux distributions run their own Tor and use `--socks`.
 4. Set up the state directory:
    ```bash
    nymirad init --rpc https://rpc.testnet.fastnear.com --operator https://nymira-operator.tail0484c4.ts.net --account YOUR.testnet --setup-dir DIR_WITH_THE_TWO_KEYS --local-only

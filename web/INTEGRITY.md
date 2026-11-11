@@ -275,6 +275,18 @@ If the fingerprint here and one of those copies differ, treat the site as compro
 
 ### Published copies
 
+- **Sigstore Rekor, web 0.1.4 (testnet).** Log index 3808318068,
+  <https://rekor.sigstore.dev/api/v1/log/entries/108e9186e8c5677a68a807622d8f7f810d58b92fe1e72d042bb6217638c333f5860fc374b57a7f72>.
+  Same form as the entry for 0.1.3: the SHA-256 of the four-line text below
+  (`0633282b6e34acf5206952dd41f24946bfa3971bb6fd39dc5460031fe10a46f2`, newline after each line) and a signature by a throwaway P-256 key that was deleted after the upload, so the entry proves that this text existed on that date and not who wrote it.
+
+  ```
+  nymira web release testnet 0.1.4
+  bundle_hash 8657bb801d9d8f5d403bcefaf5910b4e099c02951771fc800f23c9ccda869a04
+  header_set_hash 0a09ba64fb8a576c119a313c52b3ba78fe426454083cfae085cd43b0212e2eb8
+  release_key RWRNeU3zahdMk2rmQPahPnpzK1uTMiD3Jv8PaJqgRpAfSQMfROKKxhkV (minisign key id 934C176AF34D794D)
+  ```
+
 - **Sigstore Rekor, web 0.1.3 (testnet).** Log index 3796098761,
   <https://rekor.sigstore.dev/api/v1/log/entries/108e9186e8c5677a125ababe52f96ceb325a74def3c9553a758d63f13f99968fadf10edefdb0a994>.
   Same form as the entry for 0.1.2: the SHA-256 of the four-line text below
