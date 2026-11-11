@@ -20,6 +20,15 @@ const models = (
   arg('--models') ?? [...modelsFile.matchAll(/id: '([^']+)'/g)].map((m) => m[1]).join(',')
 ).split(',');
 const policy = JSON.parse(readFileSync(policyFile, 'utf8'));
+// A test hook for the signing path: compose hashes that start with these prefixes are treated as
+// missing from the policy, so the watcher finds them "new". The draft can only add what NEAR AI
+// serves live, so the hook cannot weaken a policy.
+for (const prefix of (process.env.POLICY_WATCH_PRETEND_MISSING ?? '').split(',').filter(Boolean)) {
+  for (const d of policy.deployments) {
+    if (d.role === 'model')
+      d.compose_hashes = d.compose_hashes.filter((h) => !h.startsWith(prefix));
+  }
+}
 
 const get = async (path, query, headers = {}) => {
   const res = await fetch(`${base}${path}?${new URLSearchParams(query)}`, {

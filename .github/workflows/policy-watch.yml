@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
+    inputs:
+      pretend_missing:
+        description: "Test only: compose hash prefixes to treat as missing, so the signing path runs"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -37,6 +42,8 @@ jobs:
           package-manager-cache: false
       - name: Compare the live deployments with the policy
         id: watch
+        env:
+          POLICY_WATCH_PRETEND_MISSING: ${{ inputs.pretend_missing }}
         run: |
           code=0
           node web/scripts/watch-policy.mjs --json --draft draft.json > report.json || code=$?
@@ -74,6 +81,7 @@ jobs:
         id: sign
         env:
           POLICY_SIGNING_KEY: ${{ secrets.POLICY_SIGNING_KEY }}
+          POLICY_WATCH_PRETEND_MISSING: ${{ inputs.pretend_missing }}
         run: |
           echo "signed=false" >> "$GITHUB_OUTPUT"
           if [ -z "$POLICY_SIGNING_KEY" ]; then echo "no POLICY_SIGNING_KEY in the policy-signing environment: a person must sign"; exit 0; fi
@@ -125,6 +133,7 @@ jobs:
       - name: Open an issue for a person
         env:
           GH_TOKEN: ${{ github.token }}
+          POLICY_WATCH_PRETEND_MISSING: ${{ inputs.pretend_missing }}
         run: |
           open="$(gh issue list --label policy-watch --state open --json number --jq '.[0].number // empty')"
           if [ -n "$open" ]; then echo "issue #$open is already open"; exit 0; fi
