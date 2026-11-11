@@ -114,7 +114,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             ],
             [
               'Fund a note',
-              'Pick the 1 USDC note. The app shows the price, 1.05 USDC with the fee. Set a passphrase, download the encrypted backup and send. The app reads the `deposit` event from your own receipts.',
+              'Pick the 1 USDC note. The app shows the price, 1.05 USDC with the fee. Set an unlock passphrase on first open, then give the backup file its own passphrase (typed twice, or the unlock passphrase if you choose), download the encrypted backup and send. The app reads the `deposit` event from your own receipts.',
             ],
             [
               'Chat',
@@ -457,9 +457,9 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
           t: 'list',
           items: [
             "IndexedDB `nymira` holds each note's public record and one sealed payload. The payload is AES-256-GCM, bound to its note.",
-            'The key comes from Argon2id (64 MiB, 3 passes, 1 lane, passphrase of at least 12 characters) or from a WebAuthn PRF output. It is non-extractable and lives in memory. "Stay unlocked in this tab" keeps it in a second IndexedDB until the tab closes.',
+            'The key comes from Argon2id (64 MiB, 3 passes, 1 lane, passphrase of at least 12 characters) or from a WebAuthn PRF output. It is non-extractable and lives in memory. The passphrase you typed also stays in memory until you lock or reload, so the backup step can reuse it if you tick the box. "Stay unlocked in this tab" keeps it in a second IndexedDB until the tab closes.',
             'The wallet frame keeps nothing on the device. `localStorage` holds only the theme.',
-            'A web backup is JSON: Argon2id and AES-256-GCM, file extension `.nymira-backup`. The app asks for one after a close or a finalized exit. It writes to a file you chose, or prompts for a download after every retire above 0.50 USDC and after every tenth lease below it.',
+            'A web backup is JSON: Argon2id and AES-256-GCM, file extension `.nymira-backup`. Its passphrase is separate from the unlock key, because the file must open on any device. The app asks for one after a close or a finalized exit. It writes to a file you chose, or prompts for a download after every retire above 0.50 USDC and after every tenth lease below it.',
           ],
         },
       ],
@@ -472,7 +472,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'list',
           items: [
-            'The signed policy has version 5 or higher and an Ed25519 signature from a pinned signer. It accepts only the TCB status `UpToDate`.',
+            'The signed policy has version 5 or higher and an Ed25519 signature from a pinned signer. It accepts only the TCB status `UpToDate`. The site may serve a newer policy beside the release; the page uses it only when the pinned signer signed it and its version is higher.',
             "The Intel TDX quote is verified in the browser with `dcap-qvl` compiled to WebAssembly. Collateral comes from the Phala PCCS, because Intel's own service sends no CORS headers.",
             'The debug flag is off. The nonce and the signing address are bound in the report data. The event log replays to RTMR3, and the compose file hashes to `mr_config_id`.',
             'The measured deployment is in the signed policy. For the model, the chat key equals the attested signer.',
@@ -489,7 +489,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'note',
           title: 'Pins not yet verified',
-          text: "Policy version 5 pins exact compose hashes for the model and accepts any compose hash for the gateway. It pins two NVIDIA intermediate certificates and marks both as not verified against NVIDIA's documentation. The NVIDIA root is not pinned.",
+          text: "Policy version 6 pins exact compose hashes for the model and accepts any compose hash for the gateway. It pins two NVIDIA intermediate certificates and marks both as not verified against NVIDIA's documentation. The NVIDIA root is not pinned.",
         },
       ],
     },

@@ -603,7 +603,7 @@ fn the_shipped_policy_pins_the_two_nvidia_intermediates_and_says_they_are_unveri
         5,
     )
     .expect("signed by the pinned key");
-    assert_eq!(shipped.version, 5);
+    assert_eq!(shipped.version, 6);
     // The gateway accepts any compose hash; the model keeps exact pinning.
     let compose = |role: &str| {
         shipped

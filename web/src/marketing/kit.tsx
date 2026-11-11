@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { backupFileName } from '../backup/format';
+import { passphraseLength } from '../crypto/kdf';
 import { Cipher, Count } from './Board';
 import { Icon } from './Icon';
 import qwenLogo from './assets/brands/model-qwen.png';
@@ -987,6 +989,11 @@ export function BackupSteps({
   onPass,
   passDisabled,
   passMin,
+  confirm = '',
+  onConfirm,
+  sameOffered = false,
+  same = false,
+  onSame,
   params,
   downloaded,
   downloadLabel,
@@ -1011,6 +1018,13 @@ export function BackupSteps({
   onPass: (value: string) => void;
   passDisabled: boolean;
   passMin: number;
+  /** The passphrase typed a second time, so a typo cannot lock the backup. */
+  confirm?: string;
+  onConfirm?: (value: string) => void;
+  /** The unlock passphrase is still in memory, so the backup can reuse it. */
+  sameOffered?: boolean;
+  same?: boolean;
+  onSame?: (on: boolean) => void;
   params: ReactNode;
   downloaded: boolean;
   downloadLabel: string;
@@ -1053,24 +1067,6 @@ export function BackupSteps({
         <div className="nc-sub-main">
           <strong>Download an encrypted backup</strong>
           <p className="nc-sub-why">Without this file, a lost browser means a lost balance.</p>
-          <label className="nc-field">
-            <span>Backup passphrase</span>
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={pass}
-              disabled={passDisabled}
-              data-testid={`${prefix}backup-passphrase`}
-              onChange={(e) => onPass(e.target.value)}
-            />
-          </label>
-          <div className="nc-pass" aria-hidden="true">
-            <Strip n={12} solid={Math.min(pass.length, 12)} size="sm" />
-            <small>
-              {Math.min(pass.length, 12)} of {passMin} characters
-            </small>
-          </div>
-          {params}
         </div>
         <Button
           primary={downloadNow}
@@ -1080,6 +1076,90 @@ export function BackupSteps({
         >
           {downloadLabel}
         </Button>
+        <div
+          className="nc-seal"
+          data-same={same}
+          data-ok={!same && pass !== '' && confirm === pass && passphraseLength(pass) >= passMin}
+        >
+          <div className="nc-seal-main">
+            <div className="nc-seal-meter" aria-hidden="true">
+              <Strip n={12} solid={same ? 12 : Math.min(passphraseLength(pass), 12)} size="sm" />
+              <small>
+                {same
+                  ? 'unlock passphrase'
+                  : `${Math.min(passphraseLength(pass), 12)} of ${passMin}`}
+              </small>
+            </div>
+            {passDisabled && (
+              <p className="nc-seal-lock">Opens after you create the secret above.</p>
+            )}
+            <p className="nc-seal-why">
+              <strong>Separate from your unlock key.</strong> It opens this file on any device, so
+              choose one you can type anywhere.
+            </p>
+            <SameAsUnlock
+              offered={sameOffered}
+              on={same}
+              onChange={(on) => onSame?.(on)}
+              testId={`${prefix}backup-same`}
+            />
+            {same ? null : (
+              <div className="nc-seal-fields">
+                <label className="nc-field">
+                  <span>
+                    File passphrase
+                    {pass !== '' && passphraseLength(pass) < passMin && (
+                      <em data-ok="pending">{passMin - passphraseLength(pass)} more to go</em>
+                    )}
+                  </span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={pass}
+                    disabled={passDisabled}
+                    data-testid={`${prefix}backup-passphrase`}
+                    onChange={(e) => onPass(e.target.value)}
+                  />
+                </label>
+                <label className="nc-field">
+                  <span>
+                    Repeat it
+                    {confirm !== '' && (
+                      <em data-ok={confirm === pass}>{confirm === pass ? 'matches' : 'differs'}</em>
+                    )}
+                  </span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirm}
+                    disabled={passDisabled}
+                    data-testid={`${prefix}backup-confirm`}
+                    onChange={(e) => onConfirm?.(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+          <dl className="nc-seal-file" aria-label="What the backup file is">
+            <div>
+              <dt>File</dt>
+              <dd>{backupFileName()}</dd>
+            </div>
+            <div>
+              <dt>Holds</dt>
+              <dd>Every note secret of this vault that this browser keeps</dd>
+            </div>
+            <div>
+              <dt>Sealed with</dt>
+              <dd>AES-256-GCM, key from Argon2id</dd>
+            </div>
+            <div>
+              <dt>Opens with</dt>
+              <dd>This passphrase, on any device</dd>
+            </div>
+          </dl>
+          {params}
+        </div>
       </li>
       <li data-on={tested} data-locked={!downloaded}>
         <i className="nc-sub-dot" aria-hidden="true" />
@@ -1183,5 +1263,41 @@ export function FundSide({
         {testnetNote}
       </Fold>
     </>
+  );
+}
+
+export const WHY_NO_SAME =
+  'The unlock passphrase is not offered after a reload or with a passkey, so type one for the file.';
+/** Offers the unlock passphrase again for a backup file, or says why it is not offered. */
+export function SameAsUnlock({
+  offered,
+  on,
+  onChange,
+  testId,
+}: {
+  offered: boolean;
+  on: boolean;
+  onChange: (on: boolean) => void;
+  testId: string;
+}) {
+  if (!offered) return <p className="nc-cap">{WHY_NO_SAME}</p>;
+  return (
+    <label className="nc-keep">
+      <input
+        type="checkbox"
+        data-testid={testId}
+        checked={on}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="nc-keep-switch" aria-hidden="true" />
+      <span className="nc-keep-text">
+        <strong>Use my unlock passphrase for the file</strong>
+        <small>
+          {on
+            ? 'If you forget it, you lose the app and this file together. Whoever has the file and the passphrase can spend the note.'
+            : 'One passphrase for both, nothing more to type.'}
+        </small>
+      </span>
+    </label>
   );
 }

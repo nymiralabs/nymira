@@ -3,7 +3,8 @@ import './chat-idle.css';
 import { PROFILE } from '../profile';
 import { backupFileName } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
-import { isUnlocked, requireKey } from '../crypto/wrap';
+import { isUnlocked, requireKey, typedUnlockPassphrase } from '../crypto/wrap';
+import { SameAsUnlock } from '../marketing/kit';
 import { loadNotes, makeBackupFile } from '../funding/flow';
 import { noteAad, type NoteRecord } from '../store/types';
 import { callWorker } from '../worker/client';
@@ -31,7 +32,7 @@ import {
   modelInfo,
   type NoteStatus,
 } from '../marketing/kit';
-import { chatDeps, warmProver, type ProverState } from '../chat/runtime';
+import { chatDeps, proverNow, warmProver, type ProverState } from '../chat/runtime';
 import { ChatError, ChatSession, type Answer, type Message, type Settled } from '../chat/session';
 import { badgeLabel } from '../chat/attest/signature';
 import type { NoteView } from '../note/lease';
@@ -96,7 +97,8 @@ export function Chat({
 }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const [notes, setNotes] = useState<{ record: NoteRecord; view: NoteView }[]>([]);
-  const [prover, setProver] = useState<ProverState>({ status: 'loading' });
+  const [prover, setProver] = useState<ProverState>(proverNow() ?? { status: 'loading' });
+  const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [idleDraft, setIdleDraft] = useState('');
@@ -123,6 +125,9 @@ export function Chat({
   useEffect(() => {
     warmProver().then(setProver);
   }, []);
+
+  // Picking another note in the sidebar goes back to opening it on its own.
+  useEffect(() => setShowAll(false), [preferred]);
 
   // The thread is the one part of the screen that scrolls: it follows the conversation down.
   useEffect(() => {
@@ -408,6 +413,18 @@ export function Chat({
   };
   // No funded note yet: the whole chat is shown, switched off, with a way to Fund.
   const idle = !selected && notes.length === 0;
+  // A note was picked in the sidebar and only the proving key is missing: the conversation opens
+  // on it by itself, so the screen says so instead of showing the list for a moment.
+  const opening =
+    !selected && !idle && !showAll && prover.status === 'loading' && preferred !== null
+      ? notes.find(
+          (n) =>
+            n.record.id === preferred &&
+            !n.view.pending &&
+            leave.emergency === null &&
+            !(leave.settings.enabled && leaseBlocked(n.view.expiry, nowSecs())),
+        )
+      : undefined;
   const picker = (
     <ModelPicker models={MODEL_INFOS} value={model} onChange={setModel} testId="model-select" />
   );
@@ -520,7 +537,41 @@ export function Chat({
               )}
             </div>
           )}
-          {!selected && !idle && (
+          {opening && (
+            <div data-testid="chat-opening" className="nc-opening">
+              <Waiting title={`Opening note #${opening.view.noteId}`}>
+                Loading the proving key (SHA-256 checked). The conversation opens on this note as
+                soon as it is ready. Nothing is sent yet.
+              </Waiting>
+              <dl className="nc-opening-facts" data-testid="chat-opening-facts">
+                <div>
+                  <dt>Balance</dt>
+                  <dd>
+                    {units(opening.view.balance)} of {units(opening.record.denomination)}
+                    <Strip n={10} solid={shareOf(opening) * 10} size="sm" />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Expires</dt>
+                  <dd>
+                    {(() => {
+                      const days = Math.max(
+                        0,
+                        Math.ceil((opening.view.expiry - nowSecs()) / 86_400),
+                      );
+                      return days === 1 ? 'in 1 day' : `in ${days} days`;
+                    })()}
+                  </dd>
+                </div>
+              </dl>
+              <div className="nc-actions">
+                <Button testId="chat-show-all" onClick={() => setShowAll(true)}>
+                  Show all notes
+                </Button>
+              </div>
+            </div>
+          )}
+          {!selected && !idle && !opening && (
             <>
               <div className="nc-empty">
                 <h2>Ask an attested model.</h2>
@@ -1114,6 +1165,7 @@ function BackupPrompt(p: {
   hasFile: boolean;
 }) {
   const canPick = fsAccess();
+  const [same, setSame] = useState(false);
   if (!p.backup?.needed && !(canPick && !p.hasFile && p.backup)) return null;
   return (
     <div data-testid="backup-prompt" className="nc-chat-fund" role="status">
@@ -1122,17 +1174,29 @@ function BackupPrompt(p: {
           ? 'Your note changed. Choose a file once and the app rewrites an encrypted backup after every lease.'
           : 'Your note changed. Download an encrypted backup now: a lost latest state lets the operator defeat your exit and can cost the remaining balance. This browser cannot write to a chosen file; nymirad or a Chromium browser backs up automatically.'}
       </p>
-      <label className="nc-field">
-        <span>
-          Backup passphrase (at least {MIN_PASSPHRASE_LENGTH} characters; not in a synced folder)
-        </span>
-        <input
-          type="password"
-          data-testid="backup-passphrase"
-          value={p.passphrase}
-          onChange={(e) => p.setPassphrase(e.target.value)}
-        />
-      </label>
+      <SameAsUnlock
+        offered={typedUnlockPassphrase() !== null}
+        testId="backup-same"
+        on={same}
+        onChange={(on) => {
+          setSame(on);
+          p.setPassphrase(on ? (typedUnlockPassphrase() ?? '') : '');
+        }}
+      />
+      {!same && (
+        <label className="nc-field">
+          <span>
+            Backup file passphrase (at least {MIN_PASSPHRASE_LENGTH} characters; separate from your
+            unlock key; not in a synced folder)
+          </span>
+          <input
+            type="password"
+            data-testid="backup-passphrase"
+            value={p.passphrase}
+            onChange={(e) => p.setPassphrase(e.target.value)}
+          />
+        </label>
+      )}
       <div>
         {canPick ? (
           <Button testId="backup-choose" disabled={!p.pass12} onClick={p.onChoose}>

@@ -611,10 +611,11 @@ export function Notes({
       <Card title="Backup and restore">
         <p className="nc-cap nc-cap-first">
           One backup file holds every note of this vault that this browser keeps, not only the
-          selected one. Restoring brings all of them back.
+          selected one. Restoring brings all of them back. The file passphrase is separate from your
+          unlock key: it must work on any device.
         </p>
         <PassField
-          label={`Backup passphrase (at least ${MIN_PASSPHRASE_LENGTH} characters)`}
+          label={`Backup file passphrase (at least ${MIN_PASSPHRASE_LENGTH} characters)`}
           value={pass}
           length={passphraseLength(pass)}
           min={MIN_PASSPHRASE_LENGTH}

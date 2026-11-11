@@ -6,6 +6,10 @@
 //!   policy_tool sign KEY_FILE DRAFT OUT VERSION
 //!       signs a draft (from `record_evidence`, checked by a person against NEAR AI's published
 //!       builds) as policy VERSION and writes the file clients download.
+//!   policy_tool verify PUB_FILE POLICY MIN_VERSION
+//!       loads POLICY the way a client does (signature under the key in PUB_FILE, version at
+//!       least MIN_VERSION, strict TCB) and prints its version. The deploy workflow runs it before
+//!       it puts a newer policy beside a release.
 
 use std::os::unix::fs::OpenOptionsExt;
 
@@ -64,6 +68,22 @@ fn main() {
             std::fs::write(out, json).unwrap_or_else(|e| die(format!("{out}: {e}")));
             println!("wrote {out}");
         }
-        _ => die("usage: policy_tool keygen KEY_FILE | sign KEY_FILE DRAFT OUT VERSION"),
+        ["verify", pub_file, policy, min_version] => {
+            let min: u32 = min_version
+                .parse()
+                .unwrap_or_else(|_| die("MIN_VERSION is a number"));
+            let pk: [u8; 32] = std::fs::read_to_string(pub_file)
+                .ok()
+                .and_then(|t| hex::decode(t.trim()).ok())
+                .and_then(|b| b.try_into().ok())
+                .unwrap_or_else(|| die("the public key file must hold 32 bytes in hex"));
+            let json = std::fs::read(policy).unwrap_or_else(|e| die(format!("{policy}: {e}")));
+            let loaded = Policy::load(&json, &pk, min)
+                .unwrap_or_else(|e| die(format!("{policy} does not load: {e}")));
+            println!("{}", loaded.version);
+        }
+        _ => die(
+            "usage: policy_tool keygen KEY_FILE | sign KEY_FILE DRAFT OUT VERSION | verify PUB_FILE POLICY MIN_VERSION",
+        ),
     }
 }

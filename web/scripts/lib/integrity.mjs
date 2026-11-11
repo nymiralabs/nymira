@@ -18,9 +18,14 @@ export const SIGNED_HEADERS = [
   'x-content-type-options',
 ];
 
-/** The files a deployed site holds that are not part of the bundle. */
+/**
+ * The files a deployed site holds that are not part of the bundle. `attestation-policy.json` is
+ * the newer signed policy a deploy may add beside a release (ADR 0021): the page takes it only if
+ * it verifies under the signer key in the bundle, so it needs no place in the signed listing.
+ */
 export const NON_BUNDLE = [
   '_headers',
+  'attestation-policy.json',
   'manifest.json',
   'manifest.json.minisig',
   'integrity/files.txt',

@@ -94,6 +94,15 @@ describe('verifySite', () => {
     expect(() => verifySite(dir, pub)).toThrow(/differ from integrity\/files.txt/);
   });
 
+  it('accepts a newer policy file beside the release and refuses any other added file', () => {
+    // ADR 0021: the file is outside the signed listing; the page checks its signature itself.
+    const dir = site();
+    writeFileSync(join(dir, 'attestation-policy.json'), '{}');
+    expect(() => verifySite(dir, pub)).not.toThrow();
+    writeFileSync(join(dir, 'other-policy.json'), '{}');
+    expect(() => verifySite(dir, pub)).toThrow(/differ from integrity\/files.txt/);
+  });
+
   it('refuses an added bundle file', () => {
     const dir = site();
     writeFileSync(join(dir, 'assets/extra.js'), '1\n');

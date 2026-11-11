@@ -76,9 +76,9 @@ describe('a policy that pins NVIDIA certificates', () => {
     }
   });
 
-  it('loads the shipped policy under the pinned signer: version 5 with the two unverified pins', () => {
+  it('loads the shipped policy under the pinned signer: version 6 with the two unverified pins', () => {
     const loaded = loadPolicy(policyJson, signerPk, 5);
-    expect(loaded.version).toBe(5);
+    expect(loaded.version).toBe(6);
     expect(loaded.nvidia_pins?.map((p) => [p.sha256, p.official_source_verified])).toEqual([
       ['38e3daf3cdbd5243bb15dd7993edcdd83a7238cb6745b980f8f3bf0a31a0d343', false],
       ['2df8907cf4d6c277b855d407ec178a649930a8e73f7294e8fce66e6ee27c5175', false],

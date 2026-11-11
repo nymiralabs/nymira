@@ -110,6 +110,7 @@ export function Intents({
   );
   const [note, setNote] = useState<NoteRecord | null>(null);
   const [backupPass, setBackupPass] = useState('');
+  const [backupConfirm, setBackupConfirm] = useState('');
   const [downloaded, setDownloaded] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [shown, setShown] = useState(false);
@@ -354,6 +355,7 @@ export function Intents({
       setPendingReason('');
       setDownloaded(false);
       setBackupPass('');
+      setBackupConfirm('');
       setPayout('');
       setConfirmed(false);
       setAssessment(null);
@@ -782,6 +784,8 @@ export function Intents({
               onCreate={onPrepare}
               pass={backupPass}
               onPass={setBackupPass}
+              confirm={backupConfirm}
+              onConfirm={setBackupConfirm}
               passDisabled={!created}
               passMin={MIN_PASSPHRASE_LENGTH}
               params={null}
@@ -789,6 +793,7 @@ export function Intents({
               downloadLabel={busy === 'download' ? 'Encrypting…' : `Download (${BACKUP_EXTENSION})`}
               downloadDisabled={
                 passphraseLength(backupPass) < MIN_PASSPHRASE_LENGTH ||
+                backupConfirm !== backupPass ||
                 busy !== '' ||
                 stage !== 'prepared'
               }

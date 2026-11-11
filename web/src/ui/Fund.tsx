@@ -16,7 +16,7 @@ import type { VaultCheck } from '../chain/vault';
 import { expiryCalendar } from '../backup/ics';
 import { backupFileName, BACKUP_EXTENSION } from '../backup/format';
 import { MIN_PASSPHRASE_LENGTH, passphraseLength } from '../crypto/kdf';
-import { isUnlocked } from '../crypto/wrap';
+import { isUnlocked, typedUnlockPassphrase } from '../crypto/wrap';
 import {
   confirmDeposit,
   makeBackupFile,
@@ -216,6 +216,8 @@ export function Fund({
   );
   const [note, setNote] = useState<NoteRecord | null>(null);
   const [backupPass, setBackupPass] = useState('');
+  const [sameAsUnlock, setSameAsUnlock] = useState(false);
+  const [backupConfirm, setBackupConfirm] = useState('');
   const [downloaded, setDownloaded] = useState(false);
   const [persist, setPersist] = useState<Persist>('unknown');
   const [busy, setBusy] = useState('');
@@ -679,6 +681,15 @@ export function Fund({
                   }
                   pass={backupPass}
                   onPass={setBackupPass}
+                  confirm={backupConfirm}
+                  onConfirm={setBackupConfirm}
+                  sameOffered={typedUnlockPassphrase() !== null}
+                  same={sameAsUnlock}
+                  onSame={(on) => {
+                    setSameAsUnlock(on);
+                    setBackupPass(on ? (typedUnlockPassphrase() ?? '') : '');
+                    setBackupConfirm('');
+                  }}
                   passDisabled={!created}
                   passMin={MIN_PASSPHRASE_LENGTH}
                   params={
@@ -693,6 +704,7 @@ export function Fund({
                   }
                   downloadDisabled={
                     passphraseLength(backupPass) < MIN_PASSPHRASE_LENGTH ||
+                    (!sameAsUnlock && backupConfirm !== backupPass) ||
                     busy !== '' ||
                     stage !== 'prepared'
                   }
