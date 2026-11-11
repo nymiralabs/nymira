@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { backupFileName } from '../backup/format';
+import { passphraseLength } from '../crypto/kdf';
 import { Cipher, Count } from './Board';
 import { Icon } from './Icon';
 import qwenLogo from './assets/brands/model-qwen.png';
@@ -1078,15 +1079,20 @@ export function BackupSteps({
         <div
           className="nc-seal"
           data-same={same}
-          data-ok={!same && pass !== '' && confirm === pass && pass.length >= passMin}
+          data-ok={!same && pass !== '' && confirm === pass && passphraseLength(pass) >= passMin}
         >
           <div className="nc-seal-main">
             <div className="nc-seal-meter" aria-hidden="true">
-              <Strip n={12} solid={same ? 12 : Math.min(pass.length, 12)} size="sm" />
+              <Strip n={12} solid={same ? 12 : Math.min(passphraseLength(pass), 12)} size="sm" />
               <small>
-                {same ? 'unlock passphrase' : `${Math.min(pass.length, 12)} of ${passMin}`}
+                {same
+                  ? 'unlock passphrase'
+                  : `${Math.min(passphraseLength(pass), 12)} of ${passMin}`}
               </small>
             </div>
+            {passDisabled && (
+              <p className="nc-seal-lock">Opens after you create the secret above.</p>
+            )}
             <p className="nc-seal-why">
               <strong>Separate from your unlock key.</strong> It opens this file on any device, so
               choose one you can type anywhere.
@@ -1100,7 +1106,12 @@ export function BackupSteps({
             {same ? null : (
               <div className="nc-seal-fields">
                 <label className="nc-field">
-                  <span>File passphrase</span>
+                  <span>
+                    File passphrase
+                    {pass !== '' && passphraseLength(pass) < passMin && (
+                      <em data-ok="pending">{passMin - passphraseLength(pass)} more to go</em>
+                    )}
+                  </span>
                   <input
                     type="password"
                     autoComplete="new-password"
