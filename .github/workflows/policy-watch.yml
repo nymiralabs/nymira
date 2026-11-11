@@ -1,6 +1,11 @@
-# Watches NEAR AI's live attestation reports and opens an issue when a deployment is not listed in
-# the signed policy (ADR 0021). It verifies no quote; a person signs the next version with
-# scripts/policy-update.sh. GitHub emails the repository admins when the issue opens.
+# Watches NEAR AI's live attestation reports (ADR 0021). When a deployment is not listed in the
+# signed policy:
+#   - a new compose hash of the model on a machine image the policy already lists is signed here,
+#     with the policy key kept in the `policy-signing` environment, and deployed (at most 3 times
+#     in 24 hours); an issue labelled `policy-auto` records it;
+#   - anything else (a new machine image, new measurements, too many hashes at once, a cap hit, no
+#     key) opens an issue labelled `policy-watch` for a person, who runs scripts/policy-update.sh.
+# The watcher verifies no quote. GitHub emails the repository admins when an issue opens.
 name: policy-watch
 on:
   schedule:
@@ -9,11 +14,19 @@ on:
 
 permissions:
   contents: read
-  issues: write
+
+concurrency:
+  group: policy-watch
+  cancel-in-progress: false
 
 jobs:
   watch:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      code: ${{ steps.watch.outputs.code }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,16 +42,98 @@ jobs:
           node web/scripts/watch-policy.mjs --json --draft draft.json > report.json || code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "watch exit code: $code (0 listed, 3 not listed, 4 endpoints unreadable)"
-      - name: Open an issue when something is not listed
-        if: steps.watch.outputs.code == '3'
+      - name: Close the issue when everything is listed again
+        if: steps.watch.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label policy-watch --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Every live deployment is listed in the signed policy now."
+          done
+
+  sign:
+    needs: watch
+    if: needs.watch.outputs.code == '3'
+    runs-on: ubuntu-24.04
+    environment: policy-signing
+    permissions:
+      contents: write
+      issues: write
+      actions: write
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Sign a new compose hash of the model, if that is all that is new
+        id: sign
+        env:
+          POLICY_SIGNING_KEY: ${{ secrets.POLICY_SIGNING_KEY }}
+        run: |
+          echo "signed=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$POLICY_SIGNING_KEY" ]; then echo "no POLICY_SIGNING_KEY in the policy-signing environment: a person must sign"; exit 0; fi
+          umask 077
+          keyfile="$(mktemp)"
+          trap 'rm -f "$keyfile"' EXIT
+          printf '%s' "$POLICY_SIGNING_KEY" > "$keyfile"
+          git config user.name "Nymira Labs"
+          git config user.email "345380708+nymiralabs@users.noreply.github.com"
+          rc=0
+          NYMIRA_POLICY_KEY="$keyfile" AUTO_REPORT="$RUNNER_TEMP/report.md" scripts/policy-update.sh --auto || rc=$?
+          case "$rc" in
+            0) echo "signed=true" >> "$GITHUB_OUTPUT" ;;
+            5|6) echo "a person must sign (exit $rc)" ;;
+            *) exit "$rc" ;;
+          esac
+      - name: Record it in an issue
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create policy-auto --color 9dc9a4 --description "Policy signed by the watcher" 2>/dev/null || true
+          gh issue create --title "Policy signed automatically after a NEAR AI redeploy" --label policy-auto --body-file "$RUNNER_TEMP/report.md"
+      - name: Deploy it beside the web release that is live
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(git tag --list 'web-v*' --sort=-version:refname | head -1)"
+          # A push made with the workflow token starts no workflow, so web-deploy is started here.
+          gh workflow run web-deploy.yml --repo "$GITHUB_REPOSITORY" \
+            -f ref="$tag" -f profile=testnet -f version="${tag#web-v}" -f policy_ref="$(git rev-parse HEAD)"
+
+  issue:
+    needs: [watch, sign]
+    if: always() && needs.watch.outputs.code == '3' && needs.sign.outputs.signed != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Open an issue for a person
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           open="$(gh issue list --label policy-watch --state open --json number --jq '.[0].number // empty')"
           if [ -n "$open" ]; then echo "issue #$open is already open"; exit 0; fi
+          node web/scripts/watch-policy.mjs --json > report.json || true
           version="$(jq -r .policy_version report.json)"
           {
             echo "NEAR AI's live attestation reports show deployments that policy version $version does not list. Chats on them are refused (\`deployment_rejected\`) until a newer signed policy is deployed."
+            echo
+            echo "The watcher did not sign it: it signs only a new compose hash of the model on an image the policy lists, a few times a day, and only with the key in the \`policy-signing\` environment."
             echo
             echo '```json'
             jq '.unknown' report.json
@@ -50,15 +145,7 @@ jobs:
             echo 'scripts/policy-update.sh'
             echo '```'
             echo
-            echo 'It shows the diff, asks, signs the next version, commits and pushes. The `policy-deploy` workflow then serves the file beside the current web release. No new web release is needed. `nymirad` users put the new `attestation-policy.json` in their state directory (ADR 0020). A deployment marked `image` changes the measurements the policy trusts: record and check it before you sign.'
+            echo 'It shows the diff, asks, signs the next version, commits and pushes. The `policy-deploy` workflow then serves the file beside the current web release. A deployment marked `image` changes the measurements the policy trusts: record and check it before you sign.'
           } > body.md
           gh label create policy-watch --color 9aa8ff --description "NEAR AI deployment not in the signed policy" 2>/dev/null || true
-          gh issue create --title "NEAR AI redeployed: the attestation policy needs a new version" --label policy-watch --body-file body.md
-      - name: Close the issue when everything is listed again
-        if: steps.watch.outputs.code == '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for n in $(gh issue list --label policy-watch --state open --json number --jq '.[].number'); do
-            gh issue close "$n" --comment "Every live deployment is listed in the signed policy now."
-          done
+          gh issue create --title "NEAR AI redeployed: the attestation policy needs a person" --label policy-watch --body-file body.md

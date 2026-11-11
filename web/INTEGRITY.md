@@ -57,12 +57,16 @@ policy in force. So the file cannot widen what the signed bundle allows beyond w
 signs: whoever controls the host can withhold a newer policy, but cannot make the page accept a
 deployment the policy key did not sign.
 
-Keeping it current takes one signature. The `policy-watch` workflow reads NEAR AI's live reports
-every hour and opens an issue when a deployment is not listed (it verifies no quote). On the
-machine that holds the policy key, `scripts/policy-update.sh` shows the difference, asks, signs the
-next version, commits and pushes it. The `policy-deploy` workflow then starts `web-deploy` for the
-release that is live. The signature is the one step that is not automated: a key on a server would
-let whoever controls the server approve any deployment.
+Keeping it current is automated for the common case. The `policy-watch` workflow reads NEAR AI's
+live reports every hour (it verifies no quote). A new compose hash of the model, on a machine image
+and measurements the policy already lists, is signed by the workflow itself with the policy key
+kept as a secret of the `policy-signing` environment of this repository, at most three times in 24
+hours; it commits the file, starts `web-deploy` and opens an issue labelled `policy-auto`. Anything
+else (a new machine image, new measurements, many hashes at once, the cap, no key) opens an issue
+labelled `policy-watch`, and a person runs `scripts/policy-update.sh`, which shows the difference,
+asks, signs, commits and pushes. The cost is that the policy key is a GitHub secret: whoever can
+run a workflow in this repository, or take over the account, can sign a policy. That is accepted for
+the testnet, where the policy already trusts what NEAR AI's live endpoint shows.
 
 The `web-deploy` workflow takes the file from the commit named in its `policy_ref` input, loads it
 with `policy_tool verify` (signature, version above the bundled one, strict TCB), copies it into the
