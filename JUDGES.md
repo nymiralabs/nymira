@@ -41,9 +41,9 @@ You need a desktop browser and about 20 minutes.
    near contract call-function as-transaction 3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af storage_deposit json-args '{"account_id":"YOUR.testnet","registration_only":true}' prepaid-gas '30 Tgas' attached-deposit '0.00125 NEAR' sign-as YOUR.testnet network-config testnet
    ```
    If you pay out to a different account, register that one the same way.
-4. **Fund a note.** On the Fund screen pick the 1 USDC note. The app shows the price: the note plus a 0.05 USDC fee that you do not get back. Set a passphrase, download the encrypted backup, and send. The app reads the `deposit` event from your transaction, shows the note ID and offers an explorer link. Open it and check that the payout account is yours.
+4. **Fund a note.** On the Fund screen pick the 1 USDC note. The app shows the price: the note plus a 0.05 USDC fee that you do not get back. On first open the app asks for an unlock passphrase (or a passkey): it opens the note secret on this device. At the backup step type a separate file passphrase twice, or switch on "Use my unlock passphrase for the file", then download the encrypted backup and send. The app reads the `deposit` event from your transaction, shows the note ID and offers an explorer link. Open it and check that the payout account is yours.
 5. **Wait a little.** The operator adds your note to the vault's tree on its next root update. If Chat says the note is not in the tree yet, wait and try again. A chat right after funding is also easier to link to the deposit by timing.
-6. **Chat.** Open Chat, press Chat with this note on your note, pick a model and ask something. The first step loads a proving key (about 5 MB) and checks its hash. Under the answer you see a badge:
+6. **Chat.** Open Chat, press Chat with this note on your note, pick a model and ask something. The first step loads a proving key (about 5 MB) and checks its hash; a note picked in the sidebar shows "Opening note" until that is done, then the conversation opens on it. Under the answer you see a badge:
    - `model-signed response`: the model's TEE signed the answer, and the signature checked out.
    - `gateway-signed response`: the gateway signed it, not the model.
    - `not verified`: the signature could not be checked. Treat the answer as unauthenticated.

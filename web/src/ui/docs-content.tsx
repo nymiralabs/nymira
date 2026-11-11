@@ -114,7 +114,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             ],
             [
               'Fund a note',
-              'Pick the 1 USDC note. The app shows the price, 1.05 USDC with the fee. Set a passphrase, download the encrypted backup and send. The app reads the `deposit` event from your own receipts.',
+              'Pick the 1 USDC note. The app shows the price, 1.05 USDC with the fee. Set an unlock passphrase on first open, then give the backup file its own passphrase (typed twice, or the unlock passphrase if you choose), download the encrypted backup and send. The app reads the `deposit` event from your own receipts.',
             ],
             [
               'Chat',
@@ -459,7 +459,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
             "IndexedDB `nymira` holds each note's public record and one sealed payload. The payload is AES-256-GCM, bound to its note.",
             'The key comes from Argon2id (64 MiB, 3 passes, 1 lane, passphrase of at least 12 characters) or from a WebAuthn PRF output. It is non-extractable and lives in memory. The passphrase you typed also stays in memory until you lock or reload, so the backup step can reuse it if you tick the box. "Stay unlocked in this tab" keeps it in a second IndexedDB until the tab closes.',
             'The wallet frame keeps nothing on the device. `localStorage` holds only the theme.',
-            'A web backup is JSON: Argon2id and AES-256-GCM, file extension `.nymira-backup`. The app asks for one after a close or a finalized exit. It writes to a file you chose, or prompts for a download after every retire above 0.50 USDC and after every tenth lease below it.',
+            'A web backup is JSON: Argon2id and AES-256-GCM, file extension `.nymira-backup`. Its passphrase is separate from the unlock key, because the file must open on any device. The app asks for one after a close or a finalized exit. It writes to a file you chose, or prompts for a download after every retire above 0.50 USDC and after every tenth lease below it.',
           ],
         },
       ],
