@@ -51,7 +51,7 @@ const to = (id: string, label: string): DocLink => ({ label, href: `#docs/${id}`
 
 export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
   title: 'How Nymira works',
-  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.4 and the code it was built from.',
+  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.5 and the code it was built from.',
   sections: [
     {
       id: 'overview',
@@ -818,7 +818,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'code',
           label: 'The signed release',
-          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.4/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
+          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.5/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
         },
         {
           t: 'p',
@@ -840,7 +840,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
         {
           t: 'p',
-          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.4 testnet 0.1.4` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
+          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.5 testnet 0.1.5` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
         },
       ],
     },
@@ -947,28 +947,21 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
     },
     {
       id: 'changes',
-      title: 'What changed in 0.1.4',
-      lead: 'Release 0.1.4 of the web app and `nymirad`, compared with 0.1.3.',
+      title: 'What changed in 0.1.5',
+      lead: 'Release 0.1.5 of the web app, compared with 0.1.4. `nymirad` 0.1.4 is still the newest.',
       blocks: [
         { t: 'h3', text: 'The web app' },
         {
           t: 'list',
           items: [
-            'The chat can use a newer signed attestation policy that the site serves beside the release. The page takes it only when the pinned policy key signed it and its version is higher than the bundled one.',
-            'Policy version 6 lists the model compose hash that NEAR AI deployed on 11 November 2026. Chats on that deployment were refused before. A refusal for an unlisted deployment now names the policy version in force.',
-            'The first-open screen is "Unlock key for this browser". The backup file has its own passphrase, typed twice, or your unlock passphrase if you choose. The backup step in Fund is one card that says what the file holds.',
-            'Picking a note in the sidebar shows "Opening note", with its balance and days left, while the proving key loads. The conversation then opens on that note.',
+            'The app reads the chain through four free public RPC endpoints instead of two: dRPC, Intear, FASTNEAR and, last, FASTNEAR archival. An endpoint that answers 429 or fails is skipped for a while and the next one is asked. The old second endpoint, `rpc.testnet.near.org`, is retired by its operator and answered 429 to every call, so the app had one working endpoint.',
+            'The set size still reads two providers, the first two of the list. It takes the block and the note count from the first provider that answers.',
           ],
-        },
-        { t: 'h3', text: '`nymirad`' },
-        {
-          t: 'list',
-          items: ['Policy version 6 is compiled in. Nothing else changed in the client.'],
         },
         { t: 'h3', text: 'Unchanged' },
         {
           t: 'p',
-          text: 'The vault, the operator and the pinned verifying keys are the ones from release 0.1.3. No redeploy of the vault was needed.',
+          text: 'The vault, the operator, the pinned verifying keys and `nymirad` are the ones from release 0.1.4.',
         },
         {
           t: 'note',
@@ -1036,7 +1029,7 @@ const SECTION_LINKS: Record<string, DocLink[]> = {
   ],
   verify: [
     src('web/INTEGRITY.md', 'How releases are signed'),
-    tree('web/releases/testnet-0.1.4', 'Release 0.1.4'),
+    tree('web/releases/testnet-0.1.5', 'Release 0.1.5'),
     src('web/pins/release-signing.pub', 'Signing key'),
   ],
   faq: [to('limits', 'Limits'), src('THREAT_MODEL.md', 'Threat model')],

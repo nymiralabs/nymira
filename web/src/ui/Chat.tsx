@@ -224,6 +224,9 @@ export function Chat({
   // so the conversation moves to that note. With a lease open it stays, and says why.
   useEffect(() => {
     if (!selected || !preferred || preferred === selected || busy) return;
+    // A note that is closing or closed is not in `notes`: the conversation stays where it is, or
+    // it would drop the note it has, fall back to the first one and flip again.
+    if (!notes.some((n) => n.record.id === preferred)) return;
     if (session.current?.lease?.token) {
       setError('This conversation has a lease open. End it before you switch to another note.');
       return;
@@ -235,7 +238,7 @@ export function Chat({
     setMessages([]);
     setAnswers([]);
     setSelected(null);
-  }, [preferred, selected, busy]);
+  }, [preferred, selected, busy, notes]);
 
   // Long job changed with no lease open: the proof made ahead was for the old class, so it is set
   // aside and a new one starts on the same note.
@@ -879,6 +882,13 @@ export function Chat({
               )}
             </>
           )}
+          {preferred !== null &&
+            notes.length > 0 &&
+            !notes.some((n) => n.record.id === preferred) && (
+              <p className="nc-msg" data-tone="warn" role="status" data-testid="chat-note-closed">
+                The note you picked is closing or closed, so it cannot start a conversation.
+              </p>
+            )}
           {error && (
             <p className="nc-msg" data-tone="err" role="alert" data-testid="chat-error">
               {error}

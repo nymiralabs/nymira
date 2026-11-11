@@ -180,6 +180,24 @@ describe('reading note_records', () => {
     expect(raw.oneProvider).toBe('no second provider is configured');
     expect(p.calls.every((c) => (c as { block: string }).block === 'HEAD')).toBe(true);
   });
+
+  it('takes the block and the leaf count from the next provider when the first one fails', async () => {
+    const down = new RpcClient(['https://down.test'], {
+      fetchImpl: (async () => new Response('', { status: 429 })) as unknown as typeof fetch,
+    });
+    const p = fakeProvider(active(4), 'HEAD');
+    const raw = await readNow([down, p.rpc], 'v.test', T);
+    expect(raw.sets).toHaveLength(1);
+    expect(raw.sets[0]!.size).toBe(4);
+    expect(raw.oneProvider).toContain('no RPC endpoint answered');
+  });
+
+  it('fails when no provider can give the block', async () => {
+    const down = new RpcClient(['https://down.test'], {
+      fetchImpl: (async () => new Response('', { status: 429 })) as unknown as typeof fetch,
+    });
+    await expect(readNow([down], 'v.test', T)).rejects.toThrow('no RPC endpoint answered');
+  });
 });
 
 describe('cover', () => {

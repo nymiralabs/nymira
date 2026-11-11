@@ -13,10 +13,11 @@ export const rpc = new RpcClient(PROFILE.rpcUrls);
 export const archivalRpc = new RpcClient(PROFILE.rpcUrls.slice(-1));
 
 /**
- * One client per configured RPC endpoint, each asked on its own, for the set size: two providers
- * that disagree show the lower figure. A profile with one endpoint reads one provider and says so.
+ * One client for each of the first two configured RPC endpoints, each asked on its own, for the
+ * set size: two providers that disagree show the lower figure. A profile with one endpoint reads
+ * one provider and says so. Only two are read, so a longer pool does not multiply the reads.
  */
-export const setSizeRpcs = PROFILE.rpcUrls.map((url) => new RpcClient([url]));
+export const setSizeRpcs = PROFILE.rpcUrls.slice(0, 2).map((url) => new RpcClient([url]));
 
 export function useWallet() {
   useSyncExternalStore(

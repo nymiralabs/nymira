@@ -12,7 +12,14 @@ export const profile: Profile = {
   appOrigin: 'https://nymira.pages.dev',
   // The operator's public Funnel URL; its `host` and CORS `web_origin` must match this and `appOrigin`.
   operatorUrl: 'https://nymira-operator.tail0484c4.ts.net',
-  rpcUrls: ['https://rpc.testnet.fastnear.com', 'https://rpc.testnet.near.org'],
+  // Keyless public endpoints that answer browsers (CORS), tried in this order; one that answers 429
+  // or fails is skipped for a while. The last one is archival: `archivalRpc` asks it on its own.
+  rpcUrls: [
+    'https://near-testnet.drpc.org',
+    'https://testnet-rpc.intea.rs',
+    'https://rpc.testnet.fastnear.com',
+    'https://archival-rpc.testnet.fastnear.com',
+  ],
   vaultAccount: 'vault.nymira.testnet',
   tokenAccount: '3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af',
   tokenSymbol: 'USDC',

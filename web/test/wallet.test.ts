@@ -106,7 +106,8 @@ describe('profiles and headers', () => {
     expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
     expect(csp).not.toMatch(/style-src[^;]*unsafe-inline/);
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain('https://rpc.testnet.near.org');
+    for (const host of testnet.rpcUrls.map((u) => new URL(u).origin)) expect(csp).toContain(host);
+    expect(csp).not.toContain('rpc.testnet.near.org');
     expect(csp).toContain('https://1click.chaindefuser.com');
     expect(appCsp(mainnet)).not.toContain('rpc.testnet');
     expect(csp).toContain("frame-ancestors 'none'");

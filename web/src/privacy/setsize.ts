@@ -84,10 +84,24 @@ export async function readNow(
   vault: string,
   requestTime: number,
 ): Promise<Raw> {
-  const block = await providers[0]!.finalBlockHash();
-  const leafCount = await providers[0]!.view<number>(vault, 'leaf_count', {}, block);
-  if (typeof leafCount !== 'number') throw new Error('the vault returned a malformed leaf_count');
-  return read(providers, vault, block, leafCount, requestTime);
+  // The block and the leaf count come from the first provider that answers.
+  let first: { block: string; leafCount: number } | null = null;
+  let failure: unknown = new Error('no RPC provider is configured');
+  for (const p of providers) {
+    try {
+      const block = await p.finalBlockHash();
+      const leafCount = await p.view<number>(vault, 'leaf_count', {}, block);
+      if (typeof leafCount !== 'number') {
+        throw new Error('the vault returned a malformed leaf_count');
+      }
+      first = { block, leafCount };
+      break;
+    } catch (e) {
+      failure = e;
+    }
+  }
+  if (!first) throw failure;
+  return read(providers, vault, first.block, first.leafCount, requestTime);
 }
 
 /** The figure kept with a lease record. Records written before it existed have none. */
