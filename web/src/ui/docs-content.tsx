@@ -51,7 +51,7 @@ const to = (id: string, label: string): DocLink => ({ label, href: `#docs/${id}`
 
 export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
   title: 'How Nymira works',
-  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.5 and the code it was built from.',
+  lead: 'Nymira sells prepaid API credits on NEAR. You deposit USDC once and spend it in short leases, one per conversation. A zero-knowledge proof shows that a deposit can pay without saying which deposit it is. This page describes release 0.1.6 and the code it was built from.',
   sections: [
     {
       id: 'overview',
@@ -818,7 +818,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         {
           t: 'code',
           label: 'The signed release',
-          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.5/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
+          text: 'minisign -V -p web/pins/release-signing.pub -m web/releases/testnet-0.1.6/manifest.json\nnode web/scripts/integrity.mjs fingerprint web/pins/release-signing.pub',
         },
         {
           t: 'p',
@@ -840,7 +840,7 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
         },
         {
           t: 'p',
-          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.5 testnet 0.1.5` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
+          text: 'The vault has one access key and it has full access. Check it with `view_access_key_list`. To rebuild the web release, run `web/scripts/rebuild-in-container.sh web-v0.1.6 testnet 0.1.6` (it needs Docker). To try everything with no keys and no money, run `make golden` or `make demo`.',
         },
       ],
     },
@@ -947,15 +947,33 @@ export const PAGE: { title: string; lead: ReactNode; sections: Section[] } = {
     },
     {
       id: 'changes',
-      title: 'What changed in 0.1.5',
-      lead: 'Release 0.1.5 of the web app, compared with 0.1.4. `nymirad` 0.1.4 is still the newest.',
+      title: 'What changed in 0.1.6',
+      lead: 'Release 0.1.6 of the web app, compared with 0.1.5. `nymirad` 0.1.4 is still the newest.',
       blocks: [
-        { t: 'h3', text: 'The web app' },
+        { t: 'h3', text: 'Chat' },
         {
           t: 'list',
           items: [
-            'The app reads the chain through four free public RPC endpoints instead of two: dRPC, Intear, FASTNEAR and, last, FASTNEAR archival. An endpoint that answers 429 or fails is skipped for a while and the next one is asked. The old second endpoint, `rpc.testnet.near.org`, is retired by its operator and answered 429 to every call, so the app had one working endpoint.',
-            'The set size still reads two providers, the first two of the list. It takes the block and the note count from the first provider that answers.',
+            'A second message in the same conversation is no longer refused. The app sized the answer limit from the message text alone, while the operator also counts the role of each message and rounds the worst case up to a whole micro-USDC, so the second message went over the limit by a hair and the app showed "The answer limit does not fit what is left of the lease".',
+            'When an accepted request fails without a signed usage (the provider timed out, the answer was cut or carried no usage), the operator keeps the whole reservation as spent. The app now counts it the same way, so the next message is sized from what the operator will allow.',
+            'The message for an answer limit the lease cannot hold now says to end the conversation and start a new one.',
+          ],
+        },
+        { t: 'h3', text: 'Notes and backup' },
+        {
+          t: 'list',
+          items: [
+            'A note that is closing or exiting shows "Follow close" or "Follow exit" and opens the Close screen with that note selected. Before, its Chat button was off with no way forward. The same goes for its card in the sidebar and for a note near its expiry in the chat list ("Close this note").',
+            'The note you pick on the Notes screen is the note Chat and Close open. Before, Close always opened the first one.',
+            '"Save" in the sidebar and "Back up now" lead to the backup form and put the cursor in it. Before, "Save" did nothing on the Chat screen. The reminder on other screens is a strip under the header.',
+          ],
+        },
+        { t: 'h3', text: 'Look' },
+        {
+          t: 'list',
+          items: [
+            'A faint box over the "Long job" text while a lease was open is gone: the switch is disabled then, and the browser drew its hidden checkbox.',
+            'The scroll bar of an empty chat shows only while the pointer is over it.',
           ],
         },
         { t: 'h3', text: 'Unchanged' },
@@ -1029,7 +1047,7 @@ const SECTION_LINKS: Record<string, DocLink[]> = {
   ],
   verify: [
     src('web/INTEGRITY.md', 'How releases are signed'),
-    tree('web/releases/testnet-0.1.5', 'Release 0.1.5'),
+    tree('web/releases/testnet-0.1.6', 'Release 0.1.6'),
     src('web/pins/release-signing.pub', 'Signing key'),
   ],
   faq: [to('limits', 'Limits'), src('THREAT_MODEL.md', 'Threat model')],

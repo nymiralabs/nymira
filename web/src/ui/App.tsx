@@ -274,6 +274,29 @@ export function App() {
     setScreen(next);
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
+  // "Save" and "Back up now" lead to the backup prompt in the chat thread: open Chat if it is not
+  // open, bring the prompt into view and put the cursor in it (the chat screen may still be mounting).
+  const showBackup = () => {
+    // On the Notes screen the backup form is on the page already.
+    if (screen !== 'notes') go('chat');
+    for (const ms of [0, 200]) {
+      window.setTimeout(() => {
+        const box = document.querySelector<HTMLElement>(
+          screen === 'notes'
+            ? '[data-testid="notes-backup-passphrase"]'
+            : '[data-testid="backup-prompt"]',
+        );
+        if (!box) return;
+        box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        (box.matches('input, button')
+          ? box
+          : box.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled])')
+        )?.focus({
+          preventScroll: true,
+        });
+      }, ms);
+    }
+  };
   const { check, recheck } = useVaultCheck();
   const wallet = useWallet();
   const showAgents = agentsAvailable(wallet.wallets, wallet.connected?.walletId ?? null);
@@ -496,7 +519,11 @@ export function App() {
                       selected={n.key === current}
                       onPick={() => {
                         setPreferred(n.key);
-                        if (screen !== 'chat') go('chat');
+                        // A note on its way out takes no conversation: its row leads to the Close screen.
+                        const leaving =
+                          n.status === 'closing' || n.status === 'exiting' || n.status === 'closed';
+                        const target = leaving ? 'close' : 'chat';
+                        if (screen !== target) go(target);
                       }}
                     />
                   </li>
@@ -573,7 +600,7 @@ export function App() {
                 </small>
               </span>
               {owed && (
-                <button type="button" onClick={() => go('chat')}>
+                <button type="button" data-testid="backup-save" onClick={showBackup}>
                   Save
                 </button>
               )}
@@ -657,6 +684,15 @@ export function App() {
               onDisconnect={() => void wallet.disconnect().catch(() => undefined)}
             />
           </header>
+          {owed && screen !== 'chat' && (
+            <p className="nc-ip nc-owed" role="alert" data-testid="backup-owed">
+              <Icon name="lock" size={14} />
+              <span>A lease ended and your note changed. Save a backup before you go on.</span>
+              <button type="button" className="nc-ip-ok" onClick={showBackup}>
+                Back up now
+              </button>
+            </p>
+          )}
           {!ipSeen && !locked && (
             <p className="nc-ip" role="status" data-testid="ip-banner">
               <Icon name="onion" size={14} />
@@ -670,16 +706,6 @@ export function App() {
             </p>
           )}
           <main id="main-content" className="nc-content">
-            <div className="nm-legacy">
-              {owed && screen !== 'chat' && (
-                <p className="warning" role="alert" data-testid="backup-owed">
-                  A lease ended and your note changed.{' '}
-                  <button type="button" onClick={() => go('chat')}>
-                    Back up now
-                  </button>
-                </p>
-              )}
-            </div>
             <Watch screen={screen} onClose={() => setScreen('close')} />
             {locked && <Unlock onReady={() => setLocked(false)} />}
             <div hidden={locked}>
@@ -689,12 +715,16 @@ export function App() {
                     vault={check}
                     onPrivacy={setPrivacy}
                     onFund={() => go('fund')}
+                    onLeaving={(id) => {
+                      if (id) setPreferred(id);
+                      go('close');
+                    }}
                     onActive={setActive}
                     preferred={preferred}
                   />
                 </div>
               )}
-              {screen === 'close' && <Close onFund={() => go('fund')} />}
+              {screen === 'close' && <Close onFund={() => go('fund')} noteId={preferred} />}
               {screen === 'agents' && showAgents && <Agents />}
               {screen === 'fund' && (
                 <Fund
@@ -709,8 +739,14 @@ export function App() {
                 <div hidden={privacy !== null}>
                   <Notes
                     onPrivacy={setPrivacy}
-                    onChat={() => go('chat')}
-                    onClose={() => go('close')}
+                    onChat={(id) => {
+                      setPreferred(id);
+                      go('chat');
+                    }}
+                    onClose={(id) => {
+                      setPreferred(id);
+                      go('close');
+                    }}
                     onFund={() => go('fund')}
                     shell={notes}
                     onChanged={() => setFunded((n) => n + 1)}

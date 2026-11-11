@@ -84,12 +84,15 @@ export function Chat({
   vault,
   onPrivacy,
   onFund,
+  onLeaving,
   onActive,
   preferred,
 }: {
   vault: VaultCheck | null;
   onPrivacy: (noteId: string) => void;
   onFund: () => void;
+  /** Opens the Close screen: a note on its way out is followed there. */
+  onLeaving: (recordId?: string) => void;
   /** The note the conversation uses, or null, for the note list in the sidebar. */
   onActive: (recordId: string | null) => void;
   /** The note picked in the sidebar: the conversation opens on it without a list to choose from. */
@@ -708,18 +711,29 @@ export function Chat({
                                 Settle the open lease
                               </Button>
                             ) : (
-                              <Button
-                                primary
-                                testId="chat-use-note"
-                                disabled={
-                                  prover.status !== 'ready' || leave.emergency !== null || near
-                                }
-                                onClick={() => start(record)}
-                              >
-                                {prover.status === 'loading'
-                                  ? 'Please wait…'
-                                  : 'Chat with this note'}
-                              </Button>
+                              <>
+                                {near && (
+                                  <Button
+                                    primary
+                                    testId="chat-close-note"
+                                    onClick={() => onLeaving(record.id)}
+                                  >
+                                    Close this note
+                                  </Button>
+                                )}
+                                <Button
+                                  primary={!near}
+                                  testId="chat-use-note"
+                                  disabled={
+                                    prover.status !== 'ready' || leave.emergency !== null || near
+                                  }
+                                  onClick={() => start(record)}
+                                >
+                                  {prover.status === 'loading'
+                                    ? 'Please wait…'
+                                    : 'Chat with this note'}
+                                </Button>
+                              </>
                             )}
                             <Button testId="chat-privacy" onClick={() => onPrivacy(record.id)}>
                               Privacy panel
@@ -886,7 +900,15 @@ export function Chat({
             notes.length > 0 &&
             !notes.some((n) => n.record.id === preferred) && (
               <p className="nc-msg" data-tone="warn" role="status" data-testid="chat-note-closed">
-                The note you picked is closing or closed, so it cannot start a conversation.
+                The note you picked is closing or closed, so it cannot start a conversation.{' '}
+                <button
+                  type="button"
+                  className="nc-link"
+                  data-testid="chat-note-follow"
+                  onClick={() => onLeaving(preferred ?? undefined)}
+                >
+                  See where it stands
+                </button>
               </p>
             )}
           {error && (

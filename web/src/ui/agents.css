@@ -615,7 +615,7 @@
 }
 .nc-screen[data-testid='agents'] .nc-msg.nc-list.nc-todo {
   display: block;
-  margin: 0;
+  margin: 12px 0 0;
   color: var(--nm-muted);
   font-size: 12px;
   line-height: 18px;

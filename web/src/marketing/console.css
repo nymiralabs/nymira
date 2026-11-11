@@ -4696,9 +4696,11 @@
 .nc .nc-seg input,
 .nc .nc-src input,
 .nc .nc-keep input,
+.nc .nc-toggle input,
 .nc .nc-seg input:disabled,
 .nc .nc-src input:disabled,
-.nc .nc-keep input:disabled {
+.nc .nc-keep input:disabled,
+.nc .nc-toggle input:disabled {
   opacity: 0;
   border: 0;
   background: transparent;
@@ -6621,4 +6623,16 @@ html {
 }
 .nc .nc-sub > li[data-locked='true'] .nc-seal-file {
   opacity: 0.6;
+}
+
+/* A backup is owed: the strip under the header names it and holds the action. */
+.nc-owed {
+  color: var(--nm-fg);
+}
+.nc-owed svg {
+  flex: none;
+  color: var(--nc-warn);
+}
+.nc-owed .nc-ip-ok {
+  margin-left: auto;
 }

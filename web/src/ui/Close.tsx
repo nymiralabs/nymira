@@ -534,7 +534,7 @@ function NoteWays({
   );
 }
 
-export function Close({ onFund }: { onFund?: () => void }) {
+export function Close({ onFund, noteId }: { onFund?: () => void; noteId?: string | null }) {
   const [unlocked, setUnlocked] = useState(isUnlocked());
   const s = useSyncExternalStore(leaveStore.subscribe, () => leaveStore.state);
   const wallet = useWallet();
@@ -545,6 +545,11 @@ export function Close({ onFund }: { onFund?: () => void }) {
   useEffect(() => {
     warmWithdrawalProver().then(setProver);
   }, []);
+
+  // The note picked in the sidebar, the Notes list or the Chat notice opens here selected.
+  useEffect(() => {
+    if (noteId) setPick(noteId);
+  }, [noteId]);
 
   useEffect(() => {
     if (!unlocked) return;

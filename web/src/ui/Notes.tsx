@@ -215,8 +215,8 @@ export function Notes({
   onChanged,
 }: {
   onPrivacy: (noteId: string) => void;
-  onChat: () => void;
-  onClose: () => void;
+  onChat: (recordId: string) => void;
+  onClose: (recordId: string) => void;
   onFund: () => void;
   /** The accepted notes with their live balance, from the app shell. */
   shell: readonly (RowNote & { key: string })[];
@@ -370,14 +370,31 @@ export function Notes({
                     : ' A transfer may have gone out: find the deposit before anything else.'}
                 </p>
               )}
-              {picked.done && (
+              {picked.done && closed && (
+                <p className="nc-cap" data-testid="note-paid-out">
+                  This note is closed and paid out. It takes no more conversations.
+                </p>
+              )}
+              {picked.done && !closed && leaving && (
+                <>
+                  <p className="nc-cap" data-testid="note-leaving">
+                    {picked.row?.status === 'exiting'
+                      ? 'This note is leaving without the operator, so it takes no new conversation. The Close screen shows the steps left.'
+                      : 'This note is being closed, so it takes no new conversation. The Close screen shows where it stands.'}
+                  </p>
+                  <div className="nc-actions">
+                    <Button primary testId="note-follow" onClick={() => onClose(picked.rec.id)}>
+                      {picked.row?.status === 'exiting' ? 'Follow the exit' : 'Follow the close'}
+                    </Button>
+                  </div>
+                </>
+              )}
+              {picked.done && !leaving && (
                 <div className="nc-actions">
-                  <Button primary disabled={leaving} onClick={onChat}>
+                  <Button primary onClick={() => onChat(picked.rec.id)}>
                     Chat
                   </Button>
-                  <Button disabled={closed} onClick={onClose}>
-                    Close
-                  </Button>
+                  <Button onClick={() => onClose(picked.rec.id)}>Close</Button>
                 </div>
               )}
             </section>
@@ -411,13 +428,13 @@ export function Notes({
               })
             }
           >
-            add three sample notes
+            add sample notes
           </button>{' '}
           (nothing is sent anywhere).
         </p>
       )}
       {notes.length === 0 ? (
-        <NoteLedger columns={['Note', 'Balance', 'Its 30 days']}>
+        <NoteLedger columns={['Note', 'Balance', 'Day of 30']}>
           <div className="nc-ledger-empty">
             <Strip n={30} solid={0} size="sm" />
             <p>
@@ -463,7 +480,7 @@ export function Notes({
             </p>
           )}
           {shown.length > 0 && (
-            <NoteLedger columns={['Note', 'Balance', 'Its 30 days']} many={shown.length > 5}>
+            <NoteLedger columns={['Note', 'Balance', 'Day of 30']} many={shown.length > 5}>
               {shown.map((e, i) => {
                 const n = e.row;
                 return (
@@ -506,30 +523,37 @@ export function Notes({
                         )
                       }
                       actions={
-                        <>
+                        n?.status === 'closed' ? null : n?.status === 'closing' ||
+                          n?.status === 'exiting' ? (
                           <Button
-                            disabled={
-                              n?.status === 'closed' ||
-                              n?.status === 'closing' ||
-                              n?.status === 'exiting'
-                            }
+                            primary
                             onClick={() => {
                               setActiveId(e.rec.id);
-                              onChat();
+                              onClose(e.rec.id);
                             }}
                           >
-                            Chat
+                            {n.status === 'exiting' ? 'Follow exit' : 'Follow close'}
                           </Button>
-                          <Button
-                            disabled={n?.status === 'closed'}
-                            onClick={() => {
-                              setActiveId(e.rec.id);
-                              onClose();
-                            }}
-                          >
-                            Close
-                          </Button>
-                        </>
+                        ) : (
+                          <>
+                            <Button
+                              onClick={() => {
+                                setActiveId(e.rec.id);
+                                onChat(e.rec.id);
+                              }}
+                            >
+                              Chat
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                setActiveId(e.rec.id);
+                                onClose(e.rec.id);
+                              }}
+                            >
+                              Close
+                            </Button>
+                          </>
+                        )
                       }
                     />
                   </div>

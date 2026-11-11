@@ -135,3 +135,16 @@ describe('status gate', () => {
     expect(requestTime({ nonce: 'a', host: 'h', ts: 1_800_000_119 })).toBe(1_800_000_060);
   });
 });
+
+describe('estimateInputTokens (operator proxy.rs counts roles too)', () => {
+  it('counts the role bytes and a rounding margin on top of the content', async () => {
+    const { estimateInputTokens } = await import('../src/chat/session');
+    expect(estimateInputTokens([{ role: 'user', content: 'hi' }])).toBe(2n + 4n + 20n);
+    expect(
+      estimateInputTokens([
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'ok' },
+      ]),
+    ).toBe(2n + 4n + 2n + 9n + 20n);
+  });
+});

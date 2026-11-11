@@ -263,7 +263,7 @@ export function describeOperatorError(e: OperatorError | OperatorUnreachable): s
     case 'lease_concurrency':
       return 'Two requests are already running on this lease. Wait for one to finish.';
     case 'max_tokens_too_large':
-      return 'The answer limit does not fit what is left of the lease.';
+      return 'This lease has too little left for another answer. End the conversation and start a new one: the note keeps its balance.';
     case 'unsupported_request':
     case 'malformed_request':
     case 'unsupported_version':

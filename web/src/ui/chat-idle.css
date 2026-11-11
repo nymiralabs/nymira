@@ -526,6 +526,10 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+/* The bar shows while the pointer is over the thread: an idle screen has no stray line in it. */
+.nc[data-screen='chat'] .nc-chat-screen .nc-thread:hover {
   scrollbar-color: var(--nm-line) transparent;
 }
 .nc[data-screen='chat'] .nc-chat-screen > .nc-inspector {

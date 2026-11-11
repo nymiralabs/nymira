@@ -162,6 +162,35 @@ test('chat end to end: attested, encrypted, both signature kinds, token, cost, b
   expect(seen.violations).toEqual([]);
 });
 
+test('several messages in one conversation: each answer cap fits the operator\u2019s reservation', async ({
+  context,
+  page,
+  stack,
+}) => {
+  stack.reset();
+  await page.addInitScript(FAKE_PICKER);
+  await fundNote(page, context);
+  await openChat(page);
+  await startConversation(page);
+  for (const text of ['hi', 'and now a second one', 'a third, after two answers']) {
+    await say(page, text);
+    await expect(page.getByTestId('conversation')).toContainText(`echo: ${text}`);
+  }
+  await expect(page.getByTestId('chat-error')).toHaveCount(0);
+  // The disabled switch keeps its real input out of sight: no stray box over the text.
+  await expect(page.getByTestId('long-job-side')).toBeDisabled();
+  await expect(page.getByTestId('long-job-side')).toHaveCSS('opacity', '0');
+  await endConversation(page);
+  // The sidebar's Save leads to the backup prompt and puts the cursor in it.
+  await page.getByTestId('backup-save').click();
+  await expect(page.locator('[data-testid="backup-prompt"] :focus')).toHaveCount(1);
+  // On another screen the owed backup shows as a strip that leads to the backup form.
+  await page.getByTestId('nav-notes').click();
+  await expect(page.getByTestId('backup-owed')).toBeVisible();
+  await page.getByTestId('backup-owed').getByRole('button', { name: 'Back up now' }).click();
+  await expect(page.getByTestId('notes-backup-passphrase')).toBeFocused();
+});
+
 test('nothing is encrypted, no proof is made and no lease opens when a check fails', async ({
   context,
   page,

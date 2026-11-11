@@ -569,6 +569,30 @@ export class MockStack {
       role: m.role,
       content: decrypt(modelKeys, m.content),
     }));
+    // The operator's reservation (proxy.rs `SpendBook::reserve`): one input token per byte of every
+    // field it reads, the role included; the worst case, rounded up to a whole micro-USD, must stay
+    // within 90% of what the lease has left after its finished requests.
+    {
+      const enc = new TextEncoder();
+      const price = { in: 80n, out: 500n };
+      const tokens = plain.reduce(
+        (n, m) => n + BigInt(enc.encode(m.role).length + enc.encode(m.content).length),
+        0n,
+      );
+      const micro = (nano: bigint) => (nano + 999n) / 1000n;
+      const worst = micro(tokens * price.in + BigInt(request.max_tokens ?? 0) * price.out);
+      const finished = lease.chats.reduce(
+        (n, c) => n + micro(BigInt(c.prompt) * price.in + BigInt(c.completion) * price.out),
+        0n,
+      );
+      if (worst * 10n > (lease.bound - finished) * 9n)
+        return this.error(
+          res,
+          400,
+          'max_tokens_too_large',
+          "the worst case does not fit the lease's remaining bound",
+        );
+    }
     const clientPub = fromHex(String(req.headers['x-client-pub-key']));
     const last = plain[plain.length - 1]?.content ?? '';
     const reply = `echo: ${last}`;

@@ -129,7 +129,13 @@ const AHEAD_MAX_MS = 120_000;
 const utf8 = (s: string) => new TextEncoder().encode(s);
 
 export function estimateInputTokens(messages: Message[]): bigint {
-  return messages.reduce((n, m) => n + BigInt(utf8(m.content).length), 0n);
+  // The operator counts one token per byte of every field it reads, the role included, and rounds
+  // the worst case up to a whole micro-USD. The margin covers that rounding for the dearest model.
+  const ROUNDING_MARGIN = 20n;
+  return messages.reduce(
+    (n, m) => n + BigInt(utf8(m.content).length) + BigInt(utf8(m.role).length),
+    ROUNDING_MARGIN,
+  );
 }
 
 /** Reads `config()`'s lease parameters as BigInt. */
@@ -597,6 +603,12 @@ export class ChatSession {
       throw e;
     }
     const body = JSON.stringify(sealed);
+    // When an accepted request fails without a signed usage (the provider timed out, the stream was
+    // cut or carried no usage), the operator keeps the whole reservation as spent. Count it here
+    // too, so the next answer limit is sized from what the operator will really allow.
+    const heldAsSpent = () => {
+      this.spentMicro += (input * spec.inputNano + BigInt(max) * spec.outputNano + 999n) / 1000n;
+    };
     let response: Response;
     try {
       response = await this.deps.operator.chat(
@@ -613,6 +625,7 @@ export class ChatSession {
       try {
         await OperatorClient.failure(response);
       } catch (e) {
+        if (e instanceof OperatorError && e.code === 'provider_timeout') heldAsSpent();
         throw this.wrap(e);
       }
     }
@@ -671,13 +684,16 @@ export class ChatSession {
       }
     } catch (e) {
       if (e instanceof E2eeError) throw new ChatError('decrypt_failed', e.message);
+      heldAsSpent();
       throw new ChatError('provider_error', 'The answer could not be read.');
     }
-    if (!usage)
+    if (!usage) {
+      heldAsSpent();
       throw new ChatError(
         'provider_error',
         'The answer carries no usage, so its cost cannot be checked.',
       );
+    }
     const prompt = usage.prompt_tokens ?? 0;
     const completion = usage.completion_tokens ?? 0;
     const cost = costNano(spec, BigInt(prompt), BigInt(completion));
