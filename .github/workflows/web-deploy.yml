@@ -108,6 +108,8 @@ jobs:
           ref: ${{ inputs.policy_ref || 'main' }}
           path: policy-src
           persist-credentials: false
+      # The policy tool is a nymirad example: without a cache it is compiled from scratch each run.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Verify the policy and put it beside the release
         env:
           PROFILE: ${{ inputs.profile }}
