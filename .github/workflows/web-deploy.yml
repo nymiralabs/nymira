@@ -25,6 +25,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: web-deploy
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-24.04
