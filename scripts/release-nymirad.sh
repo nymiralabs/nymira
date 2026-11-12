@@ -67,15 +67,17 @@ build)
   # warm one differed), and anyone rebuilding from scratch starts cold.
   build() { # $1 = output directory
     mkdir -p "$1" "$1.registry"
-    # Path remapping and a fixed epoch keep the host's paths and clock out of the binary.
+    # Path remapping and a fixed epoch keep the host's paths and clock out of the binary. One job:
+    # with two, builds of one commit came out in two different forms (measured 2026-11-12, `ring` and
+    # `libsqlite3-sys` compile C in parallel); four builds with one job were identical.
     docker run --rm --platform linux/amd64 \
       -v "$work/src:/src:ro" -v "$1.registry:/usr/local/cargo/registry" -v "$1:/out" \
-      -e SOURCE_DATE_EPOCH="$epoch" -e CARGO_TARGET_DIR=/tmp/target -e CARGO_BUILD_JOBS=2 \
+      -e SOURCE_DATE_EPOCH="$epoch" -e CARGO_TARGET_DIR=/tmp/target -e CARGO_BUILD_JOBS=1 \
       -e RUSTFLAGS="--remap-path-prefix=/src=/nymira --remap-path-prefix=/usr/local/cargo=/cargo" \
       -w /src "$IMAGE" \
       sh -c 'cargo build --release --locked -p nymirad --bin nymirad && cp /tmp/target/release/nymirad /out/nymirad'
   }
-  # The two builds run side by side (each with two jobs) to halve the wait.
+  # The two builds run side by side to halve the wait.
   build "$work/a" & pid_a=$!
   build "$work/b" & pid_b=$!
   wait "$pid_a" || { echo "the first build failed" >&2; exit 1; }
