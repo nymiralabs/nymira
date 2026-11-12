@@ -66,25 +66,23 @@ jobs:
           cd web
           cp "releases/$PROFILE-$VERSION/manifest.json.minisig" "site-$PROFILE/"
           node scripts/integrity.mjs verify --site "site-$PROFILE" --pubkey pins/release-signing.pub
-      # A newer signed policy beside the release (ADR 0021). The page takes it only if it verifies
-      # under the signer key of the release and is newer than the policy bundled in it, so the
+      # The current signed policy beside the release (ADR 0021). The page takes it only if it verifies
+      # under the signer key of the release and is not older than the policy bundled in it, so the
       # signed bundle stays as it was. The tool loads it the way a client does; an unsigned or
       # older file stops the deploy here.
-      - name: Take the newer policy from its commit
-        if: inputs.policy_ref != ''
+      - name: Take the policy from its commit (main when no commit is given)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.policy_ref }}
+          ref: ${{ inputs.policy_ref || 'main' }}
           path: policy-src
           persist-credentials: false
-      - name: Verify the newer policy and put it beside the release
-        if: inputs.policy_ref != ''
+      - name: Verify the policy and put it beside the release
         env:
           PROFILE: ${{ inputs.profile }}
         run: |
           bundled=$(node -e "console.log(JSON.parse(require('fs').readFileSync('web/pins/attestation-policy.json','utf8')).version)")
           cargo run --locked -q -p nymirad --example policy_tool -- verify \
-            web/pins/policy-signer.pub policy-src/web/pins/attestation-policy.json "$((bundled + 1))"
+            web/pins/policy-signer.pub policy-src/web/pins/attestation-policy.json "$bundled"
           cp policy-src/web/pins/attestation-policy.json "web/site-$PROFILE/attestation-policy.json"
           node web/scripts/integrity.mjs verify --site "web/site-$PROFILE" --pubkey web/pins/release-signing.pub
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
