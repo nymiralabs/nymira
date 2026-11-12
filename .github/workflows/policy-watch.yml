@@ -115,7 +115,7 @@ jobs:
           tag="$(git tag --list 'web-v*' --sort=-version:refname | head -1)"
           # A push made with the workflow token starts no workflow, so web-deploy is started here.
           gh workflow run web-deploy.yml --repo "$GITHUB_REPOSITORY" \
-            -f ref="$tag" -f profile=testnet -f version="${tag#web-v}" -f policy_ref="$(git rev-parse HEAD)"
+            -f ref="$tag" -f profile=testnet -f version="${tag#web-v}" -f policy_only=true -f policy_ref="$(git rev-parse HEAD)"
       - name: Record it in an issue
         if: always() && steps.sign.outputs.signed == 'true'
         env:

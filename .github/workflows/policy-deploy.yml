@@ -42,4 +42,4 @@ jobs:
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
           gh workflow run web-deploy.yml --repo "$GITHUB_REPOSITORY" \
-            -f ref="$TAG" -f profile=testnet -f version="$VERSION" -f policy_ref="$GITHUB_SHA"
+            -f ref="$TAG" -f profile=testnet -f version="$VERSION" -f policy_only=true -f policy_ref="$GITHUB_SHA"

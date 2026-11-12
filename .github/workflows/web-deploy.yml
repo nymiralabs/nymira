@@ -17,6 +17,10 @@ on:
       version:
         description: "Version in the signed manifest"
         required: true
+      policy_only:
+        description: "true: the policy changed and the release did not. Reuse the site of an earlier deploy of this release (checked against the signed manifest again) instead of rebuilding it; a full rebuild runs when none is found."
+        required: false
+        default: "false"
       policy_ref:
         description: "Optional: a commit whose web/pins/attestation-policy.json is a newer signed policy to put beside the release (ADR 0021). Empty: none."
         required: false
@@ -32,6 +36,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
@@ -50,7 +57,32 @@ jobs:
           test -f "web/releases/$PROFILE-$VERSION/manifest.json.minisig" || { echo "unsigned build: web/releases/$PROFILE-$VERSION/manifest.json.minisig is missing" >&2; exit 1; }
       # The release is rebuilt in the pinned container of web/Dockerfile.repro, the same one an
       # outside rebuilder uses (web/INTEGRITY.md), so the signed manifest is the one every rebuild gives.
+      # A policy-only deployment: the signed bundle is the one an earlier run already built and
+      # verified. Its artifact is taken only when its manifest is byte for byte the signed one;
+      # the signature and every file hash are checked again below. No such artifact (it expires
+      # after seven days): the full rebuild runs.
+      - name: Reuse the site of an earlier deploy of this release
+        id: reuse
+        if: inputs.policy_only == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ inputs.profile }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow web-deploy.yml --status success --limit 15 --json databaseId --jq '.[].databaseId'); do
+            rm -rf "web/site-$PROFILE"
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" -n site -D "web/site-$PROFILE" 2>/dev/null || continue
+            if cmp -s "web/releases/$PROFILE-$VERSION/manifest.json" "web/site-$PROFILE/manifest.json"; then
+              echo "reusing the site of run $id"
+              echo "ok=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          rm -rf "web/site-$PROFILE"
+          echo "no earlier site of $VERSION found: rebuilding"
       - name: Rebuild in the pinned container and compare with the signed manifest
+        if: steps.reuse.outputs.ok != 'true'
         env:
           PROFILE: ${{ inputs.profile }}
           VERSION: ${{ inputs.version }}

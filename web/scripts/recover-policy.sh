@@ -59,7 +59,7 @@ remote="$(git ls-remote origin refs/heads/main | cut -f1)"
 echo "The current policy is not live; starting a deployment for $tag"
 if [ "$current" -gt "$bundled" ]; then
   gh workflow run web-deploy.yml --repo "$GITHUB_REPOSITORY" \
-    -f ref="$tag" -f profile=testnet -f version="${tag#web-v}" -f policy_ref="$sha"
+    -f ref="$tag" -f profile=testnet -f version="${tag#web-v}" -f policy_only=true -f policy_ref="$sha"
 else
   gh workflow run web-deploy.yml --repo "$GITHUB_REPOSITORY" \
     -f ref="$tag" -f profile=testnet -f version="${tag#web-v}"
