@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Website](https://nymira.pages.dev) · [Documentation](https://nymira.pages.dev/#docs) · [Try it in 20 minutes](../JUDGES.md) · [Threat model](../THREAT_MODEL.md) · [Releases](https://github.com/nymiralabs/nymira/releases)
 
-The Nymira web app: a landing page, a documentation page (`#docs`) and the app screens Chat, Fund, Notes, Close and Agents. A URL hash such as `#fund` opens a screen. Fund can also show cross-chain quotes from 1Click. Unknown paths show a 404 page. Release 0.1.3 is the one served at <https://nymira.pages.dev>.
+The Nymira web app: a landing page, a documentation page (`#docs`) and the app screens Chat, Fund, Notes, Close and Agents. A URL hash such as `#fund` opens a screen. Fund can also show cross-chain quotes from 1Click. Unknown paths show a 404 page. Release 0.1.9 is the one served at <https://nymira.pages.dev>.
 
 The app is a static bundle: Vite 8, React 19, TypeScript. It has no backend and loads no script, font or analytics from another host. It ships two self-hosted IBM Plex fonts. Everything below says what it does and what it cannot promise.
 
@@ -225,7 +225,7 @@ The full rules, byte by byte, are in [`INTEGRITY.md`](INTEGRITY.md). In short:
 - **Dependencies.** Lockfile installs with scripts off; `scripts/check-deps.mjs` and `npm audit signatures` run in a read-only CI job with no secrets and no cache. `check:bundle` refuses test-only content, the dev-setup wallet core and keys in the testnet and mainnet bundles. `scripts/check-release-binary.sh` (repository root) shows the release `nymirad` has no `mock` feature and no demo strings.
 - **Bundle hash.** Printed in each release's notes (`releases/RELEASE_NOTES_TEMPLATE.md`) and shown in the app footer from `/manifest.json`.
 
-The release public key is pinned in `pins/release-signing.pub` (minisign key ID `934C176AF34D794D`, SHA-256 `989781b59bd85e30fb99555ef7551b1a1c097d4eb4e2be0159d284a579dea1ff`) and compiled into `nymirad`. Releases 0.1.0, 0.1.1, 0.1.2 and 0.1.3 of the testnet profile are signed with it (`releases/`). The places the fingerprint is published are listed in `INTEGRITY.md`, with the public log entries made for 0.1.2 and 0.1.3. The mainnet release gets its own key and a new pin.
+The release public key is pinned in `pins/release-signing.pub` (minisign key ID `934C176AF34D794D`, SHA-256 `989781b59bd85e30fb99555ef7551b1a1c097d4eb4e2be0159d284a579dea1ff`) and compiled into `nymirad`. Releases 0.1.0 to 0.1.9 of the testnet profile are signed with it (`releases/`). The places the fingerprint is published are listed in `INTEGRITY.md`, with the public log entries made for 0.1.2 to 0.1.9. The mainnet release gets its own key and a new pin.
 
 **What remains.** A compromised host could serve a different app. The signed manifest and `nymirad verify-web` let a user compare what the host serves with what the key signed, but only if the user runs it, and not if the host shows `verify-web` a clean copy. Reading the footer hash is no check.
 

@@ -36,7 +36,7 @@ Paths are relative to the site root (`https://nymira.pages.dev/`).
 | `integrity/files.txt`     | The bundle listing. Its SHA-256 is `bundle_hash`.                                           |
 | `integrity/headers.txt`   | The signed header set. Its SHA-256 is `header_set_hash`.                                    |
 | `_headers`                | The Cloudflare Pages header file. Served by no one (Pages consumes it); not hashed.         |
-| `attestation-policy.json` | Optional. A newer signed attestation policy than the one in the bundle; not hashed (below). |
+| `attestation-policy.json` | Optional. The current signed attestation policy of `main`, put beside every release; the page takes it only when its version is higher than the bundled one; not hashed (below). |
 | every other file          | The bundle: each one is a line of `integrity/files.txt`.                                    |
 
 The mirror (`https://nymiralabs.github.io/nymira/`) holds the same files except that it cannot send
@@ -78,6 +78,27 @@ with `policy_tool verify` (signature, a version not below the bundled one, stric
 verified site and runs `integrity.mjs verify` again. `check-live.mjs` compares the live file with the
 one that was deployed. `verify-web` is unchanged: it checks the bundle, and the policy file checks
 itself.
+
+A `policy_only` run of `web-deploy` skips the rebuild: it takes the `site` artifact of an earlier
+successful run of the same release, accepts it only when its `manifest.json` is byte for byte the
+signed one, checks the signature and every file hash again, and adds the policy file. Measured on
+12 November 2026: 3 min 35 s with a warm cargo cache against about 18 minutes with the rebuild;
+with no such artifact (they expire after seven days) the rebuild runs. The deploy retries the
+GitHub Pages step a bounded number of times, names each artifact by attempt, runs one deployment at
+a time, and refuses to replace a policy the host serves with an older one; a live file that is not a
+policy is replaced, an HTTP error status stops the run.
+
+`nymirad` 0.1.5 and later fetch this file from the two hosts every 15 minutes through their own
+proxy. The file takes effect only when it verifies under the pinned policy signer, is not below the
+minimum version and is strictly higher than the policy in force; it is saved to the state directory
+and the verifier is swapped. Earlier releases do not fetch.
+
+Three scheduled workflows watch from outside. `live-health` (every 30 minutes) checks that both
+hosts serve the manifest of a signed release and the policy of `main`, and that NEAR AI's attestation
+report and the Intel collateral service answer. `attestation-health` (every six hours) verifies
+NEAR AI's live evidence the way the signing job does and compares it with the policy.
+`nymirad-policy-age` fails while the newest `nymirad` release carries an older policy than `main`.
+GitHub emails the repository admins when one of them fails.
 
 ## Bundle hash
 
@@ -409,7 +430,7 @@ only `sign` needs the key, and it only calls `minisign`, which asks for the pass
 
 A user checks a download with `minisign -V -p release-signing.pub -m SHA256SUMS` and
 `shasum -a 256 -c SHA256SUMS`. Only the linux x86_64 binary is built this way. The macOS arm64
-binary is built by the `nymirad-macos` workflow, added with `release-nymirad.sh add-macos` and signed again. It is not reproducible.
+binary is built by the `nymirad-macos` workflow or, when no CI runner is available (0.1.5), by hand on the maintainers' Mac from a clean checkout of the tag, added with `release-nymirad.sh add-macos` and signed again. It is not reproducible.
 
 ## Dependencies
 
