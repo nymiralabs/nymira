@@ -149,7 +149,7 @@ Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum
 
 ## Download `nymirad`
 
-Get the binary from the [releases page](https://github.com/nymiralabs/nymira/releases) (the newest is [nymirad-v0.1.5](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.5)). Each `nymirad-vX.Y.Z` release has the two binaries, `attestation-policy.json` and a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in [`web/pins/release-signing.pub`](web/pins/release-signing.pub)) that lists every file. The steps are the same on both platforms:
+Get the binary from the [releases page](https://github.com/nymiralabs/nymira/releases) (the newest is [nymirad-v0.1.5](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.5)). Each `nymirad-vX.Y.Z` release has the two binaries, `attestation-policy.json` and a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in [`web/pins/release-signing.pub`](web/pins/release-signing.pub)) that lists every file. The SHA-256 of the 0.1.5 binaries is `3f641859…97994c391` (Linux x86_64) and `d727d116…1ea9665` (macOS arm64); a public Sigstore Rekor entry ([index 3832813402](https://search.sigstore.dev/?logIndex=3832813402)) holds the full values, as [`web/INTEGRITY.md`](web/INTEGRITY.md) shows. The steps are the same on both platforms:
 
 <p align="center">
   <picture>

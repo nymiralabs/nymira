@@ -312,6 +312,17 @@ If the fingerprint here and one of those copies differ, treat the site as compro
 
 ### Published copies
 
+- **Sigstore Rekor, `nymirad` 0.1.5 (testnet).** Log index 3832813402,
+  <https://rekor.sigstore.dev/api/v1/log/entries/108e9186e8c5677adc45a00f8e605873d8df22e725b175df568db71c73cbdaca323e30c9a7db2a96>.
+  The SHA-256 of the five-line text below (`3a50bd0643604dcb30f2ed25f7f55191a7b6604537b55baa2f903a51c035b591`, newline after each line) and a signature by a throwaway P-256 key that was deleted after the upload. The hashes are the two binaries of the release; `SHA256SUMS` in the release, signed with the release key, lists them with `attestation-policy.json` (`de1979bf6ae645f2b85f19f35a2cdf884adb25b18e9dec0aa9998c3bde5a8aa8`) and `TERMS.md`.
+
+  ```
+  nymira nymirad release 0.1.5
+  linux_x86_64 3f64185952c342cef941f2f5fc09d737622be30ad0a751beea0d3caf7994c391
+  macos_arm64 d727d116dc36cc979849ce0fc6d65b3c848be360a213b45bd0838eb611ea9665
+  release_key RWRNeU3zahdMk2rmQPahPnpzK1uTMiD3Jv8PaJqgRpAfSQMfROKKxhkV (minisign key id 934C176AF34D794D)
+  ```
+
 - **Sigstore Rekor, web 0.1.9 (testnet).** Log index 3831811640,
   <https://rekor.sigstore.dev/api/v1/log/entries/108e9186e8c5677aadc11114700b4eadcbc176769754226be3ad12305d2404579444f650326f73d5>.
   Same form as the entry for 0.1.8: the SHA-256 of the four-line text below
