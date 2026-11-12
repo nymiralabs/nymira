@@ -1,0 +1,65 @@
+# Outside check on what users get: both hosts serve a signed release and the current policy, and
+# the two outside services the app needs to attest NEAR AI answer. GitHub emails the repository
+# admins when this run fails. It only reads; it deploys nothing.
+name: live-health
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosts:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - https://nymira.pages.dev
+          - https://nymiralabs.github.io/nymira
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The manifest is a signed release and the policy is the current one
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          # A deploy takes minutes: look three times before calling a difference a fault.
+          ok=0
+          for attempt in 1 2 3; do
+            problems=""
+            curl -fsS --max-time 30 --retry 2 "$HOST/manifest.json" -o live-manifest.json || problems="$problems manifest unreachable;"
+            curl -fsS --max-time 30 --retry 2 "$HOST/attestation-policy.json" -o live-policy.json || problems="$problems policy unreachable;"
+            if [ -z "$problems" ]; then
+              version="$(jq -r .version live-manifest.json)"
+              signed="web/releases/testnet-$version/manifest.json"
+              [ -f "$signed" ] || problems="$problems version $version has no signed manifest in main;"
+              [ -f "$signed" ] && ! cmp -s live-manifest.json "$signed" && problems="$problems manifest differs from the signed $version one;"
+              cmp -s live-policy.json web/pins/attestation-policy.json || problems="$problems policy differs from main (live v$(jq -r .version live-policy.json), main v$(jq -r .version web/pins/attestation-policy.json));"
+            fi
+            if [ -z "$problems" ]; then ok=1; break; fi
+            echo "attempt $attempt:$problems"
+            [ "$attempt" -lt 3 ] && sleep 120
+          done
+          [ "$ok" = 1 ] || { echo "$HOST is not healthy" >&2; exit 1; }
+          echo "$HOST serves release $(jq -r .version live-manifest.json) and policy v$(jq -r .version live-policy.json)"
+
+  upstream:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: NEAR AI answers an attestation request
+        run: |
+          nonce="$(openssl rand -hex 32)"
+          curl -fsS --max-time 30 --retry 2 \
+            "https://cloud-api.near.ai/v1/attestation/report?nonce=$nonce&signing_algo=ed25519&include_tls_fingerprint=false" \
+            | jq -e '.model_attestations or .gateway_attestation or .intel_quote' >/dev/null \
+            || { echo "NEAR AI attestation report is missing or unreadable" >&2; exit 1; }
+      - name: The Intel collateral service answers
+        run: |
+          # A TDX quote cannot be checked without collateral (TCB info, QE identity, CRLs).
+          curl -fsS --max-time 30 --retry 2 -o /dev/null "https://pccs.phala.network/sgx/certification/v4/rootcacrl" \
+            || { echo "the collateral service did not answer" >&2; exit 1; }

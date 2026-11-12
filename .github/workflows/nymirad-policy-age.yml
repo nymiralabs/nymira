@@ -1,0 +1,36 @@
+# A nymirad release carries the attestation policy that was current when it was built. When NEAR AI
+# redeploys, a newer signed policy reaches the website at once, but an installed nymirad keeps its
+# compiled one until its user drops the new file into the state directory or installs a newer
+# release. This run fails once a day while the newest nymirad release lags the policy on main, so
+# GitHub emails the admins that a release is due.
+name: nymirad-policy-age
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  age:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: The newest nymirad release carries the current policy
+        run: |
+          set -euo pipefail
+          tag="$(git tag -l 'nymirad-v*' | sort -V | tail -1)"
+          [ -n "$tag" ] || { echo "no nymirad release tag" >&2; exit 1; }
+          pins=crates/nymirad/pins/attestation-policy.json
+          have="$(git show "$tag:$pins" | jq -r .version)"
+          now="$(jq -r .version "$pins")"
+          echo "$tag carries policy v$have; main has v$now"
+          if [ "$have" -lt "$now" ]; then
+            echo "a nymirad release is due: $tag refuses what policy v$now accepts (a user can also drop the signed file into the state directory)" >&2
+            exit 1
+          fi
