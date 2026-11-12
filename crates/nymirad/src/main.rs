@@ -220,7 +220,7 @@ async fn build_gateway(
         Mode::Testnet => nymira_near_codec::Network::Testnet,
         Mode::Mainnet => nymira_near_codec::Network::Mainnet,
     };
-    let attestor = attestor(home, &cfg.operator_url, nras_direct);
+    let attestor = attestor(home, &cfg.operator_url, nras_direct, &transport);
     let gateway = Gateway::new(
         GatewayConfig {
             home: home.to_path_buf(),
@@ -308,6 +308,7 @@ fn attestor(
     home: &std::path::Path,
     _operator_url: &str,
     _nras_direct: bool,
+    _transport: &Transport,
 ) -> Arc<dyn nymirad::attest::Attestor> {
     // Demo builds check the fake gateway's test evidence against a policy signed by the demo key.
     let signer: [u8; 32] = std::fs::read_to_string(home.join("policy-signer.pub"))
@@ -330,24 +331,69 @@ fn attestor(
     home: &std::path::Path,
     operator_url: &str,
     nras_direct: bool,
+    transport: &Transport,
 ) -> Arc<dyn nymirad::attest::Attestor> {
     use nymirad::nearai::{NearAiAttestor, NrasMode};
-    match signed_policy(home) {
-        Ok(policy) => {
-            let mode = if nras_direct {
-                NrasMode::Direct
-            } else {
-                NrasMode::Relay {
-                    operator_url: operator_url.to_string(),
-                }
-            };
-            Arc::new(NearAiAttestor::new(policy).with_nras_mode(mode))
-        }
-        Err(why) => {
-            eprintln!("warning: {why}; chat requests will be refused");
-            Arc::new(nymirad::attest::Unavailable)
-        }
+    let operator_url = operator_url.to_string();
+    let build = move |policy: &nymirad::attest::Policy| -> Result<Arc<dyn nymirad::attest::Attestor>, String> {
+        check_usable(policy)?;
+        let mode = if nras_direct {
+            NrasMode::Direct
+        } else {
+            NrasMode::Relay {
+                operator_url: operator_url.clone(),
+            }
+        };
+        Ok(Arc::new(NearAiAttestor::new(policy.clone()).with_nras_mode(mode)))
+    };
+    let (version, current): (u32, Arc<dyn nymirad::attest::Attestor>) =
+        match signed_policy(home).and_then(|p| build(&p).map(|a| (p.version, a))) {
+            Ok(found) => found,
+            Err(why) => {
+                eprintln!(
+                    "warning: {why}; chat requests will be refused until a signed policy arrives"
+                );
+                (0, Arc::new(nymirad::attest::Unavailable))
+            }
+        };
+    let Some(signer) = policy_signer() else {
+        return current;
+    };
+    let follower =
+        nymirad::policy_sync::Follower::new(home, signer, version, current, Box::new(build));
+    match nymirad::webverify::compiled() {
+        Ok((_, origins)) => follower.spawn(
+            transport.clone(),
+            origins.iter().map(|o| o.to_string()).collect(),
+            POLICY_REFRESH,
+        ),
+        Err(why) => eprintln!("warning: attestation policy is not refreshed: {why}"),
     }
+    follower
+}
+
+/// How often a running nymirad looks for a newer signed policy.
+#[cfg(not(feature = "mock"))]
+const POLICY_REFRESH: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+#[cfg(not(feature = "mock"))]
+fn policy_signer() -> Option<[u8; 32]> {
+    hex::decode(include_str!("../pins/policy-signer.pub").trim())
+        .ok()
+        .and_then(|b| b.try_into().ok())
+}
+
+/// What a policy must have for this build to use it: a deployment, and NVIDIA pins when the
+/// build enforces the chain check.
+#[cfg(not(feature = "mock"))]
+fn check_usable(policy: &nymirad::attest::Policy) -> Result<(), String> {
+    if policy.deployments.is_empty() {
+        return Err("attestation-policy.json lists no deployment".into());
+    }
+    if ENFORCE_NVIDIA_PINS {
+        policy.require_nvidia_pins().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// The signed policy in force: the one shipped with this build, or a newer signed one in the

@@ -42,6 +42,7 @@ pub mod optin;
 pub mod ownersock;
 pub mod pins;
 pub mod policy;
+pub mod policy_sync;
 pub mod quotes;
 pub mod ramdir;
 #[cfg(feature = "mock")]
