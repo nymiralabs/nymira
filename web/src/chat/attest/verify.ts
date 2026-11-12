@@ -53,11 +53,12 @@ export interface Evidence {
 }
 
 export class AttestationError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-  ) {
+  readonly code: string;
+
+  // No parameter property: Node's type stripping (the policy signer's scripts) cannot run one.
+  constructor(code: string, message: string) {
     super(message);
+    this.code = code;
     this.name = 'AttestationError';
   }
 }
@@ -163,23 +164,35 @@ export function replayRtmr3(
 const equalBytes = (a: Uint8Array, b: Uint8Array): boolean =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
-function matchDeployments(policy: Policy, role: 'model' | 'gateway', f: QuoteFacts): Deployment[] {
+function matchDeployments(
+  policy: Policy,
+  role: 'model' | 'gateway',
+  f: Authenticated['measured'],
+): Deployment[] {
   const same = (d: Deployment) =>
     d.mr_td === f.mr_td && d.rtmr0 === f.rtmr0 && d.rtmr1 === f.rtmr1 && d.rtmr2 === f.rtmr2;
   return policy.deployments.filter((d) => d.role === role && same(d));
 }
 
+/** What a report entry proves on its own, before any policy is asked: the deployment it measures. */
+export interface Authenticated {
+  verified: Verified;
+  /** The measured tuple of the deployment, from the quote (lower-case hex). */
+  measured: { mr_td: string; rtmr0: string; rtmr1: string; rtmr2: string };
+}
+
 /**
- * Verifies one report entry for `role` under `nonce`. Throws `AttestationError` with a stable
- * `code` on the first failed check.
+ * Checks everything about one report entry that does not need a policy: the quote against
+ * Intel's root, TCB status, debug flag, nonce and signer binding, RTMR3 replay, the compose
+ * file against `mr_config_id`, and for a model the GPU payload's nonce and the key. It does not
+ * ask whether the measured deployment is one anybody accepts.
  */
-export async function verifyEvidence(
+export async function authenticateEvidence(
   role: 'model' | 'gateway',
   evidence: Evidence,
   nonce: string,
-  policy: Policy,
   quote: QuoteVerifier,
-): Promise<Verified> {
+): Promise<Authenticated> {
   const expected = hexBytes(nonce, 32, 'the nonce');
   if (!equalBytes(hexBytes(evidence.request_nonce, 32, 'the report nonce'), expected)) {
     fail('nonce_mismatch', 'the report answers another nonce');
@@ -193,7 +206,7 @@ export async function verifyEvidence(
     fail('report_data_mismatch', 'the advertised report data differs from the quote’s');
   }
   if (facts.debug) fail('debug_enabled', 'the enclave runs in debug mode');
-  if (!policy.accepted_tcb_statuses.includes(facts.status) || facts.status !== STRICT_TCB) {
+  if (facts.status !== STRICT_TCB) {
     fail('tcb_status', `the TCB status is ${facts.status}; only ${STRICT_TCB} is accepted`);
   }
   const rd = fromHex(facts.report_data);
@@ -216,18 +229,6 @@ export async function verifyEvidence(
   }
   if (!runtime.composeHash || !runtime.osImageHash) {
     fail('deployment_rejected', 'the event log lacks the compose or OS image hash');
-  }
-
-  const matched = matchDeployments(policy, role, facts);
-  if (matched.length === 0) {
-    fail('measurement_not_accepted', 'the measured deployment is not in the signed policy');
-  }
-  if (
-    !matched.some(
-      (d) => acceptsCompose(d, runtime.composeHash!) && d.os_image_hash === runtime.osImageHash,
-    )
-  ) {
-    fail('deployment_rejected', 'the compose or OS image hash is not in the signed policy');
   }
 
   let gpu: Verified['gpu'] = 'none';
@@ -253,15 +254,47 @@ export async function verifyEvidence(
     }
   }
   return {
-    role,
-    signingKey: toHex(address),
-    signingAddress: toHex(address),
-    tcbStatus: facts.status,
-    advisoryIds: facts.advisory_ids,
-    composeHash: runtime.composeHash!,
-    osImageHash: runtime.osImageHash!,
-    gpu,
+    verified: {
+      role,
+      signingKey: toHex(address),
+      signingAddress: toHex(address),
+      tcbStatus: facts.status,
+      advisoryIds: facts.advisory_ids,
+      composeHash: runtime.composeHash!,
+      osImageHash: runtime.osImageHash!,
+      gpu,
+    },
+    measured: { mr_td: facts.mr_td, rtmr0: facts.rtmr0, rtmr1: facts.rtmr1, rtmr2: facts.rtmr2 },
   };
+}
+
+/**
+ * Verifies one report entry for `role` under `nonce` and asks the policy whether the measured
+ * deployment is listed. Throws `AttestationError` with a stable `code` on the first failed check.
+ */
+export async function verifyEvidence(
+  role: 'model' | 'gateway',
+  evidence: Evidence,
+  nonce: string,
+  policy: Policy,
+  quote: QuoteVerifier,
+): Promise<Verified> {
+  if (!policy.accepted_tcb_statuses.includes(STRICT_TCB)) {
+    fail('tcb_status', `the policy does not accept ${STRICT_TCB}`);
+  }
+  const { verified, measured } = await authenticateEvidence(role, evidence, nonce, quote);
+  const matched = matchDeployments(policy, role, measured);
+  if (matched.length === 0) {
+    fail('measurement_not_accepted', 'the measured deployment is not in the signed policy');
+  }
+  if (
+    !matched.some(
+      (d) => acceptsCompose(d, verified.composeHash) && d.os_image_hash === verified.osImageHash,
+    )
+  ) {
+    fail('deployment_rejected', 'the compose or OS image hash is not in the signed policy');
+  }
+  return verified;
 }
 
 export interface ModelReport {

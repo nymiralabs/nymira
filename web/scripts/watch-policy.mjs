@@ -2,7 +2,10 @@
 // says whether the signed policy lists them (ADR 0021). Exit codes: 0 all listed, 3 something is
 // not listed (a draft goes to --draft), 4 the endpoints could not be read (not a finding).
 //   node scripts/watch-policy.mjs [--policy FILE] [--base URL] [--models a,b] [--draft OUT] [--json]
+//                                [--observed FILE]
 // It verifies no quote. A person records the evidence with `record_evidence`, checks it and signs.
+// --observed FILE reads the deployments from the output of `verify-live.mjs` instead of the network:
+// the policy signer's job drafts only from evidence that script has verified.
 import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -40,26 +43,33 @@ const get = async (path, query, headers = {}) => {
 };
 
 let observed = [];
+const observedFile = arg('--observed');
 try {
-  const nonce = () => randomBytes(32).toString('hex');
-  const gateway = await get('/v1/attestation/report', {
-    nonce: nonce(),
-    signing_algo: 'ed25519',
-    include_tls_fingerprint: 'false',
-  });
-  for (const model of models) {
-    const report = await get(
-      '/v1/attestation/report',
-      {
-        model,
-        provider: 'near',
-        nonce: nonce(),
-        include_tls_fingerprint: 'false',
-        signing_algo: 'ed25519',
-      },
-      { 'x-no-aliasing': 'true' },
-    );
-    observed.push(...observeReports(model, report, gateway));
+  if (observedFile) {
+    observed = JSON.parse(readFileSync(observedFile, 'utf8'));
+    if (!Array.isArray(observed) || observed.some((o) => !o?.role || !o?.compose_hash))
+      throw new Error(`${observedFile} is not a list of verified deployments`);
+  } else {
+    const nonce = () => randomBytes(32).toString('hex');
+    const gateway = await get('/v1/attestation/report', {
+      nonce: nonce(),
+      signing_algo: 'ed25519',
+      include_tls_fingerprint: 'false',
+    });
+    for (const model of models) {
+      const report = await get(
+        '/v1/attestation/report',
+        {
+          model,
+          provider: 'near',
+          nonce: nonce(),
+          include_tls_fingerprint: 'false',
+          signing_algo: 'ed25519',
+        },
+        { 'x-no-aliasing': 'true' },
+      );
+      observed.push(...observeReports(model, report, gateway));
+    }
   }
 } catch (e) {
   console.error(`could not read the attestation reports: ${e instanceof Error ? e.message : e}`);

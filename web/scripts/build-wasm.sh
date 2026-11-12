@@ -4,6 +4,7 @@
 #   near-codec     nymira-near-codec: the account-to-field mapping
 #   web-checks     nymira-web-wasm: the status nonce signature and Intel TDX quote verification
 #   zkapi-browser-dev, web-checks-test  test builds (mock profile and Node tests only)
+# WASM_ONLY=web-checks builds just the quote verifier (the policy signer's job needs nothing else).
 # wasm-bindgen-cli must be 0.2.117: both crates are pinned to that schema version.
 set -euo pipefail
 
@@ -45,21 +46,27 @@ zk_build() { # $1 = output directory name, rest = extra cargo args
   wasm-bindgen --target web --out-dir "$out/$name" \
     "${ZK_TARGET}"/wasm32-unknown-unknown/release/zkapi_browser.wasm
 }
-zk_build zkapi-browser
-zk_build zkapi-browser-dev --features dev-setup
+if [ -z "${WASM_ONLY:-}" ]; then
+  zk_build zkapi-browser
+  zk_build zkapi-browser-dev --features dev-setup
+fi
 
-cargo build --locked --release -p nymira-near-codec-wasm --target wasm32-unknown-unknown
-wasm-bindgen --target web --out-dir "$out/near-codec" \
-  "${WS_TARGET}"/wasm32-unknown-unknown/release/nymira_near_codec_wasm.wasm
+if [ -z "${WASM_ONLY:-}" ]; then
+  cargo build --locked --release -p nymira-near-codec-wasm --target wasm32-unknown-unknown
+  wasm-bindgen --target web --out-dir "$out/near-codec" \
+    "${WS_TARGET}"/wasm32-unknown-unknown/release/nymira_near_codec_wasm.wasm
+fi
 
 cargo build --locked --release -p nymira-web-wasm --target wasm32-unknown-unknown
 wasm-bindgen --target web --out-dir "$out/web-checks" \
   "${WS_TARGET}"/wasm32-unknown-unknown/release/nymira_web_wasm.wasm
 
-# The test operator (state key and signed responses) for the browser tests: never in a bundle.
-cargo build --locked --release -p nymira-web-wasm --features test-operator --target wasm32-unknown-unknown
-wasm-bindgen --target web --out-dir "$out/web-checks-test" \
-  "${WS_TARGET}"/wasm32-unknown-unknown/release/nymira_web_wasm.wasm
+if [ -z "${WASM_ONLY:-}" ]; then
+  # The test operator (state key and signed responses) for the browser tests: never in a bundle.
+  cargo build --locked --release -p nymira-web-wasm --features test-operator --target wasm32-unknown-unknown
+  wasm-bindgen --target web --out-dir "$out/web-checks-test" \
+    "${WS_TARGET}"/wasm32-unknown-unknown/release/nymira_web_wasm.wasm
+fi
 
 echo "wasm built: web/src/wasm"
 ls -l "$out"/*/*.wasm

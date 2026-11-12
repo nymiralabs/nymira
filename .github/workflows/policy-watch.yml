@@ -86,11 +86,25 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: Sign a new compose hash of the model, if that is all that is new
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: wasm-bindgen@0.2.117
+      # The signing step verifies NEAR AI's evidence itself, with the quote verifier of the app.
+      - name: Build the quote verifier (WASM) and install the web dependencies
+        run: |
+          WASM_ONLY=web-checks web/scripts/build-wasm.sh
+          cd web
+          npm ci --ignore-scripts
+      - name: Sign what a fresh, verified read shows is new
         id: sign
         env:
           POLICY_SIGNING_KEY: ${{ secrets.POLICY_SIGNING_KEY }}
+          # Testnet decision of the owner (ADR 0021): NEAR AI's verified live evidence may add a
+          # new image or new measurements without a person.
+          POLICY_AUTO_NEW_IMAGES: "1"
           POLICY_WATCH_PRETEND_MISSING: ${{ inputs.pretend_missing }}
         run: |
           echo "signed=false" >> "$GITHUB_OUTPUT"
@@ -105,7 +119,7 @@ jobs:
           NYMIRA_POLICY_KEY="$keyfile" AUTO_REPORT="$RUNNER_TEMP/report.md" scripts/policy-update.sh --auto || rc=$?
           case "$rc" in
             0) echo "signed=true" >> "$GITHUB_OUTPUT" ;;
-            5|6) echo "a person must sign (exit $rc)" ;;
+            5|6|7) echo "a person must sign (exit $rc)" ;;
             *) exit "$rc" ;;
           esac
       - name: Deploy it beside the web release that is live
@@ -152,7 +166,7 @@ jobs:
           {
             echo "NEAR AI's live attestation reports show deployments that policy version $version does not list. Chats on them are refused (\`deployment_rejected\`) until a newer signed policy is deployed."
             echo
-            echo "The watcher did not sign it: it signs only a new compose hash of the model on an image the policy lists, a few times a day, and only with the key in the \`policy-signing\` environment."
+            echo "The watcher did not sign it: it signs only deployments that a fresh read verified (Intel quote, TCB, nonce, signer, event log, compose), at most three times a day, and only with the key in the \`policy-signing\` environment. A read that did not verify, or too many new hashes at once, comes here."
             echo
             echo '```json'
             jq '.unknown' report.json

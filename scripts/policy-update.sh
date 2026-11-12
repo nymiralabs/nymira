@@ -37,11 +37,27 @@ case "$rc" in
 esac
 
 if [ "$AUTO" = 1 ]; then
-  # Only a new compose hash of the model, on measurements and an image the policy lists already.
-  # Anything else needs a person: a new image changes what the policy trusts.
+  # The read above takes quote fields as they are. What gets signed comes from a second, fresh
+  # read in which every entry is verified (Intel quote and TCB, nonce, signer, event log, compose),
+  # so an entry that does not verify, or a read that fails, signs nothing.
+  verified="$(mktemp)"
+  trap 'rm -f "$draft" "$verified"' EXIT
+  node --import "$ROOT/web/scripts/lib/register-ts.mjs" "$ROOT/web/scripts/verify-live.mjs" --out "$verified" \
+    || { echo "policy-update: the live evidence did not verify; a person must look" >&2; exit 7; }
+  rc=0
+  report="$(node web/scripts/watch-policy.mjs --observed "$verified" --json --draft "$draft")" || rc=$?
+  case "$rc" in
+    0) echo "Every verified deployment is listed. Nothing to sign."; exit 0 ;;
+    3) ;;
+    *) die "could not compare the verified evidence (exit $rc)" ;;
+  esac
   other="$(printf '%s' "$report" | node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(r.unknown.filter(u=>u.why!=="compose"||u.role!=="model").length)')"
   total="$(printf '%s' "$report" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).unknown.length)')"
-  [ "$other" = 0 ] || { echo "policy-update: a deployment other than a new model compose hash is not listed; a person must sign it" >&2; exit 5; }
+  # A new image or new measurements are signed unattended only when the owner turned that on
+  # (testnet: the owner trusts NEAR AI's live evidence for them; see ADR 0021).
+  if [ "${POLICY_AUTO_NEW_IMAGES:-0}" != 1 ]; then
+    [ "$other" = 0 ] || { echo "policy-update: a deployment other than a new model compose hash is not listed; a person must sign it" >&2; exit 5; }
+  fi
   [ "$total" -le 6 ] || { echo "policy-update: $total new hashes at once is too many to sign without a person" >&2; exit 5; }
   recent="$(git log --since='24 hours ago' --grep='^Policy version' --oneline | wc -l | tr -d ' ')"
   [ "$recent" -lt 3 ] || { echo "policy-update: $recent policy versions in the last 24 hours; a person must look" >&2; exit 6; }
@@ -78,7 +94,11 @@ hashes="$(printf '%s' "$report" | node -e 'const r=JSON.parse(require("fs").read
   echo
   echo "## Version $next"
   echo
-  echo "- Lists the deployments seen in NEAR AI's live attestation on $today and not listed before: $hashes. The values were read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use."
+  if [ "$AUTO" = 1 ]; then
+    echo "- Lists the deployments seen in NEAR AI's live attestation on $today and not listed before: $hashes. Signed unattended from a fresh read in which every entry verified (Intel quote and an UpToDate TCB, nonce and signer binding, event log, compose file); NVIDIA's GPU verdict was not checked. No reference NEAR AI publishes for these values is known: they are accepted on the provider's word."
+  else
+    echo "- Lists the deployments seen in NEAR AI's live attestation on $today and not listed before: $hashes. The values were read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use."
+  fi
   echo "- Everything else is as in version $current."
 } >> "$CHANGELOG"
 
@@ -88,11 +108,11 @@ echo "Committed: $(git log --oneline -1)"
 if [ "$AUTO" = 1 ]; then
   if [ -n "${AUTO_REPORT:-}" ]; then
     {
-      echo "The \`policy-watch\` workflow signed policy version $next without a person, because NEAR AI's live reports showed a new compose hash of the model on a machine image the policy already lists:"
+      echo "The \`policy-watch\` workflow signed policy version $next without a person, because NEAR AI's live reports showed deployments it did not list, and a fresh read verified every entry (Intel quote, TCB UpToDate, nonce and signer binding, event log, compose file; not NVIDIA's GPU verdict):"
       echo
       echo "$hashes"
       echo
-      echo "Measurements and OS image are unchanged. The commit is on \`main\`: \`$(git rev-parse --short HEAD)\`. If this looks wrong, revert it, and sign again by hand."
+      echo "The values are accepted on NEAR AI's word: no reference for them exists. The commit is on \`main\`: \`$(git rev-parse --short HEAD)\`. If this looks wrong, revert it, and sign again by hand."
     } > "$AUTO_REPORT"
   fi
 else
