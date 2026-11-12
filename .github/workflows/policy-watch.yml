@@ -49,6 +49,7 @@ jobs:
           node web/scripts/watch-policy.mjs --json --draft draft.json > report.json || code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "watch exit code: $code (0 listed, 3 not listed, 4 endpoints unreadable)"
+          if [ "$code" != 0 ] && [ "$code" != 3 ]; then exit "$code"; fi
       - name: Close the issue when everything is listed again
         if: steps.watch.outputs.code == '0'
         env:
@@ -98,13 +99,6 @@ jobs:
             5|6) echo "a person must sign (exit $rc)" ;;
             *) exit "$rc" ;;
           esac
-      - name: Record it in an issue
-        if: steps.sign.outputs.signed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh label create policy-auto --color 9dc9a4 --description "Policy signed by the watcher" 2>/dev/null || true
-          gh issue create --title "Policy signed automatically after a NEAR AI redeploy" --label policy-auto --body-file "$RUNNER_TEMP/report.md"
       - name: Deploy it beside the web release that is live
         if: steps.sign.outputs.signed == 'true'
         env:
@@ -114,6 +108,13 @@ jobs:
           # A push made with the workflow token starts no workflow, so web-deploy is started here.
           gh workflow run web-deploy.yml --repo "$GITHUB_REPOSITORY" \
             -f ref="$tag" -f profile=testnet -f version="${tag#web-v}" -f policy_ref="$(git rev-parse HEAD)"
+      - name: Record it in an issue
+        if: always() && steps.sign.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create policy-auto --color 9dc9a4 --description "Policy signed by the watcher" 2>/dev/null || true
+          gh issue create --title "Policy signed automatically after a NEAR AI redeploy" --label policy-auto --body-file "$RUNNER_TEMP/report.md"
 
   issue:
     needs: [watch, sign]
