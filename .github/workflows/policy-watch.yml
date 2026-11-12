@@ -53,12 +53,13 @@ jobs:
           echo "watch exit code: $code (0 listed, 3 not listed, 4 endpoints unreadable)"
           if [ "$code" != 0 ] && [ "$code" != 3 ]; then exit "$code"; fi
       - name: Recover a missing live policy deployment
+        id: recovery
         if: steps.watch.outputs.code == '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash web/scripts/recover-policy.sh
       - name: Close the issue when everything is listed again
-        if: steps.watch.outputs.code == '0'
+        if: steps.watch.outputs.code == '0' && steps.recovery.outputs.live == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

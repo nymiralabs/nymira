@@ -5,7 +5,7 @@ tag="$(git tag --list 'web-v*' --sort=-version:refname | head -1)"
 [ -n "$tag" ] || { echo 'No web release tag' >&2; exit 1; }
 bundled="$(git show "$tag:web/pins/attestation-policy.json" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).version)')"
 current="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("web/pins/attestation-policy.json","utf8")).version)')"
-if [ "$current" -le "$bundled" ]; then exit 0; fi
+if [ "$current" -le "$bundled" ]; then echo 'live=true' >> "${GITHUB_OUTPUT:-/dev/null}"; exit 0; fi
 live="$(mktemp)"
 trap 'rm -f "$live"' EXIT
 missing=false
@@ -22,7 +22,7 @@ for url in https://nymira.pages.dev/attestation-policy.json https://nymiralabs.g
     *) echo "Cannot check live policy: HTTP $status" >&2; exit 1 ;;
   esac
 done
-[ "$missing" = true ] || exit 0
+if [ "$missing" = false ]; then echo 'live=true' >> "${GITHUB_OUTPUT:-/dev/null}"; exit 0; fi
 active="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow web-deploy.yml --limit 100 --json status --jq 'any(.[]; .status != "completed")')"
 if [ "$active" = true ]; then echo 'A web deployment is already in progress'; exit 0; fi
 sha="$(git rev-parse HEAD)"
