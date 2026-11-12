@@ -1,12 +1,15 @@
 # A nymirad release carries the attestation policy that was current when it was built. When NEAR AI
 # redeploys, a newer signed policy reaches the website at once, but an installed nymirad keeps its
 # compiled one until its user drops the new file into the state directory or installs a newer
-# release. This run fails once a day while the newest nymirad release lags the policy on main, so
+# release. This run fails after each policy push and every six hours while the newest nymirad release lags the policy on main, so
 # GitHub emails the admins that a release is due.
 name: nymirad-policy-age
 on:
+  push:
+    branches: [main]
+    paths: ["crates/nymirad/pins/attestation-policy.json"]
   schedule:
-    - cron: '17 6 * * *'
+    - cron: '17 */6 * * *'
   workflow_dispatch:
 
 permissions:
