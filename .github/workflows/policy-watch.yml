@@ -54,7 +54,7 @@ jobs:
           if [ "$code" != 0 ] && [ "$code" != 3 ]; then exit "$code"; fi
       - name: Recover a missing live policy deployment
         id: recovery
-        if: steps.watch.outputs.code == '0'
+        if: always() && (steps.watch.outputs.code == '0' || steps.watch.outputs.code == '4')
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash web/scripts/recover-policy.sh

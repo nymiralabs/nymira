@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-function runRecovery(live: string, active = false) {
+function runRecovery(live: string, active = false, bundled = 5, mirrorFails = false) {
   const dir = mkdtempSync(join(tmpdir(), 'nymira-recovery-'));
   dirs.push(dir);
   const bin = join(dir, 'bin');
@@ -20,11 +20,11 @@ function runRecovery(live: string, active = false) {
     writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
   fake(
     'git',
-    `case "$1" in tag) echo web-v0.1.8;; show) echo '{"version":5}';; rev-parse|ls-remote) echo 1234567890123456789012345678901234567890;; esac`,
+    `case "$1" in tag) echo web-v0.1.8;; show) case "$2" in *web/releases*) echo '{"release":"new"}';; *) echo '{"version":${bundled}}';; esac;; rev-parse|ls-remote) echo 1234567890123456789012345678901234567890;; esac`,
   );
   fake(
     'curl',
-    `while [ "$1" != "-o" ]; do shift; done; cp '${join(dir, 'live')}' "$2"; printf 200`,
+    `while [ "$1" != "-o" ]; do shift; done; out="$2"; case "$*" in *github.io*) ${mirrorFails ? 'printf 503; exit' : ':'};; esac; case "$*" in *manifest.json*) echo '{"release":"old"}' > "$out";; *) cp '${join(dir, 'live')}' "$out";; esac; printf 200`,
   );
   fake(
     'gh',
@@ -61,5 +61,16 @@ describe('policy deployment recovery', () => {
     const { result, dispatch } = runRecovery('{"version":9}');
     expect(result.status).not.toBe(0);
     expect(dispatch).toBe('');
+  });
+  it('recovers an old site even when the latest release bundles the current policy', () => {
+    const { result, dispatch } = runRecovery('{"version":7}', false, 8);
+    expect(result.status).toBe(0);
+    expect(dispatch).toContain('ref=web-v0.1.8');
+    expect(dispatch).not.toContain('policy_ref=');
+  });
+  it('recovers the primary site when the mirror is unavailable', () => {
+    const { result, dispatch } = runRecovery('{"version":7}', false, 5, true);
+    expect(result.status).toBe(0);
+    expect(dispatch).toContain('ref=web-v0.1.8');
   });
 });
