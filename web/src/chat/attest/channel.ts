@@ -16,6 +16,16 @@ export interface PolicySource {
   note?: string;
 }
 
+/** Check for updates on each conversation, retaining the newest policy seen in this page. */
+export function policyUpdates(bundled: Policy, signerPk: string, get: typeof fetch = fetch) {
+  let current: PolicySource = { policy: bundled, from: 'bundle' };
+  return async (): Promise<PolicySource> => {
+    const next = await newerPolicy(current.policy, signerPk, get);
+    if (next.policy.version > current.policy.version) current = next;
+    return current;
+  };
+}
+
 export async function newerPolicy(
   bundled: Policy,
   signerPk: string,

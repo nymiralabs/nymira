@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ed25519 } from '@noble/curves/ed25519.js';
-import { newerPolicy, SIDE_FILE } from '../src/chat/attest/channel';
+import { newerPolicy, policyUpdates, SIDE_FILE } from '../src/chat/attest/channel';
 import { signedText, type Policy } from '../src/chat/attest/policy';
 import { toHex } from '../src/crypto/bytes';
 
@@ -28,6 +28,18 @@ const answer =
     new Response(body, { status });
 
 describe('a newer policy beside the bundle', () => {
+  it('checks again for each conversation and keeps the newest verified policy if the site fails or rolls back', async () => {
+    let response = answer(JSON.stringify(newer(7)));
+    const get: typeof fetch = (input, init) => response(input, init);
+    const current = policyUpdates(bundled, pk, get);
+    expect((await current()).policy.version).toBe(7);
+    response = answer(JSON.stringify(newer(8)));
+    expect((await current()).policy.version).toBe(8);
+    response = answer('', 503);
+    expect((await current()).policy.version).toBe(8);
+    response = answer(JSON.stringify(newer(7)));
+    expect((await current()).policy.version).toBe(8);
+  });
   it('is used when it is signed by the bundled key and its version is higher', async () => {
     const got = await newerPolicy(bundled, pk, answer(JSON.stringify(newer(7))));
     expect(got.from).toBe('site');
