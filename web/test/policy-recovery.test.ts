@@ -68,8 +68,18 @@ describe('policy deployment recovery', () => {
     expect(dispatch).toContain('ref=web-v0.1.8');
     expect(dispatch).not.toContain('policy_ref=');
   });
+  it('does not remove a newer side policy when checking a bundled release', () => {
+    const { result, dispatch } = runRecovery('{"version":9}', false, 8);
+    expect(result.status).not.toBe(0);
+    expect(dispatch).toBe('');
+  });
   it('recovers the primary site when the mirror is unavailable', () => {
     const { result, dispatch } = runRecovery('{"version":7}', false, 5, true);
+    expect(result.status).toBe(0);
+    expect(dispatch).toContain('ref=web-v0.1.8');
+  });
+  it('recovers the primary bundled release when the mirror is unavailable', () => {
+    const { result, dispatch } = runRecovery('{"version":7}', false, 8, true);
     expect(result.status).toBe(0);
     expect(dispatch).toContain('ref=web-v0.1.8');
   });

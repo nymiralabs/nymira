@@ -17,6 +17,21 @@ else
 fi
 missing=false
 for host in https://nymira.pages.dev https://nymiralabs.github.io/nymira; do
+  if [ "$path" = manifest.json ]; then
+    side_status="$(curl -sS --max-time 20 --retry 2 -o "$live" -w '%{http_code}' "$host/attestation-policy.json")" || side_status=network_error
+    case "$side_status" in
+      200)
+        side_version="$(node -e 'try { const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version; console.log(Number.isSafeInteger(v) ? v : 0); } catch { console.log(0); }' "$live")"
+        [ "$side_version" -le "$current" ] || { echo 'Live policy is newer than this checkout' >&2; exit 1; }
+        ;;
+      404) ;;
+      *)
+        echo "Cannot check $host policy: $side_status" >&2
+        if [ "$host" = https://nymira.pages.dev ] || [ "$missing" = false ]; then exit 1; fi
+        continue
+        ;;
+    esac
+  fi
   status="$(curl -sS --max-time 20 --retry 2 -o "$live" -w '%{http_code}' "$host/$path")" || status=network_error
   case "$status" in
     200)

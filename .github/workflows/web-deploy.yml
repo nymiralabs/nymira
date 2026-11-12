@@ -113,6 +113,14 @@ jobs:
           path: site
       - name: Check again that the downloaded site is the signed one
         run: node web/scripts/integrity.mjs verify --site site --pubkey web/pins/release-signing.pub
+      - name: Get the current policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: policy-current
+          persist-credentials: false
+      - name: Refuse an outdated policy
+        run: node policy-current/web/scripts/check-deploy-policy.mjs policy-current/web/pins/attestation-policy.json web/pins/attestation-policy.json site https://nymira.pages.dev/attestation-policy.json
       - name: Deploy (pinned wrangler)
         working-directory: web/deploy
         env:
@@ -141,6 +149,20 @@ jobs:
         with:
           name: site
           path: site
+      - name: Get the release policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          path: release-src
+          persist-credentials: false
+      - name: Get the current policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: policy-current
+          persist-credentials: false
+      - name: Refuse an outdated policy
+        run: node policy-current/web/scripts/check-deploy-policy.mjs policy-current/web/pins/attestation-policy.json release-src/web/pins/attestation-policy.json site https://nymiralabs.github.io/nymira/attestation-policy.json
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
