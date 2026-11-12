@@ -57,17 +57,24 @@ policy in force. So the file cannot widen what the signed bundle allows beyond w
 signs: whoever controls the host can withhold a newer policy, but cannot make the page accept a
 deployment the policy key did not sign.
 
-The `policy-watch` workflow reads NEAR AI's live reports every ten minutes (it verifies no quote).
-A new compose hash of the model, on an image and measurements the policy already lists, is signed
-by the workflow with the policy key, a secret of the `policy-signing` environment (limited to
-`main`), at most three times in 24 hours. It commits the file, starts `web-deploy` and opens an issue
-labelled `policy-auto`. Anything else opens an issue labelled `policy-watch`, and a person runs
-`scripts/policy-update.sh`. The cost: whoever can run workflows on `main`, or take over the account,
-can sign a policy. That is accepted for the testnet, where the policy already trusts what NEAR AI's
-live endpoint shows.
+The `policy-watch` workflow reads NEAR AI's live reports every ten minutes and a timer on the
+owner's machine starts it every five. When a deployment is not listed, the signing job reads the
+reports again under fresh nonces and checks every entry the way the app does: the Intel quote against
+Intel's root with current collateral, an `UpToDate` TCB, debug off, the nonce and the signer bound in
+the quote's report data, the RTMR3 replay and the compose file against `mr_config_id`. NVIDIA's GPU
+verdict is not checked there (the app's own GPU check is the nonce of the payload, as before). Only
+what verified goes into the draft; an entry that fails, or a read that fails, signs nothing and opens
+an issue labelled `policy-watch` for a person (`scripts/policy-update.sh`). What verified, a new
+compose hash, a new OS image or new measurements, is signed by the workflow with the policy key, a
+secret of the `policy-signing` environment (limited to `main`), at most three times in 24 hours and
+six new hashes at once. It commits the file, starts `web-deploy` and opens an issue labelled
+`policy-auto`. The cost: whoever can run workflows on `main`, or take over the account, can sign a
+policy, and for a new image or new measurements nothing but NEAR AI's own live evidence backs the
+values: no reference they could be compared with is published, and a genuine quote does not say the
+software is safe. That is accepted for the testnet; it has not been decided for mainnet.
 
-The `web-deploy` workflow takes the file from the commit named in its `policy_ref` input, loads it
-with `policy_tool verify` (signature, version above the bundled one, strict TCB), copies it into the
+The `web-deploy` workflow takes the file from the commit named in its `policy_ref` input (`main` when none is given, so a release deploy does not drop it), loads it
+with `policy_tool verify` (signature, a version not below the bundled one, strict TCB), copies it into the
 verified site and runs `integrity.mjs verify` again. `check-live.mjs` compares the live file with the
 one that was deployed. `verify-web` is unchanged: it checks the bundle, and the policy file checks
 itself.
