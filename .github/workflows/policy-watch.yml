@@ -30,12 +30,14 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: write
     outputs:
       code: ${{ steps.watch.outputs.code }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -50,6 +52,11 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "watch exit code: $code (0 listed, 3 not listed, 4 endpoints unreadable)"
           if [ "$code" != 0 ] && [ "$code" != 3 ]; then exit "$code"; fi
+      - name: Recover a missing live policy deployment
+        if: steps.watch.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash web/scripts/recover-policy.sh
       - name: Close the issue when everything is listed again
         if: steps.watch.outputs.code == '0'
         env:
