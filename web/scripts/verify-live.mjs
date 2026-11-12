@@ -31,6 +31,7 @@ try {
     quote: liveQuoteVerifier(wasm, PCCS_URL),
     get: fixedGet,
   });
+  for (const why of verified.skipped) console.error(`warning: model report not read: ${why}`);
   writeFileSync(out, JSON.stringify(verified, null, 2));
   console.log(`verified ${verified.length} deployments of ${models.length} models and the gateway`);
 } catch (e) {

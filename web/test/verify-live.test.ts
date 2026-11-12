@@ -102,8 +102,42 @@ describe('verifyLive', () => {
     await expect(run(r)).rejects.toThrow(/compose/);
   });
 
+  it('holds back only a model whose report cannot be read', async () => {
+    let n = 0;
+    const nonces = [meta.nonce_gateway, meta.nonce_model, meta.nonce_model];
+    const got = await verifyLive({
+      base: 'https://example.invalid',
+      models: ['broken-model', meta.model],
+      quote,
+      nonce: () => nonces[n++]!,
+      get: async (_b: string, _p: string, query: Record<string, string>) => {
+        if (query.model === 'broken-model') throw new Error('503');
+        return query.model ? modelReport() : gatewayReport;
+      },
+    });
+    expect(got.skipped).toEqual(['broken-model: 503']);
+    expect(got.map((d: { role: string }) => d.role).sort()).toEqual(['gateway', 'model']);
+  });
+
+  it('refuses when no model report can be read, or the gateway report cannot', async () => {
+    const get =
+      (failing: 'models' | 'gateway') =>
+      async (_b: string, _p: string, query: Record<string, string>) => {
+        if (failing === 'models' && query.model) throw new Error('503');
+        if (failing === 'gateway' && !query.model) throw new Error('503');
+        return query.model ? modelReport() : gatewayReport;
+      };
+    const base = { base: 'https://example.invalid', models: [meta.model], quote };
+    await expect(
+      verifyLive({ ...base, nonce: () => meta.nonce_gateway, get: get('models') }),
+    ).rejects.toThrow(/no model evidence/);
+    await expect(
+      verifyLive({ ...base, nonce: () => meta.nonce_gateway, get: get('gateway') }),
+    ).rejects.toThrow(/503/);
+  });
+
   it('refuses a report without evidence for the model or the gateway', async () => {
-    await expect(run({ model_attestations: [] })).rejects.toThrow(/no attestation evidence/);
+    await expect(run({ model_attestations: [] })).rejects.toThrow(/no model evidence/);
   });
 });
 

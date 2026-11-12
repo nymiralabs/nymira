@@ -1,7 +1,8 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const dirs: string[] = [];
@@ -37,20 +38,36 @@ describe('deployment policy freshness', () => {
     expect(check(9, 9, undefined, 10).status).not.toBe(0);
     expect(check(9, 9, undefined, 9).status).toBe(0);
   });
-  it('fails closed if the existing policy cannot be read', () => {
+  it('replaces a live file that is not a policy, and stays on the safe side for an error status', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'nymira-unreadable-'));
     dirs.push(dir);
     const site = join(dir, 'site');
     mkdirSync(site);
     const file = join(dir, 'policy.json');
     writeFileSync(file, '{"version":9}');
-    const result = spawnSync('node', [
-      resolve('scripts/check-deploy-policy.mjs'),
-      file,
-      file,
-      site,
-      'data:application/json,invalid',
-    ]);
-    expect(result.status).not.toBe(0);
+    const run = (url: string) =>
+      spawnSync('node', [resolve('scripts/check-deploy-policy.mjs'), file, file, site, url]);
+    // 200 with a body that is not a policy: the deployment goes ahead.
+    expect(run('data:application/json,invalid').status).toBe(0);
+    expect(run(`data:application/json,${encodeURIComponent('{"version":"x"}')}`).status).toBe(0);
+    // An error status: the live version is unknown, so it stops.
+    const server = createServer((_req, res) => {
+      res.statusCode = 500;
+      res.end('oops');
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const { port } = server.address() as { port: number };
+    const failed = await new Promise<number | null>((done) => {
+      const child = spawn('node', [
+        resolve('scripts/check-deploy-policy.mjs'),
+        file,
+        file,
+        site,
+        `http://127.0.0.1:${port}/`,
+      ]);
+      child.on('close', done);
+    });
+    server.close();
+    expect(failed).not.toBe(0);
   });
 });

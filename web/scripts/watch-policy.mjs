@@ -43,6 +43,8 @@ const get = async (path, query, headers = {}) => {
 };
 
 let observed = [];
+// Models whose report could not be read: the others are still compared (see the exit code below).
+const unreadable = [];
 const observedFile = arg('--observed');
 try {
   if (observedFile) {
@@ -57,18 +59,22 @@ try {
       include_tls_fingerprint: 'false',
     });
     for (const model of models) {
-      const report = await get(
-        '/v1/attestation/report',
-        {
-          model,
-          provider: 'near',
-          nonce: nonce(),
-          include_tls_fingerprint: 'false',
-          signing_algo: 'ed25519',
-        },
-        { 'x-no-aliasing': 'true' },
-      );
-      observed.push(...observeReports(model, report, gateway));
+      try {
+        const report = await get(
+          '/v1/attestation/report',
+          {
+            model,
+            provider: 'near',
+            nonce: nonce(),
+            include_tls_fingerprint: 'false',
+            signing_algo: 'ed25519',
+          },
+          { 'x-no-aliasing': 'true' },
+        );
+        observed.push(...observeReports(model, report, gateway));
+      } catch (e) {
+        unreadable.push(`${model}: ${e instanceof Error ? e.message : e}`);
+      }
     }
   }
 } catch (e) {
@@ -76,9 +82,18 @@ try {
   process.exit(4);
 }
 
+// Nothing readable at all is the same failure as an unreadable gateway.
+if (observed.length === 0 && unreadable.length > 0) {
+  console.error(`could not read the attestation reports: ${unreadable.join('; ')}`);
+  process.exit(4);
+}
+for (const u of unreadable) console.error(`warning: model report not read: ${u}`);
+
 const unknown = unknownDeployments(policy, observed);
 if (process.argv.includes('--json')) {
-  console.log(JSON.stringify({ policy_version: policy.version, models, unknown }, null, 2));
+  console.log(
+    JSON.stringify({ policy_version: policy.version, models, unreadable, unknown }, null, 2),
+  );
 } else {
   console.log(
     `policy version ${policy.version}; ${observed.length} deployments read for ${models.length} models`,
@@ -93,4 +108,7 @@ if (process.argv.includes('--json')) {
 const out = arg('--draft');
 if (out && unknown.length > 0)
   writeFileSync(out, JSON.stringify(draftFrom(policy, unknown), null, 2));
-process.exit(unknown.length > 0 ? 3 : 0);
+// A deployment that is not listed is a finding (3) even when another model could not be read, so
+// the readable ones are not held back. Nothing to report but an unread model is an error (4): a
+// silent "everything is listed" must never come from evidence that was not read.
+process.exit(unknown.length > 0 ? 3 : unreadable.length > 0 ? 4 : 0);

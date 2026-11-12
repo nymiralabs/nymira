@@ -23,6 +23,7 @@ export async function verifyLive({
   nonce = () => randomBytes(32).toString('hex'),
 }) {
   const out = [];
+  const skipped = [];
   const add = (role, evidence, a) => {
     const v = a.verified;
     const key = `${role}|${v.composeHash}|${v.osImageHash}|${a.measured.mr_td}`;
@@ -49,26 +50,39 @@ export async function verifyLive({
   );
   for (const model of models) {
     const n = nonce();
-    const report = await get(
-      base,
-      '/v1/attestation/report',
-      {
-        model,
-        provider: 'near',
-        nonce: n,
-        include_tls_fingerprint: 'false',
-        signing_algo: 'ed25519',
-      },
-      { 'x-no-aliasing': 'true' },
-    );
-    const entries = (report?.model_attestations ?? []).filter(
-      (e) => e.model_name === undefined || e.model_name === model,
-    );
-    if (entries.length === 0) throw new Error(`no attestation evidence for model ${model}`);
+    let entries;
+    try {
+      const report = await get(
+        base,
+        '/v1/attestation/report',
+        {
+          model,
+          provider: 'near',
+          nonce: n,
+          include_tls_fingerprint: 'false',
+          signing_algo: 'ed25519',
+        },
+        { 'x-no-aliasing': 'true' },
+      );
+      entries = (report?.model_attestations ?? []).filter(
+        (e) => e.model_name === undefined || e.model_name === model,
+      );
+      if (entries.length === 0) throw new Error(`no attestation evidence for model ${model}`);
+    } catch (e) {
+      // A report that cannot be read holds back that model only: nothing of it is signed.
+      skipped.push(`${model}: ${e instanceof Error ? e.message : e}`);
+      continue;
+    }
+    // Evidence that was read and does not verify rejects everything: an entry that lies is not a
+    // network fault.
     for (const e of entries) {
       add('model', e, await authenticateEvidence('model', e, n, quote));
     }
   }
+  if (out.every((o) => o.role !== 'model')) {
+    throw new Error(`no model evidence could be read: ${skipped.join('; ')}`);
+  }
+  out.skipped = skipped;
   return out;
 }
 
