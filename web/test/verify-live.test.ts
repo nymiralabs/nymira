@@ -115,7 +115,7 @@ describe('verifyLive', () => {
         return query.model ? modelReport() : gatewayReport;
       },
     });
-    expect(got.skipped).toEqual(['broken-model: 503']);
+    expect((got as unknown as { skipped: string[] }).skipped).toEqual(['broken-model: 503']);
     expect(got.map((d: { role: string }) => d.role).sort()).toEqual(['gateway', 'model']);
   });
 
