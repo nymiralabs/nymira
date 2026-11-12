@@ -48,3 +48,8 @@ When NEAR AI deploys a new image or compose file, the new values are not in the 
 
 - Lists the deployments seen in NEAR AI's live attestation on 11 November 2026 and not listed before: `e8416a02d6f7…` (model). The values were read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use.
 - Everything else is as in version 6.
+
+## Version 8
+
+- Lists the deployments seen in NEAR AI's live attestation on 12 November 2026 and not listed before: `a7de0bba194b…` (model). The values were read from the live endpoint and not compared with a reference NEAR AI publishes (none is known): trust on first use.
+- Everything else is as in version 7.
