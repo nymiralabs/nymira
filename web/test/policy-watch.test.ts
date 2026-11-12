@@ -42,6 +42,11 @@ describe('the policy watcher', () => {
     expect(unknownDeployments(policy, observed)).toEqual([]);
   });
 
+  it('fails when a report contains no model or gateway evidence', () => {
+    expect(() => observeReports(model, { model_attestations: [] }, gatewayReport)).toThrow();
+    expect(() => observeReports(model, modelReport, {})).toThrow();
+  });
+
   it('flags a model deployment whose compose hash the policy lacks, and drafts the next version', () => {
     const changed: Seen[] = structuredClone(observed);
     of(changed, 'model').compose_hash = 'ab'.repeat(32);

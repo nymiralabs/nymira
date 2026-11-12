@@ -69,8 +69,10 @@ export function observeReports(model, modelReport, gatewayReport) {
     if (e.model_name !== undefined && e.model_name !== model) continue;
     out.push(observe('model', e));
   }
+  if (out.length === 0) throw new Error(`no attestation evidence for model ${model}`);
   const g = gatewayReport?.gateway_attestation;
-  if (g) out.push(observe('gateway', g));
+  if (!g) throw new Error('no gateway attestation evidence');
+  out.push(observe('gateway', g));
   return out;
 }
 
