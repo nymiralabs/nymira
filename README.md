@@ -79,7 +79,7 @@ The proof circuits and the off-chain wallet logic come from [zkapi](https://gith
 | Part | State |
 |---|---|
 | Web app | Release 0.1.8 is live at <https://nymira.pages.dev>. It follows 0.1.7 with chat answers drawn as markdown (headings, lists, tables, code with a copy button, links; raw HTML stays text and images are never loaded), a conversation that stays open behind the other screens with a strip that leads back or ends it, a lease side panel with one fact a line, a calmer chat area, and a Send button that is offered again after you cancel in the wallet window. |
-| `nymirad` | Release [0.1.4](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.4) has Linux x86_64 and macOS arm64 binaries with signed checksums ([how to download and check them](#download-nymirad)). It carries attestation policy version 6. Budget notes (`nymirad agent`), the set size option (`--rpc-second`) and the Debian Tor pins came with 0.1.3. |
+| `nymirad` | Release [0.1.5](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.5) has the Linux x86_64 binary with signed checksums ([how to download and check it](#download-nymirad)); the macOS arm64 binary of [0.1.4](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.4) is the newest one until 0.1.5 gets its own. It carries attestation policy version 9 and, while running, takes a newer signed policy from the web hosts by itself every 15 minutes. Budget notes (`nymirad agent`), the set size option (`--rpc-second`) and the Debian Tor pins came with 0.1.3. |
 | Vault | [`vault.nymira.testnet`](https://testnet.nearblocks.io/address/vault.nymira.testnet) on NEAR testnet, built reproducibly from the tag [`vault-testnet-1`](https://github.com/nymiralabs/nymira/tree/vault-testnet-1) ([values and checks](#live-deployment)). |
 | MCP server | Not released. Build it from a checkout of [`mcp/`](mcp/README.md). |
 | Paying sellers (x402) | Not built. |
@@ -149,7 +149,7 @@ Nymira reuses the zero-knowledge circuits of [zkapi](https://github.com/ethereum
 
 ## Download `nymirad`
 
-Get the binary from the [releases page](https://github.com/nymiralabs/nymira/releases) (the newest is [nymirad-v0.1.4](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.4)). Each `nymirad-vX.Y.Z` release has the two binaries, `attestation-policy.json` and a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in [`web/pins/release-signing.pub`](web/pins/release-signing.pub)) that lists every file. The steps are the same on both platforms:
+Get the binary from the [releases page](https://github.com/nymiralabs/nymira/releases) (the newest is [nymirad-v0.1.5](https://github.com/nymiralabs/nymira/releases/tag/nymirad-v0.1.5), Linux x86_64 only for now). Each `nymirad-vX.Y.Z` release has the two binaries, `attestation-policy.json` and a signed `SHA256SUMS` (`SHA256SUMS.minisig`, key in [`web/pins/release-signing.pub`](web/pins/release-signing.pub)) that lists every file. The steps are the same on both platforms:
 
 <p align="center">
   <picture>
