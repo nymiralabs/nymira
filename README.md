@@ -25,7 +25,17 @@
 
 Want to try it? [JUDGES.md](JUDGES.md) is a 20-minute path from a new wallet to a first answer and a close. The same material, with diagrams and a lease calculator, is on the [documentation page](https://nymira.pages.dev/#docs).
 
-**Contents:** [What Nymira is](#what-nymira-is) · [Quickstart](#quickstart) · [Status](#status) · [For hackathon judges](#for-hackathon-judges) · [Live deployment](#live-deployment) · [Limits](#limits) · [Download `nymirad`](#download-nymirad) · [Build](#build) · [Budget notes for agents](#budget-notes-for-agents) · [Documentation](#documentation) · [License](#license)
+## Demo
+
+<p align="center">
+  <a href="https://x.com/nymiralabs/status/2121331600692748327">
+    <img src="assets/readme/demo.gif" alt="Demo video at 4x speed: one message spends 0.002 of 1 USDC and 0.998 comes back. Click to watch the full video on X." width="760">
+  </a>
+</p>
+
+One message spends 0.002 of a 1 USDC note; 0.998 comes back. The loop above is the 6-minute demo at 4x speed. [Watch the full video on X](https://x.com/nymiralabs/status/2121331600692748327), and follow [@nymiralabs](https://x.com/nymiralabs) for updates.
+
+**Contents:** [Demo](#demo) · [What Nymira is](#what-nymira-is) · [Quickstart](#quickstart) · [Status](#status) · [For hackathon judges](#for-hackathon-judges) · [Live deployment](#live-deployment) · [Limits](#limits) · [Download `nymirad`](#download-nymirad) · [Build](#build) · [Budget notes for agents](#budget-notes-for-agents) · [Documentation](#documentation) · [License](#license)
 
 ## What Nymira is
 
