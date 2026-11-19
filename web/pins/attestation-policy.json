@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "attestation_root_pk": "",
   "accepted_measurements": [],
   "deployments": [
@@ -28,6 +28,17 @@
       "rtmr0": "d090162bff4b1d1dc74dc59dc548838efc4b811b173da8536efa8e2a9c045da70ee092301293ad90afebee448bcd0211",
       "rtmr1": "4ae609807c765916a31d724786ed74bcb97e168a9d937b04936aeef2015c907eba5ac352c6bcd749c246fd62ffb659ec",
       "rtmr2": "764489f277a8540189761e72b4238ba36d4d647e11bd958d8ab5522af2a4867b0ff63e06b0c4967f1857236244040a5d"
+    },
+    {
+      "role": "model",
+      "compose_hashes": [
+        "fb81c6f2c1eae762ece8912e1f50e80697964cc93a112da03834369fa1ab5b0b"
+      ],
+      "os_image_hash": "3bb7d262416f47db06855d7b7cf7d380538747206014b3c0adcddfef9b7c4ef2",
+      "mr_td": "e107136c99ae1745ab299e9462927890b7b1c984d5ef53fa5830584ad4246db663fdf96563b913e9e2471906b26f7aae",
+      "rtmr0": "bc122d143ab768565ba5c3774ff5f03a63c89a4df7c1f5ea38d3bd173409d14f8cbdcc36d40e703cccb996a9d9687590",
+      "rtmr1": "786417fa26b5d90d1289025506055e511ff09fd608f4727bb3cf159279a52af23117b6248024d0b186aceabebf6f86ec",
+      "rtmr2": "41800152afda682372d33b484e357002e2b179f64b7882e0f0529ad2373ad93898a3b4d3ffb9a433f406b986d4f4f291"
     }
   ],
   "accepted_tcb_statuses": [
@@ -45,5 +56,5 @@
       "official_source_verified": false
     }
   ],
-  "signature": "96ea733ec91deeee20f46a0f8ff080f11165246ac578ae5e8cb9fa83d127d9f3c994914af6ebe6601d42bab8115522cccd495a5ff0a79deab990a6911c75f80a"
+  "signature": "0f27758dcbd822318767a81fc3e5777f23b043a123056ab5a2a75e1b29d43893450959ae3e66e3df8855156752cec9c265574d4d3f7dffc1ccf688df0323d30f"
 }
