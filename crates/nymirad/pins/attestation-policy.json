@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "attestation_root_pk": "",
   "accepted_measurements": [],
   "deployments": [
@@ -32,7 +32,8 @@
     {
       "role": "model",
       "compose_hashes": [
-        "fb81c6f2c1eae762ece8912e1f50e80697964cc93a112da03834369fa1ab5b0b"
+        "fb81c6f2c1eae762ece8912e1f50e80697964cc93a112da03834369fa1ab5b0b",
+        "e3902667a26282dd8b4015a901848c521b20243a155a457148f88acf48a45959"
       ],
       "os_image_hash": "3bb7d262416f47db06855d7b7cf7d380538747206014b3c0adcddfef9b7c4ef2",
       "mr_td": "e107136c99ae1745ab299e9462927890b7b1c984d5ef53fa5830584ad4246db663fdf96563b913e9e2471906b26f7aae",
@@ -56,5 +57,5 @@
       "official_source_verified": false
     }
   ],
-  "signature": "0f27758dcbd822318767a81fc3e5777f23b043a123056ab5a2a75e1b29d43893450959ae3e66e3df8855156752cec9c265574d4d3f7dffc1ccf688df0323d30f"
+  "signature": "7966ab1b72822df72a9c9ae70c7e88b2892be96d54c11a570ee29251f27dc63122548f14c62b0137e69259b2d38da4bc5e644d731c03753796703a117f758100"
 }

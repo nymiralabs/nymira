@@ -63,3 +63,8 @@ When NEAR AI deploys a new image or compose file, the new values are not in the 
 
 - Lists the deployments seen in NEAR AI's live attestation on 19 November 2026 and not listed before: `fb81c6f2c1ea…` (model). Signed unattended from a fresh read in which every entry verified (Intel quote and an UpToDate TCB, nonce and signer binding, event log, compose file); NVIDIA's GPU verdict was not checked. No reference NEAR AI publishes for these values is known: they are accepted on the provider's word.
 - Everything else is as in version 9.
+
+## Version 11
+
+- Lists the deployments seen in NEAR AI's live attestation on 20 November 2026 and not listed before: `e3902667a262…` (model). Signed unattended from a fresh read in which every entry verified (Intel quote and an UpToDate TCB, nonce and signer binding, event log, compose file); NVIDIA's GPU verdict was not checked. No reference NEAR AI publishes for these values is known: they are accepted on the provider's word.
+- Everything else is as in version 10.
