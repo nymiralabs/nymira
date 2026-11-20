@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 13,
   "attestation_root_pk": "",
   "accepted_measurements": [],
   "deployments": [
@@ -34,7 +34,8 @@
       "compose_hashes": [
         "fb81c6f2c1eae762ece8912e1f50e80697964cc93a112da03834369fa1ab5b0b",
         "e3902667a26282dd8b4015a901848c521b20243a155a457148f88acf48a45959",
-        "e4b83d924284eece9b972d8e18bd88dac4dd529031b00311ef5044eaa60ba8d9"
+        "e4b83d924284eece9b972d8e18bd88dac4dd529031b00311ef5044eaa60ba8d9",
+        "d7871cce53c04f1ceae14ec277e2c33b83d275ce0ee8158bac3362113d67f19b"
       ],
       "os_image_hash": "3bb7d262416f47db06855d7b7cf7d380538747206014b3c0adcddfef9b7c4ef2",
       "mr_td": "e107136c99ae1745ab299e9462927890b7b1c984d5ef53fa5830584ad4246db663fdf96563b913e9e2471906b26f7aae",
@@ -58,5 +59,5 @@
       "official_source_verified": false
     }
   ],
-  "signature": "11d9856b899812da9124111db54d3d8f8fa41e709e1a5b1ee6869e40c45afae9d75b1740721c72872aea5a8e01e37e8e55b5c1bd0339189341caadf6097d8c02"
+  "signature": "e2531a1545a47500b9d467d9bbb698642908802b3a05aafd9f8013dbac0aaae75b301ef37d7afb05e153b26166bb30db94dc65cf29a85667b71bc21c6340280d"
 }
